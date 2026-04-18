@@ -29,11 +29,11 @@
     "@eslint/js": "^9.15.0",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
-    "eslint": "^9.15.0",
-    "eslint-plugin-react-hooks": "^5.1.0",
-    "eslint-plugin-react-refresh": "^0.4.14",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
     "prettier": "^3.4.1",
-    "prettier-plugin-tailwindcss": "^0.6.9",
-    "typescript": "^5.7.2"
+    "prettier-plugin-tailwindcss": "^0.7.2",
+    "typescript": "^6.0.3"
   }
 }
