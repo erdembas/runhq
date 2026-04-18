@@ -49,7 +49,7 @@ jobs:
             crates/runhq-core -> target
             apps/desktop/src-tauri -> target
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
