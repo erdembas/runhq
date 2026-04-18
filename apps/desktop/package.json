@@ -16,7 +16,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.10.9",
+    "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
