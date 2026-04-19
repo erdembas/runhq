@@ -29,7 +29,7 @@ jobs:
     name: Release (${{ matrix.platform }}${{ matrix.args && format(' {0}', matrix.args) || '' }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -49,11 +49,11 @@ jobs:
             crates/runhq-core -> target
             apps/desktop/src-tauri -> target
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: pnpm
@@ -81,7 +81,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: erdembas/homebrew-runhq
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
