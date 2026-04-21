@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
+use runhq_core::git::{self, GitStatus};
 use runhq_core::logs::LogLine;
 use runhq_core::paths;
 use runhq_core::ports::{self, ListeningPort};
@@ -402,6 +403,84 @@ pub fn stop_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStat
         running: 0,
         total,
     })
+}
+
+// ---- Git -----------------------------------------------------------------
+
+fn resolve_cwd(id: &str, state: &State<'_, AppState>) -> AppResult<PathBuf> {
+    state
+        .store
+        .service(id)
+        .map(|s| s.cwd)
+        .ok_or_else(|| AppError::NotFound(id.to_string()))
+}
+
+#[tauri::command]
+pub fn git_status(id: String, state: State<'_, AppState>) -> AppResult<Option<GitStatus>> {
+    let cwd = resolve_cwd(&id, &state)?;
+    Ok(git::status(&cwd))
+}
+
+#[tauri::command]
+pub fn git_branches(id: String, state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::list_branches(&cwd)
+}
+
+#[tauri::command]
+pub fn git_checkout(id: String, branch: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::checkout(&cwd, &branch)
+}
+
+#[tauri::command]
+pub fn git_create_branch(id: String, name: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::create_branch(&cwd, &name)
+}
+
+#[tauri::command]
+pub async fn git_fetch(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    tokio::task::spawn_blocking(move || git::fetch(&cwd))
+        .await
+        .map_err(|e| AppError::Other(format!("fetch task join failed: {e}")))?
+}
+
+#[tauri::command]
+pub async fn git_pull(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    tokio::task::spawn_blocking(move || git::pull(&cwd))
+        .await
+        .map_err(|e| AppError::Other(format!("pull task join failed: {e}")))?
+}
+
+#[tauri::command]
+pub fn git_stash(id: String, message: Option<String>, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::stash(&cwd, message.as_deref())
+}
+
+#[tauri::command]
+pub fn git_stash_pop(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::stash_pop(&cwd)
+}
+
+#[tauri::command]
+pub fn git_undo_last_commit(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::undo_last_commit(&cwd)
+}
+
+#[tauri::command]
+pub fn git_amend_commit_message(
+    id: String,
+    message: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::amend_commit_message(&cwd, &message)
 }
 
 #[tauri::command]

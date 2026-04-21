@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   DetectedEditor,
+  GitStatus,
   ListeningPort,
   LogLine,
   Section,
@@ -27,6 +28,12 @@ interface AppStore {
   logs: Record<string, LogBuffer>;
   ports: ListeningPort[];
   editors: DetectedEditor[];
+  /**
+   * Per-service git snapshot. `null` means "checked, not a repo"; `undefined`
+   * means "not yet loaded" so the UI can show a loading shimmer before the
+   * first poll returns.
+   */
+  git: Record<ServiceId, GitStatus | null>;
   selectedServiceId: ServiceId | null;
   selectedCmdName: string | null;
   selectedStackId: string | null;
@@ -74,6 +81,7 @@ interface AppStore {
   clearLogs: (key: string) => void;
   setPorts: (ports: ListeningPort[]) => void;
   setEditors: (editors: DetectedEditor[]) => void;
+  setGit: (id: ServiceId, status: GitStatus | null) => void;
   setSelected: (id: ServiceId | null) => void;
   setSelectedCmd: (cmdName: string | null) => void;
   setSelectedStack: (id: string | null) => void;
@@ -232,6 +240,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   logs: {},
   ports: [],
   editors: [],
+  git: {},
   selectedServiceId: null,
   selectedCmdName: null,
   selectedStackId: null,
@@ -306,6 +315,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setPorts: (ports) => set({ ports }),
   setEditors: (editors) => set({ editors }),
+  setGit: (id, status) => set((s) => ({ git: { ...s.git, [id]: status } })),
   setSelected: (id) => set({ selectedServiceId: id, selectedCmdName: null, selectedStackId: null }),
   setSelectedCmd: (cmdName) => set({ selectedCmdName: cmdName }),
   setSelectedStack: (id) =>

@@ -21,6 +21,7 @@ import { StatusDot, StatusPill } from '@/components/ui/StatusDot';
 import { TagChip } from '@/components/ui/TagChip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EditorDropdown } from '@/components/EditorDropdown';
+import { GitStatusChip } from '@/components/GitStatusChip';
 import { TerminalPane } from '@/components/TerminalPane';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
@@ -339,6 +340,10 @@ export function LogPanel() {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            {/* `key` forces a remount on service change so per-service local
+                state (branches list, in-progress inputs, popover-open flag)
+                can't leak from one service into the next. */}
+            <GitStatusChip key={service.id} serviceId={service.id} cwd={service.cwd} />
             <Button
               variant="secondary"
               size="sm"

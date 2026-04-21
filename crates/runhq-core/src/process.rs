@@ -204,6 +204,16 @@ impl Supervisor {
             self.sink.emit_log(&svc.id, &entry.name, &line);
         }
 
+        // Stamp the current commit hash onto the log stream so a reader
+        // returning to stale logs can correlate output with the exact code
+        // it was produced from. Skipped silently when the cwd is not a repo.
+        if let Some(hash) = crate::git::current_commit_short(&svc.cwd) {
+            let line = self
+                .logs
+                .push(&log_key, Stream::System, format!("⎇ commit {hash}"));
+            self.sink.emit_log(&svc.id, &entry.name, &line);
+        }
+
         let (program, args) = shell_command(&entry.cmd);
         let mut cmd = Command::new(program);
         cmd.args(args)

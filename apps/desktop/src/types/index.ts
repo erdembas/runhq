@@ -113,6 +113,27 @@ export interface StackStatus {
   total: number;
 }
 
+export interface GitCommitInfo {
+  hash_short: string;
+  hash_full: string;
+  author: string;
+  email: string;
+  subject: string;
+  timestamp: number;
+}
+
+export interface GitStatus {
+  branch: string | null;
+  head_short: string | null;
+  head_full: string | null;
+  is_dirty: boolean;
+  dirty_count: number;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
+  last_commit: GitCommitInfo | null;
+}
+
 export type SectionId = string;
 
 /** A fixed palette keeps colors harmonised with the theme and avoids the
