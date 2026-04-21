@@ -459,9 +459,7 @@ export function GitStatusChip({ serviceId, cwd }: { serviceId: ServiceId; cwd: s
                         <button
                           type="button"
                           disabled={busy !== null}
-                          onClick={() =>
-                            void run('undo', () => ipc.gitUndoLastCommit(serviceId))
-                          }
+                          onClick={() => void run('undo', () => ipc.gitUndoLastCommit(serviceId))}
                           title="Undo commit — keeps changes staged (git reset --soft HEAD~1)"
                           className="text-fg-dim hover:text-status-starting hover:bg-status-starting/10 flex h-5 w-5 items-center justify-center rounded transition disabled:cursor-not-allowed disabled:opacity-50"
                           aria-label="Undo last commit"

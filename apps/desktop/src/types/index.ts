@@ -122,6 +122,17 @@ export interface GitCommitInfo {
   timestamp: number;
 }
 
+export interface ResourceSample {
+  cpu_percent: number;
+  memory_bytes: number;
+}
+
+export interface ResourceEvent {
+  service_id: ServiceId;
+  cpu_percent: number;
+  memory_bytes: number;
+}
+
 export interface GitStatus {
   branch: string | null;
   head_short: string | null;

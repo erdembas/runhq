@@ -19,6 +19,7 @@ use runhq_core::events::EventSink;
 use runhq_core::logs::LogLine;
 use runhq_core::paths;
 use runhq_core::process::{ServiceStatus, Supervisor};
+use runhq_core::resources::ResourceSample;
 use runhq_core::state::Store;
 use serde::Serialize;
 use tauri::{
@@ -35,6 +36,13 @@ struct LogEvent<'a> {
     service_id: &'a str,
     cmd_name: &'a str,
     line: &'a LogLine,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ResourceEvent<'a> {
+    service_id: &'a str,
+    #[serde(flatten)]
+    sample: &'a ResourceSample,
 }
 
 struct TauriEventSink {
@@ -55,6 +63,12 @@ impl EventSink for TauriEventSink {
 
     fn emit_status(&self, status: &ServiceStatus) {
         let _ = self.app.emit("service://status", status);
+    }
+
+    fn emit_resources(&self, service_id: &str, sample: &ResourceSample) {
+        let _ = self
+            .app
+            .emit("service://resources", ResourceEvent { service_id, sample });
     }
 }
 
@@ -325,6 +339,15 @@ pub fn run() {
             });
             let supervisor = Arc::new(Supervisor::new(sink));
             let terminals = TerminalManager::new(app.handle().clone());
+
+            // Drive the per-service CPU + memory sampler on Tauri's own
+            // async runtime. Can't call `tokio::spawn` inside `setup()` —
+            // the runtime isn't mounted yet; `tauri::async_runtime::spawn`
+            // picks the right one and lives for the whole app lifetime.
+            let sampler_supervisor = supervisor.clone();
+            tauri::async_runtime::spawn(async move {
+                sampler_supervisor.run_resource_sampler().await;
+            });
 
             app.manage(AppState {
                 store: store.clone(),

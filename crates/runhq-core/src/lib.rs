@@ -30,6 +30,7 @@ pub mod logs;
 pub mod paths;
 pub mod ports;
 pub mod process;
+pub mod resources;
 pub mod scanner;
 pub mod state;
 

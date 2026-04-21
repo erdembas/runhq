@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { GripVertical, Pencil, Play, Square, Trash2 } from 'lucide-react';
 import { MoveToSectionMenu } from '../MoveToSectionMenu';
 import { EditorDropdown } from '@/components/EditorDropdown';
+import { ResourceBadge } from '@/components/ResourceBadge';
 import { IconButton } from '@/components/ui/IconButton';
+import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtimes';
@@ -33,6 +35,11 @@ export function ServiceRow({
   const isCrashed = status === 'crashed';
   const rtKey = runtimeFromTags(service.tags) ?? inferRuntimeFromCmds(service.cmds);
   const rt = rtKey ? runtimeMeta(rtKey) : null;
+  // Only surface resource numbers while the service is live — showing stale
+  // samples for a stopped service would mislead the user into thinking it's
+  // still consuming memory.
+  const resourceSample = useAppStore((s) => s.resources[service.id]);
+  const showResources = isRunning && resourceSample !== undefined;
 
   const dotClass = isCrashed ? 'bg-status-error' : isRunning ? 'bg-status-running' : 'bg-fg-dim/50';
   const dotAnim = isStarting ? 'animate-pulse-dot' : isRunning ? 'animate-breathe' : '';
@@ -91,6 +98,7 @@ export function ServiceRow({
                 {rt.label}
               </span>
             )}
+            {showResources && <ResourceBadge sample={resourceSample} compact />}
           </div>
 
           <div

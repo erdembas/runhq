@@ -10,6 +10,7 @@ import type {
   LogLine,
   Prefs,
   ProjectCandidate,
+  ResourceEvent,
   ServiceDef,
   ServiceId,
   ServiceStatus,
@@ -114,4 +115,6 @@ export const events = {
     listen<ServiceStatus>('service://status', (e) => handler(e.payload)),
   onLog: (handler: (ev: LogEvent) => void): Promise<UnlistenFn> =>
     listen<LogEvent>('service://log', (e) => handler(e.payload)),
+  onResources: (handler: (ev: ResourceEvent) => void): Promise<UnlistenFn> =>
+    listen<ResourceEvent>('service://resources', (e) => handler(e.payload)),
 };

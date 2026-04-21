@@ -573,7 +573,10 @@ mod tests {
         stash_pop(td.path()).unwrap();
         let s = status(td.path()).unwrap();
         assert!(s.is_dirty, "pop should have reapplied the change");
-        assert_eq!(std::fs::read_to_string(td.path().join("a.txt")).unwrap(), "changed");
+        assert_eq!(
+            std::fs::read_to_string(td.path().join("a.txt")).unwrap(),
+            "changed"
+        );
     }
 
     #[test]
