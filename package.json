@@ -1,7 +1,7 @@
 {
   "name": "runhq",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "The universal local service orchestrator.",
   "type": "module",
   "license": "MIT",
