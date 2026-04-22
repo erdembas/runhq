@@ -163,19 +163,39 @@
              outer wrapper only adds a subtle frame glow (see style.css). -->
         <div class="hero-window-shell reveal">
           <a
+            id="heroVideoLink"
             class="hero-window hero-window--shot"
             href="dashboard.png"
             aria-label="Open full-size dashboard screenshot"
           >
-            <img
-              src="dashboard.png"
-              alt="RunHQ dashboard — workspace sidebar with services grouped by section and a live status overview"
-              width="1803"
-              height="1240"
-              loading="eager"
-              decoding="async"
-              fetchpriority="high"
-            />
+            <video
+              id="heroVideoPreview"
+              src="RunHQ-web-version-final.mp4"
+              width="1590"
+              height="1080"
+              muted
+              playsinline
+              autoplay
+            ></video>
+            <div class="video-overlay-gradient"></div>
+            <div class="video-play-overlay">
+              <svg
+                viewBox="0 0 24 24"
+                width="24"
+                height="24"
+                fill="currentColor"
+                style="margin-left: 2px"
+              >
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+            <div id="heroVideoText" class="video-text-cinematic">
+              <div class="vtc-kicker">RunHQ Orchestrator</div>
+              <div class="vtc-title" id="vtcTitle">One window for all services</div>
+              <div class="vtc-desc" id="vtcDesc">
+                Start, stop, and monitor every local service without leaving your flow.
+              </div>
+            </div>
           </a>
         </div>
       </section>
@@ -934,6 +954,244 @@
         onScroll();
         window.addEventListener('scroll', onScroll, { passive: true });
       }
+    </script>
+    <div id="videoModal" class="video-modal">
+      <div class="video-modal-bg"></div>
+      <div class="video-modal-content">
+        <span class="video-modal-close">&times;</span>
+        <video id="fullVideo" src="RunHQ-web-version-final.mp4" playsinline></video>
+        <div class="cv-controls">
+          <button class="cv-btn" id="playPauseBtn" aria-label="Play/Pause">
+            <svg
+              id="playIcon"
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="currentColor"
+              style="display: none"
+            >
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <svg id="pauseIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+            </svg>
+          </button>
+          <div class="cv-progress-wrap" id="progressWrap">
+            <div class="cv-progress-bg">
+              <div class="cv-progress-current" id="progressBar"></div>
+            </div>
+          </div>
+          <div class="cv-time" id="timeDisplay">0:00 / 0:00</div>
+          <button class="cv-btn cv-btn-mute" id="muteBtn" aria-label="Mute/Unmute">
+            <svg id="unmuteIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path
+                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+              />
+            </svg>
+            <svg
+              id="muteIcon"
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="currentColor"
+              style="display: none"
+            >
+              <path
+                d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
+              />
+            </svg>
+          </button>
+          <button class="cv-btn" id="fullscreenBtn" aria-label="Fullscreen">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path
+                d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var preview = document.getElementById('heroVideoPreview');
+        if (preview) {
+          preview.addEventListener('timeupdate', function () {
+            if (preview.currentTime >= 10) {
+              preview.currentTime = 0;
+              preview.play();
+            }
+          });
+        }
+
+        var modal = document.getElementById('videoModal');
+        var fullVideo = document.getElementById('fullVideo');
+        var btn = document.getElementById('heroVideoLink');
+        var closer = document.querySelector('.video-modal-close');
+        var bg = document.querySelector('.video-modal-bg');
+        var rotator = document.getElementById('heroVideoText');
+        var vtcTitle = document.getElementById('vtcTitle');
+        var vtcDesc = document.getElementById('vtcDesc');
+
+        if (btn && modal && fullVideo) {
+          if (rotator && vtcTitle && vtcDesc) {
+            var snippets = [
+              {
+                t: 'One window for all services',
+                d: 'Start, stop, and monitor every local service without leaving your flow.',
+              },
+              {
+                t: 'Native. Local. Offline.',
+                d: 'Built with Rust and Tauri. No containers, no cloud dependencies, no telemetry.',
+              },
+              {
+                t: 'Less than 100MB RAM',
+                d: "A ridiculously lightweight process orchestrator that respects your machine's resources.",
+              },
+              {
+                t: 'Reclaim your terminal tabs',
+                d: 'Stop digging through dozens of open shells. See all logs and processes in a single unified view.',
+              },
+            ];
+            var snippetIndex = 0;
+            vtcTitle.textContent = snippets[0].t;
+            vtcDesc.textContent = snippets[0].d;
+
+            setTimeout(function () {
+              rotator.classList.add('is-visible');
+            }, 500);
+
+            setInterval(function () {
+              rotator.classList.remove('is-visible');
+              setTimeout(function () {
+                snippetIndex = (snippetIndex + 1) % snippets.length;
+                vtcTitle.textContent = snippets[snippetIndex].t;
+                vtcDesc.textContent = snippets[snippetIndex].d;
+                rotator.classList.add('is-visible');
+              }, 800);
+            }, 5000);
+          }
+          btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            modal.classList.add('is-open');
+            document.body.style.overflow = 'hidden';
+            fullVideo.currentTime = preview ? preview.currentTime : 0;
+            fullVideo.play();
+            if (preview) preview.pause();
+          });
+
+          function closeModal() {
+            modal.classList.remove('is-open');
+            document.body.style.overflow = '';
+            fullVideo.pause();
+            if (preview) preview.play();
+          }
+
+          closer.addEventListener('click', closeModal);
+          bg.addEventListener('click', closeModal);
+
+          /* Custom Video Controls Logic */
+          var playPauseBtn = document.getElementById('playPauseBtn');
+          var playIcon = document.getElementById('playIcon');
+          var pauseIcon = document.getElementById('pauseIcon');
+          var muteBtn = document.getElementById('muteBtn');
+          var unmuteIcon = document.getElementById('unmuteIcon');
+          var muteIcon = document.getElementById('muteIcon');
+          var fullscreenBtn = document.getElementById('fullscreenBtn');
+          var progressWrap = document.getElementById('progressWrap');
+          var progressBar = document.getElementById('progressBar');
+          var timeDisplay = document.getElementById('timeDisplay');
+          var controlsWrap = document.querySelector('.cv-controls');
+
+          function formatTime(sec) {
+            if (isNaN(sec)) return '0:00';
+            var m = Math.floor(sec / 60);
+            var s = Math.floor(sec % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+          }
+
+          playPauseBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (fullVideo.paused) fullVideo.play();
+            else fullVideo.pause();
+          });
+
+          fullVideo.addEventListener('play', function () {
+            playIcon.style.display = 'none';
+            pauseIcon.style.display = 'block';
+          });
+          fullVideo.addEventListener('pause', function () {
+            playIcon.style.display = 'block';
+            pauseIcon.style.display = 'none';
+          });
+
+          muteBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            fullVideo.muted = !fullVideo.muted;
+          });
+          fullVideo.addEventListener('volumechange', function () {
+            if (fullVideo.muted || fullVideo.volume === 0) {
+              unmuteIcon.style.display = 'none';
+              muteIcon.style.display = 'block';
+            } else {
+              unmuteIcon.style.display = 'block';
+              muteIcon.style.display = 'none';
+            }
+          });
+
+          fullVideo.addEventListener('timeupdate', function () {
+            var perc = (fullVideo.currentTime / fullVideo.duration) * 100;
+            if (!isNaN(perc)) progressBar.style.width = perc + '%';
+            timeDisplay.textContent =
+              formatTime(fullVideo.currentTime) + ' / ' + formatTime(fullVideo.duration);
+          });
+          fullVideo.addEventListener('loadedmetadata', function () {
+            timeDisplay.textContent =
+              formatTime(fullVideo.currentTime) + ' / ' + formatTime(fullVideo.duration);
+          });
+
+          progressWrap.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var rect = progressWrap.getBoundingClientRect();
+            var pos = (e.clientX - rect.left) / rect.width;
+            fullVideo.currentTime = pos * fullVideo.duration;
+          });
+
+          fullscreenBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (fullVideo.requestFullscreen) {
+              fullVideo.requestFullscreen();
+            } else if (fullVideo.webkitRequestFullscreen) {
+              fullVideo.webkitRequestFullscreen();
+            } else if (fullVideo.msRequestFullscreen) {
+              fullVideo.msRequestFullscreen();
+            }
+          });
+
+          fullVideo.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (fullVideo.paused) fullVideo.play();
+            else fullVideo.pause();
+          });
+
+          /* Hide controls when inactive */
+          var hideControlsTid;
+          function showControls() {
+            controlsWrap.style.opacity = '1';
+            fullVideo.style.cursor = 'default';
+            clearTimeout(hideControlsTid);
+            if (!fullVideo.paused) {
+              hideControlsTid = setTimeout(function () {
+                controlsWrap.style.opacity = '0';
+                fullVideo.style.cursor = 'none';
+              }, 2000);
+            }
+          }
+          document
+            .querySelector('.video-modal-content')
+            .addEventListener('mousemove', showControls);
+          fullVideo.addEventListener('pause', showControls);
+        }
+      });
     </script>
   </body>
 </html>
