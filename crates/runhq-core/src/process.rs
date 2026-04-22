@@ -269,22 +269,15 @@ impl Supervisor {
         let key = process_key(&svc.id, &entry.name);
         let log_key = key.clone();
 
+        // Echo the command being run as the very first line of the log
+        // buffer, shell-prompt style. Gives the user one-glance context —
+        // "which exact string did we invoke?" — without polluting the
+        // transcript with a paragraph of synthetic `▶ starting` /
+        // `▶ started (pid X)` banners.
         {
-            let line = self.logs.push(
-                &log_key,
-                Stream::System,
-                format!("▶ starting '{}' in {}", entry.cmd, svc.cwd.display()),
-            );
-            self.sink.emit_log(&svc.id, &entry.name, &line);
-        }
-
-        // Stamp the current commit hash onto the log stream so a reader
-        // returning to stale logs can correlate output with the exact code
-        // it was produced from. Skipped silently when the cwd is not a repo.
-        if let Some(hash) = crate::git::current_commit_short(&svc.cwd) {
             let line = self
                 .logs
-                .push(&log_key, Stream::System, format!("⎇ commit {hash}"));
+                .push(&log_key, Stream::System, format!("$ {}", entry.cmd));
             self.sink.emit_log(&svc.id, &entry.name, &line);
         }
 
@@ -296,6 +289,17 @@ impl Supervisor {
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
             .kill_on_drop(true);
+
+        // Persuade CLIs that lose their TTY through `Stdio::piped()` to keep
+        // emitting ANSI color. Covers the Node ecosystem (chalk/supports-color
+        // via FORCE_COLOR), BSD conventions (CLICOLOR_FORCE), Cargo's own
+        // toggle, and advertises a 256-color-capable terminal. Set before the
+        // user env so explicit overrides still win.
+        cmd.env("FORCE_COLOR", "1")
+            .env("CLICOLOR_FORCE", "1")
+            .env("CARGO_TERM_COLOR", "always")
+            .env("TERM", "xterm-256color")
+            .env("COLORTERM", "truecolor");
 
         for (k, v) in &svc.env {
             cmd.env(k, v);
@@ -331,10 +335,8 @@ impl Supervisor {
                         self.sink.emit_log(&svc.id, &entry.name, &line);
                     }
                     Ok(s) => {
-                        let msg = format!(
-                            "✗ pre-command exited with code {}: {pre_trimmed}",
-                            s.code().unwrap_or(-1)
-                        );
+                        let code = s.code().unwrap_or(-1);
+                        let msg = format!("✗ pre-command exited with code {code}: {pre_trimmed}");
                         let line = self.logs.push(&log_key, Stream::System, msg);
                         self.sink.emit_log(&svc.id, &entry.name, &line);
                         return Err(AppError::Other(format!(
@@ -368,8 +370,8 @@ impl Supervisor {
         let mut child: Child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                let msg = format!("failed to spawn '{}': {e}", entry.cmd);
-                let line = self.logs.push(&log_key, Stream::System, format!("✗ {msg}"));
+                let msg = format!("failed to spawn: {e}");
+                let line = self.logs.push(&log_key, Stream::System, msg.clone());
                 self.sink.emit_log(&svc.id, &entry.name, &line);
                 return Err(AppError::Other(msg));
             }
@@ -377,15 +379,6 @@ impl Supervisor {
 
         let pid = child.id().unwrap_or(0);
         let started_at_ms = chrono::Utc::now().timestamp_millis();
-
-        {
-            let line = self.logs.push(
-                &log_key,
-                Stream::System,
-                format!("▶ started '{}' (pid {pid})", entry.cmd),
-            );
-            self.sink.emit_log(&svc.id, &entry.name, &line);
-        }
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -431,9 +424,13 @@ impl Supervisor {
                 Outcome::Crashed(e) => (Status::Crashed, Some(e)),
             };
 
-            let text = match outcome.exit_code {
-                Some(code) => format!("■ exited (code {code})"),
-                None => "■ exited".to_string(),
+            // One terse closing line so when the user scrolls back they
+            // can tell where a run ended and distinguish clean shutdown
+            // from crash without opening the status drawer.
+            let text = match (&err_msg, outcome.exit_code) {
+                (Some(e), _) => format!("[crashed: {e}]"),
+                (None, Some(code)) => format!("[exited code {code}]"),
+                (None, None) => "[exited]".to_string(),
             };
             let line = task_logs.push(&task_key, Stream::System, text);
             task_sink.emit_log(&task_svc_id, &task_cmd_name, &line);

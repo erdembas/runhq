@@ -52,6 +52,8 @@ impl TerminalManager {
 
         let mut cmd = CommandBuilder::new_default_prog();
         cmd.cwd(cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
 
         let child = pair
             .slave

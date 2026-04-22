@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import AnsiToHtml from 'ansi-to-html';
 import {
   Eraser,
   ExternalLink,
@@ -31,14 +32,226 @@ import type { ListeningPort, LogLine } from '@/types';
 
 type PopoverKey = 'ports';
 
-const URL_RE = /https?:\/\/[^\s)"'<>]+/g;
-const STREAM_COLOR: Record<LogLine['stream'], string> = {
-  stdout: 'text-fg',
-  stderr: 'text-status-error',
-  system: 'text-accent italic',
-};
 const EMPTY_LOGS: LogLine[] = [];
 const MIN_PANEL = 80;
+
+/** Build ANSI → HTML converters per stream.
+ *
+ *  Notes on the palette:
+ *  - `fg`/`bg` are only emitted when the source contains an ANSI reset;
+ *    lines without escape codes stay uncolored and inherit the surrounding
+ *    CSS color (see `streamColorClass` below). That's intentional — it lets
+ *    the tokenized Tailwind colors handle "no ANSI" lines and the ANSI
+ *    palette handle styled segments, so themes stay consistent.
+ *  - The `colors` map mirrors the VS Code integrated terminal ("Dark+" /
+ *    "Light+") palette so output looks the same here as in the embedded
+ *    PTY at the bottom of the screen. */
+function makeConverters(isDark: boolean) {
+  const fg = isDark ? '#d4d4d4' : '#383a42';
+  const bg = isDark ? '#1e1e1e' : '#ffffff';
+  const palette = isDark
+    ? {
+        0: '#000000',
+        1: '#cd3131',
+        2: '#0dbc79',
+        3: '#e5e510',
+        4: '#2472c8',
+        5: '#bc3fbc',
+        6: '#11a8cd',
+        7: '#e5e5e5',
+        8: '#666666',
+        9: '#f14c4c',
+        10: '#23d18b',
+        11: '#f5f543',
+        12: '#3b8eea',
+        13: '#d670d6',
+        14: '#29b8db',
+        15: '#e5e5e5',
+      }
+    : {
+        0: '#000000',
+        1: '#cd3131',
+        2: '#00bc00',
+        3: '#949800',
+        4: '#0451a5',
+        5: '#bc05bc',
+        6: '#0598bc',
+        7: '#555555',
+        8: '#666666',
+        9: '#cd3131',
+        10: '#14ce14',
+        11: '#b5ba00',
+        12: '#0451a5',
+        13: '#bc05bc',
+        14: '#0598bc',
+        15: '#a5a5a5',
+      };
+  const opts = { bg, escapeXML: true, newline: false, colors: palette } as const;
+  return {
+    stdout: new AnsiToHtml({ ...opts, fg }),
+    stderr: new AnsiToHtml({ ...opts, fg: palette[9] }),
+    system: new AnsiToHtml({ ...opts, fg: isDark ? '#4ec9b0' : '#267f99' }),
+  };
+}
+
+/** Fallback Tailwind color per stream. Applied on the container so lines
+ *  that ship no ANSI (Vite's plain "Port 5173 is in use…", pnpm's first
+ *  info line before color kicks in, etc.) still look like a real console. */
+function streamColorClass(stream: LogLine['stream']): string {
+  switch (stream) {
+    case 'stderr':
+      return 'text-status-error';
+    case 'system':
+      return 'text-accent italic';
+    default:
+      return 'text-fg';
+  }
+}
+
+/** Strip non-SGR ANSI control sequences before handing text to ansi-to-html.
+ *
+ *  `ansi-to-html` only understands **SGR** (`ESC [ … m`, color + style). For
+ *  anything else — cursor moves (`G`, `H`, `A`-`F`), erase (`J`, `K`),
+ *  scroll (`S`, `T`), save/restore (`s`, `u`), DEC private modes (`? … h/l`),
+ *  OSC/APC/DCS/PM strings — it drops the `ESC [` prefix and happily leaks
+ *  the trailing verb into the rendered HTML. That's what produced the leading
+ *  `G` / `G$` we kept seeing on `yarn`'s "yarn run v1.22.19" + `$ vite` lines
+ *  once `FORCE_COLOR=1` started making it emit full progress chrome.
+ *
+ *  We pre-strip those sequences here so only SGR survives. The regex covers:
+ *    - CSI `ESC [ … <final>` where `<final>` is any non-`m` dispatch letter
+ *    - OSC `ESC ] … (BEL | ESC \)` for terminal title / iTerm2 / hyperlinks
+ *    - Bare single-byte controls (`ESC (X`, `ESC =`, etc.) we don't render
+ *
+ *  SGR (`m`) is deliberately excluded so colors keep working. */
+const ANSI_NON_SGR_RE =
+  // eslint-disable-next-line no-control-regex
+  /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-9;?]*[@A-HJKSTfhlnpsuDEMLR]|[()][A-Z0-9]|[=>DEMHcp78])/g;
+
+/** Collapse a line containing carriage returns down to just the last segment.
+ *
+ *  `\r` in a terminal means "jump back to column 0; whatever I write next
+ *  overwrites the current visual row". Our log buffer is line-addressed and
+ *  not a real terminal, so we can't animate. The next best thing is to
+ *  surface the **latest** frame of a progress indicator — e.g. for yarn's
+ *  "Receiving objects: 10% -> 40% -> 80% -> 100%" sequence we show just
+ *  "Receiving objects: 100%" instead of a mashed-together run of earlier
+ *  frames. Applied *before* ANSI parsing so the active color state right at
+ *  the point of the final `\r` is what we feed to `ansi-to-html`. */
+function collapseCarriageReturn(input: string): string {
+  const idx = input.lastIndexOf('\r');
+  return idx === -1 ? input : input.slice(idx + 1);
+}
+
+function sanitizeAnsi(input: string): string {
+  return collapseCarriageReturn(input).replace(ANSI_NON_SGR_RE, '');
+}
+
+/** Wrap http(s) URLs inside an ansi-to-html output with clickable anchors.
+ *
+ *  Why DOM and not regex: `ansi-to-html` doesn't emit flat sibling spans —
+ *  when a new SGR adds a style (cyan + bold for the port, `\x1b[36m…
+ *  \x1b[1m…\x1b[22m…\x1b[39m`), it *nests* the bold inside the cyan, so a
+ *  URL like Vite's `http://localhost:5176/` lives inside a soup of
+ *  `<span>http://localhost:<b>5176<span>/<span></span></span></b></span>`.
+ *  Any regex that tries to bridge those tags will either stop short
+ *  (truncating the port) or greedily swallow unrelated structure. The
+ *  reliable move is to parse the HTML into a detached `<div>`, scan its
+ *  concatenated text for URLs, then use `Range.surroundContents`-style
+ *  extraction to wrap the exact character range — splitting whatever
+ *  inline tags happen to straddle the URL.
+ *
+ *  Styling: the anchor itself carries no color class. The descendant
+ *  spans already have their ANSI colors, and `text-decoration-color`
+ *  defaults to `currentColor`, so the underline picks up whatever hue
+ *  the emitting CLI chose. Just a hover fade to signal "interactive".
+ *
+ *  We mark matches with `data-open-url` rather than a real `href` so a
+ *  single delegated click handler on the log container can route the
+ *  click through `ipc.openUrl`, which opens in the OS browser — vital so
+ *  navigating a log link doesn't replace the Tauri webview with the
+ *  target page. */
+const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
+const TRAILING_PUNCT_RE = /[.,;:!?)\]}>]+$/;
+const ANCHOR_CLASS =
+  'cursor-pointer underline underline-offset-2 hover:opacity-80 transition-opacity';
+
+function linkifyHtml(html: string): string {
+  // Cheap fast path — most log lines have no URLs, no need to touch the DOM.
+  if (!/https?:\/\//.test(html)) return html;
+
+  const root = document.createElement('div');
+  root.innerHTML = html;
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  const starts: number[] = [];
+  let plain = '';
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    starts.push(plain.length);
+    const t = n as Text;
+    textNodes.push(t);
+    plain += t.data;
+  }
+
+  interface Match {
+    start: number;
+    end: number;
+    url: string;
+  }
+  const matches: Match[] = [];
+  let m: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(plain)) !== null) {
+    let url = m[0];
+    const trail = url.match(TRAILING_PUNCT_RE);
+    if (trail) url = url.slice(0, url.length - trail[0].length);
+    if (url.length < 8) continue; // sanity: "http://x" is the bare minimum.
+    matches.push({ start: m.index, end: m.index + url.length, url });
+  }
+  if (matches.length === 0) return html;
+
+  // Locate which text node contains a given absolute offset.
+  const locate = (offset: number): [Text, number] => {
+    for (let i = 0; i < textNodes.length; i++) {
+      const s = starts[i] ?? 0;
+      const node = textNodes[i]!;
+      const e = s + node.data.length;
+      if (offset <= e) return [node, Math.max(0, offset - s)];
+    }
+    const last = textNodes[textNodes.length - 1]!;
+    return [last, last.data.length];
+  };
+
+  // Apply in reverse so earlier offsets remain valid after each wrap.
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const match = matches[i]!;
+    const { start, end, url } = match;
+    const [startNode, startOffset] = locate(start);
+    const [endNode, endOffset] = locate(end);
+    const range = document.createRange();
+    try {
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+    } catch {
+      continue;
+    }
+    const anchor = document.createElement('a');
+    anchor.setAttribute('data-open-url', url);
+    anchor.setAttribute('title', url);
+    anchor.className = ANCHOR_CLASS;
+    try {
+      anchor.appendChild(range.extractContents());
+      range.insertNode(anchor);
+    } catch {
+      // Range can fail to surround when it crosses tag boundaries awkwardly;
+      // `extractContents`+`insertNode` handles that, but guard anyway.
+    }
+  }
+
+  return root.innerHTML;
+}
 
 /** Deterministically pick a badge color for a command name.
  *
@@ -80,6 +293,11 @@ export function LogPanel() {
 
   const [filter, setFilter] = useState('');
   const [follow, setFollow] = useState(true);
+  // Off by default — the active command strip at the top of the log list
+  // already tells you *what* is running, and most users want dense, diff-like
+  // rows while scanning output. Turn it on when you actually need to line up
+  // events against wall-clock time.
+  const [showTimestamp, setShowTimestamp] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [openPopover, setOpenPopover] = useState<PopoverKey | null>(null);
   const [splitY, setSplitY] = useState(() => Math.round(window.innerHeight * 0.55));
@@ -87,6 +305,16 @@ export function LogPanel() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  useEffect(() => {
+    const obs = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains('dark')),
+    );
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+  const converters = useMemo(() => makeConverters(isDark), [isDark]);
   const parentRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +325,11 @@ export function LogPanel() {
       return selectedCmdName;
     return service.cmds[0]?.name ?? null;
   }, [service, selectedCmdName]);
+
+  const activeCmdEntry = useMemo(() => {
+    if (!service || !activeCmd) return null;
+    return service.cmds.find((c) => c.name === activeCmd) ?? null;
+  }, [service, activeCmd]);
 
   const logK = activeCmd && selectedId ? logKey(selectedId, activeCmd) : '';
   const logs = useAppStore((s) => (logK ? (s.logs[logK]?.lines ?? EMPTY_LOGS) : EMPTY_LOGS));
@@ -158,6 +391,22 @@ export function LogPanel() {
 
   const onDragEnd = useCallback(() => {
     dragging.current = false;
+  }, []);
+
+  // Delegated handler for the anchors that `linkifyHtml` injects into log
+  // lines. We use a single listener on the scroll container instead of
+  // attaching real `<a href>`s because (a) the HTML is produced by
+  // `dangerouslySetInnerHTML` so React event props aren't available and
+  // (b) a real `href` navigates the Tauri webview itself, nuking the app;
+  // routing through `ipc.openUrl` opens the user's OS browser instead.
+  const handleLogClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (e.target as HTMLElement).closest<HTMLElement>('[data-open-url]');
+    if (!anchor) return;
+    const url = anchor.getAttribute('data-open-url');
+    if (!url) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void ipc.openUrl(url);
   }, []);
 
   const currentStatus = status?.status ?? 'stopped';
@@ -436,11 +685,39 @@ export function LogPanel() {
         className="relative flex min-h-0 flex-1 flex-col"
         style={{ userSelect: dragging.current ? 'none' : undefined }}
       >
-        <div className="text-fg-dim flex items-center justify-between px-5 py-1 text-[10.5px]">
-          <span className="tabular-nums">
-            {filtered.length.toLocaleString()} / {logs.length.toLocaleString()} lines
-          </span>
-          <div className="flex items-center gap-2">
+        {/* Meta strip directly above the virtualized list.
+            - Left: which command owns this log buffer (badge + raw invocation
+              like `yarn dev`). Moved out of each row because repeating the
+              same badge on every line was pure noise once a single command
+              was selected.
+            - Right: per-list toggles (timestamp, follow) + clear. */}
+        <div className="text-fg-dim flex items-center justify-between gap-3 px-5 py-1.5 text-[10.5px]">
+          <div className="flex min-w-0 items-center gap-2">
+            {activeCmd && (
+              <span className={cn('svc-badge shrink-0', badgeClass(activeCmd))}>{activeCmd}</span>
+            )}
+            {activeCmdEntry && (
+              <code
+                className="text-fg-muted truncate font-mono text-[11px]"
+                title={activeCmdEntry.cmd}
+              >
+                {activeCmdEntry.cmd}
+              </code>
+            )}
+            <span className="text-fg-dim/80 shrink-0 tabular-nums">
+              · {filtered.length.toLocaleString()} / {logs.length.toLocaleString()} lines
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
+              <input
+                type="checkbox"
+                checked={showTimestamp}
+                onChange={(e) => setShowTimestamp(e.target.checked)}
+                className="accent-accent h-2.5 w-2.5"
+              />
+              Timestamp
+            </label>
             <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
               <input
                 type="checkbox"
@@ -467,6 +744,7 @@ export function LogPanel() {
           ref={parentRef}
           className="log-line flex-1 overflow-auto px-4 pb-2 text-[12.5px] leading-[22px]"
           style={showTerminal ? { height: splitY, flex: 'none' } : undefined}
+          onClick={handleLogClick}
         >
           {filtered.length === 0 ? (
             <div className="text-fg-dim flex h-full items-center justify-center text-[11px]">
@@ -500,31 +778,29 @@ export function LogPanel() {
                       isLast && follow && 'log-cursor-line',
                     )}
                   >
-                    <span className="text-fg-dim w-[62px] shrink-0 text-[11px] leading-[22px] tabular-nums select-none">
-                      {formatTs(line.ts_ms)}
-                    </span>
-                    {activeCmd && (
-                      <span
-                        className={cn(
-                          'svc-badge mt-[3px] shrink-0',
-                          line.stream === 'stderr'
-                            ? 'bg-status-error/15 text-status-error'
-                            : line.stream === 'system'
-                              ? 'bg-accent/15 text-accent'
-                              : badgeClass(activeCmd),
-                        )}
-                      >
-                        {activeCmd}
+                    {showTimestamp && (
+                      // Blank log rows (a literal "\n" from the child process,
+                      // e.g. Vite's spacer between its port-in-use retries and
+                      // the ready banner) reserve vertical space but carry no
+                      // content. Repeating the timestamp on them turned the
+                      // view into a wall of dates between every actual line.
+                      // We still reserve the column width via `w-[150px]`
+                      // so content columns line up across all rows.
+                      <span className="text-fg-dim w-[150px] shrink-0 text-[11px] leading-[22px] tabular-nums select-none">
+                        {line.text.trim() === '' ? '' : formatTs(line.ts_ms)}
                       </span>
                     )}
                     <div
                       className={cn(
                         'min-w-0 flex-1 break-all whitespace-pre-wrap',
-                        STREAM_COLOR[line.stream],
+                        streamColorClass(line.stream),
                       )}
-                    >
-                      <LogLineContent text={line.text} />
-                    </div>
+                      dangerouslySetInnerHTML={{
+                        __html: linkifyHtml(
+                          converters[line.stream].toHtml(sanitizeAnsi(line.text)),
+                        ),
+                      }}
+                    />
                   </div>
                 );
               })}
@@ -677,54 +953,19 @@ function PortsPopoverBody({ ports, pid }: { ports: ListeningPort[]; pid: number 
   );
 }
 
+/** Full local timestamp: `YYYY-MM-DD HH:MM:SS`.
+ *
+ *  ISO-ish, locale-independent, 24-hour. Date included so a log line that
+ *  wrapped across midnight (dev server left running overnight, scheduled
+ *  restarts, CI runs queued after 00:00) isn't ambiguous — otherwise two
+ *  rows hours apart can show the same `00:03:12` and look adjacent.
+ *  Uses local wall-clock (`get*`, not `getUTC*`) because users correlate
+ *  these against what their IDE / browser / OS clock says, not UTC. */
 function formatTs(ms: number): string {
   const d = new Date(ms);
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function LogLineContent({ text }: { text: string }) {
-  const parts = useMemo(() => splitUrls(text), [text]);
-  if (parts.length === 1 && !parts[0]!.url) return <>{text}</>;
   return (
-    <>
-      {parts.map((part, i) =>
-        part.url ? (
-          <span
-            key={i}
-            role="link"
-            className="text-accent decoration-accent/40 hover:decoration-accent cursor-pointer underline underline-offset-2 transition"
-            onClick={(e) => {
-              e.stopPropagation();
-              void ipc.openUrl(part.url!);
-            }}
-            title={part.url}
-          >
-            {part.text}
-          </span>
-        ) : (
-          <span key={i}>{part.text}</span>
-        ),
-      )}
-    </>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   );
-}
-
-interface TextPart {
-  text: string;
-  url: string | null;
-}
-
-function splitUrls(text: string): TextPart[] {
-  const parts: TextPart[] = [];
-  let last = 0;
-  for (const m of text.matchAll(URL_RE)) {
-    const start = m.index!;
-    if (start > last) parts.push({ text: text.slice(last, start), url: null });
-    parts.push({ text: m[0]!, url: m[0]! });
-    last = start + m[0]!.length;
-  }
-  if (last < text.length) parts.push({ text: text.slice(last), url: null });
-  if (parts.length === 0) parts.push({ text, url: null });
-  return parts;
 }

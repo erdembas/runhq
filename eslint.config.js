@@ -54,6 +54,9 @@ export default [
         ResizeObserver: 'readonly',
         TextEncoder: 'readonly',
         Uint8Array: 'readonly',
+        Node: 'readonly',
+        NodeFilter: 'readonly',
+        Text: 'readonly',
       },
     },
     plugins: {

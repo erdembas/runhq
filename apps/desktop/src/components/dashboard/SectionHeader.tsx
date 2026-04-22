@@ -3,8 +3,10 @@ import { cn } from '@/lib/cn';
 export function SectionHeader({
   icon,
   dotClass,
+  dotStyle,
   label,
   labelClass,
+  labelStyle,
   tone,
   count,
   runningCount,
@@ -13,8 +15,10 @@ export function SectionHeader({
 }: {
   icon?: React.ReactNode;
   dotClass?: string;
+  dotStyle?: React.CSSProperties;
   label: string;
   labelClass?: string;
+  labelStyle?: React.CSSProperties;
   tone?: 'accent';
   count: number;
   runningCount: number;
@@ -47,12 +51,15 @@ export function SectionHeader({
             {icon}
           </span>
         )}
-        {dotClass && <span className={cn('h-2 w-2 rounded-sm', dotClass)} />}
+        {(dotClass || dotStyle) && (
+          <span className={cn('h-2 w-2 rounded-sm', dotClass)} style={dotStyle} />
+        )}
         <h2
           className={cn(
             'text-[12px] font-semibold tracking-[0.12em] uppercase',
             tone === 'accent' ? 'text-accent' : (labelClass ?? 'text-fg'),
           )}
+          style={labelStyle}
         >
           {label}
         </h2>

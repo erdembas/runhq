@@ -21,6 +21,7 @@ interface LogBuffer {
 }
 
 export type SidebarGroupBy = 'none' | 'category' | 'runtime' | 'status';
+export type DashboardGroupBy = 'none' | 'category' | 'runtime' | 'status';
 export type SidebarStatusFilter = 'all' | 'running' | 'stopped';
 
 interface AppStore {
@@ -61,6 +62,7 @@ interface AppStore {
    * grouping from the filter menu when lists grow.
    */
   sidebarGroupBy: SidebarGroupBy;
+  dashboardGroupBy: DashboardGroupBy;
   search: string;
   editorService: ServiceDef | null | undefined;
   stacks: StackDef[];
@@ -97,6 +99,7 @@ interface AppStore {
   setRuntimeFilter: (keys: string[]) => void;
   setSidebarStatusFilter: (v: SidebarStatusFilter) => void;
   setSidebarGroupBy: (v: SidebarGroupBy) => void;
+  setDashboardGroupBy: (v: DashboardGroupBy) => void;
   resetSidebarFilters: () => void;
   setSearch: (q: string) => void;
   openEditor: (service: ServiceDef | null) => void;
@@ -130,6 +133,7 @@ export function logKey(serviceId: string, cmdName: string): string {
 }
 
 const SIDEBAR_PREFS_KEY = 'runhq.sidebar.prefs.v1';
+const DASHBOARD_PREFS_KEY = 'runhq.dashboard.prefs.v1';
 
 interface SidebarPrefs {
   statusFilter: SidebarStatusFilter;
@@ -175,6 +179,41 @@ function saveSidebarPrefs(prefs: SidebarPrefs): void {
 }
 
 const initialSidebarPrefs = loadSidebarPrefs();
+
+interface DashboardPrefs {
+  groupBy: DashboardGroupBy;
+}
+
+function loadDashboardPrefs(): DashboardPrefs {
+  if (typeof window === 'undefined') return { groupBy: 'category' };
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_PREFS_KEY);
+    if (!raw) return { groupBy: 'category' };
+    const parsed = JSON.parse(raw) as Partial<DashboardPrefs>;
+    return {
+      groupBy:
+        parsed.groupBy === 'none' ||
+        parsed.groupBy === 'category' ||
+        parsed.groupBy === 'runtime' ||
+        parsed.groupBy === 'status'
+          ? parsed.groupBy
+          : 'category',
+    };
+  } catch {
+    return { groupBy: 'category' };
+  }
+}
+
+function saveDashboardPrefs(prefs: DashboardPrefs): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(DASHBOARD_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // quota or private-mode failure — non-fatal
+  }
+}
+
+const initialDashboardPrefs = loadDashboardPrefs();
 
 const SECTIONS_KEY = 'runhq.sections.v1';
 
@@ -264,6 +303,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   runtimeFilter: initialSidebarPrefs.runtimeFilter,
   sidebarStatusFilter: initialSidebarPrefs.statusFilter,
   sidebarGroupBy: initialSidebarPrefs.groupBy,
+  dashboardGroupBy: initialDashboardPrefs.groupBy,
   search: '',
   editorService: undefined,
   stacks: [],
@@ -390,6 +430,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       categoryFilter: s.categoryFilter,
       runtimeFilter: s.runtimeFilter,
     });
+  },
+  setDashboardGroupBy: (v) => {
+    set({ dashboardGroupBy: v });
+    saveDashboardPrefs({ groupBy: v });
   },
   resetSidebarFilters: () => {
     set({

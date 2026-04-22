@@ -18,12 +18,14 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, type DashboardGroupBy } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
-import { categoryForTags, type Category } from '@/lib/categories';
+import { categoryForTags, CATEGORIES } from '@/lib/categories';
+import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta, RUNTIMES } from '@/lib/runtimes';
+import { sectionColor } from '@/lib/sectionColors';
 import { modChord } from '@/lib/platform';
-import type { ServiceDef, Status } from '@/types';
+import type { SectionId, ServiceDef, Status } from '@/types';
 import type { GitStatus } from '@/types';
 import { ServiceCard } from './ServiceCard';
 import { StatTile } from './StatTile';
@@ -33,7 +35,24 @@ interface Props {
   onScan: () => void;
 }
 
-type Group = { category: Category; services: ServiceDef[] };
+type DashGroup = {
+  key: string;
+  label: string;
+  dotClass?: string;
+  labelClass?: string;
+  dotStyle?: React.CSSProperties;
+  labelStyle?: React.CSSProperties;
+  services: ServiceDef[];
+};
+
+const GROUP_OPTIONS: Array<{ key: DashboardGroupBy; label: string }> = [
+  { key: 'none', label: 'None' },
+  { key: 'category', label: 'Category' },
+  { key: 'runtime', label: 'Runtime' },
+  { key: 'status', label: 'Status' },
+];
+
+const UNASSIGNED: SectionId = '__unassigned__';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -55,6 +74,10 @@ export function Dashboard({ onScan }: Props) {
   const setSelectedStack = useAppStore((s) => s.setSelectedStack);
   const upsertStack = useAppStore((s) => s.upsertStack);
   const git = useAppStore((s) => s.git);
+  const groupBy = useAppStore((s) => s.dashboardGroupBy);
+  const setGroupBy = useAppStore((s) => s.setDashboardGroupBy);
+  const sections = useAppStore((s) => s.sections);
+  const serviceSection = useAppStore((s) => s.serviceSection);
 
   type GitFilter = 'all' | 'dirty' | 'clean' | 'ahead' | 'behind' | 'no-upstream';
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
@@ -111,20 +134,112 @@ export function Dashboard({ onScan }: Props) {
     return fn[gitFilter] ?? (() => true);
   }, [gitFilter]);
 
-  const groups = useMemo<Group[]>(() => {
+  const eligibleServices = useMemo(() => {
     const stackServiceIds = new Set(stacks.flatMap((st) => st.service_ids));
-    const byKey = new Map<string, Group>();
-    for (const svc of services) {
-      if (stackServiceIds.has(svc.id)) continue;
-      if (!gitFilterFn(svc, git[svc.id])) continue;
-      const category = categoryForTags(svc.tags);
-      const existing = byKey.get(category.key);
-      if (existing) existing.services.push(svc);
-      else byKey.set(category.key, { category, services: [svc] });
+    return services.filter((svc) => !stackServiceIds.has(svc.id) && gitFilterFn(svc, git[svc.id]));
+  }, [services, stacks, gitFilterFn, git]);
+
+  const groups = useMemo<DashGroup[]>(() => {
+    if (groupBy === 'none') {
+      if (sections.length === 0) return [];
+      const bySection = new Map<SectionId, ServiceDef[]>();
+      const validIds = new Set(sections.map((s) => s.id));
+      for (const svc of eligibleServices) {
+        const assigned = serviceSection[svc.id];
+        const key = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
+        const bucket = bySection.get(key);
+        if (bucket) bucket.push(svc);
+        else bySection.set(key, [svc]);
+      }
+      for (const list of bySection.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+      const result: DashGroup[] = [];
+      for (const sec of sections) {
+        const svcs = bySection.get(sec.id);
+        if (svcs && svcs.length > 0) {
+          const meta = sectionColor(sec.color);
+          result.push({
+            key: sec.id,
+            label: sec.name,
+            dotStyle: { backgroundColor: meta.solid },
+            labelStyle: { color: meta.solid },
+            services: svcs,
+          });
+        }
+      }
+      const unassigned = bySection.get(UNASSIGNED);
+      if (unassigned && unassigned.length > 0) {
+        result.push({ key: UNASSIGNED, label: 'Unassigned', services: unassigned });
+      }
+      return result;
+    }
+
+    if (groupBy === 'status') {
+      const running: ServiceDef[] = [];
+      const stopped: ServiceDef[] = [];
+      for (const svc of eligibleServices) {
+        const st: Status = statuses[svc.id]?.status ?? 'stopped';
+        if (st === 'running' || st === 'starting') running.push(svc);
+        else stopped.push(svc);
+      }
+      running.sort((a, b) => a.name.localeCompare(b.name));
+      stopped.sort((a, b) => a.name.localeCompare(b.name));
+      const out: DashGroup[] = [];
+      if (running.length > 0)
+        out.push({
+          key: 'running',
+          label: 'Running',
+          dotClass: 'bg-status-running',
+          labelClass: 'text-status-running',
+          services: running,
+        });
+      if (stopped.length > 0)
+        out.push({
+          key: 'stopped',
+          label: 'Stopped',
+          dotClass: 'bg-fg-dim/50',
+          labelClass: 'text-fg-dim',
+          services: stopped,
+        });
+      return out;
+    }
+
+    if (groupBy === 'runtime') {
+      const byKey = new Map<string, DashGroup>();
+      for (const svc of eligibleServices) {
+        const rt = runtimeFromTags(svc.tags) ?? inferRuntimeFromCmds(svc.cmds) ?? 'other';
+        const meta = runtimeMeta(rt);
+        let group = byKey.get(rt);
+        if (!group) {
+          group = { key: rt, label: meta.label, labelClass: meta.color, services: [] };
+          byKey.set(rt, group);
+        }
+        group.services.push(svc);
+      }
+      for (const g of byKey.values()) g.services.sort((a, b) => a.name.localeCompare(b.name));
+      const order = new Map<string, number>();
+      RUNTIMES.forEach((r, i) => order.set(r.key, i));
+      return [...byKey.values()].sort(
+        (a, b) => (order.get(a.key) ?? 999) - (order.get(b.key) ?? 999),
+      );
+    }
+
+    const byKey = new Map<string, DashGroup>();
+    for (const svc of eligibleServices) {
+      const c = categoryForTags(svc.tags);
+      let group = byKey.get(c.key);
+      if (!group) {
+        group = { key: c.key, label: c.label, dotClass: c.dot, labelClass: c.color, services: [] };
+        byKey.set(c.key, group);
+      }
+      group.services.push(svc);
     }
     for (const g of byKey.values()) g.services.sort((a, b) => a.name.localeCompare(b.name));
-    return Array.from(byKey.values());
-  }, [services, stacks, gitFilterFn, git]);
+    const order = new Map<string, number>();
+    CATEGORIES.forEach((c, i) => order.set(c.key, i));
+    return [...byKey.values()].sort(
+      (a, b) => (order.get(a.key) ?? 999) - (order.get(b.key) ?? 999),
+    );
+  }, [eligibleServices, groupBy, statuses, sections, serviceSection]);
 
   if (total === 0) {
     return (
@@ -235,6 +350,23 @@ export function Dashboard({ onScan }: Props) {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <div className="border-border flex items-center gap-1 rounded-md border px-1 py-0.5">
+              {GROUP_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setGroupBy(opt.key)}
+                  className={cn(
+                    'rounded-sm px-1.5 py-0.5 text-[10px] font-semibold transition',
+                    groupBy === opt.key
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-fg-dim hover:text-fg hover:bg-surface-muted/60',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <Button
               variant="secondary"
               size="sm"
@@ -452,27 +584,37 @@ export function Dashboard({ onScan }: Props) {
           );
         })}
 
-        {groups.map((group) => {
-          const runningInGroup = group.services.filter(
-            (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
-          ).length;
-          return (
-            <section key={group.category.key} className="group/section">
-              <SectionHeader
-                dotClass={group.category.dot}
-                label={group.category.label}
-                labelClass={group.category.color}
-                count={group.services.length}
-                runningCount={runningInGroup}
-              />
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {group.services.map((svc) => (
+        {groups.length > 0
+          ? groups.map((group) => {
+              const runningInGroup = group.services.filter(
+                (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
+              ).length;
+              return (
+                <section key={group.key} className="group/section">
+                  <SectionHeader
+                    dotClass={group.dotClass}
+                    dotStyle={group.dotStyle}
+                    label={group.label}
+                    labelClass={group.labelClass}
+                    labelStyle={group.labelStyle}
+                    count={group.services.length}
+                    runningCount={runningInGroup}
+                  />
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {group.services.map((svc) => (
+                      <ServiceCard key={svc.id} svc={svc} draggable />
+                    ))}
+                  </div>
+                </section>
+              );
+            })
+          : eligibleServices.length > 0 && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {eligibleServices.map((svc) => (
                   <ServiceCard key={svc.id} svc={svc} draggable />
                 ))}
               </div>
-            </section>
-          );
-        })}
+            )}
 
         <footer className="text-fg-dim mt-auto flex items-center justify-between pt-4 text-[11px]">
           <span>Everything runs locally. No telemetry.</span>
