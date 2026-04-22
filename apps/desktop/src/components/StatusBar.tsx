@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
-import { Keyboard, Network } from 'lucide-react';
+import { Cpu, Keyboard, MemoryStick, Network } from 'lucide-react';
+import { cpuToneClass, memoryToneClass } from '@/lib/resourceTone';
 import { ThemeMenu } from '@/components/ThemeMenu';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/cn';
+import { formatBytes, formatPercent } from '@/lib/format';
 import type { Status } from '@/types';
 
 interface Props {
@@ -14,6 +16,7 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const ports = useAppStore((s) => s.ports);
+  const resources = useAppStore((s) => s.resources);
   const appVersion = useAppStore((s) => s.appVersion);
 
   const stats = useMemo(() => {
@@ -30,6 +33,25 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
     }
     return { running, warn, idle, failed };
   }, [services, statuses]);
+
+  // Aggregate only over services currently in a running-ish state. Stale
+  // samples from recently-stopped services would otherwise still count until
+  // the next refresh, making the bar lie for a couple of seconds post-stop.
+  const totals = useMemo(() => {
+    let cpu = 0;
+    let mem = 0;
+    let samples = 0;
+    for (const svc of services) {
+      const st: Status = statuses[svc.id]?.status ?? 'stopped';
+      if (st !== 'running' && st !== 'starting') continue;
+      const r = resources[svc.id];
+      if (!r) continue;
+      cpu += r.cpu_percent;
+      mem += r.memory_bytes;
+      samples++;
+    }
+    return { cpu, mem, samples };
+  }, [services, statuses, resources]);
 
   return (
     // `leading-none` eliminates the implicit line-height gap that otherwise
@@ -48,6 +70,25 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
           bits (version) intentionally skip the hover treatment so the
           affordance stays honest. */}
       <div className="flex items-center gap-0.5">
+        {totals.samples > 0 && (
+          <div
+            className="mr-2 flex items-center gap-2 font-mono tabular-nums"
+            title={`Aggregate across ${totals.samples} running service${totals.samples === 1 ? '' : 's'}`}
+          >
+            {/* Aggregate thresholds are higher than per-service because
+                multiple running services naturally stack CPU/RAM — two
+                active dev servers already total ~30-40% before anything
+                is actually wrong. */}
+            <span className={cn('inline-flex items-center gap-1', cpuToneClass(totals.cpu / 2))}>
+              <Cpu className="h-3 w-3" />
+              {formatPercent(totals.cpu)}
+            </span>
+            <span className={cn('inline-flex items-center gap-1', memoryToneClass(totals.mem / 2))}>
+              <MemoryStick className="h-3 w-3" />
+              {formatBytes(totals.mem)}
+            </span>
+          </div>
+        )}
         <button
           type="button"
           onClick={onOpenPortManager}

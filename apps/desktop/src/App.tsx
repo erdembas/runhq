@@ -27,6 +27,7 @@ export default function App() {
   const setStatus = useAppStore((s) => s.setStatus);
   const appendLog = useAppStore((s) => s.appendLog);
   const setPorts = useAppStore((s) => s.setPorts);
+  const setResources = useAppStore((s) => s.setResources);
   const setAppMeta = useAppStore((s) => s.setAppMeta);
   const setEditors = useAppStore((s) => s.setEditors);
   const setSelected = useAppStore((s) => s.setSelected);
@@ -113,9 +114,17 @@ export default function App() {
       unsubs.push(
         await events.onLog((ev) => appendLog(logKey(ev.service_id, ev.cmd_name), ev.line)),
       );
+      unsubs.push(
+        await events.onResources((ev) =>
+          setResources(ev.service_id, {
+            cpu_percent: ev.cpu_percent,
+            memory_bytes: ev.memory_bytes,
+          }),
+        ),
+      );
     })();
     return () => unsubs.forEach((u) => u());
-  }, [setStatus, appendLog]);
+  }, [setStatus, appendLog, setResources]);
 
   useEffect(() => {
     let alive = true;

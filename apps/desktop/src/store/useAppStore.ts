@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import type {
   DetectedEditor,
+  GitStatus,
   ListeningPort,
   LogLine,
+  ResourceSample,
   Section,
   SectionColor,
   SectionId,
@@ -27,6 +29,16 @@ interface AppStore {
   logs: Record<string, LogBuffer>;
   ports: ListeningPort[];
   editors: DetectedEditor[];
+  /**
+   * Per-service git snapshot. `null` means "checked, not a repo"; `undefined`
+   * means "not yet loaded" so the UI can show a loading shimmer before the
+   * first poll returns.
+   */
+  git: Record<ServiceId, GitStatus | null>;
+  /** Most recent CPU + memory sample per running service (2s cadence from Rust). */
+  resources: Record<ServiceId, ResourceSample>;
+  /** Rolling CPU% history per service for sparklines — bounded to [`RESOURCE_HISTORY_MAX`]. */
+  resourceHistory: Record<ServiceId, number[]>;
   selectedServiceId: ServiceId | null;
   selectedCmdName: string | null;
   selectedStackId: string | null;
@@ -74,6 +86,8 @@ interface AppStore {
   clearLogs: (key: string) => void;
   setPorts: (ports: ListeningPort[]) => void;
   setEditors: (editors: DetectedEditor[]) => void;
+  setGit: (id: ServiceId, status: GitStatus | null) => void;
+  setResources: (id: ServiceId, sample: ResourceSample) => void;
   setSelected: (id: ServiceId | null) => void;
   setSelectedCmd: (cmdName: string | null) => void;
   setSelectedStack: (id: string | null) => void;
@@ -105,6 +119,11 @@ interface AppStore {
 }
 
 const MAX_UI_LOG_LINES = 5_000;
+
+/** Sparkline window size. 60 samples at 2s = 2 minutes of history — long
+ *  enough to catch a start-up CPU burst fading into steady state without
+ *  bloating the store for idle services. */
+const RESOURCE_HISTORY_MAX = 60;
 
 export function logKey(serviceId: string, cmdName: string): string {
   return `${serviceId}::${cmdName}`;
@@ -232,6 +251,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   logs: {},
   ports: [],
   editors: [],
+  git: {},
+  resources: {},
+  resourceHistory: {},
   selectedServiceId: null,
   selectedCmdName: null,
   selectedStackId: null,
@@ -306,6 +328,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setPorts: (ports) => set({ ports }),
   setEditors: (editors) => set({ editors }),
+  setGit: (id, status) => set((s) => ({ git: { ...s.git, [id]: status } })),
+
+  setResources: (id, sample) =>
+    set((s) => {
+      const prevHistory = s.resourceHistory[id] ?? [];
+      const nextHistory =
+        prevHistory.length >= RESOURCE_HISTORY_MAX
+          ? [
+              ...prevHistory.slice(prevHistory.length - RESOURCE_HISTORY_MAX + 1),
+              sample.cpu_percent,
+            ]
+          : [...prevHistory, sample.cpu_percent];
+      return {
+        resources: { ...s.resources, [id]: sample },
+        resourceHistory: { ...s.resourceHistory, [id]: nextHistory },
+      };
+    }),
   setSelected: (id) => set({ selectedServiceId: id, selectedCmdName: null, selectedStackId: null }),
   setSelectedCmd: (cmdName) => set({ selectedCmdName: cmdName }),
   setSelectedStack: (id) =>

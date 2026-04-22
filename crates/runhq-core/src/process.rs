@@ -25,7 +25,16 @@ use tokio::task::JoinHandle;
 use crate::error::{AppError, AppResult};
 use crate::events::EventSink;
 use crate::logs::{LogStore, Stream};
+use crate::resources::ResourceSampler;
 use crate::state::{CommandEntry, ServiceDef};
+
+/// How often the supervisor samples per-service CPU + memory.
+///
+/// 2s is the sweet spot: frequent enough that UI sparklines feel live when
+/// a service spikes, infrequent enough that the sysinfo refresh (which walks
+/// every running process) stays well below 1% of the supervisor's own CPU
+/// budget on a laptop with a dozen running services.
+const RESOURCE_SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -106,6 +115,71 @@ impl Supervisor {
             logs: LogStore::new(),
             running: Arc::new(Mutex::new(HashMap::new())),
             statuses: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Long-running CPU + memory sampler. Ticks every
+    /// [`RESOURCE_SAMPLE_INTERVAL`] and emits a `ResourceSample` for each
+    /// currently-running service via [`EventSink::emit_resources`]. Never
+    /// returns under normal operation — the caller is expected to drive it
+    /// from a spawned task scoped to the app's lifetime.
+    ///
+    /// We can't call `tokio::spawn` from `Supervisor::new()` directly
+    /// because Tauri's `setup()` callback runs before the async runtime is
+    /// active; the caller (Tauri shell) picks the right runtime to spawn
+    /// us on — usually `tauri::async_runtime::spawn`.
+    ///
+    /// The sysinfo refresh itself runs inside `spawn_blocking` so a slow
+    /// /proc walk can't stall the tokio runtime that IPC handlers share.
+    /// One refresh per tick covers every service cheaply — a per-service
+    /// fan-out would duplicate the process-table walk pointlessly.
+    pub async fn run_resource_sampler(self: Arc<Self>) {
+        let sampler = Arc::new(ResourceSampler::new());
+        let mut interval = tokio::time::interval(RESOURCE_SAMPLE_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Skip the immediate first tick — the sampler primed in `new()`
+        // already has one snapshot, but the UI hasn't had a chance to
+        // subscribe yet on app start. Waiting one interval also gives
+        // sysinfo a small gap between prime and first real measurement,
+        // which tightens the CPU% delta it reports.
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+
+            // Collect "service_id -> [root pid, ...]" under the lock, then
+            // drop the lock before blocking on sysinfo. Holding `running`
+            // during a 100ms refresh would serialize with start/stop which
+            // we need to stay snappy.
+            let service_pids: HashMap<String, Vec<u32>> = {
+                let map = self.running.lock();
+                let mut out: HashMap<String, Vec<u32>> = HashMap::new();
+                for (key, r) in map.iter() {
+                    if let Some(svc_id) = key.split("::").next() {
+                        out.entry(svc_id.to_string()).or_default().push(r.pid);
+                    }
+                }
+                out
+            };
+
+            if service_pids.is_empty() {
+                continue;
+            }
+
+            let sampler_clone = sampler.clone();
+            let samples = tokio::task::spawn_blocking(move || {
+                service_pids
+                    .into_iter()
+                    .map(|(id, pids)| (id, sampler_clone.sample(&pids)))
+                    .collect::<Vec<_>>()
+            })
+            .await;
+
+            if let Ok(samples) = samples {
+                for (id, sample) in samples {
+                    self.sink.emit_resources(&id, &sample);
+                }
+            }
         }
     }
 
@@ -201,6 +275,16 @@ impl Supervisor {
                 Stream::System,
                 format!("▶ starting '{}' in {}", entry.cmd, svc.cwd.display()),
             );
+            self.sink.emit_log(&svc.id, &entry.name, &line);
+        }
+
+        // Stamp the current commit hash onto the log stream so a reader
+        // returning to stale logs can correlate output with the exact code
+        // it was produced from. Skipped silently when the cwd is not a repo.
+        if let Some(hash) = crate::git::current_commit_short(&svc.cwd) {
+            let line = self
+                .logs
+                .push(&log_key, Stream::System, format!("⎇ commit {hash}"));
             self.sink.emit_log(&svc.id, &entry.name, &line);
         }
 

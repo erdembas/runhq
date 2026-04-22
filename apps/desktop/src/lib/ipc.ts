@@ -4,11 +4,13 @@ import type {
   AppInfo,
   CommandEntry,
   DetectedEditor,
+  GitStatus,
   ListeningPort,
   LogEvent,
   LogLine,
   Prefs,
   ProjectCandidate,
+  ResourceEvent,
   ServiceDef,
   ServiceId,
   ServiceStatus,
@@ -93,6 +95,19 @@ export const ipc = {
   showQuickAction: () => invoke<void>('show_quick_action'),
   hideQuickAction: () => invoke<void>('hide_quick_action'),
   focusMainWindow: () => invoke<void>('focus_main_window'),
+
+  gitStatus: (id: ServiceId) => invoke<GitStatus | null>('git_status', { id }),
+  gitBranches: (id: ServiceId) => invoke<string[]>('git_branches', { id }),
+  gitCheckout: (id: ServiceId, branch: string) => invoke<void>('git_checkout', { id, branch }),
+  gitCreateBranch: (id: ServiceId, name: string) => invoke<void>('git_create_branch', { id, name }),
+  gitFetch: (id: ServiceId) => invoke<void>('git_fetch', { id }),
+  gitPull: (id: ServiceId) => invoke<void>('git_pull', { id }),
+  gitStash: (id: ServiceId, message?: string | null) =>
+    invoke<void>('git_stash', { id, message: message ?? null }),
+  gitStashPop: (id: ServiceId) => invoke<void>('git_stash_pop', { id }),
+  gitUndoLastCommit: (id: ServiceId) => invoke<void>('git_undo_last_commit', { id }),
+  gitAmendCommitMessage: (id: ServiceId, message: string) =>
+    invoke<void>('git_amend_commit_message', { id, message }),
 };
 
 export const events = {
@@ -100,4 +115,6 @@ export const events = {
     listen<ServiceStatus>('service://status', (e) => handler(e.payload)),
   onLog: (handler: (ev: LogEvent) => void): Promise<UnlistenFn> =>
     listen<LogEvent>('service://log', (e) => handler(e.payload)),
+  onResources: (handler: (ev: ResourceEvent) => void): Promise<UnlistenFn> =>
+    listen<ResourceEvent>('service://resources', (e) => handler(e.payload)),
 };

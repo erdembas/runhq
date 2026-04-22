@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { FolderOpen, Globe, Pencil, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EditorDropdown } from '@/components/EditorDropdown';
+import { GitStatusChip } from '@/components/GitStatusChip';
+import { ResourceBadge } from '@/components/ResourceBadge';
+import { Sparkline } from '@/components/Sparkline';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
@@ -57,6 +60,8 @@ export function ServiceCard({
   const openEditor = useAppStore((s) => s.openEditor);
   const removeServiceLocal = useAppStore((s) => s.removeService);
   const logs = useAppStore((s) => s.logs);
+  const resourceSample = useAppStore((s) => s.resources[svc.id]);
+  const resourceHistory = useAppStore((s) => s.resourceHistory[svc.id]);
   const st: Status = statuses[svc.id]?.status ?? 'stopped';
   const isRunning = st === 'running' || st === 'starting';
   const logLines =
@@ -187,10 +192,18 @@ export function ServiceCard({
             <Globe className="h-3.5 w-3.5" />
           </CardAction>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <GitStatusChip serviceId={svc.id} compact />
           <EditorDropdown cwd={svc.cwd} cmds={svc.cmds} size="xs" />
         </div>
       </div>
+
+      {isRunning && (
+        <div className="border-border/60 -mx-1 flex items-center justify-between gap-2 border-t pt-2">
+          <ResourceBadge sample={resourceSample} />
+          <Sparkline data={resourceHistory} width={100} height={24} />
+        </div>
+      )}
 
       {tail.length > 0 && (
         <div className="relative -mx-1 mt-1 -mb-1 overflow-hidden rounded-md bg-[rgb(var(--surface)/0.5)] px-3 pt-2 pb-1 font-mono">
