@@ -59,8 +59,20 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
 
   const refreshStatus = useCallback(async () => {
     try {
-      const s = await ipc.gitStatus(serviceId);
-      setGit(serviceId, s);
+      const latest = await ipc.gitStatus(serviceId);
+      const prev = useAppStore.getState().git[serviceId];
+      setGit(serviceId, latest);
+      if (latest && prev && latest.dirty_count > (prev.dirty_count ?? 0)) {
+        const svc = useAppStore.getState().services.find((s) => s.id === serviceId);
+        ipc
+          .recordTimelineEvent(
+            'file_changed',
+            serviceId,
+            svc?.name ?? null,
+            `${latest.dirty_count} uncommitted change(s)`,
+          )
+          .catch(() => {});
+      }
     } catch (e) {
       console.error('git_status failed', e);
     }

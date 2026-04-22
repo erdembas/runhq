@@ -22,6 +22,7 @@ pub enum TimelineEventType {
     GitCheckout,
     LogError,
     LogWarning,
+    FileChanged,
 }
 
 impl std::fmt::Display for TimelineEventType {
@@ -35,6 +36,7 @@ impl std::fmt::Display for TimelineEventType {
             Self::GitCheckout => write!(f, "git_checkout"),
             Self::LogError => write!(f, "log_error"),
             Self::LogWarning => write!(f, "log_warning"),
+            Self::FileChanged => write!(f, "file_changed"),
         }
     }
 }
@@ -158,6 +160,7 @@ impl TimelineDb {
                     "git_checkout" => TimelineEventType::GitCheckout,
                     "log_error" => TimelineEventType::LogError,
                     "log_warning" => TimelineEventType::LogWarning,
+                    "file_changed" => TimelineEventType::FileChanged,
                     _ => TimelineEventType::LogError,
                 };
                 Ok(TimelineEvent {
@@ -217,6 +220,16 @@ impl TimelineDb {
             errors,
             project_names: project_names.into_iter().collect(),
         })
+    }
+
+    pub fn get_weekly_summary(&self, end_date: NaiveDate) -> AppResult<Vec<DailySummary>> {
+        let mut summaries = Vec::new();
+        for i in 0..7 {
+            let date = end_date - chrono::Duration::days(i);
+            let summary = self.get_daily_summary(date)?;
+            summaries.push(summary);
+        }
+        Ok(summaries)
     }
 
     pub fn export_standup(&self, since_ms: i64) -> AppResult<String> {

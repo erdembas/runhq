@@ -137,6 +137,7 @@ export const ipc = {
       limit,
     }),
   getDailySummary: (date: string) => invoke<DailySummary>('get_daily_summary', { date }),
+  getWeeklySummary: (date: string) => invoke<DailySummary[]>('get_weekly_summary', { date }),
   exportStandup: (sinceMs: number) => invoke<string>('export_standup', { sinceMs }),
 };
 

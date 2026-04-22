@@ -13,6 +13,7 @@ import {
   ArrowRightCircle,
   XCircle,
   Terminal,
+  FileEdit,
 } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import type { TimelineEvent, DailySummary } from '@/types';
@@ -81,6 +82,13 @@ const eventConfig: Record<
     ring: 'ring-amber-500/30',
     label: 'Warning',
   },
+  file_changed: {
+    icon: FileEdit,
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/15',
+    ring: 'ring-sky-500/30',
+    label: 'File Changed',
+  },
 };
 
 const defaultConfig = {
@@ -127,30 +135,51 @@ function timeAgo(ts: string): string {
   }
 }
 
+const TIME_RANGES: Array<{ key: string; label: string; ms: () => number }> = [
+  { key: '1h', label: '1h', ms: () => 3600000 },
+  { key: '24h', label: '24h', ms: () => 86400000 },
+  { key: '7d', label: '7d', ms: () => 86400000 * 7 },
+  { key: '30d', label: '30d', ms: () => 86400000 * 30 },
+  { key: 'all', label: 'All', ms: () => 0 },
+];
+
+function getTimeSince(key: string): number | null {
+  const found = TIME_RANGES.find((t) => t.key === key);
+  if (!found || found.key === 'all') return null;
+  return Date.now() - found.ms();
+}
+
 export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [weeklySummary, setWeeklySummary] = useState<DailySummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string | null>(null);
+  const [filterProject, setFilterProject] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState('24h');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showWeekly, setShowWeekly] = useState(false);
 
   const today = new Date().toISOString().split('T')[0] ?? '';
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [evts, sum] = await Promise.all([
-        ipc.getTimeline(null, filterType, null, 500),
+      const sinceMs = getTimeSince(timeRange);
+      const [evts, sum, weekly] = await Promise.all([
+        ipc.getTimeline(filterProject, filterType, sinceMs, 500),
         ipc.getDailySummary(today),
+        ipc.getWeeklySummary(today),
       ]);
       setEvents(evts);
       setSummary(sum);
+      setWeeklySummary(weekly);
     } catch (err) {
       console.error('Failed to load timeline', err);
     } finally {
       setLoading(false);
     }
-  }, [filterType, today]);
+  }, [filterType, filterProject, timeRange, today]);
 
   useEffect(() => {
     void refresh();
@@ -158,13 +187,21 @@ export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
 
   const handleExportStandup = useCallback(async () => {
     try {
-      const since = Date.now() - 86_400_000;
+      const since = Date.now() - 86400000;
       const text = await ipc.exportStandup(since);
       await navigator.clipboard.writeText(text);
     } catch (err) {
       console.error('Failed to export standup', err);
     }
   }, []);
+
+  const projectNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const e of events) {
+      if (e.service_name) names.add(e.service_name);
+    }
+    return Array.from(names).sort();
+  }, [events]);
 
   const grouped = useMemo(() => {
     const groups: Array<{ date: string; events: TimelineEvent[] }> = [];
@@ -233,14 +270,44 @@ export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
             </div>
           )}
 
-          {/* Filter */}
-          <div className="border-border/40 border-t px-5 py-2">
+          {/* Weekly sparkline */}
+          {showWeekly && weeklySummary && weeklySummary.length > 0 && (
+            <div className="border-border/40 border-t px-5 py-2">
+              <div className="text-fg/20 mb-1 text-[9px] font-semibold tracking-wider uppercase">
+                This week
+              </div>
+              <div className="flex items-end gap-1">
+                {weeklySummary.map((d, i) => {
+                  const total = d.commits + d.services_started + d.errors;
+                  const max = Math.max(
+                    ...weeklySummary.map((s) => s.commits + s.services_started + s.errors),
+                    1,
+                  );
+                  const h = Math.max(4, (total / max) * 32);
+                  return (
+                    <div key={i} className="flex flex-1 flex-col items-center gap-0.5">
+                      <div
+                        className={`w-full rounded-sm transition-all ${total > 0 ? 'bg-accent/30' : 'bg-fg/5'}`}
+                        style={{ height: `${h}px` }}
+                      />
+                      <span className="text-fg/15 text-[8px] tabular-nums">{d.date.slice(8)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="border-border/40 space-y-1.5 border-t px-5 py-2">
+            {/* Type filter */}
             <div className="flex items-center gap-1">
               {[
                 { key: '', label: 'All' },
                 { key: 'service_started', label: 'Start' },
                 { key: 'service_crashed', label: 'Crash' },
                 { key: 'git_commit', label: 'Commit' },
+                { key: 'file_changed', label: 'File' },
                 { key: 'log_error', label: 'Error' },
               ].map((f) => (
                 <button
@@ -255,6 +322,46 @@ export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
                   {f.label}
                 </button>
               ))}
+            </div>
+            {/* Project + Time filter */}
+            <div className="flex items-center gap-2">
+              <select
+                value={filterProject ?? ''}
+                onChange={(e) => setFilterProject(e.target.value || null)}
+                className="bg-surface border-border/50 text-fg/50 min-w-0 flex-1 rounded border px-2 py-0.5 text-[10.5px]"
+              >
+                <option value="">All projects</option>
+                {projectNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-0.5">
+                {TIME_RANGES.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setTimeRange(t.key)}
+                    className={`rounded px-2 py-0.5 text-[10px] font-medium transition ${
+                      timeRange === t.key
+                        ? 'bg-accent/15 text-accent'
+                        : 'text-fg/25 hover:bg-fg/5 hover:text-fg/40'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowWeekly((v) => !v)}
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition ${
+                  showWeekly
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-fg/25 hover:bg-fg/5 hover:text-fg/40'
+                }`}
+              >
+                Week
+              </button>
             </div>
           </div>
         </div>
@@ -301,7 +408,6 @@ export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
 
                     return (
                       <div key={e.id} className="relative">
-                        {/* Node + content */}
                         <div
                           className="group flex cursor-pointer items-start gap-3 py-1.5"
                           onClick={() => setSelectedId(isSelected ? null : e.id)}
@@ -358,7 +464,7 @@ export function ActivityTimeline({ onClose }: ActivityTimelineProps) {
                           </div>
                         </div>
 
-                        {/* Connector arrow to next same-service event */}
+                        {/* Connector to next same-service event */}
                         {nextIsSameService && (
                           <div className="absolute left-[37px] -mt-0.5">
                             <ArrowRightCircle size={6} className="text-fg/8 -rotate-90" />

@@ -176,7 +176,8 @@ export type TimelineEventType =
   | 'git_push'
   | 'git_checkout'
   | 'log_error'
-  | 'log_warning';
+  | 'log_warning'
+  | 'file_changed';
 
 export interface TimelineEvent {
   id: number;

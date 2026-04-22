@@ -432,6 +432,7 @@ pub fn record_timeline_event(
         "git_checkout" => TimelineEventType::GitCheckout,
         "log_error" => TimelineEventType::LogError,
         "log_warning" => TimelineEventType::LogWarning,
+        "file_changed" => TimelineEventType::FileChanged,
         _ => TimelineEventType::LogError,
     };
     db.record(
@@ -466,6 +467,7 @@ pub fn get_timeline(
         "git_checkout" => Some(TimelineEventType::GitCheckout),
         "log_error" => Some(TimelineEventType::LogError),
         "log_warning" => Some(TimelineEventType::LogWarning),
+        "file_changed" => Some(TimelineEventType::FileChanged),
         _ => None,
     });
     let lim = limit.unwrap_or(100).min(10_000);
@@ -484,6 +486,23 @@ pub fn get_daily_summary(date: String, state: State<'_, AppState>) -> AppResult<
     let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
         .map_err(|e| AppError::Invalid(format!("invalid date: {e}")))?;
     db.get_daily_summary(d)
+}
+
+#[tauri::command]
+pub fn get_weekly_summary(
+    date: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<DailySummary>> {
+    let db_path = state
+        .store
+        .path()
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("timeline.db");
+    let db = timeline::TimelineDb::open(&db_path)?;
+    let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+        .map_err(|e| AppError::Invalid(format!("invalid date: {e}")))?;
+    db.get_weekly_summary(d)
 }
 
 #[tauri::command]

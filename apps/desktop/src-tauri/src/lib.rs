@@ -608,6 +608,7 @@ pub fn run() {
             ipc::record_timeline_event,
             ipc::get_timeline,
             ipc::get_daily_summary,
+            ipc::get_weekly_summary,
             ipc::export_standup,
             terminal::terminal_create,
             terminal::terminal_write,
