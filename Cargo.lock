@@ -3468,6 +3468,7 @@ name = "runhq-desktop"
 version = "0.5.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "open",
  "parking_lot",
  "portable-pty",
