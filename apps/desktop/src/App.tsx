@@ -15,6 +15,7 @@ import { ResizeHandles } from '@/components/ResizeHandles';
 import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
+import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
@@ -38,6 +39,8 @@ export default function App() {
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const closeStackEditor = useAppStore((s) => s.closeStackEditor);
   const setStacks = useAppStore((s) => s.setStacks);
+  const timelineOpen = useAppStore((s) => s.timelineOpen);
+  const closeTimeline = useAppStore((s) => s.closeTimeline);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -284,6 +287,7 @@ export default function App() {
           }}
         />
       )}
+      {timelineOpen && <ActivityTimeline onClose={closeTimeline} />}
       {tourState.open && (
         <WelcomeTour
           reopened={tourState.reopened}
