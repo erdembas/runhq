@@ -14,6 +14,31 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum FileDiffStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    Untracked,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FileDiff {
+    pub path: String,
+    pub status: FileDiffStatus,
+    pub additions: usize,
+    pub deletions: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DiffSummary {
+    pub files: Vec<FileDiff>,
+    pub total_additions: usize,
+    pub total_deletions: usize,
+}
+
 /// Snapshot of the working tree and upstream relation at a single instant.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct GitStatus {
@@ -319,6 +344,139 @@ pub fn stash(cwd: &Path, message: Option<&str>) -> AppResult<()> {
         Ok(())
     } else {
         Err(AppError::Other(format!("git stash failed: {}", err.trim())))
+    }
+}
+
+// ---- Diff ----------------------------------------------------------------
+
+pub fn diff(cwd: &Path) -> AppResult<DiffSummary> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff", "--stat", "--numstat"])?;
+    if !ok {
+        return Ok(DiffSummary {
+            files: Vec::new(),
+            total_additions: 0,
+            total_deletions: 0,
+        });
+    }
+    Ok(parse_diff_numstat(&out, false))
+}
+
+pub fn diff_staged(cwd: &Path) -> AppResult<DiffSummary> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff", "--staged", "--stat", "--numstat"])?;
+    if !ok {
+        return Ok(DiffSummary {
+            files: Vec::new(),
+            total_additions: 0,
+            total_deletions: 0,
+        });
+    }
+    Ok(parse_diff_numstat(&out, true))
+}
+
+pub fn diff_file(cwd: &Path, file: &str) -> AppResult<String> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff", "--", file])?;
+    if ok {
+        Ok(out)
+    } else {
+        Err(AppError::Other(format!("git diff -- {file} failed")))
+    }
+}
+
+pub fn diff_file_staged(cwd: &Path, file: &str) -> AppResult<String> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff", "--staged", "--", file])?;
+    if ok {
+        Ok(out)
+    } else {
+        Err(AppError::Other(format!(
+            "git diff --staged -- {file} failed"
+        )))
+    }
+}
+
+pub fn diff_branches(cwd: &Path, base: &str, head: &str) -> AppResult<DiffSummary> {
+    require_repo(cwd)?;
+    let range = format!("{base}...{head}");
+    let (ok, out, _) = run_git(cwd, &["diff", "--stat", "--numstat", &range])?;
+    if !ok {
+        return Ok(DiffSummary {
+            files: Vec::new(),
+            total_additions: 0,
+            total_deletions: 0,
+        });
+    }
+    Ok(parse_diff_numstat(&out, false))
+}
+
+pub fn diff_all_raw(cwd: &Path) -> AppResult<String> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff"])?;
+    if ok {
+        Ok(out)
+    } else {
+        Ok(String::new())
+    }
+}
+
+pub fn diff_staged_raw(cwd: &Path) -> AppResult<String> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(cwd, &["diff", "--staged"])?;
+    if ok {
+        Ok(out)
+    } else {
+        Ok(String::new())
+    }
+}
+
+fn parse_diff_numstat(out: &str, _staged: bool) -> DiffSummary {
+    let mut files = Vec::new();
+    let mut total_additions = 0usize;
+    let mut total_deletions = 0usize;
+
+    for line in out.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let adds: usize = if parts[0] == "-" {
+            0
+        } else {
+            parts[0].parse().unwrap_or(0)
+        };
+        let dels: usize = if parts[1] == "-" {
+            0
+        } else {
+            parts[1].parse().unwrap_or(0)
+        };
+        let path = parts[2].to_string();
+        let status = if adds > 0 && dels == 0 {
+            FileDiffStatus::Added
+        } else if adds == 0 && dels > 0 {
+            FileDiffStatus::Deleted
+        } else {
+            FileDiffStatus::Modified
+        };
+        total_additions += adds;
+        total_deletions += dels;
+        files.push(FileDiff {
+            path,
+            status,
+            additions: adds,
+            deletions: dels,
+        });
+    }
+
+    DiffSummary {
+        files,
+        total_additions,
+        total_deletions,
     }
 }
 
@@ -678,5 +836,72 @@ mod tests {
         run_git(td.path(), &["add", "."]).unwrap();
         run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
         assert!(amend_commit_message(td.path(), "   ").is_err());
+    }
+
+    #[test]
+    fn diff_clean_repo_returns_empty() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        let d = diff(td.path()).unwrap();
+        assert!(d.files.is_empty());
+        assert_eq!(d.total_additions, 0);
+        assert_eq!(d.total_deletions, 0);
+    }
+
+    #[test]
+    fn diff_dirty_repo_returns_files() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        write_file(td.path(), "a.txt", "changed content");
+        let d = diff(td.path()).unwrap();
+        assert!(!d.files.is_empty());
+        assert_eq!(d.files[0].path, "a.txt");
+    }
+
+    #[test]
+    fn diff_staged_returns_only_staged() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        write_file(td.path(), "b.txt", "new file");
+        run_git(td.path(), &["add", "."]).unwrap();
+        let d = diff_staged(td.path()).unwrap();
+        assert!(!d.files.is_empty());
+    }
+
+    #[test]
+    fn diff_file_returns_raw_diff() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello\n");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        write_file(td.path(), "a.txt", "world\n");
+        let raw = diff_file(td.path(), "a.txt").unwrap();
+        assert!(raw.contains("-hello"));
+        assert!(raw.contains("+world"));
+    }
+
+    #[test]
+    fn diff_branches_compares() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello\n");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        run_git(td.path(), &["checkout", "-b", "feature"]).unwrap();
+        write_file(td.path(), "b.txt", "new\n");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "add b"]).unwrap();
+        let d = diff_branches(td.path(), "main", "feature").unwrap();
+        assert!(!d.files.is_empty());
     }
 }

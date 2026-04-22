@@ -16,6 +16,7 @@ import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
+import { DiffViewer } from '@/components/DiffViewer';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
@@ -41,6 +42,9 @@ export default function App() {
   const setStacks = useAppStore((s) => s.setStacks);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
   const closeTimeline = useAppStore((s) => s.closeTimeline);
+  const diffViewerOpen = useAppStore((s) => s.diffViewerOpen);
+  const diffViewerServiceId = useAppStore((s) => s.diffViewerServiceId);
+  const closeDiffViewer = useAppStore((s) => s.closeDiffViewer);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -526,6 +530,9 @@ export default function App() {
         />
       )}
       {timelineOpen && <ActivityTimeline onClose={closeTimeline} />}
+      {diffViewerOpen && diffViewerServiceId && (
+        <DiffViewer serviceId={diffViewerServiceId} onClose={closeDiffViewer} />
+      )}
       {tourState.open && (
         <WelcomeTour
           reopened={tourState.reopened}

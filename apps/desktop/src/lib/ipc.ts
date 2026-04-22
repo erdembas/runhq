@@ -6,6 +6,7 @@ import type {
   DailySummary,
   DependencyScanResult,
   DetectedEditor,
+  DiffSummary,
   GitStatus,
   ListeningPort,
   LogEvent,
@@ -150,6 +151,16 @@ export const ipc = {
   getDailySummary: (date: string) => invoke<DailySummary>('get_daily_summary', { date }),
   getWeeklySummary: (date: string) => invoke<DailySummary[]>('get_weekly_summary', { date }),
   exportStandup: (sinceMs: number) => invoke<string>('export_standup', { sinceMs }),
+
+  gitDiff: (id: ServiceId) => invoke<DiffSummary>('git_diff', { id }),
+  gitDiffStaged: (id: ServiceId) => invoke<DiffSummary>('git_diff_staged', { id }),
+  gitDiffFile: (id: ServiceId, file: string) => invoke<string>('git_diff_file', { id, file }),
+  gitDiffFileStaged: (id: ServiceId, file: string) =>
+    invoke<string>('git_diff_file_staged', { id, file }),
+  gitDiffBranches: (id: ServiceId, base: string, head: string) =>
+    invoke<DiffSummary>('git_diff_branches', { id, base, head }),
+  gitDiffAllRaw: (id: ServiceId) => invoke<string>('git_diff_all_raw', { id }),
+  gitDiffStagedRaw: (id: ServiceId) => invoke<string>('git_diff_staged_raw', { id }),
 };
 
 export const events = {

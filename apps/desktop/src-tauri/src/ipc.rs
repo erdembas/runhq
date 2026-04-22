@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
-use runhq_core::git::{self, GitStatus};
+use runhq_core::git::{self, DiffSummary, GitStatus};
 use runhq_core::logs::LogLine;
 use runhq_core::overview::{self, DependencyScanResult, OverviewSummary};
 use runhq_core::paths;
@@ -556,6 +556,59 @@ fn resolve_cwd(id: &str, state: &State<'_, AppState>) -> AppResult<PathBuf> {
         .service(id)
         .map(|s| s.cwd)
         .ok_or_else(|| AppError::NotFound(id.to_string()))
+}
+
+// ---- Git Diff -------------------------------------------------------------
+
+#[tauri::command]
+pub fn git_diff(id: String, state: State<'_, AppState>) -> AppResult<DiffSummary> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff(&cwd)
+}
+
+#[tauri::command]
+pub fn git_diff_staged(id: String, state: State<'_, AppState>) -> AppResult<DiffSummary> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_staged(&cwd)
+}
+
+#[tauri::command]
+pub fn git_diff_file(id: String, file: String, state: State<'_, AppState>) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_file(&cwd, &file)
+}
+
+#[tauri::command]
+pub fn git_diff_file_staged(
+    id: String,
+    file: String,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_file_staged(&cwd, &file)
+}
+
+#[tauri::command]
+pub fn git_diff_branches(
+    id: String,
+    base: String,
+    head: String,
+    state: State<'_, AppState>,
+) -> AppResult<DiffSummary> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_branches(&cwd, &base, &head)
+}
+
+#[tauri::command]
+pub fn git_diff_all_raw(id: String, state: State<'_, AppState>) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_all_raw(&cwd)
+}
+
+#[tauri::command]
+pub fn git_diff_staged_raw(id: String, state: State<'_, AppState>) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_staged_raw(&cwd)
 }
 
 #[tauri::command]
