@@ -184,7 +184,6 @@ export interface OutdatedPackage {
   name: string;
   current: string;
   latest: string;
-  /** 'major' | 'minor' | 'patch' | null when unclassified. */
   bump: string | null;
   homepage: string | null;
 }
@@ -198,10 +197,8 @@ export interface OutdatedResult {
 }
 
 export interface Advisory {
-  /** CVE-*, GHSA-*, or RUSTSEC-* identifier when available. */
   id: string | null;
   package: string;
-  /** Normalised to 'critical' | 'high' | 'medium' | 'low' | 'info'. */
   severity: string;
   title: string;
   url: string | null;
@@ -281,9 +278,6 @@ export interface TimelineEvent {
   service_name: string | null;
   event_type: TimelineEventType;
   description: string;
-  /** Correlation id tying a lifecycle event to every log/file/error it produced
-   *  during the same service run, so the UI can collapse noisy runs. `null`
-   *  for git events, orphan logs, or rows written before this column existed. */
   run_id: string | null;
 }
 
@@ -294,4 +288,19 @@ export interface DailySummary {
   services_started: number;
   errors: number;
   project_names: string[];
+}
+
+export type FileDiffStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'untracked';
+
+export interface FileDiff {
+  path: string;
+  status: FileDiffStatus;
+  additions: number;
+  deletions: number;
+}
+
+export interface DiffSummary {
+  files: FileDiff[];
+  total_additions: number;
+  total_deletions: number;
 }

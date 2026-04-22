@@ -138,45 +138,19 @@ interface AppStore {
   openTimeline: () => void;
   closeTimeline: () => void;
 
-  /**
-   * Cross-project overview data (git staleness, last activity, running
-   * state, dependency & audit counts). Populated by a background poll
-   * in `App.tsx` — the dashboard reads it to surface `Stale`/`Risk`/
-   * `Outdated` filter pills and the per-card deps/audit chips that open
-   * the `ProjectDetailDrawer`.
-   *
-   * `null` until the first poll resolves; the UI treats that as "no data
-   * yet, hide attention affordances" rather than "zero attention".
-   */
   overview: OverviewSummary | null;
   overviewLoading: boolean;
-  /**
-   * True while `scan_project_dependencies` is running on the Rust side.
-   * The dashboard "Scan dependencies" button reads this to swap in a
-   * spinner and prevent double-submits; per-card shimmer is driven off
-   * the same flag.
-   */
   overviewScanning: boolean;
-  /**
-   * Timestamp (millis since epoch) of the last successful dependency
-   * scan merge. `null` until the first scan completes — the dashboard
-   * reads this to show a "Last scan: 4m ago" indicator so the user
-   * knows whether the Outdated/CVE numbers are current or stale.
-   *
-   * Stored as `number` (not `Date`) because Zustand shallow-equals by
-   * reference; primitives avoid unnecessary re-renders.
-   */
   lastScanAt: number | null;
   setOverview: (v: OverviewSummary | null) => void;
   setOverviewLoading: (v: boolean) => void;
   setOverviewScanning: (v: boolean) => void;
-  /**
-   * Merge a `DependencyScanResult` into the currently-cached overview
-   * in place — preserves git / runtime / process state so the scan
-   * button doesn't blow away a freshly-polled snapshot. Stamps
-   * `lastScanAt` with the current wall-clock time.
-   */
   patchOverviewScan: (result: DependencyScanResult) => void;
+
+  diffViewerOpen: boolean;
+  diffViewerServiceId: ServiceId | null;
+  openDiffViewer: (serviceId: ServiceId) => void;
+  closeDiffViewer: () => void;
 }
 
 const MAX_UI_LOG_LINES = 5_000;
@@ -710,4 +684,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         lastScanAt: Date.now(),
       };
     }),
+
+  diffViewerOpen: false,
+  diffViewerServiceId: null,
+  openDiffViewer: (serviceId) => set({ diffViewerOpen: true, diffViewerServiceId: serviceId }),
+  closeDiffViewer: () => set({ diffViewerOpen: false, diffViewerServiceId: null }),
 }));
