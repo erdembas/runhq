@@ -167,3 +167,25 @@ export interface Section {
   name: string;
   color: SectionColor;
 }
+
+export interface ProjectOverview {
+  service_id: string;
+  name: string;
+  cwd: string;
+  runtime: string | null;
+  is_running: boolean;
+  git_status: GitStatus | null;
+  cpu_percent: number;
+  memory_bytes: number;
+  last_activity: string | null;
+}
+
+export interface OverviewSummary {
+  projects: ProjectOverview[];
+  total_running: number;
+  total_stopped: number;
+  total_dirty: number;
+  total_behind: number;
+  total_cpu: number;
+  total_memory: number;
+}

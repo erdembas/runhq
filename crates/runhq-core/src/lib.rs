@@ -27,6 +27,7 @@ pub mod error;
 pub mod events;
 pub mod git;
 pub mod logs;
+pub mod overview;
 pub mod paths;
 pub mod ports;
 pub mod process;

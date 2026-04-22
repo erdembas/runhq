@@ -605,6 +605,7 @@ pub fn run() {
             ipc::git_stash_pop,
             ipc::git_undo_last_commit,
             ipc::git_amend_commit_message,
+            ipc::get_project_overview,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_resize,

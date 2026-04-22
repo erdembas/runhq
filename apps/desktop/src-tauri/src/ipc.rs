@@ -10,6 +10,7 @@ use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
 use runhq_core::git::{self, GitStatus};
 use runhq_core::logs::LogLine;
+use runhq_core::overview::{self, OverviewSummary};
 use runhq_core::paths;
 use runhq_core::ports::{self, ListeningPort};
 use runhq_core::process::ServiceStatus;
@@ -403,6 +404,13 @@ pub fn stop_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStat
         running: 0,
         total,
     })
+}
+
+// ---- Overview -------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_project_overview(state: State<'_, AppState>) -> AppResult<OverviewSummary> {
+    overview::gather_overview(&state.store, &state.supervisor).map_err(AppError::from)
 }
 
 // ---- Git -----------------------------------------------------------------

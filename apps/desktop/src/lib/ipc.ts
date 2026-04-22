@@ -8,6 +8,7 @@ import type {
   ListeningPort,
   LogEvent,
   LogLine,
+  OverviewSummary,
   Prefs,
   ProjectCandidate,
   ResourceEvent,
@@ -108,6 +109,8 @@ export const ipc = {
   gitUndoLastCommit: (id: ServiceId) => invoke<void>('git_undo_last_commit', { id }),
   gitAmendCommitMessage: (id: ServiceId, message: string) =>
     invoke<void>('git_amend_commit_message', { id, message }),
+
+  getProjectOverview: () => invoke<OverviewSummary>('get_project_overview'),
 };
 
 export const events = {
