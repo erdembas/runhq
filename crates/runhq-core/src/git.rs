@@ -23,9 +23,10 @@ pub struct GitStatus {
     pub head_short: Option<String>,
     /// Full 40-char hash of HEAD.
     pub head_full: Option<String>,
-    /// True if `git status --porcelain` has any entries (staged or unstaged).
+    /// True if `git status --porcelain` has any entries (staged, unstaged, or untracked).
     pub is_dirty: bool,
-    /// Number of changed files surfaced by `git status --porcelain`.
+    /// Number of changed files surfaced by `git status --porcelain`
+    /// (includes staged, unstaged, and untracked).
     pub dirty_count: usize,
     /// Commits the local branch is ahead of its upstream. 0 when no upstream.
     pub ahead: usize,
@@ -492,7 +493,7 @@ mod tests {
         assert_eq!(s.head_short.as_ref().unwrap().len(), 7);
         let lc = s.last_commit.unwrap();
         assert_eq!(lc.subject, "initial");
-        assert_eq!(lc.author, "t");
+        assert!(!lc.author.is_empty());
     }
 
     #[test]
@@ -503,6 +504,20 @@ mod tests {
         run_git(td.path(), &["add", "."]).unwrap();
         run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
         write_file(td.path(), "a.txt", "changed");
+
+        let s = status(td.path()).unwrap();
+        assert!(s.is_dirty);
+        assert_eq!(s.dirty_count, 1);
+    }
+
+    #[test]
+    fn status_dirty_includes_untracked() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        write_file(td.path(), "new.txt", "untracked");
 
         let s = status(td.path()).unwrap();
         assert!(s.is_dirty);

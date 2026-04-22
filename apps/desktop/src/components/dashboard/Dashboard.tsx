@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CircleSlash,
   FolderSearch,
+  GitBranch,
   Layers,
   Loader2,
   Pencil,
@@ -23,6 +24,7 @@ import { cn } from '@/lib/cn';
 import { categoryForTags, type Category } from '@/lib/categories';
 import { modChord } from '@/lib/platform';
 import type { ServiceDef, Status } from '@/types';
+import type { GitStatus } from '@/types';
 import { ServiceCard } from './ServiceCard';
 import { StatTile } from './StatTile';
 import { SectionHeader, HeaderAction } from './SectionHeader';
@@ -52,6 +54,10 @@ export function Dashboard({ onScan }: Props) {
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const setSelectedStack = useAppStore((s) => s.setSelectedStack);
   const upsertStack = useAppStore((s) => s.upsertStack);
+  const git = useAppStore((s) => s.git);
+
+  type GitFilter = 'all' | 'dirty' | 'clean' | 'ahead' | 'behind' | 'no-upstream';
+  const [gitFilter, setGitFilter] = useState<GitFilter>('all');
 
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
@@ -73,11 +79,44 @@ export function Dashboard({ onScan }: Props) {
     return { running, starting, stopped, failed };
   }, [services, statuses]);
 
+  const total = services.length;
+
+  const gitStats = useMemo(() => {
+    let dirty = 0,
+      clean = 0,
+      ahead = 0,
+      behind = 0,
+      noUpstream = 0;
+    for (const svc of services) {
+      const g = git[svc.id];
+      if (g === null || g === undefined) continue;
+      if (g.is_dirty) dirty++;
+      else clean++;
+      if (g.ahead > 0) ahead++;
+      if (g.behind > 0) behind++;
+      if (!g.upstream) noUpstream++;
+    }
+    return { dirty, clean, ahead, behind, noUpstream };
+  }, [services, git]);
+
+  const gitFilterFn = useMemo(() => {
+    if (gitFilter === 'all') return (_svc: ServiceDef, _g: GitStatus | null | undefined) => true;
+    const fn: Record<string, (_svc: ServiceDef, g: GitStatus | null | undefined) => boolean> = {
+      dirty: (_s, g) => g !== null && g !== undefined && g.is_dirty,
+      clean: (_s, g) => g !== null && g !== undefined && !g.is_dirty,
+      ahead: (_s, g) => g !== null && g !== undefined && g.ahead > 0,
+      behind: (_s, g) => g !== null && g !== undefined && g.behind > 0,
+      'no-upstream': (_s, g) => g !== null && g !== undefined && !g.upstream,
+    };
+    return fn[gitFilter] ?? (() => true);
+  }, [gitFilter]);
+
   const groups = useMemo<Group[]>(() => {
     const stackServiceIds = new Set(stacks.flatMap((st) => st.service_ids));
     const byKey = new Map<string, Group>();
     for (const svc of services) {
       if (stackServiceIds.has(svc.id)) continue;
+      if (!gitFilterFn(svc, git[svc.id])) continue;
       const category = categoryForTags(svc.tags);
       const existing = byKey.get(category.key);
       if (existing) existing.services.push(svc);
@@ -85,9 +124,7 @@ export function Dashboard({ onScan }: Props) {
     }
     for (const g of byKey.values()) g.services.sort((a, b) => a.name.localeCompare(b.name));
     return Array.from(byKey.values());
-  }, [services, stacks]);
-
-  const total = services.length;
+  }, [services, stacks, gitFilterFn, git]);
 
   if (total === 0) {
     return (
@@ -278,10 +315,59 @@ export function Dashboard({ onScan }: Props) {
           </div>
         )}
 
+        {gitStats.dirty + gitStats.clean > 0 && (
+          <div className="glass flex items-center gap-2 px-4 py-2">
+            <GitBranch className="text-fg-dim h-3.5 w-3.5" />
+            <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
+              Git
+            </span>
+            <div className="flex items-center gap-1">
+              <FilterPill
+                active={gitFilter === 'all'}
+                onClick={() => setGitFilter('all')}
+                label="All"
+                count={gitStats.dirty + gitStats.clean}
+              />
+              <FilterPill
+                active={gitFilter === 'dirty'}
+                onClick={() => setGitFilter('dirty')}
+                label="Dirty"
+                count={gitStats.dirty}
+                tone="dirty"
+              />
+              <FilterPill
+                active={gitFilter === 'clean'}
+                onClick={() => setGitFilter('clean')}
+                label="Clean"
+                count={gitStats.clean}
+                tone="clean"
+              />
+              <FilterPill
+                active={gitFilter === 'ahead'}
+                onClick={() => setGitFilter('ahead')}
+                label="Ahead"
+                count={gitStats.ahead}
+              />
+              <FilterPill
+                active={gitFilter === 'behind'}
+                onClick={() => setGitFilter('behind')}
+                label="Behind"
+                count={gitStats.behind}
+              />
+              <FilterPill
+                active={gitFilter === 'no-upstream'}
+                onClick={() => setGitFilter('no-upstream')}
+                label="No upstream"
+                count={gitStats.noUpstream}
+              />
+            </div>
+          </div>
+        )}
+
         {stacks.map((stack) => {
           const stackServices = stack.service_ids
             .map((sid) => services.find((s) => s.id === sid))
-            .filter(Boolean) as ServiceDef[];
+            .filter((svc): svc is ServiceDef => !!svc && gitFilterFn(svc, git[svc.id]));
           const runningCount = stackServices.filter(
             (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
           ).length;
@@ -404,5 +490,39 @@ export function Dashboard({ onScan }: Props) {
         />
       )}
     </div>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  label,
+  count,
+  tone,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  tone?: 'dirty' | 'clean';
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-app-sm inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold transition',
+        active
+          ? tone === 'dirty'
+            ? 'bg-status-starting/20 text-status-starting'
+            : tone === 'clean'
+              ? 'bg-status-running/20 text-status-running'
+              : 'bg-accent/15 text-accent'
+          : 'text-fg-dim hover:text-fg hover:bg-surface-muted/60',
+      )}
+    >
+      {label}
+      <span className="tabular-nums">{count}</span>
+    </button>
   );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Code2, FolderOpen } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
@@ -63,13 +64,12 @@ const EDITOR_ICONS: Record<string, string> = {
   nvim: 'Nv',
 };
 
-type Placement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end';
-
 export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
   const editors = useAppStore((s) => s.editors);
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState<Placement>('bottom-end');
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Keep only editors that are either universally relevant or whose runtime
   // gate matches the attached service's commands. Computed once per render
@@ -85,32 +85,34 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
     [editors, cmds],
   );
 
-  const computePlacement = useCallback(() => {
+  const computePosition = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
-    // +1 row for the reveal-in-finder/explorer action, +~10px for the
-    // divider and padding. Keep a sane ceiling so very long editor lists
-    // still flip direction when the cursor is near the bottom edge.
     const estimatedHeight = Math.min((visibleEditors.length + 1) * 32 + 10, 320);
-    const vertical = spaceBelow >= estimatedHeight || spaceBelow >= spaceAbove ? 'bottom' : 'top';
-    const horizontal = rect.left > 180 ? 'end' : 'start';
-    setPlacement(`${vertical}-${horizontal}` as Placement);
+    const above = spaceBelow < estimatedHeight && spaceBelow < spaceAbove;
+    const left = rect.right - 220 > 0 ? rect.right - 220 : rect.left;
+    setPos(
+      above ? { bottom: window.innerHeight - rect.top + 4, left } : { top: rect.bottom + 4, left },
+    );
   }, [visibleEditors.length]);
 
   useEffect(() => {
-    if (!open) return;
-    computePlacement();
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    computePosition();
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as HTMLElement)) {
-        setOpen(false);
-      }
+      const target = e.target as HTMLElement;
+      if (containerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [open, computePlacement]);
+  }, [open, computePosition]);
 
   if (visibleEditors.length === 0) return null;
 
@@ -121,15 +123,8 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
   const sizeClasses =
     size === 'xs' ? 'h-6 w-6 [&>svg]:h-3 [&>svg]:w-3' : 'h-7 w-7 [&>svg]:h-3.5 [&>svg]:w-3.5';
 
-  const placementClasses: Record<Placement, string> = {
-    'bottom-start': 'top-full left-0 mt-1',
-    'bottom-end': 'top-full right-0 mt-1',
-    'top-start': 'bottom-full left-0 mb-1',
-    'top-end': 'bottom-full right-0 mb-1',
-  };
-
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef}>
       <div
         role="button"
         tabIndex={0}
@@ -161,65 +156,65 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
         <Code2 />
       </div>
 
-      {open && visibleEditors.length > 1 && (
-        <div
-          className={cn(
-            'absolute z-50 min-w-[220px]',
-            placementClasses[placement],
-            'border-border bg-surface-raised rounded-app border shadow-lg',
-            'py-1',
-          )}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {visibleEditors.map((editor) => (
+      {open &&
+        visibleEditors.length > 1 &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="border-border bg-surface-raised rounded-app fixed z-[9999] min-w-[220px] border py-1 shadow-lg"
+            style={pos ? { top: pos.top, bottom: pos.bottom, left: pos.left } : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {visibleEditors.map((editor) => (
+              <button
+                key={editor.key}
+                type="button"
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition',
+                  'text-fg-muted hover:bg-accent/10 hover:text-fg',
+                )}
+                onClick={() => {
+                  void ipc.openInEditor(editor.command, cwd);
+                  setOpen(false);
+                }}
+              >
+                <span
+                  className={cn(
+                    'rounded-app-sm flex h-5 w-5 shrink-0 items-center justify-center text-[9px] font-bold',
+                    'bg-surface-muted text-fg-muted',
+                  )}
+                >
+                  {EDITOR_ICONS[editor.key] ?? (editor.command[0] ?? '?').toUpperCase()}
+                </span>
+                <span className="truncate font-medium">{editor.name}</span>
+                <span className="text-fg-dim ml-auto text-[10.5px]">{editor.command}</span>
+              </button>
+            ))}
+            <div className="border-border/70 my-1 border-t" role="separator" />
             <button
-              key={editor.key}
               type="button"
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition',
-                'text-fg-muted hover:bg-accent/10 hover:text-fg',
+                'text-fg-muted hover:bg-fg/10 hover:text-fg',
               )}
               onClick={() => {
-                void ipc.openInEditor(editor.command, cwd);
+                void ipc.openPath(cwd);
                 setOpen(false);
               }}
             >
               <span
                 className={cn(
-                  'rounded-app-sm flex h-5 w-5 shrink-0 items-center justify-center text-[9px] font-bold',
+                  'rounded-app-sm flex h-5 w-5 shrink-0 items-center justify-center',
                   'bg-surface-muted text-fg-muted',
                 )}
               >
-                {EDITOR_ICONS[editor.key] ?? (editor.command[0] ?? '?').toUpperCase()}
+                <FolderOpen className="h-3 w-3" />
               </span>
-              <span className="truncate font-medium">{editor.name}</span>
-              <span className="text-fg-dim ml-auto text-[10.5px]">{editor.command}</span>
+              <span className="truncate font-medium">{REVEAL_LABEL}</span>
             </button>
-          ))}
-          <div className="border-border/70 my-1 border-t" role="separator" />
-          <button
-            type="button"
-            className={cn(
-              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition',
-              'text-fg-muted hover:bg-fg/10 hover:text-fg',
-            )}
-            onClick={() => {
-              void ipc.openPath(cwd);
-              setOpen(false);
-            }}
-          >
-            <span
-              className={cn(
-                'rounded-app-sm flex h-5 w-5 shrink-0 items-center justify-center',
-                'bg-surface-muted text-fg-muted',
-              )}
-            >
-              <FolderOpen className="h-3 w-3" />
-            </span>
-            <span className="truncate font-medium">{REVEAL_LABEL}</span>
-          </button>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

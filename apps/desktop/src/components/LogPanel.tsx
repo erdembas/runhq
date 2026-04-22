@@ -343,7 +343,7 @@ export function LogPanel() {
             {/* `key` forces a remount on service change so per-service local
                 state (branches list, in-progress inputs, popover-open flag)
                 can't leak from one service into the next. */}
-            <GitStatusChip key={service.id} serviceId={service.id} cwd={service.cwd} />
+            <GitStatusChip key={service.id} serviceId={service.id} />
             <Button
               variant="secondary"
               size="sm"

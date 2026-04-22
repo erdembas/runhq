@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FolderOpen, Globe, Pencil, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EditorDropdown } from '@/components/EditorDropdown';
+import { GitStatusChip } from '@/components/GitStatusChip';
 import { ResourceBadge } from '@/components/ResourceBadge';
 import { Sparkline } from '@/components/Sparkline';
 import { StatusDot } from '@/components/ui/StatusDot';
@@ -191,7 +192,8 @@ export function ServiceCard({
             <Globe className="h-3.5 w-3.5" />
           </CardAction>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <GitStatusChip serviceId={svc.id} compact />
           <EditorDropdown cwd={svc.cwd} cmds={svc.cmds} size="xs" />
         </div>
       </div>
