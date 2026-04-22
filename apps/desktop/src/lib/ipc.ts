@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   AppInfo,
   CommandEntry,
+  DailySummary,
   DetectedEditor,
   GitStatus,
   ListeningPort,
@@ -16,6 +17,8 @@ import type {
   ServiceStatus,
   StackDef,
   StackStatus,
+  TimelineEvent,
+  TimelineEventType,
 } from '@/types';
 
 /**
@@ -108,6 +111,33 @@ export const ipc = {
   gitUndoLastCommit: (id: ServiceId) => invoke<void>('git_undo_last_commit', { id }),
   gitAmendCommitMessage: (id: ServiceId, message: string) =>
     invoke<void>('git_amend_commit_message', { id, message }),
+
+  recordTimelineEvent: (
+    eventType: TimelineEventType,
+    serviceId?: string | null,
+    serviceName?: string | null,
+    description?: string,
+  ) =>
+    invoke<void>('record_timeline_event', {
+      eventType,
+      serviceId: serviceId ?? null,
+      serviceName: serviceName ?? null,
+      description: description ?? '',
+    }),
+  getTimeline: (
+    serviceId?: string | null,
+    eventType?: string | null,
+    sinceMs?: number | null,
+    limit?: number,
+  ) =>
+    invoke<TimelineEvent[]>('get_timeline', {
+      serviceId: serviceId ?? null,
+      eventType: eventType ?? null,
+      sinceMs: sinceMs ?? null,
+      limit,
+    }),
+  getDailySummary: (date: string) => invoke<DailySummary>('get_daily_summary', { date }),
+  exportStandup: (sinceMs: number) => invoke<string>('export_standup', { sinceMs }),
 };
 
 export const events = {

@@ -167,3 +167,31 @@ export interface Section {
   name: string;
   color: SectionColor;
 }
+
+export type TimelineEventType =
+  | 'service_started'
+  | 'service_stopped'
+  | 'service_crashed'
+  | 'git_commit'
+  | 'git_push'
+  | 'git_checkout'
+  | 'log_error'
+  | 'log_warning';
+
+export interface TimelineEvent {
+  id: number;
+  timestamp: string;
+  service_id: string | null;
+  service_name: string | null;
+  event_type: TimelineEventType;
+  description: string;
+}
+
+export interface DailySummary {
+  date: string;
+  projects_worked: number;
+  commits: number;
+  services_started: number;
+  errors: number;
+  project_names: string[];
+}
