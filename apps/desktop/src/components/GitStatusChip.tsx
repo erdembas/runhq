@@ -153,6 +153,15 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
       setGit(serviceId, latest);
       if (latest && latest.upstream && latest.behind > 0) {
         await ipc.gitPull(serviceId);
+        const svc = useAppStore.getState().services.find((s) => s.id === serviceId);
+        ipc
+          .recordTimelineEvent(
+            'git_push',
+            serviceId,
+            svc?.name ?? null,
+            `Pulled ${latest.behind} commit(s)`,
+          )
+          .catch(() => {});
         await refreshStatus();
       }
     } catch (e) {
@@ -557,7 +566,20 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
                             type="button"
                             disabled={busy !== null || current}
                             onClick={() =>
-                              void run({ checkout: b }, () => ipc.gitCheckout(serviceId, b))
+                              void run({ checkout: b }, async () => {
+                                await ipc.gitCheckout(serviceId, b);
+                                const svc = useAppStore
+                                  .getState()
+                                  .services.find((s) => s.id === serviceId);
+                                ipc
+                                  .recordTimelineEvent(
+                                    'git_checkout',
+                                    serviceId,
+                                    svc?.name ?? null,
+                                    `Checked out ${b}`,
+                                  )
+                                  .catch(() => {});
+                              })
                             }
                             className={cn(
                               'flex w-full items-center gap-2 px-3 py-1 text-left text-[12px] transition',

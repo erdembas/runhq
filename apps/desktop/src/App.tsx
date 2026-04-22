@@ -113,9 +113,55 @@ export default function App() {
   useEffect(() => {
     const unsubs: Array<() => void> = [];
     (async () => {
-      unsubs.push(await events.onStatus(setStatus));
       unsubs.push(
-        await events.onLog((ev) => appendLog(logKey(ev.service_id, ev.cmd_name), ev.line)),
+        await events.onStatus((status) => {
+          setStatus(status);
+          const eventType =
+            status.status === 'running'
+              ? 'service_started'
+              : status.status === 'stopped'
+                ? 'service_stopped'
+                : status.status === 'crashed'
+                  ? 'service_crashed'
+                  : null;
+          if (eventType) {
+            const svc = useAppStore.getState().services.find((s) => s.id === status.id);
+            ipc
+              .recordTimelineEvent(
+                eventType,
+                status.id,
+                svc?.name ?? null,
+                eventType === 'service_started'
+                  ? `Started ${svc?.name ?? status.id}`
+                  : eventType === 'service_stopped'
+                    ? `Stopped ${svc?.name ?? status.id}`
+                    : `Crashed ${svc?.name ?? status.id}`,
+              )
+              .catch(() => {});
+          }
+        }),
+      );
+      unsubs.push(
+        await events.onLog((ev) => {
+          appendLog(logKey(ev.service_id, ev.cmd_name), ev.line);
+          if (ev.line.stream === 'stderr') {
+            const text = ev.line.text.toLowerCase();
+            const isWarning = text.includes('warn') || text.includes('warning');
+            const isError =
+              text.includes('error') || text.includes('fatal') || text.includes('panic');
+            if (isError || isWarning) {
+              const svc = useAppStore.getState().services.find((s) => s.id === ev.service_id);
+              ipc
+                .recordTimelineEvent(
+                  isError ? 'log_error' : 'log_warning',
+                  ev.service_id,
+                  svc?.name ?? null,
+                  ev.line.text.slice(0, 200),
+                )
+                .catch(() => {});
+            }
+          }
+        }),
       );
       unsubs.push(
         await events.onResources((ev) =>
