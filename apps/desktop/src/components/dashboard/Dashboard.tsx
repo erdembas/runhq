@@ -30,6 +30,7 @@ import type { GitStatus } from '@/types';
 import { ServiceCard } from './ServiceCard';
 import { StatTile } from './StatTile';
 import { SectionHeader, HeaderAction } from './SectionHeader';
+import { ActivityTimeline } from '@/components/ActivityTimeline';
 
 interface Props {
   onScan: () => void;
@@ -243,46 +244,51 @@ export function Dashboard({ onScan }: Props) {
 
   if (total === 0) {
     return (
-      <div className="bg-surface relative flex flex-1 items-center justify-center overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(600px 400px at 50% 30%, rgb(var(--accent) / 0.06), transparent 70%)',
-          }}
-        />
-        <div className="glass animate-fade-in relative max-w-sm p-8 text-center">
-          <div className="bg-accent/10 border-accent/30 mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border">
-            <Zap className="text-accent h-7 w-7" />
-          </div>
-          <h2 className="text-fg text-xl font-semibold tracking-tight">Ready when you are</h2>
-          <p className="text-fg-muted mt-2 text-[13px] leading-relaxed">
-            Point RunHQ at a project folder to auto-detect scripts, or add your first service
-            manually.
-          </p>
-          <div className="mt-6 flex items-center justify-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<FolderSearch className="h-4 w-4" />}
-              onClick={onScan}
-            >
-              Scan Projects
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus className="h-4 w-4" />}
-              onClick={() => openEditor(null)}
-            >
-              Add service{' '}
-              <Kbd className="ml-1.5 border-transparent bg-white/20 text-white/90">
-                {modChord('N')}
-              </Kbd>
-            </Button>
+      <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(600px 400px at 50% 30%, rgb(var(--accent) / 0.06), transparent 70%)',
+            }}
+          />
+          <div className="glass animate-fade-in relative max-w-sm p-8 text-center">
+            <div className="bg-accent/10 border-accent/30 mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border">
+              <Zap className="text-accent h-7 w-7" />
+            </div>
+            <h2 className="text-fg text-xl font-semibold tracking-tight">Ready when you are</h2>
+            <p className="text-fg-muted mt-2 text-[13px] leading-relaxed">
+              Point RunHQ at a project folder to auto-detect scripts, or add your first service
+              manually.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FolderSearch className="h-4 w-4" />}
+                onClick={onScan}
+              >
+                Scan Projects
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus className="h-4 w-4" />}
+                onClick={() => openEditor(null)}
+              >
+                Add service{' '}
+                <Kbd className="ml-1.5 border-transparent bg-white/20 text-white/90">
+                  {modChord('N')}
+                </Kbd>
+              </Button>
+            </div>
           </div>
         </div>
+        <aside className="relative hidden h-full min-h-0 shrink-0 xl:flex xl:flex-col">
+          <ActivityTimeline variant="inline" />
+        </aside>
       </div>
     );
   }
@@ -291,346 +297,351 @@ export function Dashboard({ onScan }: Props) {
   const hasRunning = stats.running > 0;
 
   return (
-    <div className="bg-surface relative flex flex-1 flex-col overflow-y-auto">
-      {hasRunning && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[340px]"
-          style={{
-            background:
-              'radial-gradient(900px 340px at 50% -20%, rgb(var(--accent) / 0.09), transparent 70%)',
-          }}
-        />
-      )}
+    <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-w-0 flex-1 overflow-y-auto">
+        {hasRunning && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-[340px]"
+            style={{
+              background:
+                'radial-gradient(900px 340px at 50% -20%, rgb(var(--accent) / 0.09), transparent 70%)',
+            }}
+          />
+        )}
 
-      <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-8 py-8">
-        <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="text-fg-dim mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-[0.22em] uppercase">
-              <span className="from-accent to-accent-hover border-accent/40 inline-flex h-5 w-5 items-center justify-center rounded-md border bg-gradient-to-br text-white shadow-[0_2px_8px_-2px_rgb(var(--accent)/0.6)]">
-                <Zap className="h-3 w-3" />
-              </span>
-              <span className="text-fg">RunHQ</span>
-              {appVersion && (
-                <span className="text-fg-dim normal-case opacity-70">v{appVersion}</span>
-              )}
-              <span className="text-fg-dim mx-1 opacity-30">·</span>
-              <span className="text-fg-dim tracking-normal normal-case opacity-70">
-                {greeting()}
-              </span>
-            </div>
-            <h1 className="text-fg text-[28px] leading-tight font-semibold tracking-tight">
-              {hasRunning ? (
-                <>
-                  <span className="text-status-running tabular-nums">{stats.running}</span>
-                  <span className="text-fg"> service{stats.running > 1 ? 's' : ''} running</span>
-                </>
-              ) : stats.failed > 0 ? (
-                <>
-                  <span className="text-status-error tabular-nums">{stats.failed}</span>
-                  <span className="text-fg"> needs attention</span>
-                </>
-              ) : (
-                <span className="text-fg">All quiet</span>
-              )}
-            </h1>
-            <p className="text-fg-muted mt-1.5 flex items-center gap-1.5 text-[13px]">
-              <span className="tabular-nums">{total}</span> configured
-              <span className="text-fg-dim">·</span>
-              <span className="tabular-nums">{ports.length}</span> listening ports
-              {stats.starting > 0 && (
-                <>
-                  <span className="text-fg-dim">·</span>
-                  <span className="text-status-starting inline-flex items-center gap-1 tabular-nums">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {stats.starting} starting
-                  </span>
-                </>
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="border-border flex items-center gap-1 rounded-md border px-1 py-0.5">
-              {GROUP_OPTIONS.map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setGroupBy(opt.key)}
-                  className={cn(
-                    'rounded-sm px-1.5 py-0.5 text-[10px] font-semibold transition',
-                    groupBy === opt.key
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-fg-dim hover:text-fg hover:bg-surface-muted/60',
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<FolderSearch className="h-4 w-4" />}
-              onClick={onScan}
-            >
-              Scan Projects
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Layers className="h-4 w-4" />}
-              onClick={() => openStackEditor(null)}
-            >
-              New stack
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus className="h-4 w-4" />}
-              onClick={() => openEditor(null)}
-            >
-              New service
-            </Button>
-          </div>
-        </header>
-
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile
-            label="Running"
-            value={stats.running}
-            tone="running"
-            icon={<Activity className="h-3.5 w-3.5" />}
-            badge={`${healthPct}%`}
-            active={stats.running > 0}
-          />
-          <StatTile
-            label="Starting"
-            value={stats.starting}
-            tone="starting"
-            icon={<Loader2 className={cn('h-3.5 w-3.5', stats.starting > 0 && 'animate-spin')} />}
-            active={stats.starting > 0}
-          />
-          <StatTile
-            label="Stopped"
-            value={stats.stopped}
-            tone="stopped"
-            icon={<CircleSlash className="h-3.5 w-3.5" />}
-          />
-          <StatTile
-            label="Failed"
-            value={stats.failed}
-            tone={stats.failed > 0 ? 'error' : 'stopped'}
-            icon={<AlertTriangle className="h-3.5 w-3.5" />}
-            active={stats.failed > 0}
-          />
-        </section>
-
-        {total > 0 && (
-          <div className="glass flex items-center gap-3 px-4 py-2.5">
-            <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-              Uptime
-            </span>
-            <div className="bg-surface-muted relative h-1.5 flex-1 overflow-hidden rounded-full">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-700',
-                  hasRunning
-                    ? 'from-accent via-accent to-status-running bg-gradient-to-r'
-                    : 'bg-border-strong',
+        <div className="@container/main relative mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8">
+          <header className="flex flex-col gap-5 @3xl/main:flex-row @3xl/main:items-end @3xl/main:justify-between">
+            <div>
+              <div className="text-fg-dim mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-[0.22em] uppercase">
+                <span className="from-accent to-accent-hover border-accent/40 inline-flex h-5 w-5 items-center justify-center rounded-md border bg-gradient-to-br text-white shadow-[0_2px_8px_-2px_rgb(var(--accent)/0.6)]">
+                  <Zap className="h-3 w-3" />
+                </span>
+                <span className="text-fg">RunHQ</span>
+                {appVersion && (
+                  <span className="text-fg-dim normal-case opacity-70">v{appVersion}</span>
                 )}
-                style={{ width: `${Math.max(healthPct, hasRunning ? 4 : 0)}%` }}
-              />
-            </div>
-            <span className="text-fg w-10 text-right text-[12px] font-semibold tabular-nums">
-              {healthPct}%
-            </span>
-          </div>
-        )}
-
-        {gitStats.dirty + gitStats.clean > 0 && (
-          <div className="glass flex items-center gap-2 px-4 py-2">
-            <GitBranch className="text-fg-dim h-3.5 w-3.5" />
-            <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-              Git
-            </span>
-            <div className="flex items-center gap-1">
-              <FilterPill
-                active={gitFilter === 'all'}
-                onClick={() => setGitFilter('all')}
-                label="All"
-                count={gitStats.dirty + gitStats.clean}
-              />
-              <FilterPill
-                active={gitFilter === 'dirty'}
-                onClick={() => setGitFilter('dirty')}
-                label="Dirty"
-                count={gitStats.dirty}
-                tone="dirty"
-              />
-              <FilterPill
-                active={gitFilter === 'clean'}
-                onClick={() => setGitFilter('clean')}
-                label="Clean"
-                count={gitStats.clean}
-                tone="clean"
-              />
-              <FilterPill
-                active={gitFilter === 'ahead'}
-                onClick={() => setGitFilter('ahead')}
-                label="Ahead"
-                count={gitStats.ahead}
-              />
-              <FilterPill
-                active={gitFilter === 'behind'}
-                onClick={() => setGitFilter('behind')}
-                label="Behind"
-                count={gitStats.behind}
-              />
-              <FilterPill
-                active={gitFilter === 'no-upstream'}
-                onClick={() => setGitFilter('no-upstream')}
-                label="No upstream"
-                count={gitStats.noUpstream}
-              />
-            </div>
-          </div>
-        )}
-
-        {stacks.map((stack) => {
-          const stackServices = stack.service_ids
-            .map((sid) => services.find((s) => s.id === sid))
-            .filter((svc): svc is ServiceDef => !!svc && gitFilterFn(svc, git[svc.id]));
-          const runningCount = stackServices.filter(
-            (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
-          ).length;
-          const anyRunning = runningCount > 0;
-          return (
-            <section
-              key={stack.id}
-              className="group/section"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={async (e) => {
-                e.preventDefault();
-                const svcId = e.dataTransfer.getData('application/x-service-id');
-                if (!svcId || stack.service_ids.includes(svcId)) return;
-                const updated = { ...stack, service_ids: [...stack.service_ids, svcId] };
-                await ipc.updateStack(updated);
-                upsertStack(updated);
-              }}
-            >
-              <SectionHeader
-                icon={<Layers className="h-3.5 w-3.5" />}
-                label={stack.name}
-                tone="accent"
-                count={stackServices.length}
-                runningCount={runningCount}
-                onClick={() => setSelectedStack(stack.id)}
-                actions={
+                <span className="text-fg-dim mx-1 opacity-30">·</span>
+                <span className="text-fg-dim tracking-normal normal-case opacity-70">
+                  {greeting()}
+                </span>
+              </div>
+              <h1 className="text-fg text-[28px] leading-tight font-semibold tracking-tight">
+                {hasRunning ? (
                   <>
-                    {anyRunning ? (
-                      <HeaderAction
-                        title="Stop all"
-                        onClick={() => void ipc.stopStack(stack.id)}
-                        tone="danger"
-                      >
-                        <Square className="h-3.5 w-3.5" />
-                      </HeaderAction>
-                    ) : (
-                      <HeaderAction
-                        title="Start all"
-                        onClick={() => void ipc.startStack(stack.id)}
-                        tone="run"
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                      </HeaderAction>
-                    )}
-                    <HeaderAction
-                      title="Restart all"
-                      onClick={() => void ipc.restartStack(stack.id)}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </HeaderAction>
-                    <HeaderAction title="Edit stack" onClick={() => openStackEditor(stack)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </HeaderAction>
-                    <HeaderAction
-                      title="Delete stack"
-                      tone="danger"
-                      onClick={() => {
-                        setPendingConfirm({
-                          message: `Delete stack "${stack.name}"?`,
-                          onConfirm: async () => {
-                            setPendingConfirm(null);
-                            await ipc.removeStack(stack.id);
-                            removeStack(stack.id);
-                          },
-                        });
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </HeaderAction>
+                    <span className="text-status-running tabular-nums">{stats.running}</span>
+                    <span className="text-fg"> service{stats.running > 1 ? 's' : ''} running</span>
                   </>
-                }
-              />
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {stackServices.map((svc) => (
-                  <ServiceCard key={svc.id} svc={svc} />
+                ) : stats.failed > 0 ? (
+                  <>
+                    <span className="text-status-error tabular-nums">{stats.failed}</span>
+                    <span className="text-fg"> needs attention</span>
+                  </>
+                ) : (
+                  <span className="text-fg">All quiet</span>
+                )}
+              </h1>
+              <p className="text-fg-muted mt-1.5 flex items-center gap-1.5 text-[13px]">
+                <span className="tabular-nums">{total}</span> configured
+                <span className="text-fg-dim">·</span>
+                <span className="tabular-nums">{ports.length}</span> listening ports
+                {stats.starting > 0 && (
+                  <>
+                    <span className="text-fg-dim">·</span>
+                    <span className="text-status-starting inline-flex items-center gap-1 tabular-nums">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {stats.starting} starting
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="border-border flex items-center gap-1 rounded-md border px-1 py-0.5">
+                {GROUP_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setGroupBy(opt.key)}
+                    className={cn(
+                      'rounded-sm px-1.5 py-0.5 text-[10px] font-semibold transition',
+                      groupBy === opt.key
+                        ? 'bg-accent/15 text-accent'
+                        : 'text-fg-dim hover:text-fg hover:bg-surface-muted/60',
+                    )}
+                  >
+                    {opt.label}
+                  </button>
                 ))}
               </div>
-            </section>
-          );
-        })}
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FolderSearch className="h-4 w-4" />}
+                onClick={onScan}
+              >
+                Scan Projects
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Layers className="h-4 w-4" />}
+                onClick={() => openStackEditor(null)}
+              >
+                New stack
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus className="h-4 w-4" />}
+                onClick={() => openEditor(null)}
+              >
+                New service
+              </Button>
+            </div>
+          </header>
 
-        {groups.length > 0
-          ? groups.map((group) => {
-              const runningInGroup = group.services.filter(
-                (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
-              ).length;
-              return (
-                <section key={group.key} className="group/section">
-                  <SectionHeader
-                    dotClass={group.dotClass}
-                    dotStyle={group.dotStyle}
-                    label={group.label}
-                    labelClass={group.labelClass}
-                    labelStyle={group.labelStyle}
-                    count={group.services.length}
-                    runningCount={runningInGroup}
-                  />
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {group.services.map((svc) => (
-                      <ServiceCard key={svc.id} svc={svc} draggable />
-                    ))}
-                  </div>
-                </section>
-              );
-            })
-          : eligibleServices.length > 0 && (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {eligibleServices.map((svc) => (
-                  <ServiceCard key={svc.id} svc={svc} draggable />
-                ))}
+          <section className="grid grid-cols-2 gap-3 @2xl/main:grid-cols-4">
+            <StatTile
+              label="Running"
+              value={stats.running}
+              tone="running"
+              icon={<Activity className="h-3.5 w-3.5" />}
+              badge={`${healthPct}%`}
+              active={stats.running > 0}
+            />
+            <StatTile
+              label="Starting"
+              value={stats.starting}
+              tone="starting"
+              icon={<Loader2 className={cn('h-3.5 w-3.5', stats.starting > 0 && 'animate-spin')} />}
+              active={stats.starting > 0}
+            />
+            <StatTile
+              label="Stopped"
+              value={stats.stopped}
+              tone="stopped"
+              icon={<CircleSlash className="h-3.5 w-3.5" />}
+            />
+            <StatTile
+              label="Failed"
+              value={stats.failed}
+              tone={stats.failed > 0 ? 'error' : 'stopped'}
+              icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              active={stats.failed > 0}
+            />
+          </section>
+
+          {total > 0 && (
+            <div className="glass flex items-center gap-3 px-4 py-2.5">
+              <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
+                Uptime
+              </span>
+              <div className="bg-surface-muted relative h-1.5 flex-1 overflow-hidden rounded-full">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-700',
+                    hasRunning
+                      ? 'from-accent via-accent to-status-running bg-gradient-to-r'
+                      : 'bg-border-strong',
+                  )}
+                  style={{ width: `${Math.max(healthPct, hasRunning ? 4 : 0)}%` }}
+                />
               </div>
-            )}
+              <span className="text-fg w-10 text-right text-[12px] font-semibold tabular-nums">
+                {healthPct}%
+              </span>
+            </div>
+          )}
 
-        <footer className="text-fg-dim mt-auto flex items-center justify-between pt-4 text-[11px]">
-          <span>Everything runs locally. No telemetry.</span>
-          <span className="flex items-center gap-1.5 opacity-70">
-            <Kbd>{modChord('K')}</Kbd>
-            <span>quick jump</span>
-          </span>
-        </footer>
+          {gitStats.dirty + gitStats.clean > 0 && (
+            <div className="glass flex items-center gap-2 px-4 py-2">
+              <GitBranch className="text-fg-dim h-3.5 w-3.5" />
+              <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
+                Git
+              </span>
+              <div className="flex items-center gap-1">
+                <FilterPill
+                  active={gitFilter === 'all'}
+                  onClick={() => setGitFilter('all')}
+                  label="All"
+                  count={gitStats.dirty + gitStats.clean}
+                />
+                <FilterPill
+                  active={gitFilter === 'dirty'}
+                  onClick={() => setGitFilter('dirty')}
+                  label="Dirty"
+                  count={gitStats.dirty}
+                  tone="dirty"
+                />
+                <FilterPill
+                  active={gitFilter === 'clean'}
+                  onClick={() => setGitFilter('clean')}
+                  label="Clean"
+                  count={gitStats.clean}
+                  tone="clean"
+                />
+                <FilterPill
+                  active={gitFilter === 'ahead'}
+                  onClick={() => setGitFilter('ahead')}
+                  label="Ahead"
+                  count={gitStats.ahead}
+                />
+                <FilterPill
+                  active={gitFilter === 'behind'}
+                  onClick={() => setGitFilter('behind')}
+                  label="Behind"
+                  count={gitStats.behind}
+                />
+                <FilterPill
+                  active={gitFilter === 'no-upstream'}
+                  onClick={() => setGitFilter('no-upstream')}
+                  label="No upstream"
+                  count={gitStats.noUpstream}
+                />
+              </div>
+            </div>
+          )}
+
+          {stacks.map((stack) => {
+            const stackServices = stack.service_ids
+              .map((sid) => services.find((s) => s.id === sid))
+              .filter((svc): svc is ServiceDef => !!svc && gitFilterFn(svc, git[svc.id]));
+            const runningCount = stackServices.filter(
+              (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
+            ).length;
+            const anyRunning = runningCount > 0;
+            return (
+              <section
+                key={stack.id}
+                className="group/section"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  const svcId = e.dataTransfer.getData('application/x-service-id');
+                  if (!svcId || stack.service_ids.includes(svcId)) return;
+                  const updated = { ...stack, service_ids: [...stack.service_ids, svcId] };
+                  await ipc.updateStack(updated);
+                  upsertStack(updated);
+                }}
+              >
+                <SectionHeader
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label={stack.name}
+                  tone="accent"
+                  count={stackServices.length}
+                  runningCount={runningCount}
+                  onClick={() => setSelectedStack(stack.id)}
+                  actions={
+                    <>
+                      {anyRunning ? (
+                        <HeaderAction
+                          title="Stop all"
+                          onClick={() => void ipc.stopStack(stack.id)}
+                          tone="danger"
+                        >
+                          <Square className="h-3.5 w-3.5" />
+                        </HeaderAction>
+                      ) : (
+                        <HeaderAction
+                          title="Start all"
+                          onClick={() => void ipc.startStack(stack.id)}
+                          tone="run"
+                        >
+                          <Play className="h-3.5 w-3.5" />
+                        </HeaderAction>
+                      )}
+                      <HeaderAction
+                        title="Restart all"
+                        onClick={() => void ipc.restartStack(stack.id)}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </HeaderAction>
+                      <HeaderAction title="Edit stack" onClick={() => openStackEditor(stack)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </HeaderAction>
+                      <HeaderAction
+                        title="Delete stack"
+                        tone="danger"
+                        onClick={() => {
+                          setPendingConfirm({
+                            message: `Delete stack "${stack.name}"?`,
+                            onConfirm: async () => {
+                              setPendingConfirm(null);
+                              await ipc.removeStack(stack.id);
+                              removeStack(stack.id);
+                            },
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </HeaderAction>
+                    </>
+                  }
+                />
+                <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
+                  {stackServices.map((svc) => (
+                    <ServiceCard key={svc.id} svc={svc} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+
+          {groups.length > 0
+            ? groups.map((group) => {
+                const runningInGroup = group.services.filter(
+                  (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
+                ).length;
+                return (
+                  <section key={group.key} className="group/section">
+                    <SectionHeader
+                      dotClass={group.dotClass}
+                      dotStyle={group.dotStyle}
+                      label={group.label}
+                      labelClass={group.labelClass}
+                      labelStyle={group.labelStyle}
+                      count={group.services.length}
+                      runningCount={runningInGroup}
+                    />
+                    <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
+                      {group.services.map((svc) => (
+                        <ServiceCard key={svc.id} svc={svc} draggable />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })
+            : eligibleServices.length > 0 && (
+                <div className="grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
+                  {eligibleServices.map((svc) => (
+                    <ServiceCard key={svc.id} svc={svc} draggable />
+                  ))}
+                </div>
+              )}
+
+          <footer className="text-fg-dim mt-auto flex items-center justify-between pt-4 text-[11px]">
+            <span>Everything runs locally. No telemetry.</span>
+            <span className="flex items-center gap-1.5 opacity-70">
+              <Kbd>{modChord('K')}</Kbd>
+              <span>quick jump</span>
+            </span>
+          </footer>
+        </div>
+        {pendingConfirm && (
+          <ConfirmDialog
+            message={pendingConfirm.message}
+            onConfirm={pendingConfirm.onConfirm}
+            onCancel={() => setPendingConfirm(null)}
+          />
+        )}
       </div>
-      {pendingConfirm && (
-        <ConfirmDialog
-          message={pendingConfirm.message}
-          onConfirm={pendingConfirm.onConfirm}
-          onCancel={() => setPendingConfirm(null)}
-        />
-      )}
+      <aside className="relative hidden h-full min-h-0 shrink-0 xl:flex xl:flex-col">
+        <ActivityTimeline variant="inline" />
+      </aside>
     </div>
   );
 }

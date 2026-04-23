@@ -27,6 +27,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-clipboard-manager = "2"
 
 tokio = { version = "1.41", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -36,6 +37,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 uuid = { version = "1.11", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
 portable-pty = "0.8"
 anyhow = "1"
 parking_lot = "0.12"

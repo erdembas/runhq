@@ -329,6 +329,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let home = paths::runhq_home()?;
             std::fs::create_dir_all(&home)?;
@@ -605,6 +606,11 @@ pub fn run() {
             ipc::git_stash_pop,
             ipc::git_undo_last_commit,
             ipc::git_amend_commit_message,
+            ipc::record_timeline_event,
+            ipc::get_timeline,
+            ipc::get_daily_summary,
+            ipc::get_weekly_summary,
+            ipc::export_standup,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_resize,
