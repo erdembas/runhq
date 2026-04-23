@@ -415,9 +415,7 @@ pub async fn get_project_overview(
     state: State<'_, AppState>,
 ) -> AppResult<OverviewSummary> {
     let threshold = stale_threshold_days.unwrap_or(30);
-    overview::gather_overview(&state.store, &state.supervisor, threshold)
-        .await
-        .map_err(AppError::from)
+    overview::gather_overview(&state.store, &state.supervisor, threshold).await
 }
 
 /// Run the heavy per-project dependency/audit scans. Separated from
@@ -428,9 +426,7 @@ pub async fn scan_project_dependencies(
     force: Option<bool>,
     state: State<'_, AppState>,
 ) -> AppResult<DependencyScanResult> {
-    overview::gather_dependency_scan(&state.store, force.unwrap_or(false))
-        .await
-        .map_err(AppError::from)
+    overview::gather_dependency_scan(&state.store, force.unwrap_or(false)).await
 }
 
 // ---- Timeline -------------------------------------------------------------
