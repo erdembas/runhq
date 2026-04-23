@@ -606,6 +606,8 @@ pub fn run() {
             ipc::git_stash_pop,
             ipc::git_undo_last_commit,
             ipc::git_amend_commit_message,
+            ipc::get_project_overview,
+            ipc::scan_project_dependencies,
             ipc::record_timeline_event,
             ipc::get_timeline,
             ipc::get_daily_summary,

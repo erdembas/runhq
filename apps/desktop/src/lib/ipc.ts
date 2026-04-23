@@ -4,11 +4,13 @@ import type {
   AppInfo,
   CommandEntry,
   DailySummary,
+  DependencyScanResult,
   DetectedEditor,
   GitStatus,
   ListeningPort,
   LogEvent,
   LogLine,
+  OverviewSummary,
   Prefs,
   ProjectCandidate,
   ResourceEvent,
@@ -112,17 +114,26 @@ export const ipc = {
   gitAmendCommitMessage: (id: ServiceId, message: string) =>
     invoke<void>('git_amend_commit_message', { id, message }),
 
+  getProjectOverview: (staleThresholdDays?: number) =>
+    invoke<OverviewSummary>('get_project_overview', {
+      staleThresholdDays: staleThresholdDays ?? 30,
+    }),
+  scanProjectDependencies: (force = false) =>
+    invoke<DependencyScanResult>('scan_project_dependencies', { force }),
+
   recordTimelineEvent: (
     eventType: TimelineEventType,
     serviceId?: string | null,
     serviceName?: string | null,
     description?: string,
+    runId?: string | null,
   ) =>
     invoke<void>('record_timeline_event', {
       eventType,
       serviceId: serviceId ?? null,
       serviceName: serviceName ?? null,
       description: description ?? '',
+      runId: runId ?? null,
     }),
   getTimeline: (
     serviceId?: string | null,

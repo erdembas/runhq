@@ -31,6 +31,22 @@ pub struct LogLine {
     pub ts_ms: i64,
     pub stream: Stream,
     pub text: String,
+    /// Deterministic correlation id for the *run* that produced this line.
+    ///
+    /// A run spans from a successful `start_all`/`start_cmd` through every
+    /// child-process exit for that service (including the synthetic
+    /// `[exited code X]` closer). Every line the supervisor emits during
+    /// that window — the `$ <cmd>` echo, pre-command banners, stdout,
+    /// stderr, spawn failures, the closing line — carries the *same*
+    /// id, so the UI can collapse them under the owning lifecycle event
+    /// without any timestamp guesswork (IPC jitter would otherwise
+    /// misattribute the pre-`running` echo to the previous `stopped`).
+    ///
+    /// Lines pushed outside of a run (e.g. future ad-hoc diagnostics)
+    /// carry `None` and fall through to legacy time-window attribution
+    /// on the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -49,13 +65,14 @@ impl Ring {
         }
     }
 
-    fn push(&mut self, stream: Stream, text: String) -> LogLine {
+    fn push(&mut self, stream: Stream, text: String, run_id: Option<String>) -> LogLine {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let line = LogLine {
             seq,
             ts_ms: chrono::Utc::now().timestamp_millis(),
             stream,
             text,
+            run_id,
         };
         if self.buf.len() == self.cap {
             self.buf.pop_front();
@@ -93,12 +110,24 @@ impl LogStore {
         Self::default()
     }
 
-    pub fn push(&self, service_id: &str, stream: Stream, text: String) -> LogLine {
+    /// Append a line to the per-service ring.
+    ///
+    /// `run_id` is the id of the currently-active run for the service that
+    /// owns this log key. Pass `None` for lines emitted outside any run
+    /// (e.g. one-off diagnostics); in practice every supervisor-emitted
+    /// line during a `start_*` → exit cycle passes `Some(...)`.
+    pub fn push(
+        &self,
+        service_id: &str,
+        stream: Stream,
+        text: String,
+        run_id: Option<String>,
+    ) -> LogLine {
         let mut map = self.inner.lock();
         let ring = map
             .entry(service_id.to_string())
             .or_insert_with(|| Ring::new(DEFAULT_CAP));
-        ring.push(stream, text)
+        ring.push(stream, text, run_id)
     }
 
     pub fn tail(&self, service_id: &str, since_seq: u64, limit: usize) -> Vec<LogLine> {

@@ -8,7 +8,7 @@ The overarching goal: transform RunHQ from a **service manager** into a **projec
 
 ## 1. Cross-Project Dashboard
 
-**Priority:** High | **Effort:** Medium | **Status:** Planned
+**Priority:** High | **Effort:** Medium | **Status:** Shipped (feature/32)
 
 The killer feature for developers with dozens of projects. Today, each service card is isolated — there is no way to see the big picture across all projects at once.
 
@@ -20,6 +20,24 @@ The killer feature for developers with dozens of projects. Today, each service c
 - **Dependency Outdatedness** — Show outdated dependency counts from `package.json`, `Cargo.toml`, `go.mod`, etc. with red/yellow/green indicators.
 - **Security Alerts** — Surface `npm audit`, `cargo audit`, and equivalent results across all projects in one view.
 - **Filter & Sort** — Filter by status (dirty, stale, running), runtime (node, rust, go), category, or custom tags. Sort by last activity, resource usage, name.
+
+### Delivered
+
+- `runhq-core::overview` — two-phase aggregator: fast path (git, resources, staleness, tags) and opt-in slow path (`npm outdated` / `cargo outdated` / `npm audit` / `cargo audit`) in parallel with per-command timeouts and a 5-minute memoised cache.
+- Dashboard with filter bar (status, runtime, tags), group / sort dropdowns, resource heatmap, and a worst-offenders panel whose chips jump straight to the relevant drawer tab.
+- **ProjectDetailDrawer** ("triage cockpit") — severity / bump tiles that double as filters, hover-reveal row actions, sticky bulk bar with multi-select + copy-as-script, in-drawer rescan with scan-freshness indicator, and an overflow menu whose "Open in…" submenu lists detected editors and falls back to Finder/Explorer.
+- Auto-hiding macOS-style scrollbars, global `cursor: pointer` on interactive elements, floating drawer (margin + radius) scoped to the content area so the sidebar rail stays visible.
+
+### Deferred — Auto-execute upgrade / CVE-fix commands
+
+Considered but intentionally held off (see discussion on feature/32):
+
+- **Risk surface**: a one-click `npm i pkg@latest` can pull a breaking major, shift peer deps, rewrite the lockfile, and burn minutes of wall time with no obvious rollback. Even with user confirmation, the app would be assuming responsibility for a decision that normally rides on CI, tests, and review.
+- **Current pattern is already 90% of the value**: the drawer emits a ready-to-paste upgrade command per row and a `Copy as script` for the full selection. The user owns the paste into their terminal where their existing safety net (branch, tests, commit hooks) still applies.
+- **If we ever revisit**, the preferred shape is _not_ a background "run and hope" execute. It's:
+  - **"Run in RunHQ terminal" (pre-filled, not submitted)** — open the embedded terminal (`LogPanel`) with `cwd` set and the command typed in, but require the user's Enter. Zero-surprise: the user sees the exact line before it runs.
+  - **Dry-run preflight** where the package manager supports it (`npm install --dry-run`, `cargo update --dry-run`) before the real invocation, so the diff / plan is surfaced first.
+  - **Per-runtime opt-in** — enable per-project, never as a global default.
 
 ### Why
 
@@ -226,13 +244,13 @@ Currently, logs exist only in memory (ring buffers). Restarting the app clears e
 
 The suggested implementation sequence, balancing impact and dependencies:
 
-| Phase       | Features                                 | Rationale                                                                                     |
-| ----------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
-| **Phase 1** | Cross-Project Dashboard, Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness. |
-| **Phase 2** | Quick .env Editor                        | High daily value, relatively self-contained.                                                  |
-| **Phase 3** | Internal Browser, Git Diff Viewer        | Rich UI features that require new embedded components.                                        |
-| **Phase 4** | Service Health Checks, Log Persistence   | Infrastructure improvements that other features can build on.                                 |
-| **Phase 5** | Workspace Snapshots, CLI Interface       | Polish and reach — snapshots for convenience, CLI for new audiences.                          |
+| Phase       | Features                                               | Rationale                                                                                     |
+| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| **Phase 1** | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness. |
+| **Phase 2** | Quick .env Editor                                      | High daily value, relatively self-contained.                                                  |
+| **Phase 3** | Internal Browser, Git Diff Viewer                      | Rich UI features that require new embedded components.                                        |
+| **Phase 4** | Service Health Checks, Log Persistence                 | Infrastructure improvements that other features can build on.                                 |
+| **Phase 5** | Workspace Snapshots, CLI Interface                     | Polish and reach — snapshots for convenience, CLI for new audiences.                          |
 
 ---
 

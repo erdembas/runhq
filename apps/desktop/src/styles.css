@@ -191,20 +191,87 @@ pre,
     rgb(var(--surface));
 }
 
+/*
+ * Tailwind v4 removed `cursor: pointer` from buttons in the preflight
+ * reset, citing "native browser default is auto for <button>". That's
+ * technically true but it breaks decades of web convention and makes
+ * everything interactive feel dead under the pointer.
+ *
+ * We restore v3-era behaviour globally for every plausibly-interactive
+ * element (buttons, role=button, summary, links-as-buttons). Disabled
+ * controls get `not-allowed`, matching what users expect from the OS.
+ *
+ * Scoping is intentionally broad — being opinionated here is cheaper
+ * than audit-tagging 400 buttons with `cursor-pointer`.
+ */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+summary,
+label[for],
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+/*
+ * Auto-hiding scrollbars — macOS "Show scroll bars: When scrolling"
+ * behaviour simulated for Chromium.
+ *
+ * Default state = fully transparent thumb (track is always transparent).
+ * The thumb only materialises when:
+ *   • the user hovers the scrollable element (CSS :hover), or
+ *   • the element actively receives scroll events — marked with the
+ *     data-scrolling="true" attribute that JS toggles on a debounce.
+ *
+ * Why both triggers:
+ *   • Hover covers mouse-wheel / pointer users (they're over the content).
+ *   • data-scrolling covers trackpad / keyboard / programmatic scroll
+ *     where the cursor may be anywhere on screen. Without it a user
+ *     flick-scrolling a sidebar with two fingers would never see where
+ *     they are in the document.
+ *
+ * Firefox: uses `scrollbar-width: thin` + `scrollbar-color` which
+ * Firefox auto-hides natively on macOS, matching the OS pref.
+ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--border-strong) / 0.55);
-  border-radius: 4px;
+  /* 3px transparent border fakes rounded padding around the thumb so it
+   * appears thinner than the 10px gutter — the gutter stays wide enough
+   * to hit easily, the visible pill stays slim. */
+  background-color: transparent;
+  border: 3px solid transparent;
+  border-radius: 10px;
   background-clip: padding-box;
+  transition: background-color 200ms ease;
+}
+*:hover::-webkit-scrollbar-thumb,
+[data-scrolling='true']::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--border-strong) / 0.55);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--border-strong) / 0.85);
+  background-color: rgb(var(--border-strong) / 0.9);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover,
+[data-scrolling='true'] {
+  scrollbar-color: rgb(var(--border-strong) / 0.55) transparent;
 }
 
 .overlay-scroll {

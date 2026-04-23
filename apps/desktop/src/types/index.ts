@@ -39,6 +39,12 @@ export interface ServiceStatus {
   exit_code?: number | null;
   error?: string | null;
   commands: CommandStatus[];
+  /** Correlation id of the currently-active run, populated by the Rust
+   *  supervisor. Present while any command of this service is alive;
+   *  `null` / absent once the last command has exited. The UI uses this
+   *  to deterministically attribute incoming `LogLine`s to the owning
+   *  lifecycle event — no timestamp heuristics. */
+  run_id?: string | null;
 }
 
 export type LogStream = 'stdout' | 'stderr' | 'system';
@@ -48,6 +54,12 @@ export interface LogLine {
   ts_ms: number;
   stream: LogStream;
   text: string;
+  /** Correlation id of the run that produced this line. Rust stamps every
+   *  line emitted between the `start_*` call and the child's exit —
+   *  including the `$ <cmd>` prompt echo and the `[exited code N]`
+   *  closer — with the same id, so the UI can group lines under the
+   *  owning lifecycle event without any timestamp arithmetic. */
+  run_id?: string | null;
 }
 
 export interface LogEvent {
@@ -168,6 +180,86 @@ export interface Section {
   color: SectionColor;
 }
 
+export interface OutdatedPackage {
+  name: string;
+  current: string;
+  latest: string;
+  /** 'major' | 'minor' | 'patch' | null when unclassified. */
+  bump: string | null;
+  homepage: string | null;
+}
+
+export interface OutdatedResult {
+  total: number;
+  major: number;
+  minor: number;
+  patch: number;
+  packages: OutdatedPackage[];
+}
+
+export interface Advisory {
+  /** CVE-*, GHSA-*, or RUSTSEC-* identifier when available. */
+  id: string | null;
+  package: string;
+  /** Normalised to 'critical' | 'high' | 'medium' | 'low' | 'info'. */
+  severity: string;
+  title: string;
+  url: string | null;
+  vulnerable_range: string | null;
+  fix_version: string | null;
+}
+
+export interface AuditResult {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  advisories: Advisory[];
+}
+
+export interface ProjectOverview {
+  service_id: string;
+  name: string;
+  cwd: string;
+  runtime: string | null;
+  is_running: boolean;
+  git_status: GitStatus | null;
+  cpu_percent: number;
+  memory_bytes: number;
+  last_activity: string | null;
+  is_stale: boolean;
+  outdated: OutdatedResult | null;
+  audit: AuditResult | null;
+  tags: string[];
+}
+
+export interface OverviewSummary {
+  projects: ProjectOverview[];
+  total_running: number;
+  total_stopped: number;
+  total_dirty: number;
+  total_behind: number;
+  total_cpu: number;
+  total_memory: number;
+  total_outdated: number;
+  total_vulnerabilities: number;
+  stale_count: number;
+  has_dependency_scan: boolean;
+}
+
+export interface DependencyScanEntry {
+  service_id: string;
+  outdated: OutdatedResult | null;
+  audit: AuditResult | null;
+}
+
+export interface DependencyScanResult {
+  entries: DependencyScanEntry[];
+  total_outdated: number;
+  total_vulnerabilities: number;
+}
+
 export type TimelineEventType =
   | 'service_started'
   | 'service_stopped'
@@ -189,6 +281,10 @@ export interface TimelineEvent {
   service_name: string | null;
   event_type: TimelineEventType;
   description: string;
+  /** Correlation id tying a lifecycle event to every log/file/error it produced
+   *  during the same service run, so the UI can collapse noisy runs. `null`
+   *  for git events, orphan logs, or rows written before this column existed. */
+  run_id: string | null;
 }
 
 export interface DailySummary {

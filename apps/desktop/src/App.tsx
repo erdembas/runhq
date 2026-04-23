@@ -114,11 +114,80 @@ export default function App() {
   // `onStatus` emissions (multi-command services emit one status tick per
   // command transition) don't produce duplicate timeline events.
   const lastLifecycleRef = useRef<Record<string, 'started' | 'stopped' | 'crashed'>>({});
+  // Belt-and-suspenders time-based guard. If the same (service, lifecycle)
+  // pair was already recorded within this window, we drop the duplicate.
+  // Protects against:
+  //   1. Rust-side double-emit (e.g. a future refactor that adds a status
+  //      tick we didn't anticipate — aggregate Running fired twice back to
+  //      back).
+  //   2. React 18 StrictMode async-effect race that can leak the *previous*
+  //      subscription when cleanup runs before the first `await listen`
+  //      resolves, leading to two active listeners receiving the same event.
+  //      The `ref`-based dedup already catches synchronous duplicate
+  //      delivery, but some IPC transports schedule listeners via
+  //      microtasks / postMessage and the two handlers can end up in
+  //      separate ticks — long enough for both to pass the `prev !== cur`
+  //      check before either updates the ref. The time guard closes that.
+  const lastLifecycleTsRef = useRef<Record<string, number>>({});
+  const LIFECYCLE_DEDUP_MS = 1500;
+
+  // Per-service "current event bucket id" used only to stamp DB-recorded
+  // child events (log_error / log_warning) so they can be rolled up under
+  // the owning lifecycle row in the timeline.
+  //
+  // Semantics by lifecycle:
+  //   - `started`  → take the id straight from Rust's `status.run_id`. The
+  //                  supervisor mints it BEFORE spawning any process, so
+  //                  the same id is already stamped on the `$ <cmd>` echo
+  //                  and every subsequent stdout/stderr line. Using it on
+  //                  the frontend side gives us a single, authoritative
+  //                  correlation key — no mint-on-arrival, no timestamp
+  //                  windowing, no IPC-jitter fragility.
+  //   - `stopped`/`crashed` → Rust has already cleared its run id by the
+  //                  time we see this status (the last command's exit is
+  //                  what *produced* the transition). We mint a local id
+  //                  here purely to give those lifecycle rows their own
+  //                  bucket so any post-stop diagnostics surface under
+  //                  Stop rather than silently merging into the prior Run.
+  const runIdsRef = useRef<Record<string, string>>({});
+
+  const makeRunId = useCallback(() => {
+    // `crypto.randomUUID` is available in every modern webview Tauri targets;
+    // fall back to a timestamp-based id if the API is somehow missing so we
+    // never silently break the correlation.
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }, []);
 
   useEffect(() => {
+    // StrictMode-safe subscription pattern.
+    //
+    // The naive version — `unsubs.push(await events.onStatus(…))` inside a
+    // fire-and-forget IIFE — has a subtle race in React 18 dev StrictMode:
+    // the effect runs → cleanup runs → effect runs again. If the first
+    // `await listen()` hasn't resolved by the time cleanup runs, the first
+    // subscription's unlisten never makes it into `unsubs`, the cleanup
+    // walks an empty array, and the first listener leaks. The re-mount
+    // then establishes a *second* listener, so every future
+    // `service://status` event fires both handlers. That's exactly the
+    // "two Started events for one start" symptom.
+    //
+    // Fix: check `cancelled` after each await and immediately drop the
+    // just-registered listener if the effect has already torn down. This
+    // keeps at most one live subscription per channel at all times.
+    let cancelled = false;
     const unsubs: Array<() => void> = [];
+    const register = (unlisten: () => void) => {
+      if (cancelled) {
+        unlisten();
+      } else {
+        unsubs.push(unlisten);
+      }
+    };
     (async () => {
-      unsubs.push(
+      register(
         await events.onStatus((status) => {
           setStatus(status);
 
@@ -148,9 +217,40 @@ export default function App() {
           // timeline entry; the baseline is silent.
           if (prev === undefined && lifecycle !== 'started') {
             lastLifecycleRef.current[status.id] = lifecycle;
+            lastLifecycleTsRef.current[status.id] = Date.now();
+            return;
+          }
+          // Second line of defense: even if `prev` got reset somehow (new
+          // subscription from a StrictMode re-mount, etc.), drop any event
+          // that duplicates the most recent lifecycle for this service
+          // within a short window. Different lifecycles in rapid succession
+          // (e.g. crashed → started on auto-restart) are legitimate and
+          // pass through because we key the timestamp by service only;
+          // what we're blocking is N copies of the *same* status.
+          const nowMs = Date.now();
+          const lastTs = lastLifecycleTsRef.current[status.id];
+          if (
+            prev === undefined &&
+            lifecycle === 'started' &&
+            lastTs != null &&
+            nowMs - lastTs < LIFECYCLE_DEDUP_MS
+          ) {
+            lastLifecycleRef.current[status.id] = lifecycle;
+            lastLifecycleTsRef.current[status.id] = nowMs;
             return;
           }
           lastLifecycleRef.current[status.id] = lifecycle;
+          lastLifecycleTsRef.current[status.id] = nowMs;
+
+          // ── Event bucket correlation ──────────────────────────────────
+          // Prefer the run id that Rust has already stamped on every log
+          // line of this run (see `Supervisor::start_all`). For Started
+          // events it WILL be present — the supervisor inserts it before
+          // `start_one` emits the shell-prompt echo. For Stopped/Crashed
+          // the supervisor has already cleared it (the run is over), so
+          // we mint a fresh local id for that bucket.
+          const runId = lifecycle === 'started' && status.run_id ? status.run_id : makeRunId();
+          runIdsRef.current[status.id] = runId;
 
           const svc = useAppStore.getState().services.find((s) => s.id === status.id);
           const name = svc?.name ?? status.id;
@@ -188,11 +288,11 @@ export default function App() {
           }
 
           ipc
-            .recordTimelineEvent(eventType, status.id, svc?.name ?? null, description)
+            .recordTimelineEvent(eventType, status.id, svc?.name ?? null, description, runId)
             .catch(() => {});
         }),
       );
-      unsubs.push(
+      register(
         await events.onLog((ev) => {
           appendLog(logKey(ev.service_id, ev.cmd_name), ev.line);
           if (ev.line.stream === 'stderr') {
@@ -202,6 +302,12 @@ export default function App() {
               text.includes('error') || text.includes('fatal') || text.includes('panic');
             if (isError || isWarning) {
               const svc = useAppStore.getState().services.find((s) => s.id === ev.service_id);
+              // Attach the log to whatever run is currently open for this
+              // service. If it's null (e.g. stderr arriving between `stopped`
+              // and the next `started`, or before we ever saw a `started`
+              // for this service), the log goes in ungrouped — which is
+              // correct; there's no parent to collapse it into.
+              const runId = runIdsRef.current[ev.service_id] ?? null;
               // Preserve enough context for the timeline detail view to actually
               // show the useful part of a stack trace / error body, not just
               // the first 200 chars which usually cut off mid-message.
@@ -211,13 +317,14 @@ export default function App() {
                   ev.service_id,
                   svc?.name ?? null,
                   ev.line.text.slice(0, 1500),
+                  runId,
                 )
                 .catch(() => {});
             }
           }
         }),
       );
-      unsubs.push(
+      register(
         await events.onResources((ev) =>
           setResources(ev.service_id, {
             cpu_percent: ev.cpu_percent,
@@ -226,8 +333,11 @@ export default function App() {
         ),
       );
     })();
-    return () => unsubs.forEach((u) => u());
-  }, [setStatus, appendLog, setResources]);
+    return () => {
+      cancelled = true;
+      unsubs.forEach((u) => u());
+    };
+  }, [setStatus, appendLog, setResources, makeRunId]);
 
   useEffect(() => {
     let alive = true;
@@ -246,6 +356,34 @@ export default function App() {
       clearInterval(id);
     };
   }, [setPorts]);
+
+  // Cross-project overview polling — drives the dashboard's Stale / Risk /
+  // Outdated pills and per-card chips. 30s cadence is deliberate: git status
+  // + last-commit lookups shell out per project, and the UI doesn't need
+  // sub-second freshness for "is this project stale?". The Rust side also
+  // caches dependency-scan output (5 min TTL), so an explicit "Scan
+  // dependencies" click is what actually refreshes audit/outdated numbers.
+  useEffect(() => {
+    const store = useAppStore.getState();
+    let alive = true;
+    const poll = async () => {
+      try {
+        store.setOverviewLoading(true);
+        const data = await ipc.getProjectOverview(30);
+        if (alive) store.setOverview(data);
+      } catch (err) {
+        console.error('get_project_overview failed', err);
+      } finally {
+        if (alive) store.setOverviewLoading(false);
+      }
+    };
+    void poll();
+    const id = setInterval(poll, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubs: Array<() => void> = [];

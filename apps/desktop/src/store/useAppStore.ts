@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type {
+  DependencyScanResult,
   DetectedEditor,
   GitStatus,
   ListeningPort,
   LogLine,
+  OverviewSummary,
   ResourceSample,
   Section,
   SectionColor,
@@ -22,6 +24,16 @@ interface LogBuffer {
 
 export type SidebarGroupBy = 'none' | 'category' | 'runtime' | 'status';
 export type DashboardGroupBy = 'none' | 'category' | 'runtime' | 'status';
+/**
+ * Dashboard intra-group sort axis.
+ *   • name      — alphabetical (default, stable)
+ *   • activity  — most-recent commit first, never-touched last
+ *   • risk      — CVE+outdated composite, worst first (zero-risk projects
+ *                 keep their alphabetical order to avoid a weird reshuffle)
+ *   • memory    — running projects by RSS desc, then non-running alphabetical
+ *   • cpu       — running projects by CPU% desc, then non-running alphabetical
+ */
+export type DashboardSortBy = 'name' | 'activity' | 'risk' | 'memory' | 'cpu';
 export type SidebarStatusFilter = 'all' | 'running' | 'stopped';
 
 interface AppStore {
@@ -63,6 +75,7 @@ interface AppStore {
    */
   sidebarGroupBy: SidebarGroupBy;
   dashboardGroupBy: DashboardGroupBy;
+  dashboardSortBy: DashboardSortBy;
   search: string;
   editorService: ServiceDef | null | undefined;
   stacks: StackDef[];
@@ -100,6 +113,7 @@ interface AppStore {
   setSidebarStatusFilter: (v: SidebarStatusFilter) => void;
   setSidebarGroupBy: (v: SidebarGroupBy) => void;
   setDashboardGroupBy: (v: DashboardGroupBy) => void;
+  setDashboardSortBy: (v: DashboardSortBy) => void;
   resetSidebarFilters: () => void;
   setSearch: (q: string) => void;
   openEditor: (service: ServiceDef | null) => void;
@@ -123,6 +137,46 @@ interface AppStore {
   timelineOpen: boolean;
   openTimeline: () => void;
   closeTimeline: () => void;
+
+  /**
+   * Cross-project overview data (git staleness, last activity, running
+   * state, dependency & audit counts). Populated by a background poll
+   * in `App.tsx` — the dashboard reads it to surface `Stale`/`Risk`/
+   * `Outdated` filter pills and the per-card deps/audit chips that open
+   * the `ProjectDetailDrawer`.
+   *
+   * `null` until the first poll resolves; the UI treats that as "no data
+   * yet, hide attention affordances" rather than "zero attention".
+   */
+  overview: OverviewSummary | null;
+  overviewLoading: boolean;
+  /**
+   * True while `scan_project_dependencies` is running on the Rust side.
+   * The dashboard "Scan dependencies" button reads this to swap in a
+   * spinner and prevent double-submits; per-card shimmer is driven off
+   * the same flag.
+   */
+  overviewScanning: boolean;
+  /**
+   * Timestamp (millis since epoch) of the last successful dependency
+   * scan merge. `null` until the first scan completes — the dashboard
+   * reads this to show a "Last scan: 4m ago" indicator so the user
+   * knows whether the Outdated/CVE numbers are current or stale.
+   *
+   * Stored as `number` (not `Date`) because Zustand shallow-equals by
+   * reference; primitives avoid unnecessary re-renders.
+   */
+  lastScanAt: number | null;
+  setOverview: (v: OverviewSummary | null) => void;
+  setOverviewLoading: (v: boolean) => void;
+  setOverviewScanning: (v: boolean) => void;
+  /**
+   * Merge a `DependencyScanResult` into the currently-cached overview
+   * in place — preserves git / runtime / process state so the scan
+   * button doesn't blow away a freshly-polled snapshot. Stamps
+   * `lastScanAt` with the current wall-clock time.
+   */
+  patchOverviewScan: (result: DependencyScanResult) => void;
 }
 
 const MAX_UI_LOG_LINES = 5_000;
@@ -186,25 +240,29 @@ const initialSidebarPrefs = loadSidebarPrefs();
 
 interface DashboardPrefs {
   groupBy: DashboardGroupBy;
+  sortBy: DashboardSortBy;
 }
 
+const VALID_GROUP_BYS: DashboardGroupBy[] = ['none', 'category', 'runtime', 'status'];
+const VALID_SORT_BYS: DashboardSortBy[] = ['name', 'activity', 'risk', 'memory', 'cpu'];
+
 function loadDashboardPrefs(): DashboardPrefs {
-  if (typeof window === 'undefined') return { groupBy: 'category' };
+  const defaults: DashboardPrefs = { groupBy: 'category', sortBy: 'name' };
+  if (typeof window === 'undefined') return defaults;
   try {
     const raw = window.localStorage.getItem(DASHBOARD_PREFS_KEY);
-    if (!raw) return { groupBy: 'category' };
+    if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<DashboardPrefs>;
     return {
-      groupBy:
-        parsed.groupBy === 'none' ||
-        parsed.groupBy === 'category' ||
-        parsed.groupBy === 'runtime' ||
-        parsed.groupBy === 'status'
-          ? parsed.groupBy
-          : 'category',
+      groupBy: VALID_GROUP_BYS.includes(parsed.groupBy as DashboardGroupBy)
+        ? (parsed.groupBy as DashboardGroupBy)
+        : defaults.groupBy,
+      sortBy: VALID_SORT_BYS.includes(parsed.sortBy as DashboardSortBy)
+        ? (parsed.sortBy as DashboardSortBy)
+        : defaults.sortBy,
     };
   } catch {
-    return { groupBy: 'category' };
+    return defaults;
   }
 }
 
@@ -308,6 +366,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sidebarStatusFilter: initialSidebarPrefs.statusFilter,
   sidebarGroupBy: initialSidebarPrefs.groupBy,
   dashboardGroupBy: initialDashboardPrefs.groupBy,
+  dashboardSortBy: initialDashboardPrefs.sortBy,
   search: '',
   editorService: undefined,
   stacks: [],
@@ -437,7 +496,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setDashboardGroupBy: (v) => {
     set({ dashboardGroupBy: v });
-    saveDashboardPrefs({ groupBy: v });
+    saveDashboardPrefs({ groupBy: v, sortBy: get().dashboardSortBy });
+  },
+  setDashboardSortBy: (v) => {
+    set({ dashboardSortBy: v });
+    saveDashboardPrefs({ groupBy: get().dashboardGroupBy, sortBy: v });
   },
   resetSidebarFilters: () => {
     set({
@@ -620,4 +683,31 @@ export const useAppStore = create<AppStore>((set, get) => ({
   timelineOpen: false,
   openTimeline: () => set({ timelineOpen: true }),
   closeTimeline: () => set({ timelineOpen: false }),
+
+  overview: null,
+  overviewLoading: false,
+  overviewScanning: false,
+  lastScanAt: null,
+  setOverview: (v) => set({ overview: v }),
+  setOverviewLoading: (v) => set({ overviewLoading: v }),
+  setOverviewScanning: (v) => set({ overviewScanning: v }),
+  patchOverviewScan: (result) =>
+    set((s) => {
+      if (!s.overview) return s;
+      const byId = new Map(result.entries.map((e) => [e.service_id, e]));
+      const projects = s.overview.projects.map((p) => {
+        const hit = byId.get(p.service_id);
+        return hit ? { ...p, outdated: hit.outdated, audit: hit.audit } : p;
+      });
+      return {
+        overview: {
+          ...s.overview,
+          projects,
+          total_outdated: result.total_outdated,
+          total_vulnerabilities: result.total_vulnerabilities,
+          has_dependency_scan: true,
+        },
+        lastScanAt: Date.now(),
+      };
+    }),
 }));
