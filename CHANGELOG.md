@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Ships the Cross-Project Dashboard — the killer feature for developers
+with dozens of projects. Turns RunHQ from a per-service manager into a
+bird's-eye view that answers "which ones are out of date? which have
+uncommitted work? which are hogging resources?" without visiting each
+project individually.
+
+### Features
+
+- **overview:** cross-project dashboard closing the full
+  [#32](https://github.com/erdembas/runhq/issues/32) scope —
+  Git Status Matrix, Resource Heatmap, Last Activity Tracker,
+  Dependency Outdatedness, Security Alerts, and Filter & Sort all in
+  one screen.
+- **overview:** two-phase aggregator in `runhq-core::overview`. The
+  fast path (git status, resource samples, staleness, tags) returns in
+  tens of ms; the opt-in slow path runs `npm outdated` / `cargo
+  outdated` / `npm audit` / `cargo audit` in parallel with per-command
+  timeouts and memoises results for 5 minutes, so re-opening the
+  dashboard or flipping filters never re-spawns scans.
+- **overview:** `ProjectDetailDrawer` — a per-project "triage
+  cockpit". Severity- and bump-tinted tabs, a **triage rail** where
+  tiles double as both count summary *and* filter, multi-select with
+  a sticky bulk bar that copies all selected upgrade commands as a
+  shell script, in-drawer rescan with scan-freshness indicator, and
+  an "Open in…" overflow submenu listing detected editors with a
+  Finder/Explorer fallback. Advisory rows keep the external-link
+  button persistently visible because reading the GHSA write-up is
+  the primary triage action, not a secondary one.
+- **overview:** dashboard filter bar restructured into three logical
+  chambers — **Organize** (Group / Sort dropdowns) · **Git** (All /
+  Dirty / Clean / Ahead / Behind / No upstream) · **Attention**
+  (Stale / Risk / Outdated). Each chamber is a single flex-child so
+  its label stays glued to its pills; chambers are separated by a
+  vertical divider plus a larger `gap-x-5`, so the row reads as three
+  distinct units instead of a flat stream of controls.
+- **overview:** WorstOffenders band surfaces the top N projects
+  weighted by CVE severity × outdated majors; chips are clickable and
+  jump straight to the relevant drawer tab.
+- **overview:** resource heatmap sorts the running fleet by
+  RAM / CPU, non-running projects pushed to the bottom so they never
+  wedge between hot ones.
+- **ui:** auto-hiding macOS-style scrollbars (visible only during
+  scroll), global `cursor: pointer` on interactive elements, floating
+  drawer (margin + radius) scoped to the content area so the sidebar
+  rail stays visible underneath.
+
+### Deferred
+
+- **Auto-execute upgrade / CVE-fix commands** — intentionally held
+  off. A one-click `npm i pkg@latest` can pull breaking majors, shift
+  peer deps, rewrite the lockfile, and burn minutes with no obvious
+  rollback; responsibility for that decision normally lives in CI,
+  tests, and review. The current *copy-as-script* pattern already
+  captures ~90% of the value with zero risk surface. If ever
+  revisited, the preferred shape is **"Run in RunHQ terminal"**: open
+  the embedded terminal with `cwd` set and the command pre-filled but
+  *not submitted* — the user sees the exact line and hits Enter
+  themselves. See ROADMAP.md §1 for the full reasoning.
+
+### Removed
+
+- **dashboard:** the two 4-up stat grids at the top of the dashboard
+  (Running / Starting / Stopped / Failed and CVE / Outdated / Stale /
+  Dirty). Each one duplicated information already present in the
+  page header summary, the filter bar chips, and the WorstOffenders
+  band — on a quiet day they burned ~200px of vertical real estate
+  to display mostly zeros, pushing the actual project cards below the
+  fold. Their filter affordances survived intact in the filter bar
+  chips, which are tighter and more honest about being *filters*.
+- **components:** orphaned `StatTile` / `AttentionTile` components
+  and their barrel export.
+- **components:** old `ProjectDashboard` modal replaced by the
+  integrated dashboard + drawer flow.
+
 ## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-23)
 
 
