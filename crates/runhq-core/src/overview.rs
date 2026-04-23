@@ -299,14 +299,6 @@ fn check_audit_with_timeout(cwd: &Path, runtime: Option<&str>) -> Option<AuditRe
     }
 }
 
-fn check_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
-    check_outdated_with_timeout(cwd, runtime)
-}
-
-fn check_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
-    check_audit_with_timeout(cwd, runtime)
-}
-
 fn check_npm_outdated(cwd: &Path) -> Option<OutdatedResult> {
     let output = run_timed("npm", &["outdated", "--json"], cwd, OUTDATED_TIMEOUT)?;
     parse_npm_outdated(&output.stdout)
