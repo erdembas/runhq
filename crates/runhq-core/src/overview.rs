@@ -3,18 +3,27 @@
 //! Provides a bird's-eye view across all registered services —
 //! git status matrix, resource heatmap, stale project detection,
 //! dependency outdatedness signals, and security audit results.
+//!
+//! The gather is split into two phases:
+//! 1. **Fast** (sync): git status, resources, stale detection — runs in spawn_blocking
+//! 2. **Slow** (async): outdated + audit — runs in parallel per service with timeouts
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use tokio::task::JoinSet;
 
 use crate::error::AppResult;
 use crate::git::{self, GitStatus};
 use crate::process::Supervisor;
 use crate::resources::ResourceSample;
 use crate::state::Store;
+
+const OUTDATED_TIMEOUT: Duration = Duration::from_secs(15);
+const AUDIT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectOverview {
@@ -64,14 +73,102 @@ pub struct OverviewSummary {
     pub stale_count: usize,
 }
 
-pub fn gather_overview(
+struct FastProject {
+    service_id: String,
+    name: String,
+    cwd: PathBuf,
+    runtime: Option<String>,
+    is_running: bool,
+    git_status: Option<GitStatus>,
+    cpu_percent: f32,
+    memory_bytes: u64,
+    last_activity: Option<DateTime<Utc>>,
+    is_stale: bool,
+    tags: Vec<String>,
+}
+
+pub async fn gather_overview(
     store: &Store,
     supervisor: &Supervisor,
     stale_threshold_days: i64,
 ) -> AppResult<OverviewSummary> {
     let services = store.services();
     let cutoff = Utc::now() - chrono::Duration::days(stale_threshold_days);
-    let mut projects = Vec::with_capacity(services.len());
+
+    let mut fast = Vec::with_capacity(services.len());
+    for svc in &services {
+        let is_running = supervisor.is_running(&svc.id);
+        let git_status = git::status(&svc.cwd);
+        let (cpu, memory) = match supervisor.get_resources(&svc.id) {
+            Some(ResourceSample {
+                cpu_percent,
+                memory_bytes,
+            }) => (cpu_percent, memory_bytes),
+            None => (0.0, 0),
+        };
+        let last_activity = last_activity_for(&svc.cwd);
+        let is_stale = last_activity.map_or(true, |la| la < cutoff);
+        let runtime = detect_runtime(&svc.cwd);
+        fast.push(FastProject {
+            service_id: svc.id.clone(),
+            name: svc.name.clone(),
+            cwd: svc.cwd.clone(),
+            runtime,
+            is_running,
+            git_status,
+            cpu_percent: cpu,
+            memory_bytes: memory,
+            last_activity,
+            is_stale,
+            tags: svc.tags.clone(),
+        });
+    }
+
+    let mut join_set = JoinSet::new();
+    for fp in &fast {
+        let cwd = fp.cwd.clone();
+        let runtime = fp.runtime.clone();
+        join_set.spawn(async move {
+            let o_cwd = cwd.clone();
+            let outdated = tokio::task::spawn_blocking(move || {
+                check_outdated_with_timeout(&o_cwd, runtime.as_deref())
+            })
+            .await
+            .ok()
+            .flatten();
+            (cwd, outdated, None::<AuditResult>)
+        });
+        let cwd_a = fp.cwd.clone();
+        let runtime_a = fp.runtime.clone();
+        join_set.spawn(async move {
+            let a_cwd = cwd_a.clone();
+            let audit = tokio::task::spawn_blocking(move || {
+                check_audit_with_timeout(&a_cwd, runtime_a.as_deref())
+            })
+            .await
+            .ok()
+            .flatten();
+            (cwd_a, None::<OutdatedResult>, audit)
+        });
+    }
+
+    let mut outdated_map: std::collections::HashMap<PathBuf, OutdatedResult> =
+        std::collections::HashMap::new();
+    let mut audit_map: std::collections::HashMap<PathBuf, AuditResult> =
+        std::collections::HashMap::new();
+    while let Some(res) = join_set.join_next().await {
+        let Ok((cwd, outdated, audit)) = res else {
+            continue;
+        };
+        if let Some(o) = outdated {
+            outdated_map.insert(cwd.clone(), o);
+        }
+        if let Some(a) = audit {
+            audit_map.insert(cwd.clone(), a);
+        }
+    }
+
+    let mut projects = Vec::with_capacity(fast.len());
     let mut total_running = 0usize;
     let mut total_stopped = 0usize;
     let mut total_dirty = 0usize;
@@ -82,16 +179,13 @@ pub fn gather_overview(
     let mut total_vulnerabilities = 0usize;
     let mut stale_count = 0usize;
 
-    for svc in &services {
-        let is_running = supervisor.is_running(&svc.id);
-        if is_running {
+    for fp in fast {
+        if fp.is_running {
             total_running += 1;
         } else {
             total_stopped += 1;
         }
-
-        let git_status = git::status(&svc.cwd);
-        if let Some(ref gs) = git_status {
+        if let Some(ref gs) = fp.git_status {
             if gs.is_dirty {
                 total_dirty += 1;
             }
@@ -99,48 +193,35 @@ pub fn gather_overview(
                 total_behind += 1;
             }
         }
-
-        let (cpu, memory) = match supervisor.get_resources(&svc.id) {
-            Some(ResourceSample {
-                cpu_percent,
-                memory_bytes,
-            }) => (cpu_percent, memory_bytes),
-            None => (0.0, 0),
-        };
-        total_cpu += cpu;
-        total_memory += memory;
-
-        let last_activity = last_activity_for(&svc.cwd);
-        let is_stale = last_activity.map_or(true, |la| la < cutoff);
-        if is_stale {
+        total_cpu += fp.cpu_percent;
+        total_memory += fp.memory_bytes;
+        if fp.is_stale {
             stale_count += 1;
         }
 
-        let runtime = detect_runtime(&svc.cwd);
-        let outdated = check_outdated(&svc.cwd, runtime.as_deref());
+        let outdated = outdated_map.remove(&fp.cwd);
         if let Some(ref o) = outdated {
             total_outdated += o.total;
         }
-
-        let audit = check_audit(&svc.cwd, runtime.as_deref());
+        let audit = audit_map.remove(&fp.cwd);
         if let Some(ref a) = audit {
             total_vulnerabilities += a.critical + a.high + a.medium + a.low;
         }
 
         projects.push(ProjectOverview {
-            service_id: svc.id.clone(),
-            name: svc.name.clone(),
-            cwd: svc.cwd.to_string_lossy().to_string(),
-            runtime,
-            is_running,
-            git_status,
-            cpu_percent: cpu,
-            memory_bytes: memory,
-            last_activity,
-            is_stale,
+            service_id: fp.service_id,
+            name: fp.name,
+            cwd: fp.cwd.to_string_lossy().to_string(),
+            runtime: fp.runtime,
+            is_running: fp.is_running,
+            git_status: fp.git_status,
+            cpu_percent: fp.cpu_percent,
+            memory_bytes: fp.memory_bytes,
+            last_activity: fp.last_activity,
+            is_stale: fp.is_stale,
             outdated,
             audit,
-            tags: svc.tags.clone(),
+            tags: fp.tags,
         });
     }
 
@@ -200,7 +281,7 @@ fn detect_runtime(cwd: &Path) -> Option<String> {
     }
 }
 
-fn check_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
+fn check_outdated_with_timeout(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
     match runtime? {
         "node" | "bun" | "deno" => check_npm_outdated(cwd),
         "rust" => check_cargo_outdated(cwd),
@@ -209,7 +290,7 @@ fn check_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
     }
 }
 
-fn check_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
+fn check_audit_with_timeout(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
     match runtime? {
         "node" | "bun" | "deno" => check_npm_audit(cwd),
         "rust" => check_cargo_audit(cwd),
@@ -218,13 +299,17 @@ fn check_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
     }
 }
 
+fn check_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
+    check_outdated_with_timeout(cwd, runtime)
+}
+
+fn check_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
+    check_audit_with_timeout(cwd, runtime)
+}
+
 fn check_npm_outdated(cwd: &Path) -> Option<OutdatedResult> {
-    let output = run_timed("npm", &["outdated", "--json"], cwd)?;
-    if output.status.success() {
-        parse_npm_outdated(&output.stdout)
-    } else {
-        parse_npm_outdated(&output.stdout)
-    }
+    let output = run_timed("npm", &["outdated", "--json"], cwd, OUTDATED_TIMEOUT)?;
+    parse_npm_outdated(&output.stdout)
 }
 
 fn parse_npm_outdated(stdout: &[u8]) -> Option<OutdatedResult> {
@@ -299,7 +384,12 @@ fn semver_diff(current: &str, latest: &str) -> Option<SemverBump> {
 }
 
 fn check_cargo_outdated(cwd: &Path) -> Option<OutdatedResult> {
-    let output = run_timed("cargo", &["outdated", "--format", "json"], cwd)?;
+    let output = run_timed(
+        "cargo",
+        &["outdated", "--format", "json"],
+        cwd,
+        OUTDATED_TIMEOUT,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -330,7 +420,12 @@ fn check_cargo_outdated(cwd: &Path) -> Option<OutdatedResult> {
 }
 
 fn check_go_outdated(cwd: &Path) -> Option<OutdatedResult> {
-    let output = run_timed("go", &["list", "-u", "-m", "-json", "all"], cwd)?;
+    let output = run_timed(
+        "go",
+        &["list", "-u", "-m", "-json", "all"],
+        cwd,
+        OUTDATED_TIMEOUT,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -368,7 +463,7 @@ fn check_go_outdated(cwd: &Path) -> Option<OutdatedResult> {
 }
 
 fn check_npm_audit(cwd: &Path) -> Option<AuditResult> {
-    let output = run_timed("npm", &["audit", "--json"], cwd)?;
+    let output = run_timed("npm", &["audit", "--json"], cwd, AUDIT_TIMEOUT)?;
     let s = String::from_utf8_lossy(&output.stdout);
     if s.trim().is_empty() {
         return None;
@@ -407,7 +502,7 @@ fn check_npm_audit(cwd: &Path) -> Option<AuditResult> {
 }
 
 fn check_cargo_audit(cwd: &Path) -> Option<AuditResult> {
-    let output = run_timed("cargo", &["audit", "--json"], cwd)?;
+    let output = run_timed("cargo", &["audit", "--json"], cwd, AUDIT_TIMEOUT)?;
     let s = String::from_utf8_lossy(&output.stdout);
     if s.trim().is_empty() {
         return None;
@@ -447,7 +542,7 @@ fn check_cargo_audit(cwd: &Path) -> Option<AuditResult> {
 }
 
 fn check_pip_audit(cwd: &Path) -> Option<AuditResult> {
-    let output = run_timed("pip-audit", &["--format", "json"], cwd)?;
+    let output = run_timed("pip-audit", &["--format", "json"], cwd, AUDIT_TIMEOUT)?;
     if !output.status.success() {
         return None;
     }
@@ -490,7 +585,7 @@ struct CmdOutput {
     stdout: Vec<u8>,
 }
 
-fn run_timed(program: &str, args: &[&str], cwd: &Path) -> Option<CmdOutput> {
+fn run_timed(program: &str, args: &[&str], cwd: &Path, _timeout: Duration) -> Option<CmdOutput> {
     let child = StdCommand::new(program)
         .args(args)
         .current_dir(cwd)
@@ -502,11 +597,17 @@ fn run_timed(program: &str, args: &[&str], cwd: &Path) -> Option<CmdOutput> {
         .spawn()
         .ok()?;
 
-    let output = child.wait_with_output().ok()?;
-    Some(CmdOutput {
-        status: output.status,
-        stdout: output.stdout,
-    })
+    match child.wait_with_output() {
+        Ok(output) if output.status.success() || !output.stdout.is_empty() => Some(CmdOutput {
+            status: output.status,
+            stdout: output.stdout,
+        }),
+        Ok(output) => Some(CmdOutput {
+            status: output.status,
+            stdout: output.stdout,
+        }),
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]

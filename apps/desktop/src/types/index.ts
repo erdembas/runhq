@@ -39,6 +39,12 @@ export interface ServiceStatus {
   exit_code?: number | null;
   error?: string | null;
   commands: CommandStatus[];
+  /** Correlation id of the currently-active run, populated by the Rust
+   *  supervisor. Present while any command of this service is alive;
+   *  `null` / absent once the last command has exited. The UI uses this
+   *  to deterministically attribute incoming `LogLine`s to the owning
+   *  lifecycle event — no timestamp heuristics. */
+  run_id?: string | null;
 }
 
 export type LogStream = 'stdout' | 'stderr' | 'system';
@@ -48,6 +54,12 @@ export interface LogLine {
   ts_ms: number;
   stream: LogStream;
   text: string;
+  /** Correlation id of the run that produced this line. Rust stamps every
+   *  line emitted between the `start_*` call and the child's exit —
+   *  including the `$ <cmd>` prompt echo and the `[exited code N]`
+   *  closer — with the same id, so the UI can group lines under the
+   *  owning lifecycle event without any timestamp arithmetic. */
+  run_id?: string | null;
 }
 
 export interface LogEvent {

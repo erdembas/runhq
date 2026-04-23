@@ -44,6 +44,24 @@ interface ConsoleLine {
   severity: 'error' | 'warn' | 'info' | 'system';
 }
 
+/** One tab in the ConsoleOutput block — isolates a single command's transcript
+ *  so 4 concurrently-spawned processes don't end up interleaved in one
+ *  chronological blob (useless for debugging "which of the 4 backends logged
+ *  this"). Each section carries its own severity counts so the tab header
+ *  can surface "2 errors" / "1 warn" chips without re-scanning the lines at
+ *  render time. */
+interface ConsoleSection {
+  /** Stable tab key: `cmd::<name>` for live data, `all` for legacy DB fallback
+   *  (log_error/log_warning rows aren't tagged with a cmd_name). */
+  key: string;
+  /** Display label — typically the command name; `All` for the DB-only
+   *  fallback when cmd-level splitting is not available. */
+  label: string;
+  lines: ConsoleLine[];
+  errors: number;
+  warnings: number;
+}
+
 /** Heuristic severity for a live log line. Stream alone isn't enough — lots
  *  of dev tools emit non-error output on stderr (Vite progress, pnpm chatter,
  *  yarn "Port … in use" probes) — so we also scan for error/warn keywords.
@@ -316,14 +334,15 @@ function saveTimelineCollapsed(collapsed: boolean): void {
 // localStorage so the next session remembers the exact width (not some
 // rounded "small/medium/large" preset).
 //
-// MIN is 320 because below that the filter pills start to clip the
-// scrollbar — tested with the widest label set ("Commits", "Pushes",
-// "Errors"). MAX is 720 which still leaves room for the main log panel
-// on a 1440px screen; going wider turns the activity bar into a second
-// primary column, which is not what this panel is for.
+// MIN is 400 — below that the header action cluster (Standup + Refresh +
+// Pin) starts chewing into the title and the filter pill row loses too
+// many visible pills before the user has to scroll. MAX is 720 which
+// still leaves room for the main log panel on a 1440px screen; going
+// wider turns the activity bar into a second primary column, which is
+// not what this panel is for.
 const TIMELINE_COLLAPSED_W = 44;
-const TIMELINE_MIN_W = 320;
-const TIMELINE_MAX_W = 720;
+const TIMELINE_MIN_W = 400;
+const TIMELINE_MAX_W = 600;
 const TIMELINE_DEFAULT_W = 420;
 const TIMELINE_WIDTH_KEY = 'runhq.timeline.width.v1';
 
@@ -785,13 +804,30 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     return groups;
   }, [visibleEvents]);
 
-  // ─────────────── Live console output windows ───────────────
-  // For each lifecycle event, compute the set of live log lines that fall in
-  // its "ownership window" — from this event's timestamp to the timestamp of
-  // the NEXT lifecycle event for the same service (or now, if this is the
-  // latest one). Runs in O(n log n) over a small window of events; `now`
-  // ticks every 30 s so an in-progress run's window keeps extending without
-  // a data refresh.
+  // ─────────────── Live console output per event, split by command ───────────────
+  // Deterministic attribution by `run_id`, grouped by `cmd_name`.
+  //
+  // Both `LogLine` and the owning `service_started` row carry the same
+  // `run_id` — minted in the Rust supervisor BEFORE the child is spawned,
+  // stamped on every line the supervisor emits (prompt echo, pre-command
+  // banners, stdout/stderr, the `[exited]` closer), and surfaced on the
+  // `ServiceStatus` that produces the Started lifecycle event. Matching
+  // `line.run_id === event.run_id` is therefore a single lookup with zero
+  // dependence on IPC ordering or wall-clock jitter between `emit_log`
+  // and `emit_status`.
+  //
+  // Within each event, lines are kept bucketed by the command that
+  // produced them (we know the cmd_name from the `logsBySvc` key that
+  // held the line). This lets the UI render one tab per command inside
+  // a single lifecycle event — critical for multi-command services like
+  // a 4-process `dotnet run` stack, where merging all output into one
+  // chronological blob destroys the signal about *which* process logged
+  // what.
+  //
+  // A legacy time-window fallback stays in place ONLY for events that
+  // have no `run_id` — i.e. rows recorded by a previous app version
+  // (before run-id propagation) or log lines from a still-buffered
+  // pre-upgrade run. New rows will never fall into that branch.
   const liveLinesByEventId = useMemo(() => {
     const LIFECYCLE_TYPES: TimelineEvent['event_type'][] = [
       'service_started',
@@ -804,53 +840,140 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
       if (!LIFECYCLE_TYPES.includes(e.event_type)) continue;
       (bySvc[e.service_id] ||= []).push(e);
     }
-    const result = new Map<number, LogLine[]>();
+    // eventId → (cmdName → lines). Using a nested map (rather than flat
+    // `cmd::name` keys) keeps the intent explicit at the call site and
+    // avoids accidental key collisions if a cmd name ever contained `::`.
+    const result = new Map<number, Map<string, LogLine[]>>();
     for (const [serviceId, lifecycleEvents] of Object.entries(bySvc)) {
       const svc = services.find((s) => s.id === serviceId);
       if (!svc) continue;
-      const allLines: LogLine[] = [];
+
+      // Primary path: for each cmd buffer, bucket ITS lines by run_id.
+      // Keeps (run_id, cmd_name) as a composite key without ever
+      // concatenating; when we later assemble the event's sections, we
+      // walk the cmd buffers in the service's declared order so tabs
+      // preserve the user's configured ordering.
+      type CmdBuckets = {
+        byRun: Map<string, LogLine[]>;
+        orphans: LogLine[];
+      };
+      const perCmd = new Map<string, CmdBuckets>();
+      let hasAnyLine = false;
+      let hasAnyOrphan = false;
       for (const cmd of svc.cmds) {
         const buf = logsBySvc[logKey(serviceId, cmd.name)];
-        if (buf && buf.lines.length > 0) allLines.push(...buf.lines);
+        if (!buf || buf.lines.length === 0) continue;
+        hasAnyLine = true;
+        const buckets: CmdBuckets = { byRun: new Map(), orphans: [] };
+        for (const l of buf.lines) {
+          if (l.run_id) {
+            const list = buckets.byRun.get(l.run_id);
+            if (list) list.push(l);
+            else buckets.byRun.set(l.run_id, [l]);
+          } else {
+            buckets.orphans.push(l);
+            hasAnyOrphan = true;
+          }
+        }
+        for (const list of buckets.byRun.values()) {
+          list.sort((a, b) => a.ts_ms - b.ts_ms || a.seq - b.seq);
+        }
+        buckets.orphans.sort((a, b) => a.ts_ms - b.ts_ms || a.seq - b.seq);
+        perCmd.set(cmd.name, buckets);
       }
-      if (allLines.length === 0) continue;
-      allLines.sort((a, b) => a.ts_ms - b.ts_ms || a.seq - b.seq);
-      // Sort ASC so "next lifecycle" is the immediate neighbor.
+      if (!hasAnyLine) continue;
+
+      for (const ev of lifecycleEvents) {
+        if (!ev.run_id) continue;
+        const perCmdForEvent = new Map<string, LogLine[]>();
+        for (const cmd of svc.cmds) {
+          const buckets = perCmd.get(cmd.name);
+          if (!buckets) continue;
+          const lines = buckets.byRun.get(ev.run_id);
+          if (lines && lines.length > 0) perCmdForEvent.set(cmd.name, lines);
+        }
+        if (perCmdForEvent.size > 0) result.set(ev.id, perCmdForEvent);
+      }
+
+      // ── Fallback: time-window attribution for untagged data ──
+      // Only engage when we actually have untagged lines AND lifecycle
+      // events without a run_id. Skips the whole branch for freshly
+      // stamped runs (the common case) so we pay no extra cost there.
+      const legacyEvents = lifecycleEvents.filter((e) => !e.run_id);
+      if (legacyEvents.length === 0 || !hasAnyOrphan) continue;
+
       const sortedLifecycle = [...lifecycleEvents].sort(
         (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       );
       for (let i = 0; i < sortedLifecycle.length; i++) {
         const ev = sortedLifecycle[i]!;
+        if (ev.run_id) continue;
         const startMs = new Date(ev.timestamp).getTime();
-        // Use an exclusive upper bound for the NEXT lifecycle event so a
-        // single log line can't double-count into two adjacent buckets
-        // (e.g. a stderr emitted at exactly the same ms as `stopped`
-        // stays with the `started` run, which is what users expect — it
-        // was caused by the running process, not by the stop itself).
         const endMs =
           i + 1 < sortedLifecycle.length
             ? new Date(sortedLifecycle[i + 1]!.timestamp).getTime()
             : Date.now() + 1000;
-        const windowLines = allLines.filter((l) => l.ts_ms >= startMs && l.ts_ms < endMs);
-        if (windowLines.length > 0) result.set(ev.id, windowLines);
+        const perCmdForEvent = new Map<string, LogLine[]>();
+        for (const cmd of svc.cmds) {
+          const buckets = perCmd.get(cmd.name);
+          if (!buckets || buckets.orphans.length === 0) continue;
+          const windowLines = buckets.orphans.filter((l) => l.ts_ms >= startMs && l.ts_ms < endMs);
+          if (windowLines.length > 0) perCmdForEvent.set(cmd.name, windowLines);
+        }
+        if (perCmdForEvent.size > 0) result.set(ev.id, perCmdForEvent);
       }
     }
     return result;
   }, [events, logsBySvc, services]);
 
-  // Build the unified ConsoleLine[] for a lifecycle event: prefer live
-  // buffer (comprehensive) over DB children (keyword-filtered slice).
-  // Falls back to the DB view only when the buffer has nothing in range
-  // — typically because this is a run from a previous app session and
-  // the live buffer has been flushed on restart.
-  const consoleLinesFor = useCallback(
-    (e: TimelineEvent): ConsoleLine[] => {
+  // Assemble per-command sections for a lifecycle event.
+  //
+  // Live buffers (comprehensive, stream-complete) take precedence — we
+  // emit one tab per command that actually produced output during this
+  // run. The command order mirrors the service definition so the tabs
+  // don't reshuffle mid-session when a later command happens to log
+  // first. When the live buffer is empty (historical run whose in-memory
+  // transcript was flushed on app restart), we fall back to DB-persisted
+  // `log_error`/`log_warning` rows rolled up under one "All" tab — the
+  // DB schema doesn't carry `cmd_name` on those rows, so cmd-level
+  // splitting is not available for legacy data.
+  const consoleSectionsFor = useCallback(
+    (e: TimelineEvent): ConsoleSection[] => {
       const live = liveLinesByEventId.get(e.id);
-      if (live && live.length > 0) return live.map(toConsoleLineFromLive);
+      if (live && live.size > 0) {
+        const sections: ConsoleSection[] = [];
+        // Honor the service's declared command order so tabs are stable
+        // across sessions regardless of which cmd happened to log first.
+        const svc = e.service_id ? services.find((s) => s.id === e.service_id) : undefined;
+        const orderedNames = svc ? svc.cmds.map((c) => c.name) : [...live.keys()];
+        for (const name of orderedNames) {
+          const lines = live.get(name);
+          if (!lines || lines.length === 0) continue;
+          const consoleLines = lines.map(toConsoleLineFromLive);
+          sections.push({
+            key: `cmd::${name}`,
+            label: name,
+            lines: consoleLines,
+            errors: consoleLines.filter((c) => c.severity === 'error').length,
+            warnings: consoleLines.filter((c) => c.severity === 'warn').length,
+          });
+        }
+        if (sections.length > 0) return sections;
+      }
       const dbChildren = e.run_id ? childrenByRun.get(e.run_id) : undefined;
-      return (dbChildren ?? []).map(toConsoleLineFromDb);
+      if (!dbChildren || dbChildren.length === 0) return [];
+      const consoleLines = dbChildren.map(toConsoleLineFromDb);
+      return [
+        {
+          key: 'all',
+          label: 'All',
+          lines: consoleLines,
+          errors: consoleLines.filter((c) => c.severity === 'error').length,
+          warnings: consoleLines.filter((c) => c.severity === 'warn').length,
+        },
+      ];
     },
-    [liveLinesByEventId, childrenByRun],
+    [liveLinesByEventId, childrenByRun, services],
   );
 
   // `all` is the logical opposite of a filter (= show everything), so it
@@ -1090,19 +1213,22 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     const tsMs = new Date(e.timestamp).getTime();
     const isFresh = Date.now() - tsMs < 10_000;
 
-    // ─── Console output for this lifecycle event ───
-    // `consoleLinesFor` prefers the live in-memory buffer (full stdout +
-    // stderr of the running session) and falls back to DB-persisted
-    // error/warning rows only when the buffer is empty (pre-restart data).
-    // Stats drive the little count chip in the title row so the user sees
-    // "how noisy was this run" without expanding it.
-    const consoleLines = consoleLinesFor(e);
+    // ─── Per-command console sections for this lifecycle event ───
+    // `consoleSectionsFor` prefers the live in-memory buffers (full
+    // stdout+stderr of the running session, split per command) and
+    // falls back to a single DB-backed section when the buffer is empty
+    // (pre-restart / historical data). Stats drive the little count
+    // chip in the title row — computed across ALL sections so the
+    // number reflects the whole lifecycle event, not just whichever
+    // tab happens to be active.
+    const consoleSections = consoleSectionsFor(e);
+    const consoleLineCount = consoleSections.reduce((n, s) => n + s.lines.length, 0);
     const childStats =
-      consoleLines.length > 0
+      consoleLineCount > 0
         ? {
-            total: consoleLines.length,
-            errors: consoleLines.filter((c) => c.severity === 'error').length,
-            warnings: consoleLines.filter((c) => c.severity === 'warn').length,
+            total: consoleLineCount,
+            errors: consoleSections.reduce((n, s) => n + s.errors, 0),
+            warnings: consoleSections.reduce((n, s) => n + s.warnings, 0),
             files: 0,
           }
         : null;
@@ -1344,15 +1470,16 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
                       </div>
                     </div>
 
-                    {/* Per-event console output — every log line stamped with
-                        THIS lifecycle's bucket id rendered as a real terminal
-                        would: monospace, ANSI-colored, timestamped, in
-                        chronological order (oldest → newest). Same palette as
-                        LogPanel so the two views feel interchangeable. */}
-                    {consoleLines.length > 0 && (
+                    {/* Per-event, per-command console output. For multi-
+                        command services this renders as tabs (one per
+                        command) so you can isolate e.g. "platform-api"'s
+                        transcript without the "console-api" logs bleeding
+                        into the same scroll. Single-command services
+                        collapse to a plain terminal block with no tab
+                        row — same as before. */}
+                    {consoleSections.length > 0 && (
                       <ConsoleOutput
-                        lines={consoleLines}
-                        stats={childStats}
+                        sections={consoleSections}
                         ansi={ansi}
                         isDark={isDark}
                         microSize={size.micro}
@@ -1445,9 +1572,18 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
           }, 0);
         return (
           <div key={group.bucket}>
+            {/* Sticky date group header.
+             *  - `z-20` has to beat the event row's dot (`z-10`) so the
+             *    first row's lightning icon doesn't poke above the
+             *    header as the list scrolls.
+             *  - Solid `bg-surface` (not `/92` transparency) for the
+             *    same reason: a half-transparent header let the dot
+             *    and the git-history connector line bleed through it,
+             *    breaking the illusion that the header is above the
+             *    feed. */}
             <div
               className={cn(
-                'bg-surface/92 border-border/30 sticky top-0 z-10 flex items-center gap-2 border-b backdrop-blur-sm',
+                'bg-surface border-border/30 sticky top-0 z-20 flex items-center gap-2 border-b',
                 size.padX,
                 'py-2',
               )}
@@ -1507,13 +1643,14 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     // source so the modal matches 1:1 with what the LogPanel shows for a
     // currently-running service. Falls back to DB children for pre-restart
     // runs where the buffer is empty.
-    const modalConsoleLines = consoleLinesFor(modalEvent);
+    const modalConsoleSections = consoleSectionsFor(modalEvent);
+    const modalConsoleLineCount = modalConsoleSections.reduce((n, s) => n + s.lines.length, 0);
     const modalChildStats =
-      modalConsoleLines.length > 0
+      modalConsoleLineCount > 0
         ? {
-            total: modalConsoleLines.length,
-            errors: modalConsoleLines.filter((c) => c.severity === 'error').length,
-            warnings: modalConsoleLines.filter((c) => c.severity === 'warn').length,
+            total: modalConsoleLineCount,
+            errors: modalConsoleSections.reduce((n, s) => n + s.errors, 0),
+            warnings: modalConsoleSections.reduce((n, s) => n + s.warnings, 0),
             files: 0,
           }
         : null;
@@ -1572,8 +1709,7 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
 
           {modalChildStats && (
             <ConsoleOutput
-              lines={modalConsoleLines}
-              stats={modalChildStats}
+              sections={modalConsoleSections}
               ansi={ansi}
               isDark={isDark}
               microSize="text-[10.5px]"
@@ -1945,50 +2081,93 @@ function EventBadge({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// ConsoleOutput — renders the child log lines of a lifecycle event as a
-// dark, monospace "terminal" block, mirroring LogPanel's visual language.
+// ConsoleOutput — renders the per-command log sections of a lifecycle event
+// as a dark, monospace "terminal" block with tabs for each command.
 //
 // Design notes:
-// - Lines come in DESC (newest first) from the DB query. We render them in
-//   ASC order here because a terminal reads top-to-bottom, oldest-to-newest.
-// - Stdout/stderr mix in real terminals; here every stored line is stderr
-//   (that's our recording filter), so we color them all with the stderr
-//   tint from the palette but preserve whatever ANSI escapes the process
-//   emitted (yellow "warn" words, red "error" labels, dim stack frames…).
-// - Timestamps are rendered as `HH:MM:SS.mmm` so successive lines from a
-//   crash burst are distinguishable at sub-second granularity — matches
-//   what `journalctl`/`docker logs -t` show. Muted so the ANSI output
-//   stays the focal point.
-// - Warnings get an amber gutter bar; errors get rose; anything else grey.
-//   Subtle, not distracting — the real signal is still the colored text.
+// - One tab per command. A service that fans out 4 processes on start
+//   gets 4 independent transcripts instead of one interleaved mess —
+//   matches how a developer mentally models "process A's output" vs
+//   "process B's output" when debugging. With a single command, the
+//   tab row is hidden entirely so the chrome doesn't get in the way.
+// - Default selected tab: the noisiest one with errors, else warnings,
+//   else the one with the most lines. Picks up where the user's
+//   attention would naturally land.
+// - Lines come in DESC (newest first) from the DB query. We render them
+//   in ASC order here because a terminal reads top-to-bottom,
+//   oldest-to-newest. Stable tie-break on `key` keeps same-ms lines
+//   deterministic across renders.
+// - Severity chips (errors/warnings) appear both in the section header
+//   and in each tab's label so you can tell where the noise is at a
+//   glance without cycling through every tab.
 // ─────────────────────────────────────────────────────────────────────────
 function ConsoleOutput({
-  lines,
-  stats,
+  sections,
   ansi,
   isDark,
   microSize,
   metaSize,
   maxHeightClass = 'max-h-80',
 }: {
-  lines: ConsoleLine[];
-  stats: { total: number; errors: number; warnings: number; files: number } | null;
+  sections: ConsoleSection[];
   ansi: ReturnType<typeof makeAnsiConverter>;
   isDark: boolean;
   microSize: string;
   metaSize: string;
   maxHeightClass?: string;
 }) {
+  // Aggregate stats for the block header — gives "how noisy was this run
+  // overall" at a glance, independent of which tab happens to be active.
+  const totals = useMemo(() => {
+    let total = 0;
+    let errors = 0;
+    let warnings = 0;
+    for (const s of sections) {
+      total += s.lines.length;
+      errors += s.errors;
+      warnings += s.warnings;
+    }
+    return { total, errors, warnings };
+  }, [sections]);
+
+  // Default tab: prefer the loudest (errors > warnings > line count) so
+  // the user lands on whichever process most likely explains why they
+  // opened this event. Falls through to the first section if all are
+  // equally quiet.
+  const defaultKey = useMemo(() => {
+    if (sections.length === 0) return '';
+    const ranked = [...sections].sort((a, b) => {
+      if (a.errors !== b.errors) return b.errors - a.errors;
+      if (a.warnings !== b.warnings) return b.warnings - a.warnings;
+      return b.lines.length - a.lines.length;
+    });
+    return ranked[0]!.key;
+  }, [sections]);
+
+  const [activeKey, setActiveKey] = useState<string>(defaultKey);
+
+  // Keep the tab selection resilient to section churn: if the live
+  // buffer of a still-running service adds/removes cmd tabs between
+  // renders, or if a freshly-opened event mints a different `defaultKey`,
+  // snap to the current default rather than leave `activeKey` pointing
+  // at a vanished tab (which would render an empty body).
+  useEffect(() => {
+    if (sections.length === 0) return;
+    if (!sections.some((s) => s.key === activeKey)) {
+      setActiveKey(defaultKey);
+    }
+  }, [sections, activeKey, defaultKey]);
+
+  const activeSection = sections.find((s) => s.key === activeKey) ?? sections[0];
   const ordered = useMemo(() => {
-    // Live buffer lines come sorted by seq already, DB children arrive DESC
-    // from SQLite. Either way, enforce chronological (oldest→newest) order
-    // here so the reader scans top-down like a real terminal. Stable tie-
-    // break on `key` keeps same-ms lines deterministic across renders.
-    return [...lines].sort((a, b) => {
+    if (!activeSection) return [] as ConsoleLine[];
+    return [...activeSection.lines].sort((a, b) => {
       if (a.ts_ms !== b.ts_ms) return a.ts_ms - b.ts_ms;
       return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
     });
-  }, [lines]);
+  }, [activeSection]);
+
+  const hasTabs = sections.length > 1;
 
   return (
     <div className="border-border/30 mt-4 border-t pt-3">
@@ -2000,9 +2179,14 @@ function ConsoleOutput({
       >
         <span>Console output</span>
         <span className="text-fg/25 tabular-nums">
-          · {ordered.length} line{ordered.length === 1 ? '' : 's'}
+          · {totals.total} line{totals.total === 1 ? '' : 's'}
         </span>
-        {stats && stats.errors > 0 && (
+        {hasTabs && (
+          <span className="text-fg/25 tabular-nums">
+            · {sections.length} command{sections.length === 1 ? '' : 's'}
+          </span>
+        )}
+        {totals.errors > 0 && (
           <span
             className={cn(
               'flex items-center gap-1 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-rose-400 normal-case tabular-nums',
@@ -2010,21 +2194,63 @@ function ConsoleOutput({
             )}
           >
             <XCircle size={10} />
-            {stats.errors}
+            {totals.errors}
           </span>
         )}
-        {stats && stats.warnings > 0 && (
+        {totals.warnings > 0 && (
           <span
             className={cn(
               'flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-400 normal-case tabular-nums',
-              stats.errors === 0 && 'ml-auto',
+              totals.errors === 0 && 'ml-auto',
             )}
           >
             <AlertTriangle size={10} />
-            {stats.warnings}
+            {totals.warnings}
           </span>
         )}
       </div>
+      {hasTabs && (
+        <div className="overlay-scroll -mx-0.5 mb-2 flex items-center gap-1 overflow-x-auto px-0.5 pb-1">
+          {sections.map((s) => {
+            const isActive = s.key === (activeSection?.key ?? '');
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setActiveKey(s.key);
+                }}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 font-mono transition',
+                  microSize,
+                  isActive
+                    ? 'border-accent/40 bg-accent/10 text-fg'
+                    : 'border-border/40 text-fg/55 hover:border-border/70 hover:text-fg/85',
+                )}
+                title={`${s.label} · ${s.lines.length} line${s.lines.length === 1 ? '' : 's'}`}
+              >
+                <span className="truncate">{s.label}</span>
+                <span className={cn('tabular-nums', isActive ? 'text-fg/55' : 'text-fg/35')}>
+                  {s.lines.length}
+                </span>
+                {s.errors > 0 && (
+                  <span className="flex items-center gap-0.5 rounded-full bg-rose-500/15 px-1 text-rose-400 tabular-nums">
+                    <XCircle size={9} />
+                    {s.errors}
+                  </span>
+                )}
+                {s.errors === 0 && s.warnings > 0 && (
+                  <span className="flex items-center gap-0.5 rounded-full bg-amber-500/15 px-1 text-amber-400 tabular-nums">
+                    <AlertTriangle size={9} />
+                    {s.warnings}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div
         className={cn(
           'overlay-scroll overflow-auto rounded-md border font-mono',

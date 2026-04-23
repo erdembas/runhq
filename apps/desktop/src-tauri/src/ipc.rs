@@ -410,12 +410,14 @@ pub fn stop_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStat
 // ---- Overview -------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_project_overview(
+pub async fn get_project_overview(
     stale_threshold_days: Option<i64>,
     state: State<'_, AppState>,
 ) -> AppResult<OverviewSummary> {
     let threshold = stale_threshold_days.unwrap_or(30);
-    overview::gather_overview(&state.store, &state.supervisor, threshold).map_err(AppError::from)
+    overview::gather_overview(&state.store, &state.supervisor, threshold)
+        .await
+        .map_err(AppError::from)
 }
 
 // ---- Timeline -------------------------------------------------------------

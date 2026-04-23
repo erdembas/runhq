@@ -133,14 +133,24 @@ export default function App() {
   const lastLifecycleTsRef = useRef<Record<string, number>>({});
   const LIFECYCLE_DEDUP_MS = 1500;
 
-  // Per-service "current event bucket id" — a UUID minted for EACH lifecycle
-  // event (`started`, `stopped`, `crashed`). Stored in `run_id` on the DB row,
-  // but semantically it's a *per-event* group, not a per-run one: the Start
-  // row owns every log line between itself and the next lifecycle event, the
-  // Stop row owns anything that arrives after it, and so on. This lets the
-  // timeline show "Start → its console output" and "Stop → its own (usually
-  // empty) console output" as separate, expandable buckets — matching what
-  // the user sees in a real terminal where each phase has its own log stream.
+  // Per-service "current event bucket id" used only to stamp DB-recorded
+  // child events (log_error / log_warning) so they can be rolled up under
+  // the owning lifecycle row in the timeline.
+  //
+  // Semantics by lifecycle:
+  //   - `started`  → take the id straight from Rust's `status.run_id`. The
+  //                  supervisor mints it BEFORE spawning any process, so
+  //                  the same id is already stamped on the `$ <cmd>` echo
+  //                  and every subsequent stdout/stderr line. Using it on
+  //                  the frontend side gives us a single, authoritative
+  //                  correlation key — no mint-on-arrival, no timestamp
+  //                  windowing, no IPC-jitter fragility.
+  //   - `stopped`/`crashed` → Rust has already cleared its run id by the
+  //                  time we see this status (the last command's exit is
+  //                  what *produced* the transition). We mint a local id
+  //                  here purely to give those lifecycle rows their own
+  //                  bucket so any post-stop diagnostics surface under
+  //                  Stop rather than silently merging into the prior Run.
   const runIdsRef = useRef<Record<string, string>>({});
 
   const makeRunId = useCallback(() => {
@@ -235,12 +245,13 @@ export default function App() {
           lastLifecycleTsRef.current[status.id] = nowMs;
 
           // ── Event bucket correlation ──────────────────────────────────
-          // Every lifecycle event starts its OWN bucket: Start gets one id,
-          // Stop gets another, Crashed gets another. Subsequent log lines
-          // (stderr errors/warnings) stamp themselves with whatever bucket
-          // is currently active for this service — so logs during the run
-          // belong to Start, trailing logs after stop belong to Stop, etc.
-          const runId = makeRunId();
+          // Prefer the run id that Rust has already stamped on every log
+          // line of this run (see `Supervisor::start_all`). For Started
+          // events it WILL be present — the supervisor inserts it before
+          // `start_one` emits the shell-prompt echo. For Stopped/Crashed
+          // the supervisor has already cleared it (the run is over), so
+          // we mint a fresh local id for that bucket.
+          const runId = lifecycle === 'started' && status.run_id ? status.run_id : makeRunId();
           runIdsRef.current[status.id] = runId;
 
           const svc = useAppStore.getState().services.find((s) => s.id === status.id);
