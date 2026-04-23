@@ -119,6 +119,10 @@ interface AppStore {
   /** Assign a service to a section, or pass `null` to move it to Unassigned. */
   assignServiceToSection: (serviceId: ServiceId, sectionId: SectionId | null) => void;
   assignStackToSection: (stackId: string, sectionId: SectionId | null) => void;
+
+  timelineOpen: boolean;
+  openTimeline: () => void;
+  closeTimeline: () => void;
 }
 
 const MAX_UI_LOG_LINES = 5_000;
@@ -612,4 +616,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       collapsedSections: s.collapsedSections,
     });
   },
+
+  timelineOpen: false,
+  openTimeline: () => set({ timelineOpen: true }),
+  closeTimeline: () => set({ timelineOpen: false }),
 }));

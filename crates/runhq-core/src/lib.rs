@@ -34,6 +34,7 @@ pub mod process;
 pub mod resources;
 pub mod scanner;
 pub mod state;
+pub mod timeline;
 
 pub use error::{AppError, AppResult};
 pub use events::EventSink;

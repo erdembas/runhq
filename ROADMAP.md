@@ -47,31 +47,7 @@ With dozens of projects, repeating the same command in each directory is tedious
 
 ---
 
-## 3. Activity Timeline
-
-**Priority:** High | **Effort:** Low-Medium | **Status:** Planned
-
-A chronological record of everything that happened across all projects — the answer to "what did I work on today?"
-
-### Scope
-
-- **Unified Timeline** — Chronological feed of events across all projects:
-  - Service started / stopped / crashed
-  - Git commits, pushes, branch checkouts
-  - Log errors and warnings
-  - File changes (via filesystem watcher or git diff)
-- **Daily & Weekly Summaries** — "Today you worked on 4 projects, made 12 commits, restarted 3 services." Aggregate by project, type, and time.
-- **Standup Export** — Generate a "what I did yesterday" summary for standup meetings. Copy to clipboard or export as markdown.
-- **Filter by Project / Type / Time** — Narrow the timeline to a specific project, event type, or time range.
-- **Persistent Storage** — Store timeline events in a local SQLite database (not just in-memory). Survive app restarts.
-
-### Why
-
-Every morning standup: "What did you do yesterday?" Instead of digging through 6 repos and shell history, one screen gives you the answer.
-
----
-
-## 4. Internal Browser
+## 3. Internal Browser
 
 **Priority:** High | **Effort:** Medium-High | **Status:** Planned
 
@@ -98,7 +74,7 @@ When developing a web service, you constantly switch between editor, terminal, a
 
 ---
 
-## 5. Quick Config & .env Editor
+## 4. Quick Config & .env Editor
 
 **Priority:** High | **Effort:** Low | **Status:** Planned
 
@@ -119,7 +95,7 @@ Config files are the most frequently edited files during local development, but 
 
 ---
 
-## 6. Git Diff Viewer
+## 5. Git Diff Viewer
 
 **Priority:** Medium-High | **Effort:** Medium | **Status:** Planned
 
@@ -145,7 +121,7 @@ See what changed without opening an editor or running `git diff` in a terminal.
 
 ---
 
-## 7. Workspace Snapshots
+## 6. Workspace Snapshots
 
 **Priority:** Medium | **Effort:** Low-Medium | **Status:** Planned
 
@@ -165,7 +141,7 @@ Context switching between different tasks or projects is expensive. If you spent
 
 ---
 
-## 8. Service Health Checks & Readiness Probes
+## 7. Service Health Checks & Readiness Probes
 
 **Priority:** Medium-High | **Effort:** Medium | **Status:** Planned
 
@@ -197,7 +173,7 @@ A process can be running but not ready (still initializing, waiting for a databa
 
 ---
 
-## 9. CLI Interface
+## 8. CLI Interface
 
 **Priority:** Medium | **Effort:** Low-Medium | **Status:** Planned
 
@@ -225,7 +201,7 @@ Not every workflow needs a GUI. A CLI enables scripting, CI/CD integration, SSH 
 
 ---
 
-## 10. Log Persistence & Search
+## 9. Log Persistence & Search
 
 **Priority:** Medium | **Effort:** Medium | **Status:** Planned
 
@@ -253,7 +229,7 @@ The suggested implementation sequence, balancing impact and dependencies:
 | Phase       | Features                                 | Rationale                                                                                     |
 | ----------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
 | **Phase 1** | Cross-Project Dashboard, Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness. |
-| **Phase 2** | Activity Timeline, Quick .env Editor     | High daily value, relatively self-contained.                                                  |
+| **Phase 2** | Quick .env Editor                        | High daily value, relatively self-contained.                                                  |
 | **Phase 3** | Internal Browser, Git Diff Viewer        | Rich UI features that require new embedded components.                                        |
 | **Phase 4** | Service Health Checks, Log Persistence   | Infrastructure improvements that other features can build on.                                 |
 | **Phase 5** | Workspace Snapshots, CLI Interface       | Polish and reach — snapshots for convenience, CLI for new audiences.                          |

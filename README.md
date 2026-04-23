@@ -5,13 +5,16 @@
 <h1 align="center">RunHQ</h1>
 <p align="center">
   <b>The universal local service orchestrator.</b><br />
-  Native dev processes — Node, Go, .NET, Python, Java, Rust, Ruby, PHP, Docker — with one UI, one port watchdog, embedded terminal, and unified logs.
+  One window to start, stop, monitor, and debug every local dev service —<br />
+  Node, Go, .NET, Python, Java, Rust, Ruby, PHP, Docker — without containers.
 </p>
 
 <p align="center">
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <a href="https://runhq.dev"><img alt="website" src="https://img.shields.io/badge/runhq.dev-live-orange" /></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" />
-  <img alt="status" src="https://img.shields.io/badge/status-MVP-yellow" />
+  <img alt="ram" src="https://img.shields.io/badge/RAM-%3C100MB-green" />
+  <img alt="telemetry" src="https://img.shields.io/badge/telemetry-zero-brightgreen" />
 </p>
 
 <p align="center">
@@ -20,9 +23,19 @@
   </a>
 </p>
 
+<p align="center">
+  <a href="https://runhq.dev/#install"><strong>Install →</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://runhq.dev">Website</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/erdembas/runhq/issues">Issues</a>
+  &nbsp;·&nbsp;
+  <a href="./ROADMAP.md">Roadmap</a>
+</p>
+
 ---
 
-## Why?
+## Why RunHQ?
 
 Terminal tabs are a mess. Containers are heavy. You open a terminal for the web app, another for the API, a third for the worker, a fourth for the database container, then you `lsof -i :3000` because something is still holding the port. RunHQ replaces that ritual with a single always-open control panel — without forcing your code into Docker.
 
@@ -32,6 +45,25 @@ Every project also has its own ritual: `pnpm dev` here, `go run ./cmd/api` there
 - **Every project, every command, one window.** Custom commands per service, open-in-editor across 8 editors, embedded PTY terminal, Cmd+K palette, Cmd+Shift+K global hotkey.
 - **Local, private, offline.** No telemetry, no cloud sync, no account.
 - **One window to rule them.** Start / stop / restart, kill ports, search logs, in one place.
+
+## Comparison
+
+|                        | **RunHQ**                                                       | **Foreman / Honcho** | **PM2**               | **Docker Desktop**    | **Overmind**    |
+| ---------------------- | --------------------------------------------------------------- | -------------------- | --------------------- | --------------------- | --------------- |
+| **UI**                 | Native desktop (Tauri)                                          | CLI only             | CLI + web dashboard   | Electron GUI          | Terminal (tmux) |
+| **Runtimes**           | 10 (Node, Go, .NET, Python, Java, Rust, Ruby, PHP, Docker, Bun) | Procfile only        | Node.js-first         | Docker only           | Procfile only   |
+| **RAM idle**           | < 100 MB                                                        | ~0 (CLI)             | ~60 MB                | 1–4 GB                | ~0 (tmux)       |
+| **Auto-discovery**     | Yes — scans project dirs                                        | No                   | No                    | No                    | No              |
+| **Port watchdog**      | Yes — live TCP list, one-click kill                             | No                   | No                    | Partial               | No              |
+| **Embedded terminal**  | Yes (full PTY)                                                  | No                   | No                    | Yes (limited)         | Yes (tmux)      |
+| **Command palette**    | Yes (Cmd+K, global hotkey)                                      | No                   | No                    | No                    | No              |
+| **Editor integration** | 8 editors (VS Code, Cursor, Zed, …)                             | No                   | No                    | No                    | No              |
+| **Cross-platform**     | macOS, Linux, Windows                                           | macOS, Linux         | macOS, Linux, Windows | macOS, Linux, Windows | macOS, Linux    |
+| **Container required** | No                                                              | No                   | No                    | Yes                   | No              |
+| **Telemetry**          | None                                                            | None                 | Optional              | Yes                   | None            |
+| **License**            | MIT                                                             | MIT                  | AGPL-3.0              | Proprietary           | MIT             |
+
+> RunHQ is not a replacement for Docker — it's the thing you reach for when Docker is overkill. Use it alongside containers or without them.
 
 ## Features
 
@@ -63,7 +95,13 @@ brew tap erdembas/tap
 brew install --cask runhq
 ```
 
-Upgrade later with `brew upgrade --cask runhq`. The cask clears macOS's quarantine attribute automatically on install, so RunHQ opens on first launch with no warnings or terminal tricks.
+Upgrade later by `brew upgrade --cask runhq`. The cask clears macOS's quarantine attribute automatically on install, so RunHQ opens on first launch with no warnings or terminal tricks.
+
+### winget (Windows)
+
+```powershell
+winget install erdembas.RunHQ
+```
 
 ### Download from GitHub Releases
 

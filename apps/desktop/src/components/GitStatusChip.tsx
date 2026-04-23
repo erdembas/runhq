@@ -21,7 +21,7 @@ import { GitStatusBadge } from '@/components/ui/GitStatusBadge';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
 import { useAppStore } from '@/store/useAppStore';
-import type { ServiceId } from '@/types';
+import type { GitStatus, ServiceId, TimelineEventType } from '@/types';
 
 /** Poll cadence for the selected service's git snapshot. 15s keeps the badge
  *  meaningful without spamming the git CLI — the user sees branch switches
@@ -57,14 +57,33 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
   const amendInputRef = useRef<HTMLInputElement | null>(null);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
 
+  // One-shot suppression of polling-derived events when the user just took an
+  // in-app action whose semantics are more specific than what the poller can
+  // infer. Example: explicit "New branch from X" should record as
+  // `git_branch_created`, not the generic `git_checkout` the poller would
+  // otherwise emit on the next tick.
+  const suppressBranchSwitchRef = useRef<string | null>(null);
+
+  const recordEvent = useCallback(
+    (type: TimelineEventType, description: string) => {
+      const svc = useAppStore.getState().services.find((s) => s.id === serviceId);
+      ipc.recordTimelineEvent(type, serviceId, svc?.name ?? null, description).catch(() => {});
+    },
+    [serviceId],
+  );
+
   const refreshStatus = useCallback(async () => {
     try {
-      const s = await ipc.gitStatus(serviceId);
-      setGit(serviceId, s);
+      const latest = await ipc.gitStatus(serviceId);
+      const prev = useAppStore.getState().git[serviceId];
+      setGit(serviceId, latest);
+      if (latest && prev) {
+        detectAndRecordGitEvents(prev, latest, suppressBranchSwitchRef, recordEvent);
+      }
     } catch (e) {
       console.error('git_status failed', e);
     }
-  }, [serviceId, setGit]);
+  }, [serviceId, setGit, recordEvent]);
 
   // Initial fetch + polling while mounted. Resets whenever the selected
   // service changes so each service gets a fresh load on focus instead of
@@ -143,7 +162,9 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
   // "Sync" = fetch then pull only if actually behind. `git pull` internally
   // fetches, but running fetch first lets us skip the merge attempt entirely
   // when nothing new came down, avoiding the "Already up to date." noise and
-  // any spurious ff-only failure message.
+  // any spurious ff-only failure message. The pull itself will be picked up
+  // by the status poller on the follow-up refresh (behind count drops) and
+  // recorded as a `git_pull` event — no manual call needed here.
   const runSync = useCallback(async () => {
     setBusy('sync');
     setErr(null);
@@ -169,7 +190,12 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
     setBusy('create');
     setErr(null);
     try {
+      // `git checkout -b name` both creates and switches. The poller would
+      // therefore fire `git_checkout` on the next tick — suppress that once
+      // so we get the more specific `git_branch_created` event instead.
+      suppressBranchSwitchRef.current = name;
       await ipc.gitCreateBranch(serviceId, name);
+      recordEvent('git_branch_created', `Created branch ${name}`);
       setNewBranch('');
       setCreating(false);
       await refreshStatus();
@@ -183,12 +209,13 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
         // non-fatal
       }
     } catch (e) {
+      suppressBranchSwitchRef.current = null;
       const msg = e instanceof Error ? e.message : String(e);
       setErr(msg || 'Create branch failed');
     } finally {
       setBusy(null);
     }
-  }, [serviceId, newBranch, refreshStatus]);
+  }, [serviceId, newBranch, refreshStatus, recordEvent]);
 
   // Focus the New-branch input when it expands so the user can type
   // immediately without a second click.
@@ -521,7 +548,16 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
                   <ActionBtn
                     disabled={busy !== null || !is_dirty}
                     loading={busy === 'stash'}
-                    onClick={() => void run('stash', () => ipc.gitStash(serviceId, null))}
+                    onClick={() =>
+                      void run('stash', async () => {
+                        const priorDirty = dirty_count;
+                        await ipc.gitStash(serviceId, null);
+                        recordEvent(
+                          'git_stash',
+                          `Stashed ${priorDirty} change${priorDirty === 1 ? '' : 's'}`,
+                        );
+                      })
+                    }
                     icon={<Archive className="h-3 w-3" />}
                     label="Stash"
                     title={!is_dirty ? 'Nothing to stash' : 'git stash push --include-untracked'}
@@ -529,7 +565,12 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
                   <ActionBtn
                     disabled={busy !== null}
                     loading={busy === 'pop'}
-                    onClick={() => void run('pop', () => ipc.gitStashPop(serviceId))}
+                    onClick={() =>
+                      void run('pop', async () => {
+                        await ipc.gitStashPop(serviceId);
+                        recordEvent('git_stash', 'Popped most recent stash');
+                      })
+                    }
                     icon={<ArchiveRestore className="h-3 w-3" />}
                     label="Pop"
                     title="git stash pop — reapply the most recent stash"
@@ -557,7 +598,11 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
                             type="button"
                             disabled={busy !== null || current}
                             onClick={() =>
-                              void run({ checkout: b }, () => ipc.gitCheckout(serviceId, b))
+                              void run({ checkout: b }, () =>
+                                // Poller handles the git_checkout event on the
+                                // next refresh when `branch` differs from prev.
+                                ipc.gitCheckout(serviceId, b),
+                              )
                             }
                             className={cn(
                               'flex w-full items-center gap-2 px-3 py-1 text-left text-[12px] transition',
@@ -682,6 +727,87 @@ function ActionBtn({
       <span>{label}</span>
     </button>
   );
+}
+
+/**
+ * Compares two consecutive `gitStatus` snapshots and records timeline events
+ * for whatever changed between them. This is the single source of truth for
+ * push / pull / commit / checkout detection — it catches changes regardless
+ * of their origin (in-app button, terminal, external IDE, filesystem hooks).
+ *
+ * Heuristics, in order:
+ *   1. Branch changed            → git_checkout (unless suppressed by a
+ *                                   just-executed create-branch action).
+ *   2. behind decreased          → git_pull N
+ *   3. HEAD hash changed and
+ *      branch didn't change and
+ *      behind didn't drop:
+ *        · ahead increased       → git_commit (new local commit subject)
+ *        · ahead decreased       → git_commit "Reverted last commit" (soft reset / undo)
+ *        · ahead unchanged       → git_commit "Amended: <subject>"
+ *   4. ahead decreased, behind
+ *      unchanged, HEAD hash
+ *      unchanged                 → git_push N (remote caught up to local)
+ */
+function detectAndRecordGitEvents(
+  prev: GitStatus,
+  latest: GitStatus,
+  suppressBranchSwitchRef: React.MutableRefObject<string | null>,
+  record: (type: TimelineEventType, description: string) => void,
+): void {
+  // 0. Dirty count increased — keep the pre-existing `file_changed` signal.
+  if (latest.dirty_count > (prev.dirty_count ?? 0)) {
+    record('file_changed', `${latest.dirty_count} uncommitted change(s)`);
+  }
+
+  // 1. Branch change — treat as checkout unless the user just created this
+  //    branch in-app (one-shot suppression avoids a duplicate checkout event
+  //    right after a more specific `git_branch_created` emission).
+  const branchChanged = latest.branch !== prev.branch;
+  if (branchChanged) {
+    if (suppressBranchSwitchRef.current === latest.branch) {
+      suppressBranchSwitchRef.current = null;
+    } else if (latest.branch) {
+      record('git_checkout', `Checked out ${latest.branch}`);
+    }
+    // A branch switch reshuffles HEAD arbitrarily, so the remaining hash /
+    // ahead / behind deltas aren't meaningful for commit/push detection.
+    return;
+  }
+
+  // 2. Pulled — remote commits landed in our local tree. We intentionally do
+  //    NOT return early, because in pathological bursts (e.g. pull followed
+  //    by a local commit between two polls) we still want to record the
+  //    subsequent activity.
+  const pulled = prev.behind > 0 && latest.behind < prev.behind;
+  if (pulled) {
+    const delta = prev.behind - latest.behind;
+    record('git_pull', `Pulled ${delta} commit${delta === 1 ? '' : 's'}`);
+  }
+
+  const prevHash = prev.last_commit?.hash_short ?? null;
+  const latestHash = latest.last_commit?.hash_short ?? null;
+  const hashChanged = !!latestHash && prevHash !== latestHash;
+  const aheadDelta = latest.ahead - prev.ahead;
+
+  // 3. HEAD hash changed outside of a pull → a local HEAD-rewriting action.
+  if (hashChanged && !pulled) {
+    const subject = latest.last_commit?.subject ?? '(no subject)';
+    if (aheadDelta > 0) {
+      record('git_commit', subject);
+    } else if (aheadDelta < 0) {
+      record('git_commit', 'Reverted last commit');
+    } else {
+      record('git_commit', `Amended: ${subject}`);
+    }
+    return;
+  }
+
+  // 4. Push — our commits moved to the remote without HEAD itself moving.
+  if (aheadDelta < 0 && latest.behind === prev.behind && !hashChanged) {
+    const delta = prev.ahead - latest.ahead;
+    record('git_push', `Pushed ${delta} commit${delta === 1 ? '' : 's'}`);
+  }
 }
 
 function relativeTime(tsSec: number): string {

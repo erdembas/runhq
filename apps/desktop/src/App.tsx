@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { UpdateBanner } from '@/components/UpdateBanner';
@@ -15,6 +15,7 @@ import { ResizeHandles } from '@/components/ResizeHandles';
 import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
+import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
@@ -38,6 +39,8 @@ export default function App() {
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const closeStackEditor = useAppStore((s) => s.closeStackEditor);
   const setStacks = useAppStore((s) => s.setStacks);
+  const timelineOpen = useAppStore((s) => s.timelineOpen);
+  const closeTimeline = useAppStore((s) => s.closeTimeline);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -107,12 +110,112 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time effect; store setters are stable
   }, []);
 
+  // Tracks the last LIFECYCLE state we recorded per service so repeated
+  // `onStatus` emissions (multi-command services emit one status tick per
+  // command transition) don't produce duplicate timeline events.
+  const lastLifecycleRef = useRef<Record<string, 'started' | 'stopped' | 'crashed'>>({});
+
   useEffect(() => {
     const unsubs: Array<() => void> = [];
     (async () => {
-      unsubs.push(await events.onStatus(setStatus));
       unsubs.push(
-        await events.onLog((ev) => appendLog(logKey(ev.service_id, ev.cmd_name), ev.line)),
+        await events.onStatus((status) => {
+          setStatus(status);
+
+          // Map the supervisor's 6-state machine down to three timeline
+          // lifecycle buckets. Note: when the user stops a service the
+          // aggregate settles to `exited` (commands reported Outcome::Exited
+          // or ::Killed → Status::Exited), NOT `stopped` — that's only the
+          // initial/never-started state. Both need to count as "Stopped".
+          const lifecycle: 'started' | 'stopped' | 'crashed' | null =
+            status.status === 'running'
+              ? 'started'
+              : status.status === 'exited' || status.status === 'stopped'
+                ? 'stopped'
+                : status.status === 'crashed'
+                  ? 'crashed'
+                  : null;
+
+          if (!lifecycle) return;
+
+          const prev = lastLifecycleRef.current[status.id];
+          // Skip duplicate transitions (e.g. two `exited` ticks in a row as
+          // separate commands wind down) — we already recorded this state.
+          if (prev === lifecycle) return;
+          // Don't log a synthetic "Stopped" / "Crashed" event on app boot
+          // when we see a service's initial state for the very first time.
+          // Only real transitions (from a previously-seen state) deserve a
+          // timeline entry; the baseline is silent.
+          if (prev === undefined && lifecycle !== 'started') {
+            lastLifecycleRef.current[status.id] = lifecycle;
+            return;
+          }
+          lastLifecycleRef.current[status.id] = lifecycle;
+
+          const svc = useAppStore.getState().services.find((s) => s.id === status.id);
+          const name = svc?.name ?? status.id;
+          const cmds = status.commands ?? [];
+
+          // Include command names in the description so the timeline is
+          // actually informative for multi-command services ("Stopped api —
+          // migrate (0), server (143)" beats a bare "Stopped api").
+          let description = '';
+          let eventType: 'service_started' | 'service_stopped' | 'service_crashed';
+          if (lifecycle === 'started') {
+            eventType = 'service_started';
+            const running = cmds.filter((c) => c.status === 'running').map((c) => c.name);
+            const names = running.length > 0 ? running : cmds.map((c) => c.name);
+            description =
+              names.length > 0 ? `Started ${name} — ${names.join(', ')}` : `Started ${name}`;
+          } else if (lifecycle === 'stopped') {
+            eventType = 'service_stopped';
+            const parts = cmds.map((c) => {
+              const code = c.exit_code != null ? ` (${c.exit_code})` : '';
+              return `${c.name}${code}`;
+            });
+            description =
+              parts.length > 0 ? `Stopped ${name} — ${parts.join(', ')}` : `Stopped ${name}`;
+          } else {
+            eventType = 'service_crashed';
+            const failed = cmds
+              .filter((c) => c.status === 'crashed' || c.error)
+              .map((c) => {
+                const err = c.error ? `: ${c.error}` : '';
+                return `${c.name}${err}`;
+              });
+            description =
+              failed.length > 0 ? `Crashed ${name} — ${failed.join('; ')}` : `Crashed ${name}`;
+          }
+
+          ipc
+            .recordTimelineEvent(eventType, status.id, svc?.name ?? null, description)
+            .catch(() => {});
+        }),
+      );
+      unsubs.push(
+        await events.onLog((ev) => {
+          appendLog(logKey(ev.service_id, ev.cmd_name), ev.line);
+          if (ev.line.stream === 'stderr') {
+            const text = ev.line.text.toLowerCase();
+            const isWarning = text.includes('warn') || text.includes('warning');
+            const isError =
+              text.includes('error') || text.includes('fatal') || text.includes('panic');
+            if (isError || isWarning) {
+              const svc = useAppStore.getState().services.find((s) => s.id === ev.service_id);
+              // Preserve enough context for the timeline detail view to actually
+              // show the useful part of a stack trace / error body, not just
+              // the first 200 chars which usually cut off mid-message.
+              ipc
+                .recordTimelineEvent(
+                  isError ? 'log_error' : 'log_warning',
+                  ev.service_id,
+                  svc?.name ?? null,
+                  ev.line.text.slice(0, 1500),
+                )
+                .catch(() => {});
+            }
+          }
+        }),
       );
       unsubs.push(
         await events.onResources((ev) =>
@@ -284,6 +387,7 @@ export default function App() {
           }}
         />
       )}
+      {timelineOpen && <ActivityTimeline onClose={closeTimeline} />}
       {tourState.open && (
         <WelcomeTour
           reopened={tourState.reopened}
