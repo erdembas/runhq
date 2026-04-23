@@ -346,9 +346,9 @@ export function ProjectDashboard() {
   }, [filteredProjects, sortBy]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeOverview} />
-      <div className="bg-surface border-border relative z-10 flex w-[780px] max-w-[95vw] flex-col overflow-hidden border-l shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[3px]" onClick={closeOverview} />
+      <div className="bg-surface border-border relative z-10 flex h-[85vh] w-[90vw] max-w-[1200px] flex-col overflow-hidden rounded-xl border shadow-2xl">
         <div className="border-border flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <h2 className="text-fg text-sm font-semibold">Project Overview</h2>
