@@ -73,7 +73,7 @@ pub struct ProjectOverview {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct OutdatedResult {
     pub total: usize,
     pub major: usize,
@@ -99,7 +99,7 @@ pub struct OutdatedPackage {
     pub homepage: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct AuditResult {
     pub critical: usize,
     pub high: usize,
@@ -474,18 +474,6 @@ impl SemverBump {
     }
 }
 
-impl Default for OutdatedResult {
-    fn default() -> Self {
-        OutdatedResult {
-            total: 0,
-            major: 0,
-            minor: 0,
-            patch: 0,
-            packages: Vec::new(),
-        }
-    }
-}
-
 impl OutdatedResult {
     /// Build a result from a flat package list. Handles counting and the
     /// canonical sort order (major → minor → patch → other, alpha within)
@@ -521,19 +509,6 @@ impl OutdatedResult {
             minor,
             patch,
             packages,
-        }
-    }
-}
-
-impl Default for AuditResult {
-    fn default() -> Self {
-        AuditResult {
-            critical: 0,
-            high: 0,
-            medium: 0,
-            low: 0,
-            info: 0,
-            advisories: Vec::new(),
         }
     }
 }
@@ -594,10 +569,7 @@ fn semver_diff(current: &str, latest: &str) -> Option<SemverBump> {
         // Strip a leading `v` or semver pre-release/build suffix so the
         // comparison is on the core triplet.
         let core = v.trim_start_matches('v');
-        let core = core
-            .split(|c: char| c == '-' || c == '+')
-            .next()
-            .unwrap_or(core);
+        let core = core.split(['-', '+']).next().unwrap_or(core);
         let parts: Vec<u64> = core.split('.').filter_map(|s| s.parse().ok()).collect();
         match parts.as_slice() {
             [a] => Some((*a, 0, 0)),
@@ -827,13 +799,17 @@ fn parse_npm_audit(stdout: &[u8]) -> Option<AuditResult> {
         .and_then(|m| m.get("vulnerabilities"))
         .and_then(|v| v.as_object())
     {
-        let mut result = AuditResult::default();
-        result.critical = m.get("critical").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        result.high = m.get("high").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        result.medium = m.get("moderate").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        result.low = m.get("low").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        result.info = m.get("info").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        return Some(result);
+        let count = |key: &str| m.get(key).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        return Some(AuditResult {
+            critical: count("critical"),
+            high: count("high"),
+            // npm audit uses "moderate" where our schema uses "medium" —
+            // single source of truth for that rename sits here.
+            medium: count("moderate"),
+            low: count("low"),
+            info: count("info"),
+            ..AuditResult::default()
+        });
     }
 
     Some(AuditResult::default())
