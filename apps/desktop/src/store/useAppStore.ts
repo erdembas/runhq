@@ -123,6 +123,10 @@ interface AppStore {
   timelineOpen: boolean;
   openTimeline: () => void;
   closeTimeline: () => void;
+
+  overviewOpen: boolean;
+  openOverview: () => void;
+  closeOverview: () => void;
 }
 
 const MAX_UI_LOG_LINES = 5_000;
@@ -620,4 +624,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   timelineOpen: false,
   openTimeline: () => set({ timelineOpen: true }),
   closeTimeline: () => set({ timelineOpen: false }),
+
+  overviewOpen: false,
+  openOverview: () => set({ overviewOpen: true }),
+  closeOverview: () => set({ overviewOpen: false }),
 }));

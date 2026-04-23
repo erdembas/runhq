@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   CircleSlash,
+  Eye,
   FolderSearch,
   GitBranch,
   Layers,
@@ -357,6 +358,14 @@ export function Dashboard({ onScan }: Props) {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => useAppStore.getState().openOverview()}
+                className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 rounded-sm p-1.5 transition"
+                title="Project Overview"
+              >
+                <Eye className="h-4 w-4" />
+              </button>
               <div className="border-border flex items-center gap-1 rounded-md border px-1 py-0.5">
                 {GROUP_OPTIONS.map((opt) => (
                   <button
