@@ -1,5 +1,18 @@
 import { useState } from 'react';
-import { FolderOpen, Globe, Pencil, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import {
+  Clock,
+  FolderOpen,
+  Globe,
+  Loader2,
+  Package,
+  Pencil,
+  Play,
+  RotateCcw,
+  Shield,
+  Square,
+  Trash2,
+} from 'lucide-react';
+import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
@@ -11,7 +24,34 @@ import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import { localUrl } from '@/lib/url';
 import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtimes';
-import type { ServiceDef, Status } from '@/types';
+import type { AuditResult, OutdatedResult, ProjectOverview, ServiceDef, Status } from '@/types';
+
+/**
+ * Human-readable "how stale is this project?" label for the card badge.
+ *
+ * Rolled up to weeks / months / years because at 30+ days the specific
+ * day count stops being useful — the point is "really old", not
+ * precision. `45d idle` would technically fit but feels clinical;
+ * `6w idle` rolls up the same span more comfortably.
+ *
+ * Returns a fallback `Stale` label when we can't compute an age
+ * (missing timestamp, malformed date). Better to be honest that we
+ * don't know than to show a synthetic zero.
+ */
+function staleLabel(lastActivity: string | null): string {
+  if (!lastActivity) return 'Stale';
+  try {
+    const diffMs = Date.now() - new Date(lastActivity).getTime();
+    if (!Number.isFinite(diffMs) || diffMs < 0) return 'Stale';
+    const days = Math.floor(diffMs / 86_400_000);
+    if (days >= 365) return `${Math.floor(days / 365)}y idle`;
+    if (days >= 30) return `${Math.floor(days / 30)}mo idle`;
+    if (days >= 7) return `${Math.floor(days / 7)}w idle`;
+    return `${days}d idle`;
+  } catch {
+    return 'Stale';
+  }
+}
 
 function CardAction({
   title,
@@ -46,9 +86,24 @@ function CardAction({
 export function ServiceCard({
   svc,
   draggable: cardDraggable,
+  projectMeta,
+  onOpenDetail,
 }: {
   svc: ServiceDef;
   draggable?: boolean;
+  /**
+   * Cross-project overview slice for this service (stale flag, outdated
+   * counts, audit counts). Optional because the overview poll runs
+   * lazily — the card renders fine without it, it just hides the
+   * attention chips until the data arrives.
+   */
+  projectMeta?: ProjectOverview | null;
+  /**
+   * Called when the user clicks a dep / audit chip. Opens the shared
+   * `ProjectDetailDrawer` on the requested tab. Dashboard owns the
+   * drawer so it survives switching between cards without flicker.
+   */
+  onOpenDetail?: (serviceId: string, tab: DetailTab) => void;
 }) {
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
@@ -62,6 +117,7 @@ export function ServiceCard({
   const logs = useAppStore((s) => s.logs);
   const resourceSample = useAppStore((s) => s.resources[svc.id]);
   const resourceHistory = useAppStore((s) => s.resourceHistory[svc.id]);
+  const overviewScanning = useAppStore((s) => s.overviewScanning);
   const st: Status = statuses[svc.id]?.status ?? 'stopped';
   const isRunning = st === 'running' || st === 'starting';
   const logLines =
@@ -105,12 +161,65 @@ export function ServiceCard({
         />
       )}
 
+      {/*
+        Card header — two clusters, opposite alignment:
+          Left  = identity     : status dot + name + `stale` badge
+          Right = signals+tech : health chips (Dep / CVE), runtime, port
+
+        Dep / CVE chips live UP here (not in the action row below) on
+        purpose: they describe what this project *is* right now (out of
+        date, vulnerable), which is the same axis as `stale` and
+        `runtime`. Mixing them with action buttons was a semantic
+        error — "20" next to `[Delete]` read as "20 of something you
+        can delete". Here they read as "20 pending upgrades", which
+        is the intended message.
+      */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <StatusDot status={st} size="md" />
           <span className="text-fg truncate text-[13px] font-semibold">{svc.name}</span>
+          {projectMeta?.is_stale && (
+            <span
+              className="bg-fg-dim/10 text-fg-dim rounded-app-sm inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+              title={
+                projectMeta.last_activity
+                  ? `No activity since ${new Date(projectMeta.last_activity).toLocaleDateString()}`
+                  : 'No activity recorded'
+              }
+            >
+              <Clock className="h-3 w-3" />
+              {staleLabel(projectMeta.last_activity)}
+            </span>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {/*
+            Scan-in-progress spinner. Only shown when the global scan is
+            running *and* this project has a runtime the scanners actually
+            touch — otherwise the icon would spin forever for a
+            no-runtime project (e.g. a pure docker-compose stack).
+          */}
+          {overviewScanning && projectMeta?.runtime && (
+            <span
+              className="text-fg-dim inline-flex h-5 items-center px-1"
+              title="Dependency scan in progress for this project"
+              aria-label="Scanning dependencies"
+            >
+              <Loader2 className="h-3 w-3 animate-spin" />
+            </span>
+          )}
+          {projectMeta?.outdated && onOpenDetail && (
+            <OutdatedChip
+              outdated={projectMeta.outdated}
+              onClick={() => onOpenDetail(svc.id, 'outdated')}
+            />
+          )}
+          {projectMeta?.audit && onOpenDetail && (
+            <AuditChip
+              audit={projectMeta.audit}
+              onClick={() => onOpenDetail(svc.id, 'advisories')}
+            />
+          )}
           {runtime && (
             <span
               className={cn(
@@ -192,6 +301,12 @@ export function ServiceCard({
             <Globe className="h-3.5 w-3.5" />
           </CardAction>
         )}
+        {/*
+          Right-aligned cluster in the action row — now holds only git
+          and editor, both of which are interactive popovers (not
+          "signals"). They belong with the action buttons semantically.
+          Health chips (Dep / CVE / Stale) moved up to the header row.
+        */}
         <div className="ml-auto flex items-center gap-1">
           <GitStatusChip serviceId={svc.id} compact />
           <EditorDropdown cwd={svc.cwd} cmds={svc.cmds} size="xs" />
@@ -233,5 +348,94 @@ export function ServiceCard({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Dependency-freshness chip for the ServiceCard action row.
+ *
+ * Design decisions (card-level chips must work in ~60px of horizontal
+ * space across 20+ cards without tooltip):
+ *   • Icon carries the *domain* (📦 = deps). Users learn it fast.
+ *   • Number carries the *magnitude*. Tabular-nums keeps columns tidy
+ *     when you scan a stack of cards vertically.
+ *   • Colour carries the *severity*. Same token as the Worst Offenders
+ *     band and the Outdated filter pill → one visual language across
+ *     the dashboard.
+ *   • Tooltip carries the *breakdown* for users who pause on a specific
+ *     card. No label text on the chip itself — "14 pkg" / "14 old" add
+ *     noise without information the icon doesn't already convey.
+ *
+ * Hidden when the project has zero outdated packages. Showing "0" would
+ * be visual noise that rewards the clean-state project with a yellow
+ * badge, which is backwards.
+ */
+function OutdatedChip({ outdated, onClick }: { outdated: OutdatedResult; onClick: () => void }) {
+  if (outdated.total === 0) return null;
+  const tone =
+    outdated.major > 0
+      ? 'bg-orange-500/15 text-orange-200 hover:bg-orange-500/25 border-orange-500/25'
+      : outdated.minor > 0
+        ? 'bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25 border-yellow-500/25'
+        : 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 border-emerald-500/25';
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title={`${outdated.total} outdated: ${outdated.major} major, ${outdated.minor} minor, ${outdated.patch} patch — click for details`}
+      aria-label={`${outdated.total} outdated dependencies`}
+      className={cn(
+        'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
+        tone,
+      )}
+    >
+      <Package className="h-3 w-3" />
+      {outdated.total}
+    </button>
+  );
+}
+
+/**
+ * Audit/CVE chip. Same design principles as `OutdatedChip` (icon = domain,
+ * number = magnitude, colour = severity). The one asymmetry: when any
+ * critical CVE is present, the chip gets a subtle pulse ring — security
+ * criticality *must* outbid visual hierarchy of neighbouring elements
+ * (port badge, runtime tag). A quiet red chip next to a bold `:3000`
+ * badge would bury the signal.
+ *
+ * Hidden when no vulnerabilities exist.
+ */
+function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () => void }) {
+  const total = audit.critical + audit.high + audit.medium + audit.low;
+  if (total === 0) return null;
+  const hasCritical = audit.critical > 0;
+  const tone = hasCritical
+    ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30 border-red-500/40'
+    : audit.high > 0
+      ? 'bg-orange-500/15 text-orange-200 hover:bg-orange-500/25 border-orange-500/25'
+      : audit.medium > 0
+        ? 'bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25 border-yellow-500/25'
+        : 'bg-blue-500/15 text-blue-200 hover:bg-blue-500/25 border-blue-500/25';
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title={`${total} advisories: ${audit.critical} critical, ${audit.high} high, ${audit.medium} medium, ${audit.low} low — click for details`}
+      aria-label={`${total} security advisories`}
+      className={cn(
+        'rounded-app-sm relative inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
+        tone,
+        hasCritical && 'shadow-[0_0_0_1px_rgb(239_68_68/0.2),0_0_12px_-2px_rgb(239_68_68/0.6)]',
+      )}
+    >
+      <Shield className="h-3 w-3" />
+      {total}
+    </button>
   );
 }

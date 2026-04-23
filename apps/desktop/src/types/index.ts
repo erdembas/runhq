@@ -180,11 +180,33 @@ export interface Section {
   color: SectionColor;
 }
 
+export interface OutdatedPackage {
+  name: string;
+  current: string;
+  latest: string;
+  /** 'major' | 'minor' | 'patch' | null when unclassified. */
+  bump: string | null;
+  homepage: string | null;
+}
+
 export interface OutdatedResult {
   total: number;
   major: number;
   minor: number;
   patch: number;
+  packages: OutdatedPackage[];
+}
+
+export interface Advisory {
+  /** CVE-*, GHSA-*, or RUSTSEC-* identifier when available. */
+  id: string | null;
+  package: string;
+  /** Normalised to 'critical' | 'high' | 'medium' | 'low' | 'info'. */
+  severity: string;
+  title: string;
+  url: string | null;
+  vulnerable_range: string | null;
+  fix_version: string | null;
 }
 
 export interface AuditResult {
@@ -193,6 +215,7 @@ export interface AuditResult {
   medium: number;
   low: number;
   info: number;
+  advisories: Advisory[];
 }
 
 export interface ProjectOverview {
@@ -222,6 +245,19 @@ export interface OverviewSummary {
   total_outdated: number;
   total_vulnerabilities: number;
   stale_count: number;
+  has_dependency_scan: boolean;
+}
+
+export interface DependencyScanEntry {
+  service_id: string;
+  outdated: OutdatedResult | null;
+  audit: AuditResult | null;
+}
+
+export interface DependencyScanResult {
+  entries: DependencyScanEntry[];
+  total_outdated: number;
+  total_vulnerabilities: number;
 }
 
 export type TimelineEventType =

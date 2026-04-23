@@ -10,7 +10,7 @@ use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
 use runhq_core::git::{self, GitStatus};
 use runhq_core::logs::LogLine;
-use runhq_core::overview::{self, AuditResult, OutdatedResult, OverviewSummary};
+use runhq_core::overview::{self, DependencyScanResult, OverviewSummary};
 use runhq_core::paths;
 use runhq_core::ports::{self, ListeningPort};
 use runhq_core::process::ServiceStatus;
@@ -416,6 +416,19 @@ pub async fn get_project_overview(
 ) -> AppResult<OverviewSummary> {
     let threshold = stale_threshold_days.unwrap_or(30);
     overview::gather_overview(&state.store, &state.supervisor, threshold)
+        .await
+        .map_err(AppError::from)
+}
+
+/// Run the heavy per-project dependency/audit scans. Separated from
+/// [`get_project_overview`] so the dashboard opens instantly and the user
+/// can opt in to the expensive work with a button.
+#[tauri::command]
+pub async fn scan_project_dependencies(
+    force: Option<bool>,
+    state: State<'_, AppState>,
+) -> AppResult<DependencyScanResult> {
+    overview::gather_dependency_scan(&state.store, force.unwrap_or(false))
         .await
         .map_err(AppError::from)
 }

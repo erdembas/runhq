@@ -16,7 +16,6 @@ import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
-import { ProjectDashboard } from '@/components/ProjectDashboard';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
@@ -42,7 +41,6 @@ export default function App() {
   const setStacks = useAppStore((s) => s.setStacks);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
   const closeTimeline = useAppStore((s) => s.closeTimeline);
-  const overviewOpen = useAppStore((s) => s.overviewOpen);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -359,6 +357,34 @@ export default function App() {
     };
   }, [setPorts]);
 
+  // Cross-project overview polling — drives the dashboard's Stale / Risk /
+  // Outdated pills and per-card chips. 30s cadence is deliberate: git status
+  // + last-commit lookups shell out per project, and the UI doesn't need
+  // sub-second freshness for "is this project stale?". The Rust side also
+  // caches dependency-scan output (5 min TTL), so an explicit "Scan
+  // dependencies" click is what actually refreshes audit/outdated numbers.
+  useEffect(() => {
+    const store = useAppStore.getState();
+    let alive = true;
+    const poll = async () => {
+      try {
+        store.setOverviewLoading(true);
+        const data = await ipc.getProjectOverview(30);
+        if (alive) store.setOverview(data);
+      } catch (err) {
+        console.error('get_project_overview failed', err);
+      } finally {
+        if (alive) store.setOverviewLoading(false);
+      }
+    };
+    void poll();
+    const id = setInterval(poll, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
   useEffect(() => {
     const unsubs: Array<() => void> = [];
     void (async () => {
@@ -500,7 +526,6 @@ export default function App() {
         />
       )}
       {timelineOpen && <ActivityTimeline onClose={closeTimeline} />}
-      {overviewOpen && <ProjectDashboard />}
       {tourState.open && (
         <WelcomeTour
           reopened={tourState.reopened}

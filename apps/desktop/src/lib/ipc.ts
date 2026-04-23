@@ -4,6 +4,7 @@ import type {
   AppInfo,
   CommandEntry,
   DailySummary,
+  DependencyScanResult,
   DetectedEditor,
   GitStatus,
   ListeningPort,
@@ -117,6 +118,8 @@ export const ipc = {
     invoke<OverviewSummary>('get_project_overview', {
       staleThresholdDays: staleThresholdDays ?? 30,
     }),
+  scanProjectDependencies: (force = false) =>
+    invoke<DependencyScanResult>('scan_project_dependencies', { force }),
 
   recordTimelineEvent: (
     eventType: TimelineEventType,
