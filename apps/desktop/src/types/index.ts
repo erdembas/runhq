@@ -174,7 +174,10 @@ export type TimelineEventType =
   | 'service_crashed'
   | 'git_commit'
   | 'git_push'
+  | 'git_pull'
   | 'git_checkout'
+  | 'git_branch_created'
+  | 'git_stash'
   | 'log_error'
   | 'log_warning'
   | 'file_changed';

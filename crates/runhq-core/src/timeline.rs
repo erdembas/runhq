@@ -13,13 +13,17 @@ use serde::Serialize;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum TimelineEventType {
     ServiceStarted,
     ServiceStopped,
     ServiceCrashed,
     GitCommit,
     GitPush,
+    GitPull,
     GitCheckout,
+    GitBranchCreated,
+    GitStash,
     LogError,
     LogWarning,
     FileChanged,
@@ -33,7 +37,10 @@ impl std::fmt::Display for TimelineEventType {
             Self::ServiceCrashed => write!(f, "service_crashed"),
             Self::GitCommit => write!(f, "git_commit"),
             Self::GitPush => write!(f, "git_push"),
+            Self::GitPull => write!(f, "git_pull"),
             Self::GitCheckout => write!(f, "git_checkout"),
+            Self::GitBranchCreated => write!(f, "git_branch_created"),
+            Self::GitStash => write!(f, "git_stash"),
             Self::LogError => write!(f, "log_error"),
             Self::LogWarning => write!(f, "log_warning"),
             Self::FileChanged => write!(f, "file_changed"),
@@ -157,7 +164,10 @@ impl TimelineDb {
                     "service_crashed" => TimelineEventType::ServiceCrashed,
                     "git_commit" => TimelineEventType::GitCommit,
                     "git_push" => TimelineEventType::GitPush,
+                    "git_pull" => TimelineEventType::GitPull,
                     "git_checkout" => TimelineEventType::GitCheckout,
+                    "git_branch_created" => TimelineEventType::GitBranchCreated,
+                    "git_stash" => TimelineEventType::GitStash,
                     "log_error" => TimelineEventType::LogError,
                     "log_warning" => TimelineEventType::LogWarning,
                     "file_changed" => TimelineEventType::FileChanged,

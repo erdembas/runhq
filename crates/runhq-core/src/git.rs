@@ -365,21 +365,48 @@ fn read_last_commit(cwd: &Path) -> Option<CommitInfo> {
     })
 }
 
+/// Environment variables that redirect git to a specific repo/index. If the
+/// parent process is itself running inside a git operation (a git hook, a
+/// rebase, `git commit` invoking this binary, etc.) these will be set and
+/// would cause every git call we make here to target the parent's repo
+/// rather than our `cwd`. Always clear them for a clean isolation boundary.
+const LEAKY_GIT_ENV: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_INTERNAL_GETTEXT_TEST_FALLBACKS",
+];
+
+fn configure_git_cmd(cmd: &mut Command, cwd: &Path) {
+    cmd.current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Keep git's own output stable regardless of the user's locale.
+        .env("LC_ALL", "C")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    for var in LEAKY_GIT_ENV {
+        cmd.env_remove(var);
+    }
+}
+
 /// Run `git` in `cwd`. Returns `(success, stdout, stderr)`.
 ///
 /// We deliberately swallow invocation failures (git not installed) into an
 /// `Err` so callers can surface a clean "git unavailable" message instead of
 /// a raw `std::io::Error`.
 fn run_git(cwd: &Path, args: &[&str]) -> AppResult<(bool, String, String)> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // Keep git's own output stable regardless of the user's locale.
-        .env("LC_ALL", "C")
-        .env("GIT_TERMINAL_PROMPT", "0")
+    let mut cmd = Command::new("git");
+    cmd.args(args);
+    configure_git_cmd(&mut cmd, cwd);
+    let output = cmd
         .output()
         .map_err(|e| AppError::Other(format!("failed to invoke git: {e}")))?;
     Ok((
@@ -397,14 +424,10 @@ fn run_git_with_timeout(
 ) -> AppResult<(bool, String, String)> {
     use std::io::Read;
 
-    let mut child = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("LC_ALL", "C")
-        .env("GIT_TERMINAL_PROMPT", "0")
+    let mut cmd = Command::new("git");
+    cmd.args(args);
+    configure_git_cmd(&mut cmd, cwd);
+    let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Other(format!("failed to invoke git: {e}")))?;
 

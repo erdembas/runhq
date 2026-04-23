@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronsLeft, ChevronsRight, LayoutDashboard, Clock } from 'lucide-react';
+import { ChevronDown, ChevronsLeft, ChevronsRight, LayoutDashboard } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAppStore } from '@/store/useAppStore';
@@ -48,7 +48,6 @@ export function SidebarRail() {
   const stackSection = useAppStore((s) => s.stackSection);
   const collapsedSections = useAppStore((s) => s.collapsedSections);
   const toggleSectionCollapsed = useAppStore((s) => s.toggleSectionCollapsed);
-  const openTimeline = useAppStore((s) => s.openTimeline);
 
   const [pinned, setPinned] = useState(true);
   const [hovered, setHovered] = useState(false);
@@ -572,19 +571,6 @@ export function SidebarRail() {
           onAddService={() => openEditor(null)}
           onAddStack={() => openStackEditor(null)}
         />
-      )}
-
-      {expanded && (
-        <button
-          type="button"
-          onClick={openTimeline}
-          className="hover:bg-accent/10 border-border/40 flex items-center gap-2 border-t px-3 py-2.5 text-left transition"
-        >
-          <span className="bg-surface-muted text-fg-muted flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px]">
-            <Clock className="h-3 w-3" />
-          </span>
-          <span className="text-fg-muted text-[12px] font-medium">Timeline</span>
-        </button>
       )}
 
       <div
