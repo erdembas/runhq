@@ -10,7 +10,7 @@ use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
 use runhq_core::git::{self, GitStatus};
 use runhq_core::logs::LogLine;
-use runhq_core::overview::{self, OverviewSummary};
+use runhq_core::overview::{self, AuditResult, OutdatedResult, OverviewSummary};
 use runhq_core::paths;
 use runhq_core::ports::{self, ListeningPort};
 use runhq_core::process::ServiceStatus;
@@ -410,8 +410,12 @@ pub fn stop_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStat
 // ---- Overview -------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_project_overview(state: State<'_, AppState>) -> AppResult<OverviewSummary> {
-    overview::gather_overview(&state.store, &state.supervisor).map_err(AppError::from)
+pub fn get_project_overview(
+    stale_threshold_days: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<OverviewSummary> {
+    let threshold = stale_threshold_days.unwrap_or(30);
+    overview::gather_overview(&state.store, &state.supervisor, threshold).map_err(AppError::from)
 }
 
 // ---- Timeline -------------------------------------------------------------
@@ -422,6 +426,7 @@ pub fn record_timeline_event(
     service_id: Option<String>,
     service_name: Option<String>,
     description: String,
+    run_id: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     let db_path = state
@@ -451,6 +456,7 @@ pub fn record_timeline_event(
         service_id.as_deref(),
         service_name.as_deref(),
         &description,
+        run_id.as_deref(),
     )
 }
 

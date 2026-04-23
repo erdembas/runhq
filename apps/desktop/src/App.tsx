@@ -116,11 +116,70 @@ export default function App() {
   // `onStatus` emissions (multi-command services emit one status tick per
   // command transition) don't produce duplicate timeline events.
   const lastLifecycleRef = useRef<Record<string, 'started' | 'stopped' | 'crashed'>>({});
+  // Belt-and-suspenders time-based guard. If the same (service, lifecycle)
+  // pair was already recorded within this window, we drop the duplicate.
+  // Protects against:
+  //   1. Rust-side double-emit (e.g. a future refactor that adds a status
+  //      tick we didn't anticipate — aggregate Running fired twice back to
+  //      back).
+  //   2. React 18 StrictMode async-effect race that can leak the *previous*
+  //      subscription when cleanup runs before the first `await listen`
+  //      resolves, leading to two active listeners receiving the same event.
+  //      The `ref`-based dedup already catches synchronous duplicate
+  //      delivery, but some IPC transports schedule listeners via
+  //      microtasks / postMessage and the two handlers can end up in
+  //      separate ticks — long enough for both to pass the `prev !== cur`
+  //      check before either updates the ref. The time guard closes that.
+  const lastLifecycleTsRef = useRef<Record<string, number>>({});
+  const LIFECYCLE_DEDUP_MS = 1500;
+
+  // Per-service "current event bucket id" — a UUID minted for EACH lifecycle
+  // event (`started`, `stopped`, `crashed`). Stored in `run_id` on the DB row,
+  // but semantically it's a *per-event* group, not a per-run one: the Start
+  // row owns every log line between itself and the next lifecycle event, the
+  // Stop row owns anything that arrives after it, and so on. This lets the
+  // timeline show "Start → its console output" and "Stop → its own (usually
+  // empty) console output" as separate, expandable buckets — matching what
+  // the user sees in a real terminal where each phase has its own log stream.
+  const runIdsRef = useRef<Record<string, string>>({});
+
+  const makeRunId = useCallback(() => {
+    // `crypto.randomUUID` is available in every modern webview Tauri targets;
+    // fall back to a timestamp-based id if the API is somehow missing so we
+    // never silently break the correlation.
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }, []);
 
   useEffect(() => {
+    // StrictMode-safe subscription pattern.
+    //
+    // The naive version — `unsubs.push(await events.onStatus(…))` inside a
+    // fire-and-forget IIFE — has a subtle race in React 18 dev StrictMode:
+    // the effect runs → cleanup runs → effect runs again. If the first
+    // `await listen()` hasn't resolved by the time cleanup runs, the first
+    // subscription's unlisten never makes it into `unsubs`, the cleanup
+    // walks an empty array, and the first listener leaks. The re-mount
+    // then establishes a *second* listener, so every future
+    // `service://status` event fires both handlers. That's exactly the
+    // "two Started events for one start" symptom.
+    //
+    // Fix: check `cancelled` after each await and immediately drop the
+    // just-registered listener if the effect has already torn down. This
+    // keeps at most one live subscription per channel at all times.
+    let cancelled = false;
     const unsubs: Array<() => void> = [];
+    const register = (unlisten: () => void) => {
+      if (cancelled) {
+        unlisten();
+      } else {
+        unsubs.push(unlisten);
+      }
+    };
     (async () => {
-      unsubs.push(
+      register(
         await events.onStatus((status) => {
           setStatus(status);
 
@@ -150,9 +209,39 @@ export default function App() {
           // timeline entry; the baseline is silent.
           if (prev === undefined && lifecycle !== 'started') {
             lastLifecycleRef.current[status.id] = lifecycle;
+            lastLifecycleTsRef.current[status.id] = Date.now();
+            return;
+          }
+          // Second line of defense: even if `prev` got reset somehow (new
+          // subscription from a StrictMode re-mount, etc.), drop any event
+          // that duplicates the most recent lifecycle for this service
+          // within a short window. Different lifecycles in rapid succession
+          // (e.g. crashed → started on auto-restart) are legitimate and
+          // pass through because we key the timestamp by service only;
+          // what we're blocking is N copies of the *same* status.
+          const nowMs = Date.now();
+          const lastTs = lastLifecycleTsRef.current[status.id];
+          if (
+            prev === undefined &&
+            lifecycle === 'started' &&
+            lastTs != null &&
+            nowMs - lastTs < LIFECYCLE_DEDUP_MS
+          ) {
+            lastLifecycleRef.current[status.id] = lifecycle;
+            lastLifecycleTsRef.current[status.id] = nowMs;
             return;
           }
           lastLifecycleRef.current[status.id] = lifecycle;
+          lastLifecycleTsRef.current[status.id] = nowMs;
+
+          // ── Event bucket correlation ──────────────────────────────────
+          // Every lifecycle event starts its OWN bucket: Start gets one id,
+          // Stop gets another, Crashed gets another. Subsequent log lines
+          // (stderr errors/warnings) stamp themselves with whatever bucket
+          // is currently active for this service — so logs during the run
+          // belong to Start, trailing logs after stop belong to Stop, etc.
+          const runId = makeRunId();
+          runIdsRef.current[status.id] = runId;
 
           const svc = useAppStore.getState().services.find((s) => s.id === status.id);
           const name = svc?.name ?? status.id;
@@ -190,11 +279,11 @@ export default function App() {
           }
 
           ipc
-            .recordTimelineEvent(eventType, status.id, svc?.name ?? null, description)
+            .recordTimelineEvent(eventType, status.id, svc?.name ?? null, description, runId)
             .catch(() => {});
         }),
       );
-      unsubs.push(
+      register(
         await events.onLog((ev) => {
           appendLog(logKey(ev.service_id, ev.cmd_name), ev.line);
           if (ev.line.stream === 'stderr') {
@@ -204,6 +293,12 @@ export default function App() {
               text.includes('error') || text.includes('fatal') || text.includes('panic');
             if (isError || isWarning) {
               const svc = useAppStore.getState().services.find((s) => s.id === ev.service_id);
+              // Attach the log to whatever run is currently open for this
+              // service. If it's null (e.g. stderr arriving between `stopped`
+              // and the next `started`, or before we ever saw a `started`
+              // for this service), the log goes in ungrouped — which is
+              // correct; there's no parent to collapse it into.
+              const runId = runIdsRef.current[ev.service_id] ?? null;
               // Preserve enough context for the timeline detail view to actually
               // show the useful part of a stack trace / error body, not just
               // the first 200 chars which usually cut off mid-message.
@@ -213,13 +308,14 @@ export default function App() {
                   ev.service_id,
                   svc?.name ?? null,
                   ev.line.text.slice(0, 1500),
+                  runId,
                 )
                 .catch(() => {});
             }
           }
         }),
       );
-      unsubs.push(
+      register(
         await events.onResources((ev) =>
           setResources(ev.service_id, {
             cpu_percent: ev.cpu_percent,
@@ -228,8 +324,11 @@ export default function App() {
         ),
       );
     })();
-    return () => unsubs.forEach((u) => u());
-  }, [setStatus, appendLog, setResources]);
+    return () => {
+      cancelled = true;
+      unsubs.forEach((u) => u());
+    };
+  }, [setStatus, appendLog, setResources, makeRunId]);
 
   useEffect(() => {
     let alive = true;

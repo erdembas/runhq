@@ -25,7 +25,7 @@ use tokio::task::JoinHandle;
 use crate::error::{AppError, AppResult};
 use crate::events::EventSink;
 use crate::logs::{LogStore, Stream};
-use crate::resources::ResourceSampler;
+use crate::resources::{ResourceSample, ResourceSampler};
 use crate::state::{CommandEntry, ServiceDef};
 
 /// How often the supervisor samples per-service CPU + memory.
@@ -106,6 +106,7 @@ pub struct Supervisor {
     pub logs: LogStore,
     running: Arc<Mutex<HashMap<String, Running>>>,
     statuses: Arc<Mutex<HashMap<String, ServiceStatus>>>,
+    last_resources: Arc<Mutex<HashMap<String, ResourceSample>>>,
 }
 
 impl Supervisor {
@@ -115,7 +116,12 @@ impl Supervisor {
             logs: LogStore::new(),
             running: Arc::new(Mutex::new(HashMap::new())),
             statuses: Arc::new(Mutex::new(HashMap::new())),
+            last_resources: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn get_resources(&self, service_id: &str) -> Option<ResourceSample> {
+        self.last_resources.lock().get(service_id).copied()
     }
 
     /// Long-running CPU + memory sampler. Ticks every
@@ -176,8 +182,10 @@ impl Supervisor {
             .await;
 
             if let Ok(samples) = samples {
+                let mut cache = self.last_resources.lock();
                 for (id, sample) in samples {
                     self.sink.emit_resources(&id, &sample);
+                    cache.insert(id, sample);
                 }
             }
         }

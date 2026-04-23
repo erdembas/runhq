@@ -24,10 +24,62 @@ import {
 } from 'lucide-react';
 import { ipc, events as ipcEvents } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
+import { makeAnsiConverter, renderAnsiToHtml } from '@/lib/ansi';
+import { useAppStore, logKey } from '@/store/useAppStore';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import type { TimelineEvent, DailySummary } from '@/types';
+import type { TimelineEvent, DailySummary, LogLine } from '@/types';
 import { Select } from './ui/Select';
 import { Dialog } from './ui/Dialog';
+
+/** Unified shape for console-rendering — lets ConsoleOutput draw the same
+ *  block whether the lines came from the live in-memory log buffer (current
+ *  session, full stdout+stderr) or from DB-persisted `log_error` /
+ *  `log_warning` rows (historical runs). Severity drives the gutter color;
+ *  the ANSI renderer handles the text. */
+interface ConsoleLine {
+  /** Stable key for React — `live-<seq>` or `db-<eventId>`. */
+  key: string;
+  ts_ms: number;
+  text: string;
+  severity: 'error' | 'warn' | 'info' | 'system';
+}
+
+/** Heuristic severity for a live log line. Stream alone isn't enough — lots
+ *  of dev tools emit non-error output on stderr (Vite progress, pnpm chatter,
+ *  yarn "Port … in use" probes) — so we also scan for error/warn keywords.
+ *  Matches the same filter App.tsx uses for the DB recorder, keeping the two
+ *  code paths in agreement about what counts as "an error line". */
+function severityOfLive(line: LogLine): ConsoleLine['severity'] {
+  if (line.stream === 'system') return 'system';
+  const t = line.text.toLowerCase();
+  if (t.includes('error') || t.includes('fatal') || t.includes('panic')) return 'error';
+  if (t.includes('warn')) return 'warn';
+  return 'info';
+}
+
+function toConsoleLineFromLive(line: LogLine): ConsoleLine {
+  return {
+    key: `live-${line.seq}`,
+    ts_ms: line.ts_ms,
+    text: line.text,
+    severity: severityOfLive(line),
+  };
+}
+
+function toConsoleLineFromDb(child: TimelineEvent): ConsoleLine {
+  const severity: ConsoleLine['severity'] =
+    child.event_type === 'log_error'
+      ? 'error'
+      : child.event_type === 'log_warning'
+        ? 'warn'
+        : 'info';
+  return {
+    key: `db-${child.id}`,
+    ts_ms: new Date(child.timestamp).getTime(),
+    text: child.description,
+    severity,
+  };
+}
 
 /** Stable hue derived from a service/project name — same string → same color. */
 function nameHue(name: string): number {
@@ -258,6 +310,47 @@ function saveTimelineCollapsed(collapsed: boolean): void {
   }
 }
 
+// ─────────────── Width / resize constants ───────────────
+// Mirrors SidebarRail's model so both chrome panels behave identically:
+// the user drags an edge gutter, we clamp to [MIN, MAX], and persist to
+// localStorage so the next session remembers the exact width (not some
+// rounded "small/medium/large" preset).
+//
+// MIN is 320 because below that the filter pills start to clip the
+// scrollbar — tested with the widest label set ("Commits", "Pushes",
+// "Errors"). MAX is 720 which still leaves room for the main log panel
+// on a 1440px screen; going wider turns the activity bar into a second
+// primary column, which is not what this panel is for.
+const TIMELINE_COLLAPSED_W = 44;
+const TIMELINE_MIN_W = 320;
+const TIMELINE_MAX_W = 720;
+const TIMELINE_DEFAULT_W = 420;
+const TIMELINE_WIDTH_KEY = 'runhq.timeline.width.v1';
+
+function loadTimelineWidth(): number {
+  if (typeof window === 'undefined') return TIMELINE_DEFAULT_W;
+  try {
+    const raw = window.localStorage.getItem(TIMELINE_WIDTH_KEY);
+    if (raw == null) return TIMELINE_DEFAULT_W;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return TIMELINE_DEFAULT_W;
+    // Clamp on read too — if a previous build used a different range, we
+    // don't want a stuck-off-screen panel on upgrade.
+    return Math.max(TIMELINE_MIN_W, Math.min(TIMELINE_MAX_W, n));
+  } catch {
+    return TIMELINE_DEFAULT_W;
+  }
+}
+
+function saveTimelineWidth(width: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(TIMELINE_WIDTH_KEY, String(Math.round(width)));
+  } catch {
+    // non-fatal
+  }
+}
+
 // Hover debounce: short open avoids flicker when the cursor grazes the rail
 // in passing; longer close keeps the panel up if the user briefly strays.
 const HOVER_OPEN_DELAY_MS = 120;
@@ -295,11 +388,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [modalEventId, setModalEventId] = useState<number | null>(null);
-  const [showWeekly, setShowWeekly] = useState(false);
   const [standupCopied, setStandupCopied] = useState(false);
   const [detailCopied, setDetailCopied] = useState(false);
   const [collapsed, setCollapsedState] = useState<boolean>(() => loadTimelineCollapsed());
   const [hoverOpen, setHoverOpen] = useState(false);
+  const [width, setWidth] = useState<number>(() => loadTimelineWidth());
 
   // ─────────────── Persistence of pin/collapse state ───────────────
   // Single source of truth: whenever `collapsed` flips, mirror it to
@@ -310,18 +403,109 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     saveTimelineCollapsed(collapsed);
   }, [collapsed]);
 
+  // Persist width too — only the final resting value, not every frame of
+  // the drag. `setWidth` already runs on every pointermove but localStorage
+  // is cheap enough that batching via rAF would be premature optimisation
+  // here; the delta is ~60 writes/sec for a one-second drag.
+  useEffect(() => {
+    saveTimelineWidth(width);
+  }, [width]);
+
   // Cross-tab / cross-window sync — if another Runhq window toggles the
-  // pin state, reflect it here too. Harmless no-op in single-window usage.
+  // pin state or resizes the bar, reflect it here too. Harmless no-op in
+  // single-window usage.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== TIMELINE_COLLAPSED_KEY) return;
-      setCollapsedState(e.newValue === '1');
+      if (e.key === TIMELINE_COLLAPSED_KEY) {
+        setCollapsedState(e.newValue === '1');
+        return;
+      }
+      if (e.key === TIMELINE_WIDTH_KEY && e.newValue != null) {
+        const n = Number.parseInt(e.newValue, 10);
+        if (Number.isFinite(n)) {
+          setWidth(Math.max(TIMELINE_MIN_W, Math.min(TIMELINE_MAX_W, n)));
+        }
+      }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  // ─────────────── Resize drag (left-edge gutter) ───────────────
+  // The activity bar lives flush against the right window edge, so the
+  // user grabs its LEFT edge to resize — dragging leftward = grow wider,
+  // rightward = shrink. This is the inverse of SidebarRail (which grabs
+  // its right edge). Pointer capture keeps the drag tracking even when
+  // the cursor temporarily leaves the 6px handle, so fast drags don't
+  // "drop" mid-motion.
+  const resizing = useRef(false);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+
+  const onResizeStart = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      resizing.current = true;
+      resizeStartX.current = e.clientX;
+      resizeStartW.current = width;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [width],
+  );
+
+  const onResizeMove = useCallback((e: React.PointerEvent) => {
+    if (!resizing.current) return;
+    // Inverted: dragging left (smaller clientX) should *grow* the panel
+    // because the panel's left edge is moving further from the window's
+    // right edge.
+    const delta = resizeStartX.current - e.clientX;
+    const next = resizeStartW.current + delta;
+    setWidth(Math.max(TIMELINE_MIN_W, Math.min(TIMELINE_MAX_W, next)));
+  }, []);
+
+  const onResizeEnd = useCallback((e: React.PointerEvent) => {
+    resizing.current = false;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // pointer might already be released (e.g. pointercancel); non-fatal.
+    }
+  }, []);
   const [now, setNow] = useState(() => Date.now());
+
+  // ─────────────── Live log buffer subscription ───────────────
+  // The DB only persists keyword-matched stderr (log_error / log_warning),
+  // so "quiet" runs — a successful `yarn dev` that just prints "ready in
+  // 170 ms" — have NO child rows to show under their Started event. We
+  // supplement that by reading the in-memory log buffer (same data the
+  // LogPanel shows) and slicing it to the lifecycle event's time window.
+  // For current-session runs this is strictly richer than the DB: every
+  // stdout+stderr+system line ever emitted (up to a 5k cap) is available.
+  // For pre-restart/historical runs the buffer is empty — we fall back to
+  // the DB children so the modal still has something meaningful to show.
+  const logsBySvc = useAppStore((s) => s.logs);
+  const services = useAppStore((s) => s.services);
+
+  // ─────────────── ANSI → HTML converter (theme-aware) ───────────────
+  // Child log lines (log_error / log_warning) stored in the DB still carry
+  // their raw ANSI escape codes from the process's stderr. Rendering them
+  // through the same converter LogPanel uses means the per-event "console
+  // output" block at the bottom of an expanded lifecycle row looks exactly
+  // like the live terminal at the bottom of the screen — same palette,
+  // same colors, no jarring style shift between the two views.
+  const [isDark, setIsDark] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  );
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const obs = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains('dark')),
+    );
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+  const ansi = useMemo(() => makeAnsiConverter(isDark), [isDark]);
 
   const hoverTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -535,10 +719,62 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     );
   }, [events, search]);
 
+  // ─────────────── Event bucket grouping (parent ↔ child) ───────────────
+  // `run_id` in our schema is now a *per-lifecycle-event* bucket id (see
+  // App.tsx): each `started` / `stopped` / `crashed` row mints its own id,
+  // and any `log_error` / `log_warning` / `file_changed` that arrives while
+  // that bucket is active stamps itself with that id. So Start owns the
+  // run's logs, Stop owns whatever trailing noise arrives after it, etc.
+  //
+  // We hide child events from the main feed and render them as an inline
+  // console-output block under their owning lifecycle row when expanded.
+  // (Legacy rows written before this model shared a run_id across started +
+  // stopped — `childrenByRun` still works there; the children just surface
+  // under whichever lifecycle row was kept in the current view.)
+  //
+  // Grouping is bypassed when the user filters to a child type (Errors,
+  // Warns, Files) — they want the flat list, not a single parent row.
+  const { visibleEvents, childrenByRun } = useMemo(() => {
+    const CHILD_TYPES: TimelineEvent['event_type'][] = ['log_error', 'log_warning', 'file_changed'];
+    const LIFECYCLE_TYPES: TimelineEvent['event_type'][] = [
+      'service_started',
+      'service_stopped',
+      'service_crashed',
+    ];
+    const empty = new Map<string, TimelineEvent[]>();
+    if (filterType && CHILD_TYPES.includes(filterType as TimelineEvent['event_type'])) {
+      return { visibleEvents: filteredEvents, childrenByRun: empty };
+    }
+    // Only roll children up into a run that actually HAS a lifecycle event
+    // in the current view. Otherwise an orphan error would vanish (hidden
+    // under a parent we'd never render).
+    const runsWithLifecycle = new Set<string>();
+    for (const e of filteredEvents) {
+      if (e.run_id && LIFECYCLE_TYPES.includes(e.event_type)) {
+        runsWithLifecycle.add(e.run_id);
+      }
+    }
+    const children = new Map<string, TimelineEvent[]>();
+    const hidden = new Set<number>();
+    for (const e of filteredEvents) {
+      if (!e.run_id) continue;
+      if (!CHILD_TYPES.includes(e.event_type)) continue;
+      if (!runsWithLifecycle.has(e.run_id)) continue;
+      const list = children.get(e.run_id);
+      if (list) list.push(e);
+      else children.set(e.run_id, [e]);
+      hidden.add(e.id);
+    }
+    return {
+      visibleEvents: filteredEvents.filter((e) => !hidden.has(e.id)),
+      childrenByRun: children,
+    };
+  }, [filteredEvents, filterType]);
+
   const grouped = useMemo(() => {
     const groups: Array<{ bucket: string; label: string; events: TimelineEvent[] }> = [];
     let currentBucket = '';
-    for (const e of filteredEvents) {
+    for (const e of visibleEvents) {
       const b = dateBucket(e.timestamp);
       if (b !== currentBucket) {
         currentBucket = b;
@@ -547,12 +783,84 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
       groups[groups.length - 1]?.events.push(e);
     }
     return groups;
-  }, [filteredEvents]);
+  }, [visibleEvents]);
 
+  // ─────────────── Live console output windows ───────────────
+  // For each lifecycle event, compute the set of live log lines that fall in
+  // its "ownership window" — from this event's timestamp to the timestamp of
+  // the NEXT lifecycle event for the same service (or now, if this is the
+  // latest one). Runs in O(n log n) over a small window of events; `now`
+  // ticks every 30 s so an in-progress run's window keeps extending without
+  // a data refresh.
+  const liveLinesByEventId = useMemo(() => {
+    const LIFECYCLE_TYPES: TimelineEvent['event_type'][] = [
+      'service_started',
+      'service_stopped',
+      'service_crashed',
+    ];
+    const bySvc: Record<string, TimelineEvent[]> = {};
+    for (const e of events) {
+      if (!e.service_id) continue;
+      if (!LIFECYCLE_TYPES.includes(e.event_type)) continue;
+      (bySvc[e.service_id] ||= []).push(e);
+    }
+    const result = new Map<number, LogLine[]>();
+    for (const [serviceId, lifecycleEvents] of Object.entries(bySvc)) {
+      const svc = services.find((s) => s.id === serviceId);
+      if (!svc) continue;
+      const allLines: LogLine[] = [];
+      for (const cmd of svc.cmds) {
+        const buf = logsBySvc[logKey(serviceId, cmd.name)];
+        if (buf && buf.lines.length > 0) allLines.push(...buf.lines);
+      }
+      if (allLines.length === 0) continue;
+      allLines.sort((a, b) => a.ts_ms - b.ts_ms || a.seq - b.seq);
+      // Sort ASC so "next lifecycle" is the immediate neighbor.
+      const sortedLifecycle = [...lifecycleEvents].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+      for (let i = 0; i < sortedLifecycle.length; i++) {
+        const ev = sortedLifecycle[i]!;
+        const startMs = new Date(ev.timestamp).getTime();
+        // Use an exclusive upper bound for the NEXT lifecycle event so a
+        // single log line can't double-count into two adjacent buckets
+        // (e.g. a stderr emitted at exactly the same ms as `stopped`
+        // stays with the `started` run, which is what users expect — it
+        // was caused by the running process, not by the stop itself).
+        const endMs =
+          i + 1 < sortedLifecycle.length
+            ? new Date(sortedLifecycle[i + 1]!.timestamp).getTime()
+            : Date.now() + 1000;
+        const windowLines = allLines.filter((l) => l.ts_ms >= startMs && l.ts_ms < endMs);
+        if (windowLines.length > 0) result.set(ev.id, windowLines);
+      }
+    }
+    return result;
+  }, [events, logsBySvc, services]);
+
+  // Build the unified ConsoleLine[] for a lifecycle event: prefer live
+  // buffer (comprehensive) over DB children (keyword-filtered slice).
+  // Falls back to the DB view only when the buffer has nothing in range
+  // — typically because this is a run from a previous app session and
+  // the live buffer has been flushed on restart.
+  const consoleLinesFor = useCallback(
+    (e: TimelineEvent): ConsoleLine[] => {
+      const live = liveLinesByEventId.get(e.id);
+      if (live && live.length > 0) return live.map(toConsoleLineFromLive);
+      const dbChildren = e.run_id ? childrenByRun.get(e.run_id) : undefined;
+      return (dbChildren ?? []).map(toConsoleLineFromDb);
+    },
+    [liveLinesByEventId, childrenByRun],
+  );
+
+  // `all` is the logical opposite of a filter (= show everything), so it
+  // must NOT contribute to the active-filter count — otherwise picking
+  // "All" flips the empty state from "Nothing yet" to "Filtered out" and
+  // misleads the user into thinking something is hiding their events.
   const activeFilterCount =
     (filterType ? 1 : 0) +
     (filterProject ? 1 : 0) +
-    (timeRange !== '24h' ? 1 : 0) +
+    (timeRange !== '24h' && timeRange !== 'all' ? 1 : 0) +
     (search.trim() ? 1 : 0);
 
   const selectedEvent = events.find((e) => e.id === selectedId) ?? null;
@@ -612,7 +920,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
   };
 
   const renderWeeklySparkline = () => {
-    if (!showWeekly || !weeklySummary || weeklySummary.length === 0) return null;
+    // Always visible — the 7-day rhythm is a low-cost, high-value glance
+    // (spot the errors spike, see which days were quiet) that used to be
+    // tucked behind a toggle nobody ever flipped. If there's literally no
+    // data yet we just skip rendering rather than show an empty frame.
+    if (!weeklySummary || weeklySummary.length === 0) return null;
     const maxTotal = Math.max(
       ...weeklySummary.map((s) => s.commits + s.services_started + s.errors),
       1,
@@ -711,8 +1023,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
         )}
       </div>
 
-      {/* Type pills — horizontal scroll */}
-      <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 pb-0.5">
+      {/* Type pills — horizontal scroll.
+          Extra right padding (`pr-6`) keeps the last pill from hugging the
+          panel edge as the user scrolls, and the bottom padding gives the
+          overflow scrollbar room to sit without clipping the pill baseline. */}
+      <div className="-mx-2 flex items-center gap-1 overflow-x-auto px-2 pr-6 pb-1.5">
         {FILTER_PILLS.map((f) => (
           <button
             key={f.key}
@@ -730,7 +1045,8 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
         ))}
       </div>
 
-      {/* Project + time range + week toggle */}
+      {/* Project + time range — `Week` toggle removed; weekly sparkline is
+          now always on (see renderWeeklySparkline). */}
       <div className="flex items-center gap-2">
         <Select
           value={filterProject ?? ''}
@@ -761,18 +1077,6 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowWeekly((v) => !v)}
-          className={cn(
-            'rounded-md px-2 py-1 font-medium transition',
-            size.micro,
-            showWeekly ? 'bg-accent/15 text-accent' : 'text-fg/40 hover:bg-fg/5 hover:text-fg/70',
-          )}
-          title={showWeekly ? 'Hide weekly sparkline' : 'Show weekly sparkline'}
-          aria-pressed={showWeekly}
-        >
-          Week
-        </button>
       </div>
     </div>
   );
@@ -785,6 +1089,23 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     const isSelected = selectedId === e.id;
     const tsMs = new Date(e.timestamp).getTime();
     const isFresh = Date.now() - tsMs < 10_000;
+
+    // ─── Console output for this lifecycle event ───
+    // `consoleLinesFor` prefers the live in-memory buffer (full stdout +
+    // stderr of the running session) and falls back to DB-persisted
+    // error/warning rows only when the buffer is empty (pre-restart data).
+    // Stats drive the little count chip in the title row so the user sees
+    // "how noisy was this run" without expanding it.
+    const consoleLines = consoleLinesFor(e);
+    const childStats =
+      consoleLines.length > 0
+        ? {
+            total: consoleLines.length,
+            errors: consoleLines.filter((c) => c.severity === 'error').length,
+            warnings: consoleLines.filter((c) => c.severity === 'warn').length,
+            files: 0,
+          }
+        : null;
 
     const sevTint =
       cfg.severity === 2
@@ -868,6 +1189,41 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
                 >
                   <span className="h-1 w-1 animate-pulse rounded-full bg-emerald-400" />
                   <span className={cn('tracking-wide uppercase', size.micro)}>new</span>
+                </span>
+              )}
+              {/* Rolled-up child count — tells the user, without expanding,
+                  how noisy this run was. Errors win the slot when present
+                  because that's the signal they actually care about. */}
+              {childStats && childStats.total > 0 && (
+                <span
+                  className={cn(
+                    'flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 font-medium tabular-nums',
+                    size.micro,
+                    childStats.errors > 0
+                      ? 'bg-rose-500/10 text-rose-400'
+                      : childStats.warnings > 0
+                        ? 'bg-amber-500/10 text-amber-400'
+                        : 'bg-fg/5 text-fg/55',
+                  )}
+                  title={[
+                    childStats.errors > 0 &&
+                      `${childStats.errors} error${childStats.errors === 1 ? '' : 's'}`,
+                    childStats.warnings > 0 &&
+                      `${childStats.warnings} warning${childStats.warnings === 1 ? '' : 's'}`,
+                    childStats.files > 0 &&
+                      `${childStats.files} file change${childStats.files === 1 ? '' : 's'}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
+                  {childStats.errors > 0 ? (
+                    <XCircle size={10} />
+                  ) : childStats.warnings > 0 ? (
+                    <AlertTriangle size={10} />
+                  ) : (
+                    <FileEdit size={10} />
+                  )}
+                  {childStats.total}
                 </span>
               )}
               <span
@@ -987,6 +1343,22 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
                         </button>
                       </div>
                     </div>
+
+                    {/* Per-event console output — every log line stamped with
+                        THIS lifecycle's bucket id rendered as a real terminal
+                        would: monospace, ANSI-colored, timestamped, in
+                        chronological order (oldest → newest). Same palette as
+                        LogPanel so the two views feel interchangeable. */}
+                    {consoleLines.length > 0 && (
+                      <ConsoleOutput
+                        lines={consoleLines}
+                        stats={childStats}
+                        ansi={ansi}
+                        isDark={isDark}
+                        microSize={size.micro}
+                        metaSize={size.meta}
+                      />
+                    )}
                   </div>
                 );
               })()}
@@ -1053,9 +1425,24 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
         </div>
       )}
       {grouped.map((group) => {
-        const errorsInGroup = group.events.filter(
-          (e) => e.event_type === 'log_error' || e.event_type === 'service_crashed',
-        ).length;
+        // Count errors including the ones we've rolled up as children of
+        // lifecycle events in this group — otherwise the group header would
+        // under-report the day's error count after collapsing. Guard with
+        // a `seen` set so runs with multiple lifecycle rows in the group
+        // (e.g. started + stopped) don't get their error count doubled.
+        const seenRuns = new Set<string>();
+        const errorsInGroup =
+          group.events.filter(
+            (e) => e.event_type === 'log_error' || e.event_type === 'service_crashed',
+          ).length +
+          group.events.reduce((n, e) => {
+            if (!e.run_id || seenRuns.has(e.run_id)) return n;
+            seenRuns.add(e.run_id);
+            return (
+              n +
+              (childrenByRun.get(e.run_id)?.filter((c) => c.event_type === 'log_error').length ?? 0)
+            );
+          }, 0);
         return (
           <div key={group.bucket}>
             <div
@@ -1116,6 +1503,21 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
       .filter(Boolean)
       .join(' · ');
 
+    // Same lookup path as the inline view — live buffer is the primary
+    // source so the modal matches 1:1 with what the LogPanel shows for a
+    // currently-running service. Falls back to DB children for pre-restart
+    // runs where the buffer is empty.
+    const modalConsoleLines = consoleLinesFor(modalEvent);
+    const modalChildStats =
+      modalConsoleLines.length > 0
+        ? {
+            total: modalConsoleLines.length,
+            errors: modalConsoleLines.filter((c) => c.severity === 'error').length,
+            warnings: modalConsoleLines.filter((c) => c.severity === 'warn').length,
+            files: 0,
+          }
+        : null;
+
     return (
       <Dialog
         title={cfg.label}
@@ -1163,9 +1565,21 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
           </h3>
 
           {body && (
-            <pre className="overlay-scroll text-fg/75 border-border/40 bg-fg/3 max-h-[55vh] overflow-auto rounded-md border px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
+            <pre className="overlay-scroll text-fg/75 border-border/40 bg-fg/3 max-h-[40vh] overflow-auto rounded-md border px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
               {body}
             </pre>
+          )}
+
+          {modalChildStats && (
+            <ConsoleOutput
+              lines={modalConsoleLines}
+              stats={modalChildStats}
+              ansi={ansi}
+              isDark={isDark}
+              microSize="text-[10.5px]"
+              metaSize="text-[12px]"
+              maxHeightClass="max-h-[45vh]"
+            />
           )}
         </div>
       </Dialog>
@@ -1207,8 +1621,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
           // `min-h-0` + `h-full` keeps the absolute overlay strictly bounded
           // to the main area so it never encroaches on the status bar.
           'relative flex h-full min-h-0 shrink-0 self-stretch',
-          collapsed ? 'w-11' : 'w-[420px]',
         )}
+        // Width comes from state so the user can drag-resize like the
+        // sidebar; collapsed state is a fixed 44px rail regardless of
+        // the stored width so peek-hover always aligns to the edge.
+        style={{ width: collapsed ? TIMELINE_COLLAPSED_W : width }}
         onMouseEnter={() => {
           if (collapsed) scheduleHoverOpen();
         }}
@@ -1267,13 +1684,24 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
         {isPanelVisible && (
           <div
             className={cn(
-              'bg-surface border-border/60 flex min-h-0 w-[420px] flex-col border-l',
+              // `min-w-0` + `overflow-hidden` keep per-row overflow
+              // (long event descriptions, the console block's wide
+              // lines) strictly inside the panel — without it, the
+              // ConsoleOutput's `w-max` rows would blow out the right
+              // edge and eat the header's action buttons on narrow
+              // widths.
+              'bg-surface border-border/60 flex min-h-0 min-w-0 flex-col overflow-hidden border-l',
               isOverlay
                 ? // absolute overlay — strictly inside the wrapper so status bar
                   // is never covered.
                   'animate-in slide-in-from-right absolute top-0 right-0 bottom-0 z-40 max-h-full shadow-2xl duration-150'
                 : 'h-full flex-1',
             )}
+            // Peek overlay uses the stored width directly (inline style)
+            // because it's `absolute`, so flex-1 doesn't stretch it — it
+            // would otherwise collapse to 0. Pinned-open mode inherits
+            // from the wrapper via `flex-1` and needs no explicit width.
+            style={isOverlay ? { width } : undefined}
             onMouseEnter={() => {
               if (collapsed) {
                 clearHoverTimer();
@@ -1281,7 +1709,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
               }
             }}
           >
-            {/* Header */}
+            {/* Header — shrink-hardened so narrow windows never eat the
+                action buttons. The title truncates first (it's the only
+                element here that can afford to), the icon stays fixed
+                size, and the action cluster keeps `shrink-0` so the
+                Standup / Refresh / Pin buttons are always reachable. */}
             <div
               className={cn(
                 'border-border/40 flex items-center gap-2 border-b',
@@ -1291,21 +1723,26 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
             >
               <div
                 className={cn(
-                  'bg-accent/10 text-accent flex items-center justify-center rounded-md',
+                  'bg-accent/10 text-accent flex shrink-0 items-center justify-center rounded-md',
                   size.iconWrap,
                 )}
               >
                 <Activity className="h-3.5 w-3.5" />
               </div>
-              <span className={cn('text-fg font-semibold tracking-tight', size.title)}>
+              <span
+                className={cn(
+                  'text-fg min-w-0 flex-1 truncate font-semibold tracking-tight',
+                  size.title,
+                )}
+              >
                 Activity
               </span>
               {isOverlay && (
-                <span className="bg-fg/6 text-fg/55 rounded px-1.5 py-0.5 text-[9.5px] font-medium tracking-wider uppercase">
+                <span className="bg-fg/6 text-fg/55 shrink-0 rounded px-1.5 py-0.5 text-[9.5px] font-medium tracking-wider uppercase">
                   Peek
                 </span>
               )}
-              <div className="ml-auto flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => void handleExportStandup()}
                   className={cn(
@@ -1356,6 +1793,24 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
             {renderFilters()}
             {renderEventList()}
             {renderFooter()}
+          </div>
+        )}
+        {/* Left-edge resize gutter. Mirrors SidebarRail's right-edge
+            handle: an 8px hover zone wraps a 2px visible strip that
+            highlights on hover/active. Only rendered in pinned-open
+            mode — when collapsed there's nothing to resize (it's a
+            44px rail), and in peek-overlay mode the panel is a
+            transient hover state that shouldn't be drag-resized. */}
+        {!collapsed && (
+          <div
+            onPointerDown={onResizeStart}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeEnd}
+            onPointerCancel={onResizeEnd}
+            className="group absolute top-0 bottom-0 left-0 z-20 w-2 cursor-col-resize"
+            aria-hidden
+          >
+            <div className="group-hover:bg-accent/30 group-active:bg-accent/50 absolute top-0 bottom-0 left-0 w-[2px] transition-colors" />
           </div>
         )}
         {renderModal()}
@@ -1486,6 +1941,187 @@ function EventBadge({
     >
       {cfg.label}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ConsoleOutput — renders the child log lines of a lifecycle event as a
+// dark, monospace "terminal" block, mirroring LogPanel's visual language.
+//
+// Design notes:
+// - Lines come in DESC (newest first) from the DB query. We render them in
+//   ASC order here because a terminal reads top-to-bottom, oldest-to-newest.
+// - Stdout/stderr mix in real terminals; here every stored line is stderr
+//   (that's our recording filter), so we color them all with the stderr
+//   tint from the palette but preserve whatever ANSI escapes the process
+//   emitted (yellow "warn" words, red "error" labels, dim stack frames…).
+// - Timestamps are rendered as `HH:MM:SS.mmm` so successive lines from a
+//   crash burst are distinguishable at sub-second granularity — matches
+//   what `journalctl`/`docker logs -t` show. Muted so the ANSI output
+//   stays the focal point.
+// - Warnings get an amber gutter bar; errors get rose; anything else grey.
+//   Subtle, not distracting — the real signal is still the colored text.
+// ─────────────────────────────────────────────────────────────────────────
+function ConsoleOutput({
+  lines,
+  stats,
+  ansi,
+  isDark,
+  microSize,
+  metaSize,
+  maxHeightClass = 'max-h-80',
+}: {
+  lines: ConsoleLine[];
+  stats: { total: number; errors: number; warnings: number; files: number } | null;
+  ansi: ReturnType<typeof makeAnsiConverter>;
+  isDark: boolean;
+  microSize: string;
+  metaSize: string;
+  maxHeightClass?: string;
+}) {
+  const ordered = useMemo(() => {
+    // Live buffer lines come sorted by seq already, DB children arrive DESC
+    // from SQLite. Either way, enforce chronological (oldest→newest) order
+    // here so the reader scans top-down like a real terminal. Stable tie-
+    // break on `key` keeps same-ms lines deterministic across renders.
+    return [...lines].sort((a, b) => {
+      if (a.ts_ms !== b.ts_ms) return a.ts_ms - b.ts_ms;
+      return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+    });
+  }, [lines]);
+
+  return (
+    <div className="border-border/30 mt-4 border-t pt-3">
+      <div
+        className={cn(
+          'text-fg/45 mb-2 flex items-center gap-2 font-semibold tracking-[0.12em] uppercase',
+          microSize,
+        )}
+      >
+        <span>Console output</span>
+        <span className="text-fg/25 tabular-nums">
+          · {ordered.length} line{ordered.length === 1 ? '' : 's'}
+        </span>
+        {stats && stats.errors > 0 && (
+          <span
+            className={cn(
+              'flex items-center gap-1 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-rose-400 normal-case tabular-nums',
+              'ml-auto',
+            )}
+          >
+            <XCircle size={10} />
+            {stats.errors}
+          </span>
+        )}
+        {stats && stats.warnings > 0 && (
+          <span
+            className={cn(
+              'flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-400 normal-case tabular-nums',
+              stats.errors === 0 && 'ml-auto',
+            )}
+          >
+            <AlertTriangle size={10} />
+            {stats.warnings}
+          </span>
+        )}
+      </div>
+      <div
+        className={cn(
+          'overlay-scroll overflow-auto rounded-md border font-mono',
+          maxHeightClass,
+          isDark
+            ? 'border-black/60 bg-[#1e1e1e] text-[#d4d4d4]'
+            : 'border-slate-300 bg-white text-slate-800',
+        )}
+      >
+        {ordered.length === 0 ? (
+          <div className={cn('text-fg/35 px-3 py-4 text-center', metaSize)}>
+            No console output captured.
+          </div>
+        ) : (
+          <div className="py-1.5">
+            {ordered.map((line) => (
+              <ConsoleLineRow
+                key={line.key}
+                line={line}
+                ansi={ansi}
+                microSize={microSize}
+                metaSize={metaSize}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatConsoleTimeFromMs(tsMs: number): string {
+  try {
+    const d = new Date(tsMs);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${hh}:${mm}:${ss}.${ms}`;
+  } catch {
+    return '';
+  }
+}
+
+function ConsoleLineRow({
+  line,
+  ansi,
+  microSize,
+  metaSize,
+}: {
+  line: ConsoleLine;
+  ansi: ReturnType<typeof makeAnsiConverter>;
+  microSize: string;
+  metaSize: string;
+}) {
+  // Pre-render once per line; memoized because the ANSI converter is
+  // expensive to hit for every render of a scroll container.
+  const html = useMemo(() => renderAnsiToHtml(ansi, line.text), [ansi, line.text]);
+  const gutter =
+    line.severity === 'error'
+      ? 'border-l-2 border-rose-500/60'
+      : line.severity === 'warn'
+        ? 'border-l-2 border-amber-500/50'
+        : line.severity === 'system'
+          ? 'border-l-2 border-accent/50'
+          : 'border-l-2 border-transparent';
+  return (
+    // `w-max min-w-full` + `whitespace-pre` = real-terminal behaviour:
+    // long lines extend past the viewport and scroll horizontally via the
+    // parent's `overflow-auto`, while short lines still stretch the hover
+    // bg to full width so the gutter/highlight feels consistent. No
+    // soft-wrapping means port-number columns, stack-trace indentation,
+    // table output (cargo, pnpm, vite) all stay aligned instead of
+    // folding into garbled multi-line blobs.
+    <div
+      className={cn(
+        'flex w-max min-w-full items-start gap-2.5 px-3 py-0.5 leading-relaxed hover:bg-white/4',
+        gutter,
+      )}
+    >
+      <span
+        className={cn('shrink-0 tabular-nums opacity-60 select-none', microSize)}
+        title={new Date(line.ts_ms).toLocaleTimeString()}
+      >
+        {formatConsoleTimeFromMs(line.ts_ms)}
+      </span>
+      <span
+        className={cn('shrink-0 whitespace-pre', metaSize)}
+        // `ansi` is configured with escapeXML: true, so the raw text is
+        // HTML-escaped before color spans are wrapped around it — safe to
+        // drop into the DOM. If we didn't do this we'd have to either
+        // parse the HTML manually (fragile — see LogPanel's URL linkifier
+        // for an example of how nested spans break regex) or skip ANSI
+        // colors altogether, both of which regress the rendering.
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   );
 }
 

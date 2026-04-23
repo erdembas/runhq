@@ -2,9 +2,10 @@
 //!
 //! Provides a bird's-eye view across all registered services —
 //! git status matrix, resource heatmap, stale project detection,
-//! and dependency outdatedness signals.
+//! dependency outdatedness signals, and security audit results.
 
 use std::path::Path;
+use std::process::Command as StdCommand;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -12,6 +13,7 @@ use serde::Serialize;
 use crate::error::AppResult;
 use crate::git::{self, GitStatus};
 use crate::process::Supervisor;
+use crate::resources::ResourceSample;
 use crate::state::Store;
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +27,27 @@ pub struct ProjectOverview {
     pub cpu_percent: f32,
     pub memory_bytes: u64,
     pub last_activity: Option<DateTime<Utc>>,
+    pub is_stale: bool,
+    pub outdated: Option<OutdatedResult>,
+    pub audit: Option<AuditResult>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OutdatedResult {
+    pub total: usize,
+    pub major: usize,
+    pub minor: usize,
+    pub patch: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AuditResult {
+    pub critical: usize,
+    pub high: usize,
+    pub medium: usize,
+    pub low: usize,
+    pub info: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,10 +59,18 @@ pub struct OverviewSummary {
     pub total_behind: usize,
     pub total_cpu: f32,
     pub total_memory: u64,
+    pub total_outdated: usize,
+    pub total_vulnerabilities: usize,
+    pub stale_count: usize,
 }
 
-pub fn gather_overview(store: &Store, supervisor: &Supervisor) -> AppResult<OverviewSummary> {
+pub fn gather_overview(
+    store: &Store,
+    supervisor: &Supervisor,
+    stale_threshold_days: i64,
+) -> AppResult<OverviewSummary> {
     let services = store.services();
+    let cutoff = Utc::now() - chrono::Duration::days(stale_threshold_days);
     let mut projects = Vec::with_capacity(services.len());
     let mut total_running = 0usize;
     let mut total_stopped = 0usize;
@@ -47,6 +78,9 @@ pub fn gather_overview(store: &Store, supervisor: &Supervisor) -> AppResult<Over
     let mut total_behind = 0usize;
     let mut total_cpu = 0.0f32;
     let mut total_memory = 0u64;
+    let mut total_outdated = 0usize;
+    let mut total_vulnerabilities = 0usize;
+    let mut stale_count = 0usize;
 
     for svc in &services {
         let is_running = supervisor.is_running(&svc.id);
@@ -66,19 +100,32 @@ pub fn gather_overview(store: &Store, supervisor: &Supervisor) -> AppResult<Over
             }
         }
 
-        let (cpu, memory) = if is_running {
-            let status = supervisor.service_status(svc);
-            let cpu = status.commands.iter().map(|_| 0.0f32).sum::<f32>();
-            (cpu, 0u64)
-        } else {
-            (0.0, 0)
+        let (cpu, memory) = match supervisor.get_resources(&svc.id) {
+            Some(ResourceSample {
+                cpu_percent,
+                memory_bytes,
+            }) => (cpu_percent, memory_bytes),
+            None => (0.0, 0),
         };
         total_cpu += cpu;
         total_memory += memory;
 
         let last_activity = last_activity_for(&svc.cwd);
+        let is_stale = last_activity.map_or(true, |la| la < cutoff);
+        if is_stale {
+            stale_count += 1;
+        }
 
         let runtime = detect_runtime(&svc.cwd);
+        let outdated = check_outdated(&svc.cwd, runtime.as_deref());
+        if let Some(ref o) = outdated {
+            total_outdated += o.total;
+        }
+
+        let audit = check_audit(&svc.cwd, runtime.as_deref());
+        if let Some(ref a) = audit {
+            total_vulnerabilities += a.critical + a.high + a.medium + a.low;
+        }
 
         projects.push(ProjectOverview {
             service_id: svc.id.clone(),
@@ -90,6 +137,10 @@ pub fn gather_overview(store: &Store, supervisor: &Supervisor) -> AppResult<Over
             cpu_percent: cpu,
             memory_bytes: memory,
             last_activity,
+            is_stale,
+            outdated,
+            audit,
+            tags: svc.tags.clone(),
         });
     }
 
@@ -101,7 +152,19 @@ pub fn gather_overview(store: &Store, supervisor: &Supervisor) -> AppResult<Over
         total_behind,
         total_cpu,
         total_memory,
+        total_outdated,
+        total_vulnerabilities,
+        stale_count,
     })
+}
+
+pub fn stale_projects(overview: &OverviewSummary, threshold_days: i64) -> Vec<&ProjectOverview> {
+    let cutoff = Utc::now() - chrono::Duration::days(threshold_days);
+    overview
+        .projects
+        .iter()
+        .filter(|p| p.last_activity.map_or(true, |la| la < cutoff))
+        .collect()
 }
 
 fn last_activity_for(cwd: &Path) -> Option<DateTime<Utc>> {
@@ -132,20 +195,318 @@ fn detect_runtime(cwd: &Path) -> Option<String> {
         Some("ruby".into())
     } else if cwd.join("composer.json").exists() {
         Some("php".into())
-    } else if cwd.join(".csproj").exists() || cwd.join("*.csproj").exists() {
-        Some("dotnet".into())
     } else {
         None
     }
 }
 
-pub fn stale_projects(overview: &OverviewSummary, threshold_days: i64) -> Vec<&ProjectOverview> {
-    let cutoff = Utc::now() - chrono::Duration::days(threshold_days);
-    overview
-        .projects
-        .iter()
-        .filter(|p| p.last_activity.map_or(true, |la| la < cutoff))
-        .collect()
+fn check_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {
+    match runtime? {
+        "node" | "bun" | "deno" => check_npm_outdated(cwd),
+        "rust" => check_cargo_outdated(cwd),
+        "go" => check_go_outdated(cwd),
+        _ => None,
+    }
+}
+
+fn check_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
+    match runtime? {
+        "node" | "bun" | "deno" => check_npm_audit(cwd),
+        "rust" => check_cargo_audit(cwd),
+        "python" => check_pip_audit(cwd),
+        _ => None,
+    }
+}
+
+fn check_npm_outdated(cwd: &Path) -> Option<OutdatedResult> {
+    let output = run_timed("npm", &["outdated", "--json"], cwd)?;
+    if output.status.success() {
+        parse_npm_outdated(&output.stdout)
+    } else {
+        parse_npm_outdated(&output.stdout)
+    }
+}
+
+fn parse_npm_outdated(stdout: &[u8]) -> Option<OutdatedResult> {
+    let s = String::from_utf8_lossy(stdout);
+    if s.trim().is_empty() || s.trim() == "{}" {
+        return Some(OutdatedResult {
+            total: 0,
+            major: 0,
+            minor: 0,
+            patch: 0,
+        });
+    }
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) else {
+        return None;
+    };
+    let Some(obj) = val.as_object() else {
+        return None;
+    };
+    let total = obj.len();
+    let mut major = 0usize;
+    let mut minor = 0usize;
+    let mut patch = 0usize;
+    for (_name, info) in obj {
+        let Some(info_obj) = info.as_object() else {
+            continue;
+        };
+        let current = info_obj
+            .get("current")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let latest = info_obj
+            .get("latest")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if let Some(diff) = semver_diff(current, latest) {
+            match diff {
+                SemverBump::Major => major += 1,
+                SemverBump::Minor => minor += 1,
+                SemverBump::Patch => patch += 1,
+            }
+        }
+    }
+    Some(OutdatedResult {
+        total,
+        major,
+        minor,
+        patch,
+    })
+}
+
+enum SemverBump {
+    Major,
+    Minor,
+    Patch,
+}
+
+fn semver_diff(current: &str, latest: &str) -> Option<SemverBump> {
+    let cur: Vec<u64> = current.split('.').filter_map(|s| s.parse().ok()).collect();
+    let lat: Vec<u64> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
+    if cur.len() < 1 || lat.len() < 1 {
+        return None;
+    }
+    if lat[0] > cur[0] {
+        Some(SemverBump::Major)
+    } else if lat.len() > 1 && cur.len() > 1 && lat[1] > cur[1] {
+        Some(SemverBump::Minor)
+    } else if lat.len() > 2 && cur.len() > 2 && lat[2] > cur[2] {
+        Some(SemverBump::Patch)
+    } else {
+        Some(SemverBump::Patch)
+    }
+}
+
+fn check_cargo_outdated(cwd: &Path) -> Option<OutdatedResult> {
+    let output = run_timed("cargo", &["outdated", "--format", "json"], cwd)?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout);
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) else {
+        return None;
+    };
+    let pkgs = val.as_array()?;
+    let total = pkgs.len();
+    let mut major = 0usize;
+    let mut minor = 0usize;
+    let mut patch = 0usize;
+    for pkg in pkgs {
+        let status = pkg.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        match status {
+            "Major" => major += 1,
+            "Minor" => minor += 1,
+            "Patch" => patch += 1,
+            _ => {}
+        }
+    }
+    Some(OutdatedResult {
+        total,
+        major,
+        minor,
+        patch,
+    })
+}
+
+fn check_go_outdated(cwd: &Path) -> Option<OutdatedResult> {
+    let output = run_timed("go", &["list", "-u", "-m", "-json", "all"], cwd)?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout);
+    let mut total = 0usize;
+    let mut major = 0usize;
+    let mut minor = 0usize;
+    let mut patch = 0usize;
+    for line in s.lines() {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let update = val.get("Update");
+        if update.is_some() {
+            total += 1;
+            let current = val.get("Version").and_then(|v| v.as_str()).unwrap_or("");
+            let latest = update
+                .and_then(|u| u.get("Version"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match semver_diff(current, latest) {
+                Some(SemverBump::Major) => major += 1,
+                Some(SemverBump::Minor) => minor += 1,
+                Some(SemverBump::Patch) => patch += 1,
+                None => patch += 1,
+            }
+        }
+    }
+    Some(OutdatedResult {
+        total,
+        major,
+        minor,
+        patch,
+    })
+}
+
+fn check_npm_audit(cwd: &Path) -> Option<AuditResult> {
+    let output = run_timed("npm", &["audit", "--json"], cwd)?;
+    let s = String::from_utf8_lossy(&output.stdout);
+    if s.trim().is_empty() {
+        return None;
+    }
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) else {
+        return None;
+    };
+    let mut result = AuditResult {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
+    let metadata = val.get("metadata");
+    if let Some(vulns) = metadata.and_then(|m| m.get("vulnerabilities")) {
+        result.critical = vulns.get("critical").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        result.high = vulns.get("high").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        result.medium = vulns.get("moderate").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        result.low = vulns.get("low").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        result.info = vulns.get("info").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    } else if let Some(advisories) = val.as_object() {
+        for (_key, adv) in advisories {
+            let severity = adv.get("severity").and_then(|v| v.as_str()).unwrap_or("");
+            match severity {
+                "critical" => result.critical += 1,
+                "high" => result.high += 1,
+                "moderate" | "medium" => result.medium += 1,
+                "low" => result.low += 1,
+                "info" => result.info += 1,
+                _ => result.low += 1,
+            }
+        }
+    }
+    Some(result)
+}
+
+fn check_cargo_audit(cwd: &Path) -> Option<AuditResult> {
+    let output = run_timed("cargo", &["audit", "--json"], cwd)?;
+    let s = String::from_utf8_lossy(&output.stdout);
+    if s.trim().is_empty() {
+        return None;
+    }
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) else {
+        return None;
+    };
+    let mut result = AuditResult {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
+    let vulnerabilities = val
+        .get("vulnerabilities")
+        .and_then(|v| v.get("list"))
+        .and_then(|v| v.as_array());
+    if let Some(list) = vulnerabilities {
+        for vuln in list {
+            let severity = vuln
+                .get("advisory")
+                .and_then(|a| a.get("severity"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match severity {
+                "critical" => result.critical += 1,
+                "high" => result.high += 1,
+                "medium" => result.medium += 1,
+                "low" => result.low += 1,
+                "info" => result.info += 1,
+                _ => result.low += 1,
+            }
+        }
+    }
+    Some(result)
+}
+
+fn check_pip_audit(cwd: &Path) -> Option<AuditResult> {
+    let output = run_timed("pip-audit", &["--format", "json"], cwd)?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout);
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&s) else {
+        return None;
+    };
+    let deps = val.as_array()?;
+    let mut result = AuditResult {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
+    for dep in deps {
+        let Some(vulns) = dep.get("vulns").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for vuln in vulns {
+            let severity = vuln
+                .get("severity")
+                .and_then(|v| v.as_str())
+                .unwrap_or("low");
+            match severity {
+                "critical" => result.critical += 1,
+                "high" => result.high += 1,
+                "medium" => result.medium += 1,
+                "low" => result.low += 1,
+                "info" => result.info += 1,
+                _ => result.low += 1,
+            }
+        }
+    }
+    Some(result)
+}
+
+struct CmdOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+}
+
+fn run_timed(program: &str, args: &[&str], cwd: &Path) -> Option<CmdOutput> {
+    let child = StdCommand::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let output = child.wait_with_output().ok()?;
+    Some(CmdOutput {
+        status: output.status,
+        stdout: output.stdout,
+    })
 }
 
 #[cfg(test)]
@@ -178,5 +539,35 @@ mod tests {
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
         std::fs::write(dir.path().join("bun.lockb"), "").unwrap();
         assert_eq!(detect_runtime(dir.path()), Some("bun".into()));
+    }
+
+    #[test]
+    fn parse_npm_outdated_empty() {
+        let result = parse_npm_outdated(b"{}");
+        assert_eq!(
+            result,
+            Some(OutdatedResult {
+                total: 0,
+                major: 0,
+                minor: 0,
+                patch: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn semver_diff_major() {
+        assert!(matches!(
+            semver_diff("1.0.0", "2.0.0"),
+            Some(SemverBump::Major)
+        ));
+    }
+
+    #[test]
+    fn semver_diff_minor() {
+        assert!(matches!(
+            semver_diff("1.0.0", "1.1.0"),
+            Some(SemverBump::Minor)
+        ));
     }
 }

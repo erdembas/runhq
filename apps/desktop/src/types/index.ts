@@ -168,6 +168,21 @@ export interface Section {
   color: SectionColor;
 }
 
+export interface OutdatedResult {
+  total: number;
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+export interface AuditResult {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
 export interface ProjectOverview {
   service_id: string;
   name: string;
@@ -178,6 +193,10 @@ export interface ProjectOverview {
   cpu_percent: number;
   memory_bytes: number;
   last_activity: string | null;
+  is_stale: boolean;
+  outdated: OutdatedResult | null;
+  audit: AuditResult | null;
+  tags: string[];
 }
 
 export interface OverviewSummary {
@@ -188,6 +207,9 @@ export interface OverviewSummary {
   total_behind: number;
   total_cpu: number;
   total_memory: number;
+  total_outdated: number;
+  total_vulnerabilities: number;
+  stale_count: number;
 }
 
 export type TimelineEventType =
@@ -211,6 +233,10 @@ export interface TimelineEvent {
   service_name: string | null;
   event_type: TimelineEventType;
   description: string;
+  /** Correlation id tying a lifecycle event to every log/file/error it produced
+   *  during the same service run, so the UI can collapse noisy runs. `null`
+   *  for git events, orphan logs, or rows written before this column existed. */
+  run_id: string | null;
 }
 
 export interface DailySummary {

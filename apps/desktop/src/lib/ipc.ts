@@ -113,19 +113,24 @@ export const ipc = {
   gitAmendCommitMessage: (id: ServiceId, message: string) =>
     invoke<void>('git_amend_commit_message', { id, message }),
 
-  getProjectOverview: () => invoke<OverviewSummary>('get_project_overview'),
+  getProjectOverview: (staleThresholdDays?: number) =>
+    invoke<OverviewSummary>('get_project_overview', {
+      staleThresholdDays: staleThresholdDays ?? 30,
+    }),
 
   recordTimelineEvent: (
     eventType: TimelineEventType,
     serviceId?: string | null,
     serviceName?: string | null,
     description?: string,
+    runId?: string | null,
   ) =>
     invoke<void>('record_timeline_event', {
       eventType,
       serviceId: serviceId ?? null,
       serviceName: serviceName ?? null,
       description: description ?? '',
+      runId: runId ?? null,
     }),
   getTimeline: (
     serviceId?: string | null,

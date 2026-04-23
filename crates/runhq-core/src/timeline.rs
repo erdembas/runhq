@@ -56,6 +56,15 @@ pub struct TimelineEvent {
     pub service_name: Option<String>,
     pub event_type: TimelineEventType,
     pub description: String,
+    /// Correlation id that ties every event belonging to the same service
+    /// "run" together: the `service_started` event, any `log_error` /
+    /// `log_warning` / `file_changed` it produces, and the terminating
+    /// `service_stopped` or `service_crashed`. Lets the UI collapse a noisy
+    /// run (e.g. 80 stderr lines on shutdown) into the single lifecycle
+    /// event that caused it. `None` for events that have no natural parent
+    /// run — git operations, app-boot snapshots, legacy rows from before
+    /// this column existed.
+    pub run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -85,6 +94,9 @@ impl TimelineDb {
     }
 
     fn init_schema(&self) -> AppResult<()> {
+        // 1. Ensure the table exists. For brand-new installs this also
+        //    creates the `run_id` column; for legacy installs it's a no-op
+        //    (`IF NOT EXISTS` is honored per-table, not per-column).
         self.conn
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS timeline_events (
@@ -93,13 +105,32 @@ impl TimelineDb {
                     service_id TEXT,
                     service_name TEXT,
                     event_type TEXT NOT NULL,
-                    description TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_timeline_ts ON timeline_events(timestamp_ms);
-                CREATE INDEX IF NOT EXISTS idx_timeline_type ON timeline_events(event_type);
-                CREATE INDEX IF NOT EXISTS idx_timeline_service ON timeline_events(service_id);",
+                    description TEXT NOT NULL,
+                    run_id TEXT
+                );",
             )
             .map_err(|e| AppError::Other(format!("init timeline schema: {e}")))?;
+
+        // 2. Best-effort forward migration for DBs created before `run_id`
+        //    existed. SQLite lacks "ADD COLUMN IF NOT EXISTS", so we just
+        //    try and swallow the "duplicate column name" error. This MUST
+        //    run before the index batch below — otherwise `CREATE INDEX …
+        //    ON timeline_events(run_id)` would abort the whole batch on
+        //    legacy DBs, silently disabling `open()` and making the UI
+        //    look like there are no events at all.
+        let _ = self
+            .conn
+            .execute("ALTER TABLE timeline_events ADD COLUMN run_id TEXT", []);
+
+        // 3. Indices — safe to run now that every install has the column.
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_timeline_ts ON timeline_events(timestamp_ms);
+                CREATE INDEX IF NOT EXISTS idx_timeline_type ON timeline_events(event_type);
+                CREATE INDEX IF NOT EXISTS idx_timeline_service ON timeline_events(service_id);
+                CREATE INDEX IF NOT EXISTS idx_timeline_run ON timeline_events(run_id);",
+            )
+            .map_err(|e| AppError::Other(format!("init timeline indices: {e}")))?;
         Ok(())
     }
 
@@ -109,12 +140,13 @@ impl TimelineDb {
         service_id: Option<&str>,
         service_name: Option<&str>,
         description: &str,
+        run_id: Option<&str>,
     ) -> AppResult<()> {
         let ts = Utc::now().timestamp_millis();
         self.conn
             .execute(
-                "INSERT INTO timeline_events (timestamp_ms, service_id, service_name, event_type, description) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![ts, service_id, service_name, event_type.to_string(), description],
+                "INSERT INTO timeline_events (timestamp_ms, service_id, service_name, event_type, description, run_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![ts, service_id, service_name, event_type.to_string(), description, run_id],
             )
             .map_err(|e| AppError::Other(format!("record timeline event: {e}")))?;
         Ok(())
@@ -146,7 +178,7 @@ impl TimelineDb {
             format!(" AND {}", conditions.join(" AND "))
         };
         let sql = format!(
-            "SELECT id, timestamp_ms, service_id, service_name, event_type, description FROM timeline_events WHERE 1=1{} ORDER BY timestamp_ms DESC LIMIT ?1",
+            "SELECT id, timestamp_ms, service_id, service_name, event_type, description, run_id FROM timeline_events WHERE 1=1{} ORDER BY timestamp_ms DESC LIMIT ?1",
             where_clause
         );
         let mut stmt = self
@@ -180,6 +212,7 @@ impl TimelineDb {
                     service_name: row.get(3)?,
                     event_type,
                     description: row.get(5)?,
+                    run_id: row.get(6)?,
                 })
             })
             .map_err(|e| AppError::Other(format!("query timeline: {e}")))?;
@@ -283,6 +316,7 @@ mod tests {
             Some("svc1"),
             Some("frontend"),
             "Started dev server",
+            None,
         )
         .unwrap();
         db.record(
@@ -290,6 +324,7 @@ mod tests {
             Some("svc1"),
             Some("frontend"),
             "fix: login button",
+            None,
         )
         .unwrap();
         db.record(
@@ -297,6 +332,7 @@ mod tests {
             Some("svc1"),
             Some("frontend"),
             "Stopped dev server",
+            None,
         )
         .unwrap();
         let events = db.get_timeline(None, None, None, 100).unwrap();
@@ -307,15 +343,54 @@ mod tests {
     fn filter_by_type() {
         let dir = tempfile::tempdir().unwrap();
         let db = TimelineDb::open(&dir.path().join("timeline.db")).unwrap();
-        db.record(TimelineEventType::ServiceStarted, None, None, "start")
+        db.record(TimelineEventType::ServiceStarted, None, None, "start", None)
             .unwrap();
-        db.record(TimelineEventType::GitCommit, None, None, "commit")
+        db.record(TimelineEventType::GitCommit, None, None, "commit", None)
             .unwrap();
         let events = db
             .get_timeline(None, Some(TimelineEventType::GitCommit), None, 100)
             .unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, TimelineEventType::GitCommit);
+    }
+
+    #[test]
+    fn run_id_is_persisted_and_retrievable() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = TimelineDb::open(&dir.path().join("timeline.db")).unwrap();
+        let run = "run-abc-123";
+        db.record(
+            TimelineEventType::ServiceStarted,
+            Some("svc1"),
+            Some("api"),
+            "Started",
+            Some(run),
+        )
+        .unwrap();
+        db.record(
+            TimelineEventType::LogError,
+            Some("svc1"),
+            Some("api"),
+            "boom",
+            Some(run),
+        )
+        .unwrap();
+        db.record(
+            TimelineEventType::GitCommit,
+            Some("svc1"),
+            Some("api"),
+            "feat: x",
+            None,
+        )
+        .unwrap();
+        let events = db.get_timeline(None, None, None, 100).unwrap();
+        let with_run: Vec<_> = events
+            .iter()
+            .filter(|e| e.run_id.as_deref() == Some(run))
+            .collect();
+        assert_eq!(with_run.len(), 2);
+        let without = events.iter().filter(|e| e.run_id.is_none()).count();
+        assert_eq!(without, 1);
     }
 
     #[test]
@@ -327,6 +402,7 @@ mod tests {
             Some("s1"),
             Some("api"),
             "Started API",
+            None,
         )
         .unwrap();
         db.record(
@@ -334,6 +410,7 @@ mod tests {
             Some("s1"),
             Some("api"),
             "fix: endpoint",
+            None,
         )
         .unwrap();
         db.record(
@@ -341,6 +418,7 @@ mod tests {
             Some("s1"),
             Some("api"),
             "ECONNREFUSED",
+            None,
         )
         .unwrap();
         let today = Utc::now().date_naive();
@@ -359,6 +437,7 @@ mod tests {
             Some("s1"),
             Some("frontend"),
             "feat: new page",
+            None,
         )
         .unwrap();
         let since = Utc::now().timestamp_millis() - 86_400_000;
