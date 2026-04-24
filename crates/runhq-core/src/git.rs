@@ -14,7 +14,17 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 
+/// Per-file diff status.
+///
+/// The TypeScript side expects lowercase tags ("modified", "added", …)
+/// but serde defaults to the variant's original casing. We lock the
+/// wire format explicitly so the frontend `FileDiffStatus` union and
+/// all the status-letter / colour maps keyed by it actually match the
+/// JSON — without this, every `statusLetter[file.status]` lookup
+/// returned `undefined` and the right-edge status indicators silently
+/// disappeared.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum FileDiffStatus {
     Added,
     Modified,
@@ -215,6 +225,55 @@ pub fn list_branches(cwd: &Path) -> AppResult<Vec<String>> {
         .collect())
 }
 
+/// List remote-tracking branches (e.g. `origin/main`). Used in the branch
+/// switcher's "Remote" tab so users can check out a remote branch directly.
+pub fn list_remote_branches(cwd: &Path) -> AppResult<Vec<String>> {
+    if !is_repo(cwd) {
+        return Ok(vec![]);
+    }
+    let (ok, out, err) = run_git(
+        cwd,
+        &[
+            "for-each-ref",
+            "--sort=-committerdate",
+            "--format=%(refname:short)",
+            "refs/remotes/",
+        ],
+    )?;
+    if !ok {
+        return Err(AppError::Other(format!("git for-each-ref failed: {err}")));
+    }
+    // `origin/HEAD -> origin/main` entries appear as "origin/HEAD"; skip
+    // them because they're not real branches.
+    Ok(out
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && !l.ends_with("/HEAD"))
+        .collect())
+}
+
+/// Delete a local branch. `force=false` uses `git branch -d` which refuses
+/// to delete an unmerged branch — we surface that error verbatim so the UI
+/// can offer a "force delete" follow-up with an explicit confirmation.
+/// Cannot delete the currently checked-out branch; git will refuse.
+pub fn delete_branch(cwd: &Path, name: &str, force: bool) -> AppResult<()> {
+    require_repo(cwd)?;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Invalid("branch name is required".into()));
+    }
+    let flag = if force { "-D" } else { "-d" };
+    let (ok, _, err) = run_git(cwd, &["branch", flag, trimmed])?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git branch {flag} {trimmed} failed: {}",
+            err.trim()
+        )))
+    }
+}
+
 /// Checkout an existing local branch. Fails if the working tree would be
 /// clobbered — we pass on git's own error message in that case.
 pub fn checkout(cwd: &Path, branch: &str) -> AppResult<()> {
@@ -375,9 +434,24 @@ pub fn diff_staged(cwd: &Path) -> AppResult<DiffSummary> {
     Ok(parse_diff_numstat(&out, true))
 }
 
-pub fn diff_file(cwd: &Path, file: &str) -> AppResult<String> {
+/// Returns the raw unified diff for a single working-tree file.
+///
+/// `context` overrides git's default `-U3` when Some. Passing a very
+/// large value (e.g. `99_999`) causes git to include every unchanged
+/// line as context, effectively returning both sides of the file —
+/// exactly what the diff editor needs for "Full file" rendering
+/// mode where the reviewer wants to see unchanged code around the
+/// hunks without any collapsed gaps.
+pub fn diff_file(cwd: &Path, file: &str, context: Option<u32>) -> AppResult<String> {
     require_repo(cwd)?;
-    let (ok, out, _) = run_git(cwd, &["diff", "--", file])?;
+    let ctx_flag = context.map(|n| format!("-U{n}"));
+    let mut args: Vec<&str> = vec!["diff"];
+    if let Some(flag) = ctx_flag.as_deref() {
+        args.push(flag);
+    }
+    args.push("--");
+    args.push(file);
+    let (ok, out, _) = run_git(cwd, &args)?;
     if ok {
         Ok(out)
     } else {
@@ -385,9 +459,16 @@ pub fn diff_file(cwd: &Path, file: &str) -> AppResult<String> {
     }
 }
 
-pub fn diff_file_staged(cwd: &Path, file: &str) -> AppResult<String> {
+pub fn diff_file_staged(cwd: &Path, file: &str, context: Option<u32>) -> AppResult<String> {
     require_repo(cwd)?;
-    let (ok, out, _) = run_git(cwd, &["diff", "--staged", "--", file])?;
+    let ctx_flag = context.map(|n| format!("-U{n}"));
+    let mut args: Vec<&str> = vec!["diff", "--staged"];
+    if let Some(flag) = ctx_flag.as_deref() {
+        args.push(flag);
+    }
+    args.push("--");
+    args.push(file);
+    let (ok, out, _) = run_git(cwd, &args)?;
     if ok {
         Ok(out)
     } else {
@@ -428,6 +509,313 @@ pub fn diff_staged_raw(cwd: &Path) -> AppResult<String> {
         Ok(out)
     } else {
         Ok(String::new())
+    }
+}
+
+// ---- Staging / Commit ----------------------------------------------------
+
+/// Stage a single path. `git add --` is used so paths that start with a dash
+/// aren't mistaken for flags.
+pub fn stage_file(cwd: &Path, path: &str) -> AppResult<()> {
+    require_repo(cwd)?;
+    let (ok, _, err) = run_git(cwd, &["add", "--", path])?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git add -- {path} failed: {}",
+            err.trim()
+        )))
+    }
+}
+
+/// Unstage (`git reset HEAD -- <path>`). Works for both tracked and newly
+/// added files; does not touch the working tree.
+pub fn unstage_file(cwd: &Path, path: &str) -> AppResult<()> {
+    require_repo(cwd)?;
+    let (ok, _, err) = run_git(cwd, &["reset", "HEAD", "--", path])?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git reset HEAD -- {path} failed: {}",
+            err.trim()
+        )))
+    }
+}
+
+/// Stage every modified, deleted, and untracked path under the working tree.
+/// Equivalent to `git add -A`.
+pub fn stage_all(cwd: &Path) -> AppResult<()> {
+    require_repo(cwd)?;
+    let (ok, _, err) = run_git(cwd, &["add", "-A"])?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git add -A failed: {}",
+            err.trim()
+        )))
+    }
+}
+
+/// Unstage everything currently in the index. Equivalent to `git reset HEAD`.
+pub fn unstage_all(cwd: &Path) -> AppResult<()> {
+    require_repo(cwd)?;
+    let (ok, _, err) = run_git(cwd, &["reset", "HEAD"])?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git reset HEAD failed: {}",
+            err.trim()
+        )))
+    }
+}
+
+/// Throw away working-tree changes for a single path. Auto-detects whether
+/// the path is tracked and routes to the safe equivalent:
+///
+/// * **Tracked + modified / deleted** — `git checkout HEAD -- <path>` to
+///   restore the file from HEAD. The index is also reset for the path so
+///   partial-stage states don't survive.
+/// * **Untracked** — `git clean -f -- <path>`, which physically removes
+///   the file from disk. The frontend MUST gate this with a typed-word
+///   confirmation since it deletes data git never tracked.
+///
+/// Renamed files in the working tree are treated as the destination path
+/// being modified — git itself stages the rename when the user wants it,
+/// so the destination path's checkout is the right thing here.
+///
+/// IRREVERSIBLE for both branches; the caller is responsible for
+/// confirmation UX.
+pub fn discard_file(cwd: &Path, path: &str) -> AppResult<()> {
+    require_repo(cwd)?;
+    // `git ls-files --error-unmatch` is the canonical "is this path
+    // tracked at HEAD/index" probe. Exit code 0 means tracked, non-zero
+    // means untracked (or doesn't exist). We swallow stderr so the user
+    // doesn't see the noisy "did not match any file(s)" message — that's
+    // an expected branch of the routing logic, not an error.
+    let (tracked, _, _) = run_git(cwd, &["ls-files", "--error-unmatch", "--", path])?;
+    if tracked {
+        // Reset the index entry for this path first so a partially-staged
+        // file ends up fully clean rather than re-emerging as "Staged" on
+        // the next refresh. We tolerate a failure here because reset
+        // emits non-zero on paths that aren't in the index, which is
+        // fine — the checkout below is what matters.
+        let _ = run_git(cwd, &["reset", "HEAD", "--", path])?;
+        let (ok, _, err) = run_git(cwd, &["checkout", "HEAD", "--", path])?;
+        if ok {
+            Ok(())
+        } else {
+            Err(AppError::Other(format!(
+                "git checkout HEAD -- {path} failed: {}",
+                err.trim()
+            )))
+        }
+    } else {
+        // Untracked path → `git clean` is the git-aware way to remove
+        // it. Using `-f` is required (clean refuses without it) and
+        // `-d` lets it remove empty parent directories that became
+        // empty as a result of the file removal.
+        let (ok, _, err) = run_git(cwd, &["clean", "-f", "-d", "--", path])?;
+        if ok {
+            Ok(())
+        } else {
+            Err(AppError::Other(format!(
+                "git clean -f -d -- {path} failed: {}",
+                err.trim()
+            )))
+        }
+    }
+}
+
+/// Create a new commit from whatever is currently staged. When `amend` is
+/// true the previous commit is rewritten instead — safe pre-push, dangerous
+/// after a push. The caller is responsible for that policy.
+pub fn commit(cwd: &Path, message: &str, amend: bool) -> AppResult<()> {
+    require_repo(cwd)?;
+    let trimmed = message.trim();
+    if trimmed.is_empty() && !amend {
+        return Err(AppError::Invalid("commit message is required".into()));
+    }
+    let mut args: Vec<&str> = vec!["commit"];
+    if amend {
+        args.push("--amend");
+    }
+    if !trimmed.is_empty() {
+        args.push("-m");
+        args.push(trimmed);
+    } else {
+        // Amend with no new message keeps the original.
+        args.push("--no-edit");
+    }
+    let (ok, _, err) = run_git(cwd, &args)?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "git commit failed: {}",
+            err.trim()
+        )))
+    }
+}
+
+/// Push the current branch to its upstream. `force_with_lease` is the safer
+/// form of force-push — it refuses to overwrite remote history that the
+/// local repo hasn't observed. We never expose plain `--force`.
+pub fn push(cwd: &Path, force_with_lease: bool) -> AppResult<()> {
+    require_repo(cwd)?;
+    let mut args: Vec<&str> = vec!["push"];
+    if force_with_lease {
+        args.push("--force-with-lease");
+    }
+    let (ok, _, err) = run_git_with_timeout(cwd, &args, FETCH_TIMEOUT)?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!("git push failed: {}", err.trim())))
+    }
+}
+
+// ---- History -------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CommitSummary {
+    pub hash_full: String,
+    pub hash_short: String,
+    /// Parent hashes (full). First entry is the first parent. Merge commits
+    /// have >1 entries; root commits have 0.
+    pub parents: Vec<String>,
+    pub author: String,
+    pub email: String,
+    pub subject: String,
+    /// Author time, Unix epoch seconds.
+    pub timestamp: i64,
+    /// Branch / tag refs that point at this commit (e.g. `HEAD -> main`,
+    /// `origin/main`, `tag: v1.0`). Formatted the way `git log --decorate`
+    /// emits them.
+    pub refs: Vec<String>,
+}
+
+/// Read commit history as a flat list. `branch` is optional — when `None`
+/// the log follows HEAD; otherwise the given ref. `limit` caps how many
+/// commits we return (the UI paginates on top). Parents are included so
+/// the frontend can draw a graph without a second round-trip.
+pub fn log(cwd: &Path, branch: Option<&str>, limit: usize) -> AppResult<Vec<CommitSummary>> {
+    require_repo(cwd)?;
+    let limit_str = limit.max(1).to_string();
+    let mut args: Vec<&str> = vec![
+        "log",
+        "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%s%x1f%ct%x1f%D",
+        "-n",
+        &limit_str,
+    ];
+    if let Some(b) = branch {
+        if !b.is_empty() {
+            args.push(b);
+        }
+    }
+    let (ok, out, err) = run_git(cwd, &args)?;
+    if !ok {
+        // Fresh repo with no commits yet — not an error from the UI's POV.
+        let trimmed = err.trim();
+        if trimmed.contains("does not have any commits yet")
+            || trimmed.contains("unknown revision")
+            || trimmed.contains("bad default revision")
+            || trimmed.contains("ambiguous argument")
+        {
+            return Ok(Vec::new());
+        }
+        return Err(AppError::Other(format!("git log failed: {trimmed}")));
+    }
+    let mut commits = Vec::new();
+    for line in out.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(8, '\x1f').collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        let parents: Vec<String> = parts[2].split_whitespace().map(|s| s.to_string()).collect();
+        let refs_raw = parts.get(7).copied().unwrap_or("").trim();
+        let refs: Vec<String> = if refs_raw.is_empty() {
+            Vec::new()
+        } else {
+            refs_raw
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        commits.push(CommitSummary {
+            hash_full: parts[0].to_string(),
+            hash_short: parts[1].to_string(),
+            parents,
+            author: parts[3].to_string(),
+            email: parts[4].to_string(),
+            subject: parts[5].to_string(),
+            timestamp: parts[6].parse().unwrap_or(0),
+            refs,
+        });
+    }
+    Ok(commits)
+}
+
+/// `git show` for a single commit rendered as a diff summary (numstat). The
+/// first parent is used for merge commits — that's what most Git UIs do
+/// when rendering a merge's "changes" view.
+pub fn show_commit(cwd: &Path, hash: &str) -> AppResult<DiffSummary> {
+    require_repo(cwd)?;
+    let (ok, out, _) = run_git(
+        cwd,
+        &[
+            "show",
+            "--stat",
+            "--numstat",
+            "--format=",
+            "-m",
+            "--first-parent",
+            hash,
+        ],
+    )?;
+    if !ok {
+        return Ok(DiffSummary {
+            files: Vec::new(),
+            total_additions: 0,
+            total_deletions: 0,
+        });
+    }
+    Ok(parse_diff_numstat(&out, false))
+}
+
+/// Raw unified diff for a single file in a commit (vs. its first parent).
+/// See `diff_file` for how `context` affects the output.
+pub fn diff_commit_file(
+    cwd: &Path,
+    hash: &str,
+    file: &str,
+    context: Option<u32>,
+) -> AppResult<String> {
+    require_repo(cwd)?;
+    let range = format!("{hash}^!");
+    let ctx_flag = context.map(|n| format!("-U{n}"));
+    let mut args: Vec<&str> = vec!["diff", "--first-parent"];
+    if let Some(flag) = ctx_flag.as_deref() {
+        args.push(flag);
+    }
+    args.push(&range);
+    args.push("--");
+    args.push(file);
+    let (ok, out, err) = run_git(cwd, &args)?;
+    if ok {
+        Ok(out)
+    } else {
+        Err(AppError::Other(format!(
+            "git diff {range} -- {file} failed: {}",
+            err.trim()
+        )))
     }
 }
 
@@ -741,6 +1129,60 @@ mod tests {
     }
 
     #[test]
+    fn delete_branch_removes_merged_branch() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        run_git(td.path(), &["branch", "feature"]).unwrap();
+        delete_branch(td.path(), "feature", false).unwrap();
+        let b = list_branches(td.path()).unwrap();
+        assert!(!b.iter().any(|n| n == "feature"));
+    }
+
+    #[test]
+    fn delete_branch_refuses_unmerged_without_force() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        run_git(td.path(), &["checkout", "-b", "feature"]).unwrap();
+        write_file(td.path(), "b.txt", "wip");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "wip"]).unwrap();
+        // switch back so we can delete `feature`
+        run_git(td.path(), &["checkout", "-q", "main"]).unwrap();
+        assert!(delete_branch(td.path(), "feature", false).is_err());
+        // force succeeds
+        delete_branch(td.path(), "feature", true).unwrap();
+        let b = list_branches(td.path()).unwrap();
+        assert!(!b.iter().any(|n| n == "feature"));
+    }
+
+    #[test]
+    fn delete_branch_rejects_empty_name() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        assert!(delete_branch(td.path(), "  ", false).is_err());
+    }
+
+    #[test]
+    fn list_remote_branches_empty_when_no_remote() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        let r = list_remote_branches(td.path()).unwrap();
+        assert!(r.is_empty());
+    }
+
+    #[test]
     fn checkout_switches_branch() {
         let td = tempfile::tempdir().unwrap();
         init_repo(td.path());
@@ -885,7 +1327,7 @@ mod tests {
         run_git(td.path(), &["add", "."]).unwrap();
         run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
         write_file(td.path(), "a.txt", "world\n");
-        let raw = diff_file(td.path(), "a.txt").unwrap();
+        let raw = diff_file(td.path(), "a.txt", None).unwrap();
         assert!(raw.contains("-hello"));
         assert!(raw.contains("+world"));
     }
@@ -903,5 +1345,85 @@ mod tests {
         run_git(td.path(), &["commit", "-q", "-m", "add b"]).unwrap();
         let d = diff_branches(td.path(), "main", "feature").unwrap();
         assert!(!d.files.is_empty());
+    }
+
+    #[test]
+    fn stage_then_commit_creates_commit() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        // Seed commit so HEAD exists and log has something.
+        write_file(td.path(), "a.txt", "hello\n");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+
+        // Unstaged change.
+        write_file(td.path(), "a.txt", "world\n");
+        assert!(!diff(td.path()).unwrap().files.is_empty());
+        assert!(diff_staged(td.path()).unwrap().files.is_empty());
+
+        // Stage and commit via our wrappers.
+        stage_file(td.path(), "a.txt").unwrap();
+        assert!(!diff_staged(td.path()).unwrap().files.is_empty());
+        assert!(diff(td.path()).unwrap().files.is_empty());
+        commit(td.path(), "update a", false).unwrap();
+
+        let commits = log(td.path(), None, 10).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].subject, "update a");
+        assert_eq!(commits[0].parents.len(), 1);
+    }
+
+    #[test]
+    fn unstage_file_moves_back_to_working_tree() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello\n");
+        run_git(td.path(), &["add", "."]).unwrap();
+        run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+        write_file(td.path(), "a.txt", "world\n");
+        stage_file(td.path(), "a.txt").unwrap();
+        assert!(!diff_staged(td.path()).unwrap().files.is_empty());
+        unstage_file(td.path(), "a.txt").unwrap();
+        assert!(diff_staged(td.path()).unwrap().files.is_empty());
+        assert!(!diff(td.path()).unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn commit_rejects_empty_message() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "hello\n");
+        stage_all(td.path()).unwrap();
+        let res = commit(td.path(), "   ", false);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn log_on_empty_repo_returns_empty_list() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        // No commits yet.
+        let commits = log(td.path(), None, 10).unwrap();
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn show_commit_returns_numstat() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        write_file(td.path(), "a.txt", "one\n");
+        stage_all(td.path()).unwrap();
+        commit(td.path(), "first", false).unwrap();
+        write_file(td.path(), "a.txt", "one\ntwo\n");
+        write_file(td.path(), "b.txt", "hi\n");
+        stage_all(td.path()).unwrap();
+        commit(td.path(), "second", false).unwrap();
+
+        let commits = log(td.path(), None, 10).unwrap();
+        let head = &commits[0];
+        let d = show_commit(td.path(), &head.hash_full).unwrap();
+        assert_eq!(d.files.len(), 2);
+        let raw = diff_commit_file(td.path(), &head.hash_full, "a.txt", None).unwrap();
+        assert!(raw.contains("+two"));
     }
 }

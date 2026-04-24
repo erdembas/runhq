@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+
+- **diff:** modern shadcn-style branch picker (`BranchPicker`) replaces
+  every native `<select>` in the Source Control window — Commit /
+  Branches / History / Graph all share the same combobox now. Built on
+  a portal with auto-flip, type-ahead search, ↑/↓/↵/Esc keyboard
+  contract, and groups so meta-options ("All branches", "Current
+  HEAD") sit on top while real branches live under a "Branches"
+  heading. macOS' ugly bordered popup is gone.
+- **diff:** Graph tab gained a client-side commit search box. Matches
+  subject, author, email, full hash, short hash, and ref labels.
+  Non-matching rows fade to 30% opacity instead of disappearing — the
+  lane topology stays put so spatial memory survives. Live "n/total"
+  counter mirrors HistoryPanel.
+- **diff:** layered Esc handling in the Source Control window. Esc now
+  defers to any open transient overlay (context menu, confirm dialog,
+  popover) so it dismisses *that* first instead of nuking the whole
+  window. With nothing nested open, Esc pops a close-confirm — the old
+  instant-close path was reflex-fire-friendly and routinely lost typed
+  commit messages. The X button still closes immediately because that's
+  a deliberate click, not a reflex.
+- **diff:** right-click context menu for files in the Commit panel's
+  Source Control list. Mirrors VSCode's parity item-for-item: Open
+  File · Reveal in Folder · Copy Path · Copy Relative Path ·
+  Stage / Unstage Changes · Discard Changes (or Restore / Delete File
+  for deleted / untracked entries). The menu is portal-rendered, auto-
+  flips at the viewport edge, and closes on outside-click or Esc.
+- **git:** new `discard_file` core operation in `runhq-core::git`.
+  Auto-detects whether the path is tracked (`git checkout HEAD --
+  <path>` after a defensive index reset so partial-stage states can't
+  survive) or untracked (`git clean -f -d -- <path>`). Exposed via the
+  `git_discard_file` Tauri command and `ipc.gitDiscardFile` on the
+  frontend.
+- **diff:** destructive context-menu actions are gated behind
+  `ConfirmDialog`. Modified / deleted files get a single-click
+  confirmation; untracked files (which `git clean` deletes from disk
+  beyond reflog recovery) require typing `delete` to confirm — same
+  pattern as Force Delete Branch elsewhere in the app, so the UX is
+  consistent across irreversible ops.
+- **diff:** `FileRow` and `TreeView` gained an `onContextMenuFile`
+  prop. Folder rows intentionally do not get a menu (matches VSCode's
+  Source Control behavior — folder operations are global, not
+  per-folder).
+
 Ships the Cross-Project Dashboard — the killer feature for developers
 with dozens of projects. Turns RunHQ from a per-service manager into a
 bird's-eye view that answers "which ones are out of date? which have
@@ -52,6 +96,150 @@ project individually.
   scroll), global `cursor: pointer` on interactive elements, floating
   drawer (margin + radius) scoped to the content area so the sidebar
   rail stays visible underneath.
+- **diff:** Cross-Project Uncommitted Changes view — a fullscreen
+  overlay that rolls up every dirty project into one searchable tree,
+  so "wait, did I commit that two-line fix before switching branches?"
+  becomes a single glance instead of N tab-switches. Surfaces a
+  `N dirty` chip in the sidebar workspace header that only appears when
+  there's actually something to worry about, and each service row has a
+  shortcut back to its dedicated DiffViewer for the full commit flow.
+  Reuses `DiffPane`, `TreeView`, and the existing overview poll — no
+  extra backend polling. Monaco theme registration was extracted into a
+  shared `useMonacoTheme` hook so the two fullscreen diff surfaces stay
+  visually in sync. Closes ROADMAP §5 (Git Diff Viewer).
+- **diff:** Material Icon Theme (PKief) integration via `@iconify/react`
+  + `@iconify-json/material-icon-theme` — the de-facto modern VSCode
+  icon theme. Every file row in the Source Control tree (Changes,
+  Staged, History, Cross-Project) and every diff breadcrumb now shows
+  the flat, colourful tile for its filetype: purple "C#" square,
+  blue "TS" square, the Rust crab, React atom, etc. Curated mapping
+  covers 90+ extensions plus special-case basenames (`Dockerfile`,
+  `package.json`, `tsconfig.json`, lockfiles for every package
+  manager, `.gitignore`, `.env`, Cargo manifests, Tauri config,
+  README / LICENSE / CHANGELOG, Gradle / Maven build files, .NET
+  `Directory.Build.props`) so common config files get a recognisable
+  brand glyph instead of a generic file icon. Unmapped files fall
+  back to a status-tinted Lucide `<File>` so the tree never renders
+  a blank slot.
+- **diff:** tree indentation deepened from 12 px per level to 14 px,
+  and file rows now start 8 px deeper than their parent folder. At 1x
+  density the parent / child relationship is now obvious at a glance
+  instead of differing by just 2 px — scannability win for large
+  monorepos where folders nest 4+ levels deep.
+- **diff:** `parseUnifiedDiff` now strips git's bookkeeping preamble
+  (`diff --git`, `index`, `--- a/…`, `+++ b/…`, `similarity index`,
+  rename / mode metadata, `Binary files differ`) before feeding
+  Monaco. Previously those lines rendered as literal file content at
+  the top of every diff — doubly ugly in full-file mode because
+  they'd show up above the real source as if they were imports. Also
+  drops the `\ No newline at end of file` sentinel that was leaking
+  into the editor when files lacked a trailing newline.
+- **diff:** full-line diff rendering — the tint on added / removed
+  lines now spans the whole editor width at a VSCode-comparable
+  intensity (~20% alpha vs the previous ~8%), so a block of changes
+  reads as a solid band instead of a faint cloud behind the text. The
+  character-level tint is bumped in parallel so actual changed tokens
+  still pop against the whole-line wash. `diffEditorGutter.inserted/
+  removedLineBackground` is now set explicitly so the gutter strip
+  matches even on vs-light. Added a "Diffs only / Full file" toggle
+  in the diff header that actually fetches a wider git diff. Previously
+  the toggle only flipped Monaco's `hideUnchangedRegions`, but git's
+  unified-diff output only contains changed hunks + 3 lines of context
+  — so "Full file" had no extra content to show. Now the IPC layer
+  forwards a `context: Option<u32>` to `git diff -U<N>`; when the
+  toggle is on every DiffPane (Changes, Commit, History, Cross-Project)
+  re-fetches with `-U100000`, giving Monaco both sides of the full file
+  so the diff renders with every unchanged line in place. Toggle state
+  lives in `useAppStore.diffShowUnchanged` so the choice syncs across
+  every open surface and persists to localStorage. Default is ON —
+  most reviewers want the full context; one click flips to hunk-only
+  for giant files where a 100k-line context would OOM the renderer.
+- **diff:** every file explorer sidebar in the Git editor is now
+  resizable — Changes tab, Commit tab, History tab (both commit list
+  and file tree), and Cross-Project view. Width is clamped to
+  220–720px, persisted per-surface in localStorage under namespaced
+  keys (e.g. `runhq.diff.commit.sidebar.v1`), and double-clicking the
+  grip resets to the default. Keyboard accessible via ← / → (hold
+  Shift for coarse 32px steps) with proper `role="separator"` +
+  `aria-orientation="vertical"` so screen readers announce it. Logic
+  lives in a new `useResizableWidth` hook so future splitters drop in
+  with one line of code; the visual grip is a shared `ResizeHandle`
+  component that tints on hover / while dragging.
+- **diff:** Source Control rows redesigned for strict VSCode parity —
+  the status pill on the left (which several users read as an empty
+  checkbox and tried to click) is gone. Status is now a bold coloured
+  letter (M / A / D / U / R / C) at the far right, matching VSCode's
+  Source Control pane exactly. The file icon inherits the status
+  colour so the row is still scannable at a glance even when the name
+  truncates. Stage / unstage actions share the right-edge slot with
+  the +/− stats: stats show at rest, the action button replaces them
+  on hover (and is always visible in the dense Commit sidebar where
+  discoverability matters more than density). The DiffPane breadcrumb
+  got the same treatment — no more confusing pill, just a coloured
+  letter on the right.
+
+- **git:** DiffViewer and CrossProjectDiffViewer now share the main
+  sidebar's elevated surface (`--surface-raised`) instead of layering
+  three or four semi-transparent `/20`/`/30`/`/40` variants of
+  `bg-surface-muted` on top of each other. The result is one
+  continuous dark panel — tabs, file tree, toolbars, breadcrumb,
+  branch picker, commit composer, history rail, graph filters all
+  inherit the same tone — structured by borders rather than by opacity
+  washes. The Monaco editor intentionally stays at the body `--surface`
+  tone so the code area still sinks slightly below its chrome
+  (matches VSCode's panel / editor hierarchy). Side effects:
+  `statusBarBg` (the left-edge status tick on file rows) was also
+  removed in the previous pass, so the whole left gutter is now
+  clean — status is communicated exclusively via the right-edge
+  letter + tinted file icon.
+- **git:** right-edge status letters (M/A/D/R/C/U) on every file row —
+  and on the DiffPane breadcrumb — now render as softly tinted 18x18
+  indicators with raw `rgba()` backgrounds, not Tailwind utilities.
+  Root cause turned out to be much nastier than a CSS bug: serde
+  defaults serialize the `FileDiffStatus` enum with CamelCase tags
+  (`"Modified"`, `"Added"`…) but the TypeScript union is all-lowercase,
+  so every `statusLetter[file.status]` / `statusColor[file.status]`
+  lookup had been returning `undefined` for the lifetime of the
+  feature — the letter wasn't invisible, it was literally never being
+  rendered. Fixed at the boundary with
+  `#[serde(rename_all = "lowercase")]` so the wire format matches the
+  contract the frontend expects. Scannability is now identical to
+  JetBrains / Sublime Merge without introducing the "pill / checkbox"
+  affordance the previous left-side chips did.
+- **git:** the `N dirty` badge inside the Git popover is now a button.
+  Clicking it opens the diff viewer directly and closes the popover —
+  the second, faster entry point to the same flow as the existing
+  `Diff` action button, matching the affordance we already have on
+  the chip header itself. Clean repos keep the decorative `clean`
+  pill (no-op, no hover).
+- **git-editor:** sidebar search across both file tree and commit
+  history. The file-tree sidebars (Commit + Branches) grew a
+  `Search files…` box that filters by substring on full path
+  (case-insensitive) and auto-expands every folder so matches are
+  visible without an extra click. The History tab grew a matching
+  `Search commits…` box that filters the commit list against subject,
+  author, email, short/full hash, and refs (branch / tag names) — the
+  count chip in the branch toolbar switches to `matches/total` while a
+  query is active so it's obvious how aggressively the list is being
+  trimmed. Both inputs ship the standard one-click clear (×) affordance
+  and live entirely client-side, so typing never round-trips git.
+- **git-editor:** the Changes and Commit tabs have been collapsed into
+  a single **Commit** tab — they used to share ~90% of the same data
+  set (working tree + staged file lists) presented in two slightly
+  different ways, which forced users to flip between them mid-task to
+  see "what changed" vs "what will I commit". The merged Commit view
+  uses the more complete CommitPanel layout — stacked *Staged Changes*
+  / *Changes* sections with per-file stage/unstage buttons, commit
+  message + amend + Commit + Push above — and absorbs everything the
+  old Changes tab had: file search, tree/list toggle, expand-all /
+  collapse-all, and the A/M/D/R status legend. Browsing-only flow
+  still works (just don't touch the staging buttons). Stage-all and
+  Unstage-all always operate on the unfiltered set, so typing into the
+  search box can never silently shrink what `Stage all` does. Branch-
+  vs-branch comparison was promoted out of the Changes sub-mode into
+  its own top-level **Branches** tab — it's a fundamentally different
+  workflow (comparing two committed refs, no staging) and lumping it
+  into the commit panel would have been a VSCode anti-pattern.
 
 ### Deferred
 
@@ -68,6 +256,13 @@ project individually.
 
 ### Removed
 
+- **git-editor:** the windowed (non-fullscreen) mode of the Diff
+  Viewer. The F11 / ⌘⇧F toggle and the Maximize / Restore button on
+  the title bar have been removed; the editor is always fullscreen
+  now. The smaller mode was added defensively but never actually
+  used — a 1000×700px diff viewer is unusable on any modern monitor
+  and the toggle was just one more piece of UI to read on every open.
+  Keyboard contract simplifies to *Esc closes* and nothing else.
 - **dashboard:** the two 4-up stat grids at the top of the dashboard
   (Running / Starting / Stopped / Failed and CVE / Outdated / Stale /
   Dirty). Each one duplicated information already present in the
