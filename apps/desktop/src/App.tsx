@@ -20,6 +20,7 @@ import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
 import { useContextMenu } from '@/lib/context-menu';
+import { useUiZoomShortcuts } from '@/lib/ui-zoom';
 
 export default function App() {
   const selectedServiceId = useAppStore((s) => s.selectedServiceId);
@@ -82,6 +83,7 @@ export default function App() {
     [openEditor, openStackEditor, startScan],
   );
   const { menu: contextMenu } = useContextMenu(contextItems);
+  useUiZoomShortcuts();
 
   useEffect(() => {
     let cancelled = false;
