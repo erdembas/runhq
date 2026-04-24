@@ -115,18 +115,18 @@ Config files are the most frequently edited files during local development, but 
 
 ## 5. Git Diff Viewer
 
-**Priority:** Medium-High | **Effort:** Medium | **Status:** Planned
+**Priority:** Medium-High | **Effort:** Medium | **Status:** Shipped
 
 See what changed without opening an editor or running `git diff` in a terminal.
 
 ### Scope
 
-- **Inline Diff View** — Click the dirty file count on a service card to open an inline diff viewer. Show changed files, additions, and deletions.
-- **Syntax Highlighting** — Language-aware syntax highlighting for common languages (JS/TS, Rust, Python, Go, YAML, JSON, etc.).
-- **View Modes** — Side-by-side (split) and unified (inline) diff views, toggleable.
-- **Quick Commit** — Stage files, write a commit message, and push — all from the diff viewer without touching a terminal.
-- **Cross-Project Uncommitted Changes** — A dedicated view showing all uncommitted changes across all projects. Never forget to commit before switching branches again.
-- **Branch Comparison** — View diff between any two branches (e.g., `main` vs `feature-branch`) without checking out.
+- **Inline Diff View** ✅ — Click the dirty file count on a service card to open an inline diff viewer. Show changed files, additions, and deletions.
+- **Syntax Highlighting** ✅ — Language-aware syntax highlighting for common languages (JS/TS, Rust, Python, Go, YAML, JSON, etc.).
+- **View Modes** ✅ — Side-by-side (split) and unified (inline) diff views, toggleable.
+- **Quick Commit** ✅ — Stage files, write a commit message, and push — all from the diff viewer without touching a terminal.
+- **Cross-Project Uncommitted Changes** ✅ — A dedicated view showing all uncommitted changes across all projects. Never forget to commit before switching branches again.
+- **Branch Comparison** ✅ — View diff between any two branches (e.g., `main` vs `feature-branch`) without checking out.
 
 ### Technical Notes
 
@@ -240,17 +240,86 @@ Currently, logs exist only in memory (ring buffers). Restarting the app clears e
 
 ---
 
+## 10. AI Integration (OpenAI-Compatible)
+
+**Priority:** High | **Effort:** Medium-High | **Status:** Proposed
+
+A first-class AI assistant layer for RunHQ — bring-your-own-key, OpenAI-API-compatible, optional and privacy-respecting. The goal is not "another chatbox bolted onto an IDE" but **AI surfaces that disappear into the developer's existing flow**: write a commit message from a staged diff, explain a noisy log line in place, summarise a branch as a PR description, ask a question about a single project or across the whole workspace.
+
+The integration is deliberately **provider-agnostic**: anything that speaks the OpenAI Chat Completions / Responses API works — OpenAI, Azure OpenAI, OpenRouter, Together, Groq, DeepSeek, Mistral, Ollama, LM Studio, llama.cpp server, and most self-hosted gateways. Anthropic / Gemini are reachable via OpenRouter or a proxy, so we don't need a per-vendor SDK.
+
+### Scope
+
+#### Foundations
+
+- **Provider Profiles** — Save multiple named profiles (e.g., "OpenAI prod", "Local Ollama", "Work OpenRouter") with `base_url`, `api_key`, default `model`, request `headers`, and per-profile flags (streaming, function calling, vision).
+- **Secure Credential Storage** — API keys stored in the OS keychain (macOS Keychain, Windows Credential Vault, Linux Secret Service via `tauri-plugin-stronghold` or the `keyring` crate). Never in plaintext config, never synced to git, never logged.
+- **Per-Feature Model Routing** — Pick a different model per feature: a cheap/fast model for commit messages, a strong model for code review, a long-context model for whole-repo Q&A. Keeps cost predictable.
+- **Streaming-First** — All long responses stream token-by-token via Tauri channels (`tauri::ipc::Channel<T>`), so the UI feels instant and cancellable. No "spinner for 30s then a wall of text".
+- **Cost & Token Telemetry** — Show estimated input/output tokens before send, actual usage after, and a running monthly total per profile. Hard limit ("warn at $X/month, block at $Y") to avoid surprise bills.
+- **Privacy Switches**:
+  - **Per-project AI off** — A boolean on each service that disables every AI surface for that repo. For regulated work (fintech, medical) where the policy is "nothing leaves this machine".
+  - **Local-only mode** — Globally restrict requests to providers whose `base_url` resolves to localhost / private network. Sanity-checked at request time, not just trusted from config.
+  - **Secret redaction** — Before any prompt leaves the process, scrub `.env` values, JWT/Bearer tokens, AWS keys, private keys, and obvious password patterns. Show the scrubbed prompt in a "preview before send" disclosure.
+- **Offline-Tolerant** — A network failure or 5xx must never break the host UI. AI surfaces degrade silently to "AI unavailable" with retry, and never block the underlying flow (commit, view log, etc.).
+
+#### AI Surfaces (in dependency order)
+
+- **Commit Message Generator** — A `✨ Generate` button next to the commit textarea in the Source Control window. Sends the staged unified diff (with redaction), gets a Conventional Commit-style message back, streams it into the textarea. User can re-roll, edit freely, or reject. Configurable: subject-only vs. subject + body, language (English / Turkish / etc.), tone (terse / detailed), Conventional Commit toggle.
+- **Branch Name Suggester** — From an issue title, ticket key, or one-line task description, suggest a branch name following the project's existing convention (detected from `git branch --list`). One-click create-and-checkout.
+- **Diff Explainer** — In the diff viewer, select a hunk → context menu → "Explain". Shows a popover with a plain-English summary, intent guess ("looks like a refactor extracting X into Y"), and possible review concerns ("the early-return on line N skips the cleanup block").
+- **Log Triage** — Right-click any log line in `LogPanel` → "Explain error" or "Suggest fix". Sends the line plus the surrounding ±30 lines and the service's runtime hint (Node, Rust, Go…). Result drops into a side panel with copy-paste-ready commands and links to the offending file:line when the LLM produces them.
+- **PR Description Generator** — From the Branches tab, "Draft PR description" runs the diff between the current branch and its base, plus the commit log, and produces a Markdown body with sections: Summary, Changes, Risk, Testing notes. Templates per repo (e.g., the team's Jira-link header).
+- **Release Notes / Changelog** — From the History tab, select a commit range → "Draft release notes". Groups commits by Conventional type (feat / fix / docs / chore) and rewrites them human-readably. Especially useful when the team's commit messages are sloppy.
+- **Code Review on Diff** — Staged or branch-vs-branch diffs can be sent for an LLM review pass: nullability misses, off-by-ones, error-handling gaps, missing tests. Output is shown as inline review comments on the diff lines (same UI we already have for selection), not a wall of text. Always framed as suggestions, never blocking.
+- **Project Q&A (Chat Panel)** — A dedicated chat panel anchored to the current project. The panel auto-injects context: project README, file tree (paths only, not contents), recent commits, package manifests, top-level scripts. Slash commands escape into structured actions:
+  - `/explain <file:line>` — open the file at the cursor and ask for an explanation.
+  - `/test <function>` — generate test cases for the named symbol.
+  - `/diff` — explain whatever the user is currently looking at in the diff viewer.
+  - `/run <task>` — propose a shell command (never auto-execute; goes through the same "Run in RunHQ terminal pre-filled" path we used for upgrade commands in Phase 1).
+- **Cross-Project Q&A** — At the dashboard level: "Which projects are pointing to staging?", "Which Node projects have outdated deps?", "What did I work on last Friday?". Backed by the existing Cross-Project Dashboard data (no extra scans), so the LLM just structures answers from already-collected facts.
+- **Smart Auto-Tagging** — On project import, the LLM looks at `package.json` / `Cargo.toml` / `go.mod` / `README.md` and suggests tags ("frontend", "rest-api", "tauri", "fintech-onboarding"). User accepts/edits before they stick.
+- **Health-Check Policy Advisor** — Once Service Health Checks ship (#7), an "AI suggest" button reads the service's recent log patterns + open ports + framework hint and proposes a sensible health-check config (HTTP path + expected status, or a TCP port, or a custom command). User reviews before saving.
+
+#### Operational Surfaces
+
+- **Prompt Library** — Reusable, parameterised prompts the user can edit. Ships with our defaults but every prompt is overridable per-profile and per-project. No black-box prompts.
+- **Conversation History** — Local SQLite, per-project. Searchable. Can be wiped with one click. Never leaves the machine.
+- **"Preview Before Send"** — A keyboard-toggleable disclosure that shows the exact final prompt (after templating + redaction) and the model/profile being used. The day someone sees an unexpected token count, this view is what saves them.
+- **Function Calling / Tools (later)** — When the selected provider supports it, expose RunHQ-internal tools to the model: `get_logs(service, lines)`, `get_diff(service)`, `list_branches(service)`. Always read-only, never mutating, gated behind explicit per-tool consent.
+
+### Technical Notes
+
+- **Core module: `runhq-core::ai`** — Provider abstraction (`Provider` trait + `OpenAICompatible` impl), request/response types, streaming primitives, redaction pipeline, token estimator. Stays headless; the Tauri shell only does IPC plumbing and UI.
+- **Streaming via Tauri channels** — Use `tauri::ipc::Channel<AIEvent>` for token streaming; map server-sent events from the OpenAI-compatible endpoint into a typed `AIEvent::Delta { text } | AIEvent::Tool { … } | AIEvent::Done { usage }`. Cancellation via dropping the channel.
+- **Redaction pipeline** — A `Redactor` step (`String -> String + RedactionReport`) runs before every outbound request. The report is surfaced in the "Preview Before Send" panel so the user sees what was masked.
+- **Model registry** — Lightweight static catalog (id, context window, input/output cost per 1k tokens, supports streaming/tools/vision) seeded for known models, with an "unknown — costs not tracked" fallback. Updateable via a JSON file the user can edit.
+- **Frontend hooks** — `useAIComplete`, `useAIChat` (streaming), `useAIProviders`. UI components: `AIChatPanel`, `CommitMessageGenerator`, `LogExplainerPopover`, `DiffExplainerPopover`. Reuse the `BranchPicker`-style portal/popover pattern for context menus.
+- **Failure budget** — Every AI call wrapped in a 30s timeout, exponential-backoff retry on 5xx (max 2 retries), and a circuit-breaker per profile (5 consecutive failures = "this profile is sad" banner with a "test connection" button).
+- **No background calls without consent** — AI features never make a network request on app start, on project scan, or on any background sweep. Every request is traceable to a user action.
+
+### Why
+
+A modern dev tool without AI feels dated; a dev tool that drops a chatbox into a sidebar and calls it done feels lazy. RunHQ has something neither pure chatbots nor in-editor copilots have: **structured project context across many repos** (cross-project dashboard data, git status matrix, log streams, dependency state). That context is the unlock — it lets the assistant answer questions a single-repo IDE assistant can't, like "which services are pointing to the wrong DB?" or "what did I work on this week?", and produce commit messages / PR descriptions that match the team's actual conventions.
+
+Doing it BYOK + OpenAI-compatible from day one means every user keeps their existing keys, picks their preferred provider (cloud or local), and pays nothing through us. We never become a billing relay or a data hop.
+
+---
+
 ## Implementation Order
 
 The suggested implementation sequence, balancing impact and dependencies:
 
-| Phase       | Features                                               | Rationale                                                                                     |
-| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| **Phase 1** | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness. |
-| **Phase 2** | Quick .env Editor                                      | High daily value, relatively self-contained.                                                  |
-| **Phase 3** | Internal Browser, Git Diff Viewer                      | Rich UI features that require new embedded components.                                        |
-| **Phase 4** | Service Health Checks, Log Persistence                 | Infrastructure improvements that other features can build on.                                 |
-| **Phase 5** | Workspace Snapshots, CLI Interface                     | Polish and reach — snapshots for convenience, CLI for new audiences.                          |
+| Phase       | Features                                               | Rationale                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 1** | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness.                                                                                 |
+| **Phase 2** | Quick .env Editor                                      | High daily value, relatively self-contained.                                                                                                                                  |
+| **Phase 3** | Internal Browser, ~~Git Diff Viewer~~ (shipped)        | Rich UI features that require new embedded components.                                                                                                                        |
+| **Phase 4** | Service Health Checks, Log Persistence                 | Infrastructure improvements that other features can build on.                                                                                                                 |
+| **Phase 5** | Workspace Snapshots, CLI Interface                     | Polish and reach — snapshots for convenience, CLI for new audiences.                                                                                                          |
+| **Phase 6** | AI Integration — Foundations + Commit Messages         | Provider plumbing, secure keychain, redaction, streaming, and the smallest viable surface (commit message generator) so the rest can land iteratively without re-platforming. |
+| **Phase 7** | AI Integration — Diff & Log Triage, PR Drafting        | Context-aware surfaces that ride on top of features already shipped (#5, #9). Reuses the foundations from Phase 6.                                                            |
+| **Phase 8** | AI Integration — Project & Cross-Project Q&A           | The hardest surface (context assembly, retrieval) and the one that benefits most from the dashboard data already available (#1).                                              |
 
 ---
 
