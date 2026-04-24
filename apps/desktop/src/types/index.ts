@@ -304,3 +304,14 @@ export interface DiffSummary {
   total_additions: number;
   total_deletions: number;
 }
+
+export interface CommitSummary {
+  hash_full: string;
+  hash_short: string;
+  parents: string[];
+  author: string;
+  email: string;
+  subject: string;
+  timestamp: number;
+  refs: string[];
+}

@@ -17,6 +17,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
+import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
@@ -45,6 +46,8 @@ export default function App() {
   const diffViewerOpen = useAppStore((s) => s.diffViewerOpen);
   const diffViewerServiceId = useAppStore((s) => s.diffViewerServiceId);
   const closeDiffViewer = useAppStore((s) => s.closeDiffViewer);
+  const crossProjectDiffOpen = useAppStore((s) => s.crossProjectDiffOpen);
+  const closeCrossProjectDiff = useAppStore((s) => s.closeCrossProjectDiff);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -533,6 +536,7 @@ export default function App() {
       {diffViewerOpen && diffViewerServiceId && (
         <DiffViewer serviceId={diffViewerServiceId} onClose={closeDiffViewer} />
       )}
+      {crossProjectDiffOpen && <CrossProjectDiffViewer onClose={closeCrossProjectDiff} />}
       {tourState.open && (
         <WelcomeTour
           reopened={tourState.reopened}

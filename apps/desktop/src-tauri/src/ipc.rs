@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
-use runhq_core::git::{self, DiffSummary, GitStatus};
+use runhq_core::git::{self, CommitSummary, DiffSummary, GitStatus};
 use runhq_core::logs::LogLine;
 use runhq_core::overview::{self, DependencyScanResult, OverviewSummary};
 use runhq_core::paths;
@@ -573,19 +573,25 @@ pub fn git_diff_staged(id: String, state: State<'_, AppState>) -> AppResult<Diff
 }
 
 #[tauri::command]
-pub fn git_diff_file(id: String, file: String, state: State<'_, AppState>) -> AppResult<String> {
+pub fn git_diff_file(
+    id: String,
+    file: String,
+    context: Option<u32>,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
     let cwd = resolve_cwd(&id, &state)?;
-    git::diff_file(&cwd, &file)
+    git::diff_file(&cwd, &file, context)
 }
 
 #[tauri::command]
 pub fn git_diff_file_staged(
     id: String,
     file: String,
+    context: Option<u32>,
     state: State<'_, AppState>,
 ) -> AppResult<String> {
     let cwd = resolve_cwd(&id, &state)?;
-    git::diff_file_staged(&cwd, &file)
+    git::diff_file_staged(&cwd, &file, context)
 }
 
 #[tauri::command]
@@ -624,6 +630,12 @@ pub fn git_branches(id: String, state: State<'_, AppState>) -> AppResult<Vec<Str
 }
 
 #[tauri::command]
+pub fn git_remote_branches(id: String, state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::list_remote_branches(&cwd)
+}
+
+#[tauri::command]
 pub fn git_checkout(id: String, branch: String, state: State<'_, AppState>) -> AppResult<()> {
     let cwd = resolve_cwd(&id, &state)?;
     git::checkout(&cwd, &branch)
@@ -633,6 +645,17 @@ pub fn git_checkout(id: String, branch: String, state: State<'_, AppState>) -> A
 pub fn git_create_branch(id: String, name: String, state: State<'_, AppState>) -> AppResult<()> {
     let cwd = resolve_cwd(&id, &state)?;
     git::create_branch(&cwd, &name)
+}
+
+#[tauri::command]
+pub fn git_delete_branch(
+    id: String,
+    name: String,
+    force: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::delete_branch(&cwd, &name, force)
 }
 
 #[tauri::command]
@@ -677,6 +700,92 @@ pub fn git_amend_commit_message(
 ) -> AppResult<()> {
     let cwd = resolve_cwd(&id, &state)?;
     git::amend_commit_message(&cwd, &message)
+}
+
+#[tauri::command]
+pub fn git_stage_file(id: String, path: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::stage_file(&cwd, &path)
+}
+
+#[tauri::command]
+pub fn git_unstage_file(id: String, path: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::unstage_file(&cwd, &path)
+}
+
+#[tauri::command]
+pub fn git_stage_all(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::stage_all(&cwd)
+}
+
+#[tauri::command]
+pub fn git_unstage_all(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::unstage_all(&cwd)
+}
+
+#[tauri::command]
+pub fn git_discard_file(id: String, path: String, state: State<'_, AppState>) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::discard_file(&cwd, &path)
+}
+
+#[tauri::command]
+pub fn git_commit(
+    id: String,
+    message: String,
+    amend: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::commit(&cwd, &message, amend)
+}
+
+#[tauri::command]
+pub async fn git_push(
+    id: String,
+    force_with_lease: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let cwd = resolve_cwd(&id, &state)?;
+    tokio::task::spawn_blocking(move || git::push(&cwd, force_with_lease))
+        .await
+        .map_err(|e| AppError::Other(format!("push task join failed: {e}")))?
+}
+
+#[tauri::command]
+pub fn git_log(
+    id: String,
+    branch: Option<String>,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<CommitSummary>> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::log(&cwd, branch.as_deref(), limit.unwrap_or(100))
+}
+
+#[tauri::command]
+pub fn git_show_commit(
+    id: String,
+    hash: String,
+    state: State<'_, AppState>,
+) -> AppResult<DiffSummary> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::show_commit(&cwd, &hash)
+}
+
+#[tauri::command]
+pub fn git_diff_commit_file(
+    id: String,
+    hash: String,
+    file: String,
+    context: Option<u32>,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    git::diff_commit_file(&cwd, &hash, &file, context)
 }
 
 #[tauri::command]

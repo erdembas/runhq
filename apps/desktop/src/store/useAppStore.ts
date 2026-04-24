@@ -151,6 +151,23 @@ interface AppStore {
   diffViewerServiceId: ServiceId | null;
   openDiffViewer: (serviceId: ServiceId) => void;
   closeDiffViewer: () => void;
+
+  /** Cross-project uncommitted changes viewer — shows every service that
+   *  has dirty files in one place so the user never forgets to commit a
+   *  half-finished change in project X before context-switching. */
+  crossProjectDiffOpen: boolean;
+  openCrossProjectDiff: () => void;
+  closeCrossProjectDiff: () => void;
+
+  /**
+   * Diff viewer preference: when true, every DiffPane fetches the diff
+   * with a huge `-U` context so Monaco can render the ENTIRE file with
+   * unchanged code in place (not just the changed hunks + 3 lines).
+   * Default on; reviewers can flip to hunk-only for giant files.
+   * Persisted to localStorage so the choice sticks across sessions.
+   */
+  diffShowUnchanged: boolean;
+  setDiffShowUnchanged: (v: boolean) => void;
 }
 
 const MAX_UI_LOG_LINES = 5_000;
@@ -311,6 +328,30 @@ function saveSections(snapshot: SectionsSnapshot): void {
 }
 
 const initialSections = loadSections();
+
+const DIFF_SHOW_UNCHANGED_KEY = 'runhq.diff.showUnchanged.v1';
+
+function loadDiffShowUnchanged(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = window.localStorage.getItem(DIFF_SHOW_UNCHANGED_KEY);
+    if (raw == null) return true;
+    return raw === '1';
+  } catch {
+    return true;
+  }
+}
+
+function saveDiffShowUnchanged(v: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(DIFF_SHOW_UNCHANGED_KEY, v ? '1' : '0');
+  } catch {
+    // non-fatal (same policy as other prefs)
+  }
+}
+
+const initialDiffShowUnchanged = loadDiffShowUnchanged();
 
 function genSectionId(): SectionId {
   const g = globalThis as { crypto?: { randomUUID?: () => string } };
@@ -689,4 +730,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   diffViewerServiceId: null,
   openDiffViewer: (serviceId) => set({ diffViewerOpen: true, diffViewerServiceId: serviceId }),
   closeDiffViewer: () => set({ diffViewerOpen: false, diffViewerServiceId: null }),
+
+  crossProjectDiffOpen: false,
+  openCrossProjectDiff: () => set({ crossProjectDiffOpen: true }),
+  closeCrossProjectDiff: () => set({ crossProjectDiffOpen: false }),
+
+  diffShowUnchanged: initialDiffShowUnchanged,
+  setDiffShowUnchanged: (v) => {
+    set({ diffShowUnchanged: v });
+    saveDiffShowUnchanged(v);
+  },
 }));
