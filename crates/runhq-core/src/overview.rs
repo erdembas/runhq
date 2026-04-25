@@ -1007,6 +1007,11 @@ struct ScanEntry {
 #[derive(Clone)]
 struct ScanCache {
     inner: Arc<Mutex<HashMap<PathBuf, ScanEntry>>>,
+    // TTL is a field rather than reading the global constant directly so tests
+    // can drive expiry with a tiny duration + real sleep. Backdating `Instant`
+    // values underflows on fresh Windows CI runners where `Instant::now()` is
+    // smaller than `SCAN_CACHE_TTL`, so we avoid that construction entirely.
+    ttl: Duration,
 }
 
 impl ScanCache {
@@ -1016,6 +1021,7 @@ impl ScanCache {
         GLOBAL
             .get_or_init(|| ScanCache {
                 inner: Arc::new(Mutex::new(HashMap::new())),
+                ttl: SCAN_CACHE_TTL,
             })
             .clone()
     }
@@ -1023,7 +1029,7 @@ impl ScanCache {
     fn get_fresh(&self, cwd: &Path) -> Option<ScanEntry> {
         let guard = self.inner.lock();
         let entry = guard.get(cwd)?;
-        if entry.fetched_at.elapsed() < SCAN_CACHE_TTL {
+        if entry.fetched_at.elapsed() < self.ttl {
             Some(entry.clone())
         } else {
             None
@@ -1034,7 +1040,7 @@ impl ScanCache {
         let guard = self.inner.lock();
         guard
             .iter()
-            .filter(|(_, e)| e.fetched_at.elapsed() < SCAN_CACHE_TTL)
+            .filter(|(_, e)| e.fetched_at.elapsed() < self.ttl)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
@@ -1220,13 +1226,12 @@ mod tests {
     fn scan_cache_ttl_returns_stale_as_miss() {
         let cache = ScanCache {
             inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl: Duration::from_millis(20),
         };
         let cwd = PathBuf::from("/tmp/runhq-overview-test");
         cache.insert(&cwd, None, None);
         assert!(cache.get_fresh(&cwd).is_some());
-        // Force expiry by rewriting the entry with a back-dated timestamp.
-        cache.inner.lock().get_mut(&cwd).unwrap().fetched_at =
-            Instant::now() - SCAN_CACHE_TTL - Duration::from_secs(1);
+        std::thread::sleep(Duration::from_millis(40));
         assert!(cache.get_fresh(&cwd).is_none());
     }
 }

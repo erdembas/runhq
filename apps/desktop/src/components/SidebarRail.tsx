@@ -98,9 +98,22 @@ export function SidebarRail() {
     resizing.current = false;
   }, []);
 
+  // PIDs of every service that's already surfaced through a stack row.
+  // Anything in this set is intentionally hidden from the flat sidebar list
+  // so users don't see the same service twice (once standalone, once under
+  // its stack) — the biggest single piece of "my sidebar feels cluttered"
+  // feedback. Stack detail view still renders them in full.
+  const serviceIdsInAnyStack = useMemo(() => {
+    const s = new Set<string>();
+    for (const stack of stacks) for (const sid of stack.service_ids) s.add(sid);
+    return s;
+  }, [stacks]);
+
   const filteredServices = useMemo(() => {
     const q = search.trim().toLowerCase();
     return services.filter((svc) => {
+      if (serviceIdsInAnyStack.has(svc.id)) return false;
+
       const status: Status = statuses[svc.id]?.status ?? 'stopped';
       const isRunning = status === 'running' || status === 'starting';
       if (sidebarStatusFilter === 'running' && !isRunning) return false;
@@ -122,7 +135,15 @@ export function SidebarRail() {
 
       return true;
     });
-  }, [services, statuses, sidebarStatusFilter, categoryFilter, runtimeFilter, search]);
+  }, [
+    services,
+    statuses,
+    sidebarStatusFilter,
+    categoryFilter,
+    runtimeFilter,
+    search,
+    serviceIdsInAnyStack,
+  ]);
 
   const servicesBySection = useMemo(() => {
     const map = new Map<SectionId, typeof services>();
@@ -229,7 +250,10 @@ export function SidebarRail() {
     (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
   ).length;
 
-  const hiddenCount = services.length - filteredServices.length;
+  // "Hidden" banner means "hidden by the user's filters" — services living
+  // inside a stack are reachable through the stack row, so they shouldn't
+  // inflate the hidden-count and make the user feel something's been lost.
+  const hiddenCount = services.length - serviceIdsInAnyStack.size - filteredServices.length;
   const currentWidth = expanded ? width : COLLAPSED_W;
   const onHomeSelected = selectedServiceId === null && selectedStackId === null;
   const useSectionLayout = groupBy === 'none';
