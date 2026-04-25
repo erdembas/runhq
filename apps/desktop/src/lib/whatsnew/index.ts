@@ -14,5 +14,5 @@ export type {
   WhatsNewActionId,
   WhatsNewRelease,
 } from './types';
-export { WHATS_NEW_RELEASES, getLatestRelease, getReleaseFor } from './registry';
+export { WHATS_NEW_RELEASES, getAllReleases, getLatestRelease, getReleaseFor } from './registry';
 export { getLastSeenVersion, markVersionSeen, resetWhatsNewSeen, shouldAutoShow } from './trigger';

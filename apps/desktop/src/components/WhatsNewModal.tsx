@@ -28,7 +28,7 @@
  *     have to import every feature panel into the registry.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, History, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
@@ -241,6 +241,7 @@ export function WhatsNewModal({ version, onClose }: Props) {
   // because reading the store inside render is a footgun, and because
   // we want the side-effect to run exactly once per mount.
   const appVersion = useAppStore((s) => s.appVersion);
+  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
   useEffect(() => {
     if (appVersion) markVersionSeen(appVersion);
   }, [appVersion]);
@@ -385,14 +386,32 @@ export function WhatsNewModal({ version, onClose }: Props) {
         </div>
 
         <div className="bg-surface-raised/60 border-border flex items-center justify-between gap-2 border-t px-4 py-3">
-          <a
-            href={release.changelogUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-fg-dim hover:text-fg text-[11px] font-medium underline-offset-2 transition-colors hover:underline"
-          >
-            Read full changelog ↗
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href={release.changelogUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-fg-dim hover:text-fg text-[11px] font-medium underline-offset-2 transition-colors hover:underline"
+            >
+              Read full changelog ↗
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                // Close the modal *then* open the page so the user
+                // doesn't see the modal flash through to the new
+                // canvas. The page consumes the version hint to
+                // pre-select this release.
+                finish();
+                openReleaseNotes(release.version);
+              }}
+              className="text-fg-dim hover:text-fg inline-flex items-center gap-1 text-[11px] font-medium transition-colors"
+              title="Browse every release"
+            >
+              <History className="h-3 w-3" />
+              All releases
+            </button>
+          </div>
 
           <div className="flex items-center gap-2">
             <button

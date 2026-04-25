@@ -19,6 +19,20 @@ export function getReleaseFor(version: string): WhatsNewRelease | null {
   return WHATS_NEW_RELEASES.find((r) => normaliseVersion(r.version) === normalised) ?? null;
 }
 
+/**
+ * Every shipped release in descending version order. Used by the
+ * Release History surface, which renders the full archive (timeline
+ * on the left, selected entry on the right) so users can revisit any
+ * past release after the post-update modal has been dismissed.
+ *
+ * Returning a new array (rather than the readonly tuple) keeps callers
+ * free to filter / slice without TS complaining about mutating the
+ * source-of-truth tuple.
+ */
+export function getAllReleases(): WhatsNewRelease[] {
+  return [...WHATS_NEW_RELEASES];
+}
+
 /** Strips a leading `v` so `v0.6.0` and `0.6.0` are interchangeable. */
 function normaliseVersion(v: string): string {
   return v.replace(/^v/i, '').trim();

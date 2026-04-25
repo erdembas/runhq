@@ -173,6 +173,31 @@ interface AppStore {
   closeWhatsNew: () => void;
 
   /**
+   * Release Notes — the permanent archive of every shipped release,
+   * rendered into the main content area (alongside Dashboard /
+   * LogPanel / StackDetail). The post-update {@link whatsNewOpen}
+   * modal is the "celebrate" surface (one release, optionally auto-
+   * shown over whatever the user is doing); this is the "browse"
+   * surface (every release, takes over the main canvas like a real
+   * page so screenshots and copy can breathe).
+   *
+   * `releaseNotesSelectedVersion` is purely a *hint* — the page
+   * resolves it against the registry and falls back to the running
+   * version, then to the latest entry, if the hint isn't a known
+   * release. We separate it from `whatsNewVersion` so opening one
+   * surface doesn't reset the other.
+   *
+   * Selecting a service / stack from the sidebar always closes Release
+   * Notes (handled in {@link setSelected} / {@link setSelectedStack})
+   * because the user has navigated *away* from the archive — leaving
+   * it open behind the new selection would feel like a stuck modal.
+   */
+  releaseNotesOpen: boolean;
+  releaseNotesSelectedVersion: string | null;
+  openReleaseNotes: (version?: string) => void;
+  closeReleaseNotes: () => void;
+
+  /**
    * Diff viewer preference: when true, every DiffPane fetches the diff
    * with a huge `-U` context so Monaco can render the ENTIRE file with
    * unchanged code in place (not just the changed hunks + 3 lines).
@@ -476,10 +501,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
         resourceHistory: { ...s.resourceHistory, [id]: nextHistory },
       };
     }),
-  setSelected: (id) => set({ selectedServiceId: id, selectedCmdName: null, selectedStackId: null }),
+  // `releaseNotesOpen: false` here matters: Release Notes lives in the
+  // main-area conditional chain *above* selectedServiceId / selectedStackId,
+  // so without explicitly clearing it the user would click a service in
+  // the sidebar and stay stuck on the archive page. Sidebar nav must
+  // always win — that's the user's whole way out of Release Notes.
+  setSelected: (id) =>
+    set({
+      selectedServiceId: id,
+      selectedCmdName: null,
+      selectedStackId: null,
+      releaseNotesOpen: false,
+    }),
   setSelectedCmd: (cmdName) => set({ selectedCmdName: cmdName }),
   setSelectedStack: (id) =>
-    set({ selectedStackId: id, selectedServiceId: null, selectedCmdName: null }),
+    set({
+      selectedStackId: id,
+      selectedServiceId: null,
+      selectedCmdName: null,
+      releaseNotesOpen: false,
+    }),
   setAppMeta: (version, stateDir) => set({ appVersion: version, stateDir }),
 
   setCategoryFilter: (keys) => {
@@ -752,6 +793,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
   whatsNewVersion: null,
   openWhatsNew: (version) => set({ whatsNewOpen: true, whatsNewVersion: version }),
   closeWhatsNew: () => set({ whatsNewOpen: false }),
+
+  releaseNotesOpen: false,
+  releaseNotesSelectedVersion: null,
+  openReleaseNotes: (version) =>
+    set({
+      releaseNotesOpen: true,
+      releaseNotesSelectedVersion: version ?? null,
+      // Clear other main-area selections so the page truly takes over
+      // the canvas. Without this, a user who had a service open would
+      // see Release Notes "win" via render-precedence but the sidebar
+      // would still highlight the old service — confusing breadcrumbs.
+      selectedServiceId: null,
+      selectedCmdName: null,
+      selectedStackId: null,
+    }),
+  closeReleaseNotes: () => set({ releaseNotesOpen: false }),
 
   diffShowUnchanged: initialDiffShowUnchanged,
   setDiffShowUnchanged: (v) => {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Cpu, Keyboard, MemoryStick, Network } from 'lucide-react';
+import { Cpu, Keyboard, MemoryStick, Network, Sparkles } from 'lucide-react';
 import { cpuToneClass, memoryToneClass } from '@/lib/resourceTone';
 import { ThemeMenu } from '@/components/ThemeMenu';
 import { useAppStore } from '@/store/useAppStore';
@@ -18,6 +18,7 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
   const ports = useAppStore((s) => s.ports);
   const resources = useAppStore((s) => s.resources);
   const appVersion = useAppStore((s) => s.appVersion);
+  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
 
   const stats = useMemo(() => {
     let running = 0;
@@ -110,9 +111,31 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
         </button>
         <ThemeMenu />
         {appVersion && (
-          <span className="text-fg-dim ml-2 tabular-nums" title="RunHQ version">
-            v{appVersion}
-          </span>
+          // Version badge doubles as the Release Notes entry point.
+          // Accent-tinted pill so the version reads as deliberate UI
+          // (clickable, brand-aligned) rather than an inert footer
+          // string. Sparkles icon mirrors what we use everywhere else
+          // for "What's new" content, so the affordance carries across
+          // surfaces (modal, settings link, status bar) without a key.
+          // Version badge doubles as the Release Notes entry point.
+          // Explicit "Release notes" label sits next to the version so
+          // the affordance reads as a real action — a bare `v0.5.1`
+          // chip looked decorative and would have been ignored. Order
+          // is icon → version (mono, prominent) → label (muted) so the
+          // version stays the primary anchor and the label clarifies
+          // what the click does.
+          <button
+            type="button"
+            onClick={() => openReleaseNotes(appVersion)}
+            title={`See what's new in RunHQ ${appVersion}`}
+            className="bg-accent/10 text-fg ring-accent/25 hover:bg-accent/20 hover:ring-accent/45 ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-medium ring-1 transition-colors"
+          >
+            <Sparkles className="text-accent h-3 w-3" />
+            <span className="tabular-nums">v{appVersion}</span>
+            <span className="text-fg-dim border-accent/25 border-l pl-1.5 text-[10px] font-medium">
+              Release notes
+            </span>
+          </button>
         )}
       </div>
     </div>

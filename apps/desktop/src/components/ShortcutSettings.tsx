@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PlayCircle, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { History, PlayCircle, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/store/useAppStore';
 import { Dialog } from '@/components/ui/Dialog';
@@ -154,10 +154,11 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [saving, setSaving] = useState(false);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
-  // Only render the "What's New" link if there's actually a release
-  // entry shipped — keeps the dialog from showing a dead button on a
-  // build that lost the registry (e.g. during a future split where
-  // OSS / pro have different highlight sets).
+  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
+  // Only render the release links if there's actually a release entry
+  // shipped — keeps the dialog from showing dead buttons on a build
+  // that lost the registry (e.g. during a future split where OSS / pro
+  // have different highlight sets).
   const latestRelease = useMemo(() => getLatestRelease(), []);
 
   useEffect(() => {
@@ -241,17 +242,30 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
             </button>
           )}
           {latestRelease && (
-            <button
-              type="button"
-              onClick={() => {
-                openWhatsNew(latestRelease.version);
-                onClose();
-              }}
-              className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              What&apos;s new in {latestRelease.version}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  openWhatsNew(latestRelease.version);
+                  onClose();
+                }}
+                className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                What&apos;s new in {latestRelease.version}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openReleaseNotes();
+                  onClose();
+                }}
+                className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
+              >
+                <History className="h-3.5 w-3.5" />
+                Release notes
+              </button>
+            </>
           )}
         </div>
       )}

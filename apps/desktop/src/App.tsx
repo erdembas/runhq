@@ -16,6 +16,7 @@ import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
 import { WhatsNewModal } from '@/components/WhatsNewModal';
+import { ReleaseNotes } from '@/components/ReleaseNotes';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
 import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
@@ -56,6 +57,7 @@ export default function App() {
   const whatsNewVersion = useAppStore((s) => s.whatsNewVersion);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
   const closeWhatsNew = useAppStore((s) => s.closeWhatsNew);
+  const releaseNotesOpen = useAppStore((s) => s.releaseNotesOpen);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -539,7 +541,14 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <SidebarRail />
         <main className="flex min-w-0 flex-1 flex-col">
-          {selectedServiceId != null ? (
+          {/* Release Notes lives at the top of the conditional chain on
+              purpose: opening it must always win over whatever was on
+              the canvas. The store's `setSelected` / `setSelectedStack`
+              clear `releaseNotesOpen` so sidebar navigation always
+              wins back — keeping the precedence one-directional. */}
+          {releaseNotesOpen ? (
+            <ReleaseNotes />
+          ) : selectedServiceId != null ? (
             <LogPanel />
           ) : selectedStackId != null ? (
             <StackDetail />

@@ -12,7 +12,6 @@ import type { SectionId, Status } from '@/types';
 import {
   WorkspaceHeader,
   CreateActionsFooter,
-  VersionChip,
   SectionBlock,
   UnassignedBlock,
   SectionBody,
@@ -592,13 +591,10 @@ export function SidebarRail() {
       </div>
 
       {expanded && (
-        <>
-          <CreateActionsFooter
-            onAddService={() => openEditor(null)}
-            onAddStack={() => openStackEditor(null)}
-          />
-          <VersionChip expanded={expanded} />
-        </>
+        <CreateActionsFooter
+          onAddService={() => openEditor(null)}
+          onAddStack={() => openStackEditor(null)}
+        />
       )}
 
       <div
