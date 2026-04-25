@@ -1,5 +1,6 @@
 export { WorkspaceHeader } from './WorkspaceHeader';
 export { CreateActionsFooter } from './CreateActionsFooter';
+export { VersionChip } from './VersionChip';
 export { SectionBlock } from './SectionBlock';
 export { UnassignedBlock } from './UnassignedBlock';
 export { SectionBody, FlatItems } from './SectionBody';

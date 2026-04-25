@@ -160,6 +160,19 @@ interface AppStore {
   closeCrossProjectDiff: () => void;
 
   /**
+   * Release-highlights modal. Auto-shown after a major/minor upgrade and
+   * available on demand from Settings / sidebar version chip. We track
+   * the version explicitly (rather than just `open: true`) so the modal
+   * can render *any* shipped release entry, not only the latest one —
+   * future "see what changed in 0.6.0" links from a release-history view
+   * drop in without changing the trigger.
+   */
+  whatsNewOpen: boolean;
+  whatsNewVersion: string | null;
+  openWhatsNew: (version: string) => void;
+  closeWhatsNew: () => void;
+
+  /**
    * Diff viewer preference: when true, every DiffPane fetches the diff
    * with a huge `-U` context so Monaco can render the ENTIRE file with
    * unchanged code in place (not just the changed hunks + 3 lines).
@@ -734,6 +747,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   crossProjectDiffOpen: false,
   openCrossProjectDiff: () => set({ crossProjectDiffOpen: true }),
   closeCrossProjectDiff: () => set({ crossProjectDiffOpen: false }),
+
+  whatsNewOpen: false,
+  whatsNewVersion: null,
+  openWhatsNew: (version) => set({ whatsNewOpen: true, whatsNewVersion: version }),
+  closeWhatsNew: () => set({ whatsNewOpen: false }),
 
   diffShowUnchanged: initialDiffShowUnchanged,
   setDiffShowUnchanged: (v) => {

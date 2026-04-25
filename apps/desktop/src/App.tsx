@@ -15,6 +15,7 @@ import { ResizeHandles } from '@/components/ResizeHandles';
 import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
+import { WhatsNewModal } from '@/components/WhatsNewModal';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
 import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
@@ -23,6 +24,7 @@ import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
 import { useContextMenu } from '@/lib/context-menu';
 import { useUiZoomShortcuts } from '@/lib/ui-zoom';
+import { getLatestRelease, shouldAutoShow } from '@/lib/whatsnew';
 
 export default function App() {
   const selectedServiceId = useAppStore((s) => s.selectedServiceId);
@@ -49,6 +51,11 @@ export default function App() {
   const closeDiffViewer = useAppStore((s) => s.closeDiffViewer);
   const crossProjectDiffOpen = useAppStore((s) => s.crossProjectDiffOpen);
   const closeCrossProjectDiff = useAppStore((s) => s.closeCrossProjectDiff);
+  const appVersion = useAppStore((s) => s.appVersion);
+  const whatsNewOpen = useAppStore((s) => s.whatsNewOpen);
+  const whatsNewVersion = useAppStore((s) => s.whatsNewVersion);
+  const openWhatsNew = useAppStore((s) => s.openWhatsNew);
+  const closeWhatsNew = useAppStore((s) => s.closeWhatsNew);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
@@ -475,6 +482,36 @@ export default function App() {
     };
   }, []);
 
+  // "What's New" auto-trigger.
+  //
+  // Fires once per (running, lastSeen) version pair, after the modal
+  // chain ahead of it has settled:
+  //   1. WelcomeTour comes first on a fresh install — we never want to
+  //      stack the highlights modal on top of the onboarding flow, so
+  //      we only fire when `tourState.open === false` AND the user has
+  //      genuinely seen the tour at some point (`hasSeenTour()`). On
+  //      first-ever launch the trigger reaches the "no last-seen"
+  //      branch in `shouldAutoShow` and silently records a baseline
+  //      instead of popping a modal — see the rule in trigger.ts.
+  //   2. A small post-mount delay lets the dashboard / sidebar paint
+  //      first; otherwise the modal can render before there's any
+  //      visible UI behind it, which feels like a launcher screen
+  //      rather than a release announcement.
+  // The cleanup clears the timer if the dependencies change before it
+  // fires (e.g. user opens the tour replay, which re-opens it
+  // mid-sequence) so we never end up firing for a stale snapshot.
+  useEffect(() => {
+    if (!appVersion) return;
+    if (tourState.open) return;
+    if (!hasSeenTour()) return;
+    const release = shouldAutoShow(appVersion, getLatestRelease());
+    if (!release) return;
+    const id = window.setTimeout(() => {
+      openWhatsNew(release.version);
+    }, 600);
+    return () => window.clearTimeout(id);
+  }, [appVersion, tourState.open, openWhatsNew]);
+
   // In-app ⌘/Ctrl + K → same floating Quick Action window as the OS-wide
   // shortcut and the titlebar trigger. We prefer the plain chord (no Shift)
   // inside the app because users' hands are already on the main window;
@@ -544,6 +581,9 @@ export default function App() {
           reopened={tourState.reopened}
           onClose={() => setTourState({ open: false, reopened: false })}
         />
+      )}
+      {whatsNewOpen && whatsNewVersion && (
+        <WhatsNewModal version={whatsNewVersion} onClose={closeWhatsNew} />
       )}
       <ResizeHandles />
 

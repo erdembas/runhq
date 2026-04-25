@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { PlayCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PlayCircle, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/store/useAppStore';
 import { Dialog } from '@/components/ui/Dialog';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
+import { getLatestRelease } from '@/lib/whatsnew';
 import type { Prefs, Shortcuts } from '@/types';
 
 // Stored in the platform-agnostic `CmdOrCtrl` form that Tauri's
@@ -152,6 +153,12 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
   const [shortcuts, setShortcuts] = useState<Shortcuts>(DEFAULT_SHORTCUTS);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [saving, setSaving] = useState(false);
+  const openWhatsNew = useAppStore((s) => s.openWhatsNew);
+  // Only render the "What's New" link if there's actually a release
+  // entry shipped — keeps the dialog from showing a dead button on a
+  // build that lost the registry (e.g. during a future split where
+  // OSS / pro have different highlight sets).
+  const latestRelease = useMemo(() => getLatestRelease(), []);
 
   useEffect(() => {
     ipc.getPrefs().then((p) => {
@@ -221,16 +228,31 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
         (Cmd/Ctrl) is required for all shortcuts.
       </p>
 
-      {onReplayTour && (
-        <div className="border-border mt-4 border-t pt-3">
-          <button
-            type="button"
-            onClick={onReplayTour}
-            className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
-          >
-            <PlayCircle className="h-3.5 w-3.5" />
-            Replay welcome tour
-          </button>
+      {(onReplayTour || latestRelease) && (
+        <div className="border-border mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3">
+          {onReplayTour && (
+            <button
+              type="button"
+              onClick={onReplayTour}
+              className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Replay welcome tour
+            </button>
+          )}
+          {latestRelease && (
+            <button
+              type="button"
+              onClick={() => {
+                openWhatsNew(latestRelease.version);
+                onClose();
+              }}
+              className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              What&apos;s new in {latestRelease.version}
+            </button>
+          )}
         </div>
       )}
 
