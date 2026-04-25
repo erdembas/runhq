@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-25)
+
+
+### Features
+
+* **git-diff:** add git diff viewer with file-level and branch comparison ([#37](https://github.com/erdembas/runhq/issues/37)) ([a5db650](https://github.com/erdembas/runhq/commit/a5db650f5509e8476a2c4f39420bfb180d368af4))
+* **git-diff:** rebuild Source Control window for VSCode parity ([24a775a](https://github.com/erdembas/runhq/commit/24a775aa9a018e7b33495a5a6bb2850cec9a088a))
+* **git:** integrate Git status and operations into the LogPanel ([4e21c42](https://github.com/erdembas/runhq/commit/4e21c4250ba299a1bba31d56138680db82d33788))
+* **overview:** add cross-project dashboard with git status matrix and resource overview ([#32](https://github.com/erdembas/runhq/issues/32)) ([ade6953](https://github.com/erdembas/runhq/commit/ade6953ac5fd1e3c58d038fe75632c618e34ca62))
+* **overview:** complete cross-project dashboard with all roadmap features ([b0bcacc](https://github.com/erdembas/runhq/commit/b0bcacc3ada377a1fc50aa559b4727f09c94a00b))
+* **overview:** Cross-Project Dashboard (closes [#32](https://github.com/erdembas/runhq/issues/32)) ([ee37235](https://github.com/erdembas/runhq/commit/ee372350705777c75fbbe3f85db78e331548fab8))
+* **overview:** ship cross-project dashboard with triage cockpit ([bb3c872](https://github.com/erdembas/runhq/commit/bb3c872c445ff749556098a1a7d4ef40ca74417b))
+* **overview:** wire ProjectDashboard into UI as right drawer with Eye button ([4806483](https://github.com/erdembas/runhq/commit/48064831c00cfce7365b2d88131a7ace5353f0bf))
+* **release-notes:** implement Release Notes feature and integrate into UI ([ee01bef](https://github.com/erdembas/runhq/commit/ee01bef856b0db77e83b84a90f7d1e1baa35df64))
+* **styles:** introduce semantic tone colors for severity indicators ([d1b2aa0](https://github.com/erdembas/runhq/commit/d1b2aa0782db382726b3a8b5a28dd67963597c9e))
+* **timeline:** add activity timeline with SQLite persistence and standup export ([#34](https://github.com/erdembas/runhq/issues/34)) ([45aa13e](https://github.com/erdembas/runhq/commit/45aa13ed4e4bc913dfd7b6c2034f3ae3dbf9cc99))
+* **timeline:** add ActivityTimeline frontend component with daily summary and standup export ([c94ee30](https://github.com/erdembas/runhq/commit/c94ee30566e9b06b7a789d054abe2ce0e7affbd7))
+* **timeline:** add Timeline button to sidebar with clock icon ([e88bf4e](https://github.com/erdembas/runhq/commit/e88bf4e1042d4a083c36631819971af7a66d7da2))
+* **timeline:** add weekly summary, project/time filters, file change tracking ([714ca3e](https://github.com/erdembas/runhq/commit/714ca3e282cf204bfdf17b04009185dd14d78e76))
+* **timeline:** hook status and log events to auto-record timeline entries ([9f2cdac](https://github.com/erdembas/runhq/commit/9f2cdac9d750d360f5aca3fb20e14207f9712301))
+* **timeline:** integrate clipboard manager and enhance git event tracking ([c1e81ca](https://github.com/erdembas/runhq/commit/c1e81ca6bb3c69727bafda7807ef2bef3e1dd24b))
+* **timeline:** merge Activity Timeline feature ([#34](https://github.com/erdembas/runhq/issues/34)) ([718ebe4](https://github.com/erdembas/runhq/commit/718ebe416f4c1a2a25565c08833340089a8c8fa0))
+* **timeline:** redesign as right drawer with node graph, 640px width ([79b3e12](https://github.com/erdembas/runhq/commit/79b3e127efb6a4877ec3aadcf7074950f66e42c6))
+* **ui:** UI zoom shortcuts ([#49](https://github.com/erdembas/runhq/issues/49)) ([77cc042](https://github.com/erdembas/runhq/commit/77cc04282ab861c290d750c9a964967c0dc4cf56))
+* **whatsnew:** in-app release-highlights modal, kicking off with 0.6.0 ([9d13e99](https://github.com/erdembas/runhq/commit/9d13e99f2566c3b17f0d65642e6f73272f1ddeb3))
+
+
+### Bug Fixes
+
+* **ipc:** drop useless AppError::from conversions ([20c2ed9](https://github.com/erdembas/runhq/commit/20c2ed90cd91402dd212406a77472c195b2665de))
+* **overview:** satisfy clippy -D warnings in CI ([5634bd8](https://github.com/erdembas/runhq/commit/5634bd8dd532f5fb8f3ac9f466424d63ac5b1b25))
+* **overview:** use instance-specific TTL for ScanCache to improve test reliability ([1f7a553](https://github.com/erdembas/runhq/commit/1f7a5535316afa7f66a83c64ee674928ae31433b))
+* **sidebar:** hide stack-member services from flat list ([35386ac](https://github.com/erdembas/runhq/commit/35386ace2dd859d5898bdbce4abb70e716803bb0))
+* **timeline:** add chrono dependency to desktop crate for NaiveDate parsing ([8ba4e24](https://github.com/erdembas/runhq/commit/8ba4e24bd0cfb571c573e784e9ad30e2d63f14c2))
+
+
+### Performance Improvements
+
+* **overview:** async gather with parallel outdated/audit ([d88e3d7](https://github.com/erdembas/runhq/commit/d88e3d771b63952a48c4d8e8237110fd824c8b11))
+
+
+### Code Refactoring
+
+* **overview:** switch ProjectDashboard from drawer to modal ([70d50d6](https://github.com/erdembas/runhq/commit/70d50d660625e6e3f2468b67993663b019246c27))
+
+
+### Documentation
+
+* **changelog:** add bug fix for sidebar service duplication ([171bbaa](https://github.com/erdembas/runhq/commit/171bbaa178c5c8a2a83b50831a73f9bad48f2696))
+* **changelog:** add Unreleased entry for cross-project dashboard ([68397ab](https://github.com/erdembas/runhq/commit/68397ab7388943ad7122534faee6e46d2e20269b))
+* **changelog:** document UI zoom shortcuts and ScanCache TTL fix in 0.6.0 ([482871c](https://github.com/erdembas/runhq/commit/482871cdcd8eef7765c8cae9092f2fdd5ee07e8f))
+* **changelog:** update for v0.6.0 release with new features ([7b34b42](https://github.com/erdembas/runhq/commit/7b34b4270bf6515b3a0ee72a97941235f9b0e1b1))
+* **roadmap:** plan OpenAI-compatible AI integration (Phase 6–8) ([1a4dfb3](https://github.com/erdembas/runhq/commit/1a4dfb3a99e7e5a281b8ece397133489b24c5a0f))
+* **whatsnew:** broaden 0.6.0 highlights to cover the full v0.5.1..v0.6.0 surface ([895c05e](https://github.com/erdembas/runhq/commit/895c05e2c87752d603d9a500b293c51593acf241))
+
 ## [Unreleased]
 
 _No unreleased changes._
