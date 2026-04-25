@@ -321,8 +321,38 @@ restarts and crashes.
   `navigator.clipboard` path was unreliable from the Tauri webview on
   Linux).
 
+### Quality of Life
+
+- **ui:** keyboard-driven UI zoom — `Cmd/Ctrl + 0` zooms in,
+  `Cmd/Ctrl + -` zooms out, and `Cmd/Ctrl + Shift + 0` resets to
+  100%. Scale is clamped to the `0.85x – 1.4x` range in `0.05`
+  steps, persisted to `localStorage` under `runhq.ui-scale`, and
+  applied via `document.documentElement.style.zoom` so Tailwind
+  arbitrary px sizes reflow correctly (a `transform: scale`
+  approach would have broken the window's bounding box, hit-test,
+  and scroll machinery). The zero row is bound by `e.code` /
+  `Digit0` rather than `e.key === '='` because macOS bypasses
+  layout processing while Cmd is held — on Turkish Q/F (and other
+  non-US) keyboards `Shift+0` never arrives as `=`, so the US-only
+  `Cmd+=` shortcut would have been unreachable. `Cmd+=` / `Cmd++`
+  still work where the layout produces them.
+  ([#49](https://github.com/erdembas/runhq/pull/49), thanks
+  [@bedirhansay](https://github.com/bedirhansay))
+
 ### Bug Fixes
 
+- **overview:** `ScanCache` TTL is now an instance field instead
+  of being read from the global `SCAN_CACHE_TTL` constant inside
+  the read paths. The previous test exercised expiry by
+  back-dating an entry's `Instant` (`Instant::now() -
+  SCAN_CACHE_TTL - 1s`) which underflowed and panicked on fresh
+  Windows CI runners where `Instant::now()` was smaller than
+  `SCAN_CACHE_TTL`. Tests now construct the cache with a tiny
+  TTL (`20ms`) and a real `sleep` to drive expiry, while
+  production still gets `SCAN_CACHE_TTL` via `new_global()` — no
+  behavior change in the running app, just a stable CI signal.
+  ([#49](https://github.com/erdembas/runhq/pull/49), thanks
+  [@bedirhansay](https://github.com/bedirhansay))
 - **sidebar:** stack-member services no longer double up in the flat
   list. Services assigned to a stack were rendering twice in the
   sidebar — once inside the stack's detail view, and again as
