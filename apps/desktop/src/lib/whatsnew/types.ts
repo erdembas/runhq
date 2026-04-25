@@ -24,10 +24,40 @@ import type { ReactNode } from 'react';
 export type HighlightBadge = 'new' | 'improved' | 'fix';
 
 /**
+ * One row in the bullet-grid fallback variant.
+ *
+ * Each bullet is a tiny "feature card" — icon + label + optional caption.
+ * Used by collection-style highlights (e.g. a "polish" release with six
+ * tiny upgrades) where there is no single screenshot that tells the
+ * story; trying to put a `1024×576` empty splash there reads as
+ * unfinished, not minimal.
+ */
+export interface HighlightFallbackBullet {
+  /** Lucide icon node, rendered ~16px. */
+  icon: ReactNode;
+  /** One-line label (≤ ~28 chars) — the "what shipped". */
+  label: string;
+  /** Optional second line — keyboard chord, scope, etc. (≤ ~36 chars). */
+  sub?: string;
+}
+
+/**
  * In-component fallback rendered when an image asset is missing or fails
  * to load. The modal layout reserves a fixed-aspect slot for the media,
  * so we always need *something* visible there — even on first ship,
  * before the screenshots are produced.
+ *
+ * Two display modes:
+ *
+ *   • **splash** (default) — tinted gradient + centered icon + caption.
+ *     Use when there *is* a real screenshot coming later or the highlight
+ *     is conceptually a single thing ("Open Dashboard").
+ *
+ *   • **bullets** — when `bullets` is supplied, the slot becomes a 2×N
+ *     grid of micro feature cards. Use for "collection" highlights
+ *     (polish, quality-of-life) where a single image would lie about
+ *     the scope. The icon + caption still render as a header above
+ *     the grid, smaller than the splash variant.
  */
 export interface HighlightFallback {
   /** Icon component slot — the modal supplies a Lucide icon by name. */
@@ -39,6 +69,12 @@ export interface HighlightFallback {
    * leak Tailwind class strings into data files.
    */
   tint: 'accent' | 'sky' | 'violet' | 'emerald' | 'amber';
+  /**
+   * Optional bullet grid. Presence flips the slot into the bullets
+   * variant. Recommended length: 4–8 bullets. Beyond 8 the cards
+   * shrink past readability; trim or split into two highlights.
+   */
+  bullets?: HighlightFallbackBullet[];
 }
 
 export interface HighlightMedia {

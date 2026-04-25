@@ -83,38 +83,43 @@ type Tone = {
   icon: typeof Shield;
 };
 
+// Severity → semantic tone mapping. Same hue family as the dashboard
+// chips (WorstOffenders, ServiceCard) so the user sees one continuous
+// visual language: red = critical, amber = high, sky = medium, neutral
+// = low / informational. Tokens come from `--tone-*-fg` / `--tone-*`
+// in styles.css and auto-flip for light/dark themes.
 function severityTone(s: string): Tone {
   switch (s) {
     case 'critical':
       return {
-        text: 'text-red-300',
-        chipFilled: 'bg-red-500/15 text-red-300',
-        ring: 'ring-red-500/50',
-        underline: 'bg-red-400',
+        text: 'text-tone-critical-fg',
+        chipFilled: 'bg-tone-critical/15 text-tone-critical-fg',
+        ring: 'ring-tone-critical/45',
+        underline: 'bg-tone-critical',
         icon: Skull,
       };
     case 'high':
       return {
-        text: 'text-orange-300',
-        chipFilled: 'bg-orange-500/15 text-orange-300',
-        ring: 'ring-orange-500/50',
-        underline: 'bg-orange-400',
+        text: 'text-tone-warning-fg',
+        chipFilled: 'bg-tone-warning/15 text-tone-warning-fg',
+        ring: 'ring-tone-warning/45',
+        underline: 'bg-tone-warning',
         icon: ShieldAlert,
       };
     case 'medium':
       return {
-        text: 'text-yellow-300',
-        chipFilled: 'bg-yellow-500/15 text-yellow-300',
-        ring: 'ring-yellow-500/50',
-        underline: 'bg-yellow-400',
+        text: 'text-tone-info-fg',
+        chipFilled: 'bg-tone-info/12 text-tone-info-fg',
+        ring: 'ring-tone-info/40',
+        underline: 'bg-tone-info',
         icon: Shield,
       };
     case 'low':
       return {
-        text: 'text-blue-300',
-        chipFilled: 'bg-blue-500/15 text-blue-300',
-        ring: 'ring-blue-500/40',
-        underline: 'bg-blue-400',
+        text: 'text-tone-neutral-fg',
+        chipFilled: 'bg-tone-neutral/10 text-tone-neutral-fg',
+        ring: 'ring-tone-neutral/30',
+        underline: 'bg-tone-neutral',
         icon: Shield,
       };
     default:
@@ -128,32 +133,35 @@ function severityTone(s: string): Tone {
   }
 }
 
+// Outdated bump severity. Major = warning (real upgrade work), minor =
+// info (worth batching), patch = success (free wins). Same token system
+// as `severityTone`, just a different mapping.
 function bumpTone(b: BumpGroup): Tone & { label: string } {
   switch (b) {
     case 'major':
       return {
-        text: 'text-orange-300',
-        chipFilled: 'bg-orange-500/15 text-orange-300',
-        ring: 'ring-orange-500/50',
-        underline: 'bg-orange-400',
+        text: 'text-tone-warning-fg',
+        chipFilled: 'bg-tone-warning/15 text-tone-warning-fg',
+        ring: 'ring-tone-warning/45',
+        underline: 'bg-tone-warning',
         icon: Package,
         label: 'Major',
       };
     case 'minor':
       return {
-        text: 'text-yellow-300',
-        chipFilled: 'bg-yellow-500/15 text-yellow-300',
-        ring: 'ring-yellow-500/50',
-        underline: 'bg-yellow-400',
+        text: 'text-tone-info-fg',
+        chipFilled: 'bg-tone-info/12 text-tone-info-fg',
+        ring: 'ring-tone-info/40',
+        underline: 'bg-tone-info',
         icon: Package,
         label: 'Minor',
       };
     case 'patch':
       return {
-        text: 'text-emerald-300',
-        chipFilled: 'bg-emerald-500/15 text-emerald-300',
-        ring: 'ring-emerald-500/50',
-        underline: 'bg-emerald-400',
+        text: 'text-tone-success-fg',
+        chipFilled: 'bg-tone-success/12 text-tone-success-fg',
+        ring: 'ring-tone-success/40',
+        underline: 'bg-tone-success',
         icon: Package,
         label: 'Patch',
       };
@@ -447,7 +455,7 @@ function DrawerHeader({
               title={`Branch: ${branch}${dirty ? ' (dirty)' : ''}`}
             >
               <span className="truncate font-mono">{branch}</span>
-              {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400/80" />}
+              {dirty && <span className="bg-tone-warning h-1.5 w-1.5 shrink-0 rounded-full" />}
             </span>
           )}
         </div>
@@ -691,7 +699,7 @@ function AdvisoriesPanel({
   if (advisories.length === 0) {
     return (
       <ZeroState
-        icon={<ShieldCheck size={32} className="text-emerald-500/80" />}
+        icon={<ShieldCheck size={32} className="text-tone-success/80" />}
         title="No known vulnerabilities"
         hint="The latest audit found no open CVEs for the direct or transitive dependencies of this project."
       />
@@ -845,7 +853,7 @@ function AdvisoryRow({
             {advisory.fix_version && (
               <span className="inline-flex items-center gap-1">
                 <span className="text-fg/35">fix</span>
-                <span className="font-mono text-emerald-400/85 tabular-nums">
+                <span className="text-tone-success-fg font-mono tabular-nums">
                   {advisory.fix_version}
                 </span>
               </span>
@@ -901,7 +909,9 @@ function CommandBar({ value }: { value: string }) {
         onClick={onCopy}
         className={cn(
           'border-border/60 inline-flex shrink-0 items-center gap-1 border-l px-2.5 text-[10px] font-medium tracking-wide transition',
-          copied ? 'bg-emerald-500/15 text-emerald-300' : 'text-fg/55 hover:bg-fg/8 hover:text-fg',
+          copied
+            ? 'bg-tone-success/12 text-tone-success-fg'
+            : 'text-fg/55 hover:bg-fg/8 hover:text-fg',
         )}
         title={copied ? 'Copied to clipboard' : 'Copy command'}
         aria-label={copied ? 'Copied to clipboard' : 'Copy command'}
@@ -958,7 +968,7 @@ function OutdatedPanel({
   if (packages.length === 0) {
     return (
       <ZeroState
-        icon={<Package size={32} className="text-emerald-500/80" />}
+        icon={<Package size={32} className="text-tone-success/80" />}
         title="All packages up to date"
         hint="Every direct dependency matches the latest version published on its registry."
       />
@@ -1354,7 +1364,7 @@ function BulkBar({
               'inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition',
               hasScript
                 ? copied
-                  ? 'bg-emerald-500/15 text-emerald-300'
+                  ? 'bg-tone-success/12 text-tone-success-fg'
                   : 'bg-accent/15 text-accent hover:bg-accent/25'
                 : 'bg-fg/5 text-fg/30 cursor-not-allowed',
             )}
@@ -1729,7 +1739,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       aria-label={copied ? 'Copied to clipboard' : label}
       className={cn(
         'rounded p-1 transition',
-        copied ? 'text-emerald-400' : 'text-fg/45 hover:text-accent hover:bg-fg/5',
+        copied ? 'text-tone-success-fg' : 'text-fg/45 hover:text-accent hover:bg-fg/5',
       )}
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}

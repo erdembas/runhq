@@ -33,6 +33,7 @@ import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { getReleaseFor, markVersionSeen } from '@/lib/whatsnew';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import type {
   Highlight,
   HighlightCta,
@@ -70,10 +71,14 @@ const ASPECT_CLASS: Record<Highlight['media']['aspectRatio'], string> = {
   '1/1': 'aspect-square',
 };
 
-const BADGE_STYLE: Record<NonNullable<Highlight['badge']>, string> = {
-  new: 'bg-accent/15 text-accent ring-accent/30',
-  improved: 'bg-sky-400/15 text-sky-300 ring-sky-400/30',
-  fix: 'bg-emerald-400/15 text-emerald-300 ring-emerald-400/30',
+// Highlight tier → semantic tone. We render with the shared <Badge>
+// component so light/dark contrast is handled by the token system instead
+// of hand-tuned `sky-300` / `emerald-300` shades that previously bleached
+// out on the ivory surface.
+const BADGE_TONE: Record<NonNullable<Highlight['badge']>, BadgeTone> = {
+  new: 'accent',
+  improved: 'info',
+  fix: 'success',
 };
 
 const BADGE_LABEL: Record<NonNullable<Highlight['badge']>, string> = {
@@ -186,7 +191,12 @@ function HighlightVisual({
     return `${media.src}.webp`;
   }, [media.src, media.themeAware, themeSuffix]);
 
-  const showImage = resolvedSrc != null && !errored;
+  // Image-less highlight: don't render a visual slot at all. The modal's
+  // copy section will surface bullets / blurb inline so the slide reads
+  // as a content card, not a screenshot with a missing image.
+  if (resolvedSrc == null) return null;
+
+  const showImage = !errored;
 
   return (
     <div
@@ -225,6 +235,47 @@ function HighlightVisual({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * In-flow feature grid for image-less highlights inside the modal.
+ *
+ * Mirrors the helper in `ReleaseNotes.tsx` but with tighter spacing for
+ * the modal's narrower content area (~32rem). Lives in the prose flow
+ * (no aspect-locked container, no gradient backdrop) because the
+ * highlight was deliberately authored without a screenshot — the
+ * bullets *are* the content, not artwork.
+ *
+ * Duplicated rather than factored to a shared module: modal and page
+ * are deliberately self-contained presentation surfaces and the tile
+ * is small enough that the coupling cost would dwarf the savings.
+ */
+function InlineBulletGrid({ fallback }: { fallback: HighlightFallback }) {
+  if (!fallback.bullets || fallback.bullets.length === 0) return null;
+  return (
+    <ul className="grid gap-1.5 sm:grid-cols-2">
+      {fallback.bullets.map((b, i) => (
+        <li
+          key={i}
+          className="bg-surface-raised/40 border-border/70 text-fg flex items-start gap-2 rounded-lg border px-2.5 py-2"
+        >
+          <span className="bg-surface-muted/70 text-fg/85 ring-border/70 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1">
+            {b.icon}
+          </span>
+          <span className="flex min-w-0 flex-col gap-0.5 leading-tight">
+            <span className="text-fg truncate text-[11.5px] font-semibold tracking-tight">
+              {b.label}
+            </span>
+            {b.sub && (
+              <span className="text-fg-dim truncate font-mono text-[10px] tracking-tight">
+                {b.sub}
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -344,27 +395,29 @@ export function WhatsNewModal({ version, onClose }: Props) {
           </button>
         </header>
 
-        <div className="relative">
-          <HighlightVisual highlight={slide} themeSuffix={themeSuffix} />
-        </div>
+        {slide.media.src && (
+          // Visual slot only renders when the highlight has an actual
+          // image to show. Image-less slides skip this block entirely
+          // so the modal compresses around the copy + bullets.
+          <div className="relative">
+            <HighlightVisual highlight={slide} themeSuffix={themeSuffix} />
+          </div>
+        )}
 
         <div className="flex flex-col gap-3 px-6 py-5">
           <div className="flex items-center gap-2">
             {slide.badge && (
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase ring-1',
-                  BADGE_STYLE[slide.badge],
-                )}
-              >
-                {BADGE_LABEL[slide.badge]}
-              </span>
+              <Badge tone={BADGE_TONE[slide.badge]}>{BADGE_LABEL[slide.badge]}</Badge>
             )}
             <h3 className="text-fg text-[15px] leading-tight font-semibold tracking-tight">
               {slide.title}
             </h3>
           </div>
           <p className="text-fg-muted max-w-prose text-[13px] leading-relaxed">{slide.blurb}</p>
+
+          {!slide.media.src && slide.fallback.bullets && slide.fallback.bullets.length > 0 && (
+            <InlineBulletGrid fallback={slide.fallback} />
+          )}
 
           {slide.cta && <CtaButton cta={slide.cta} onAction={finish} />}
         </div>

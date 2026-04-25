@@ -696,7 +696,7 @@ export function Dashboard({ onScan }: Props) {
                     lastScanAt != null &&
                       !overviewScanning &&
                       now - lastScanAt > 30 * 60_000 &&
-                      'text-orange-300 hover:text-orange-200',
+                      'text-tone-warning-fg hover:text-tone-warning',
                   )}
                   title={
                     overview?.has_dependency_scan
@@ -1158,15 +1158,19 @@ function FilterPill({
   tone?: 'dirty' | 'clean' | 'risk' | 'outdated';
   icon?: React.ReactNode;
 }) {
+  // Map filter "tones" onto our semantic palette so the active-pill colour
+  // stays legible on both themes. `dirty`/`clean` reuse the global running/
+  // starting status colours (already theme-aware) since they describe state,
+  // not severity. `risk` is critical, `outdated` is a (deferrable) warning.
   const activeTone =
     tone === 'dirty'
       ? 'bg-status-starting/20 text-status-starting'
       : tone === 'clean'
         ? 'bg-status-running/20 text-status-running'
         : tone === 'risk'
-          ? 'bg-status-error/20 text-status-error'
+          ? 'bg-tone-critical/15 text-tone-critical-fg'
           : tone === 'outdated'
-            ? 'bg-orange-500/20 text-orange-300'
+            ? 'bg-tone-warning/15 text-tone-warning-fg'
             : 'bg-accent/15 text-accent';
   return (
     <button

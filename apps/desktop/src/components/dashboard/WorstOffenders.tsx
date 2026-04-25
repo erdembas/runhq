@@ -102,10 +102,14 @@ export function WorstOffenders({
   // just the row itself.
   const hasCritical = (worst.project.audit?.critical ?? 0) > 0;
   const hasHigh = (worst.project.audit?.high ?? 0) > 0;
+  // Band tint matches the worst row's severity. Tones come from the
+  // semantic palette so the soft tint reads correctly on both ivory
+  // and charcoal — `tone-warning` for high replaces the old hard-coded
+  // orange-500 wash that visually disappeared on light mode.
   const accent = hasCritical
     ? 'border-status-error/30 bg-status-error/[0.04]'
     : hasHigh
-      ? 'border-orange-500/30 bg-orange-500/[0.04]'
+      ? 'border-tone-warning/30 bg-tone-warning/[0.05]'
       : 'border-border';
 
   return (
@@ -117,7 +121,7 @@ export function WorstOffenders({
         <Flame
           className={cn(
             'h-3.5 w-3.5',
-            hasCritical ? 'text-status-error' : hasHigh ? 'text-orange-400' : 'text-fg-dim',
+            hasCritical ? 'text-status-error' : hasHigh ? 'text-tone-warning-fg' : 'text-fg-dim',
           )}
         />
         <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
@@ -196,10 +200,10 @@ function OffenderRow({
               className={cn(
                 'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
                 hasCritical
-                  ? 'border-status-error/40 bg-status-error/15 text-status-error hover:bg-status-error/25'
+                  ? 'border-tone-critical/35 bg-tone-critical/15 text-tone-critical-fg hover:bg-tone-critical/25'
                   : (p.audit?.high ?? 0) > 0
-                    ? 'border-orange-500/30 bg-orange-500/15 text-orange-200 hover:bg-orange-500/25'
-                    : 'border-yellow-500/30 bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25',
+                    ? 'border-tone-warning/30 bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25'
+                    : 'border-tone-info/30 bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22',
               )}
             >
               <ShieldAlert className="h-3 w-3" />
@@ -215,8 +219,8 @@ function OffenderRow({
               className={cn(
                 'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
                 (p.outdated?.major ?? 0) > 0
-                  ? 'border-orange-500/30 bg-orange-500/15 text-orange-200 hover:bg-orange-500/25'
-                  : 'border-yellow-500/30 bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25',
+                  ? 'border-tone-warning/30 bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25'
+                  : 'border-tone-info/30 bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22',
               )}
             >
               <Package className="h-3 w-3" />

@@ -35,6 +35,21 @@
   --color-cat-tooling: rgb(var(--cat-tooling));
   --color-cat-other: rgb(var(--cat-other));
 
+  /* Severity tones — semantic badge color system.
+     Each tone exposes a *base* color (used for tinted backgrounds + rings via
+     opacity modifiers like /12, /30) and a *fg* color (used for text/icons).
+     Both adapt to light/dark themes via the :root overrides below. */
+  --color-tone-critical: rgb(var(--tone-critical));
+  --color-tone-critical-fg: rgb(var(--tone-critical-fg));
+  --color-tone-warning: rgb(var(--tone-warning));
+  --color-tone-warning-fg: rgb(var(--tone-warning-fg));
+  --color-tone-info: rgb(var(--tone-info));
+  --color-tone-info-fg: rgb(var(--tone-info-fg));
+  --color-tone-success: rgb(var(--tone-success));
+  --color-tone-success-fg: rgb(var(--tone-success-fg));
+  --color-tone-neutral: rgb(var(--tone-neutral));
+  --color-tone-neutral-fg: rgb(var(--tone-neutral-fg));
+
   --font-mono:
     'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 
@@ -72,6 +87,21 @@
   --cat-worker: 217 119 6;
   --cat-tooling: 219 39 119;
   --cat-other: 87 83 78;
+
+  /* Light-mode severity tones.
+     `*-fg` values target ~7:1 contrast on `--surface` (paper white).
+     Base values are used with opacity modifiers (e.g. /12, /30) for soft
+     backgrounds + rings — keep them mid-saturation so they tint cleanly. */
+  --tone-critical: 220 38 38; /* red-600 */
+  --tone-critical-fg: 153 27 27; /* red-800 */
+  --tone-warning: 217 119 6; /* amber-600 */
+  --tone-warning-fg: 146 64 14; /* amber-800 */
+  --tone-info: 2 132 199; /* sky-600 */
+  --tone-info-fg: 7 89 133; /* sky-800 */
+  --tone-success: 5 150 105; /* emerald-600 */
+  --tone-success-fg: 6 95 70; /* emerald-800 */
+  --tone-neutral: 87 83 78; /* stone-600 */
+  --tone-neutral-fg: 41 37 36; /* stone-800 */
 
   --radius: 8px;
   --radius-sm: 6px;
@@ -111,6 +141,21 @@
   --cat-worker: 250 204 21;
   --cat-tooling: 244 114 182;
   --cat-other: 148 148 148;
+
+  /* Dark-mode severity tones.
+     Base shifts to lighter shades so opacity-tinted backgrounds remain
+     visible on near-black surfaces; `*-fg` is the brightest reading shade
+     for text against tinted backgrounds. */
+  --tone-critical: 248 113 113; /* red-400 */
+  --tone-critical-fg: 252 165 165; /* red-300 */
+  --tone-warning: 250 204 21; /* amber-400 */
+  --tone-warning-fg: 252 211 77; /* amber-300 */
+  --tone-info: 56 189 248; /* sky-400 */
+  --tone-info-fg: 125 211 252; /* sky-300 */
+  --tone-success: 52 211 153; /* emerald-400 */
+  --tone-success-fg: 110 231 183; /* emerald-300 */
+  --tone-neutral: 168 162 158; /* stone-400 */
+  --tone-neutral-fg: 214 211 209; /* stone-300 */
 
   color-scheme: dark;
 }

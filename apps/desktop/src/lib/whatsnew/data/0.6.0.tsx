@@ -18,7 +18,19 @@
  * Files that don't exist yet fall back to the in-component gradient,
  * so this content can ship before screenshots are produced.
  */
-import { GitBranch, History, LayoutDashboard, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  GitBranch,
+  History,
+  LayoutDashboard,
+  Layers,
+  MoveVertical,
+  PanelRight,
+  ShieldCheck,
+  Sparkles,
+  SplitSquareHorizontal,
+  ZoomIn,
+} from 'lucide-react';
 import type { WhatsNewRelease } from '../types';
 
 export const release_0_6_0: WhatsNewRelease = {
@@ -131,18 +143,56 @@ export const release_0_6_0: WhatsNewRelease = {
       title: 'Polish that adds up',
       badge: 'improved',
       blurb:
-        'Cmd/Ctrl + 0 / − UI zoom · auto-hiding macOS scrollbars · floating ' +
-        'drawer surface · resizable Source Control sidebars (220–720 px, ' +
-        'persisted per surface) · sidebar no longer double-counts services ' +
-        'inside stacks · stable Windows CI on the ScanCache TTL underflow.',
+        'Half a dozen tiny upgrades aimed at the surfaces you touch every ' +
+        'day — keyboard zoom, calmer scrollbars, the drawer floating instead ' +
+        'of crashing into the canvas, persistent sidebar widths, smarter ' +
+        'service counting, and a Windows CI runner that stays green.',
       media: {
+        src: undefined,
+        themeAware: false,
         alt: '',
         aspectRatio: '16/9',
       },
       fallback: {
-        icon: <Sparkles className="h-10 w-10" strokeWidth={1.6} />,
-        caption: 'Six more quality-of-life upgrades',
+        // Single screenshot can't honestly represent six unrelated polish
+        // items, so we render a bullet grid instead. Each item is the
+        // smallest unit that's still recognisable on its own — keyboard
+        // chord, scope, etc. live in `sub`.
+        icon: <Sparkles className="h-7 w-7" strokeWidth={1.6} />,
+        caption: 'Six quality-of-life upgrades',
         tint: 'amber',
+        bullets: [
+          {
+            icon: <ZoomIn className="h-4 w-4" />,
+            label: 'UI zoom',
+            sub: 'Cmd/Ctrl + 0 / − / =',
+          },
+          {
+            icon: <MoveVertical className="h-4 w-4" />,
+            label: 'Auto-hiding scrollbars',
+            sub: 'Native macOS feel',
+          },
+          {
+            icon: <PanelRight className="h-4 w-4" />,
+            label: 'Floating drawer',
+            sub: "Doesn't fight the canvas",
+          },
+          {
+            icon: <SplitSquareHorizontal className="h-4 w-4" />,
+            label: 'Resizable diff sidebars',
+            sub: '220–720 px, persisted',
+          },
+          {
+            icon: <Layers className="h-4 w-4" />,
+            label: 'Stack-aware sidebar',
+            sub: 'No more double-counts',
+          },
+          {
+            icon: <CheckCircle2 className="h-4 w-4" />,
+            label: 'Stable Windows CI',
+            sub: 'ScanCache TTL fix',
+          },
+        ],
       },
       cta: {
         kind: 'store-action',

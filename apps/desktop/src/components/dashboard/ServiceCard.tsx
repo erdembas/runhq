@@ -372,12 +372,17 @@ export function ServiceCard({
  */
 function OutdatedChip({ outdated, onClick }: { outdated: OutdatedResult; onClick: () => void }) {
   if (outdated.total === 0) return null;
+  // Severity ladder mirrors how an engineer would prioritise the upgrade
+  // queue: a major bump is real work / risk (warning), a minor is worth
+  // batching (info), patches are easy wins (success). Mapping onto our
+  // semantic tokens means the same hue automatically darkens or brightens
+  // for light/dark themes — no more washed-out orange-200 on white.
   const tone =
     outdated.major > 0
-      ? 'bg-orange-500/15 text-orange-200 hover:bg-orange-500/25 border-orange-500/25'
+      ? 'bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25 border-tone-warning/30'
       : outdated.minor > 0
-        ? 'bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25 border-yellow-500/25'
-        : 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 border-emerald-500/25';
+        ? 'bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22 border-tone-info/30'
+        : 'bg-tone-success/12 text-tone-success-fg hover:bg-tone-success/22 border-tone-success/30';
   return (
     <button
       type="button"
@@ -412,13 +417,17 @@ function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () => void
   const total = audit.critical + audit.high + audit.medium + audit.low;
   if (total === 0) return null;
   const hasCritical = audit.critical > 0;
+  // CVE severity → semantic tone. Critical reads as `critical` (red),
+  // high downgrades to `warning` (amber), medium to `info` (sky), low to
+  // `neutral` (stone). Tokens auto-flip for light/dark so we don't have
+  // to babysit a parallel set of `dark:` overrides per chip variant.
   const tone = hasCritical
-    ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30 border-red-500/40'
+    ? 'bg-tone-critical/18 text-tone-critical-fg hover:bg-tone-critical/28 border-tone-critical/35'
     : audit.high > 0
-      ? 'bg-orange-500/15 text-orange-200 hover:bg-orange-500/25 border-orange-500/25'
+      ? 'bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25 border-tone-warning/30'
       : audit.medium > 0
-        ? 'bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25 border-yellow-500/25'
-        : 'bg-blue-500/15 text-blue-200 hover:bg-blue-500/25 border-blue-500/25';
+        ? 'bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22 border-tone-info/30'
+        : 'bg-tone-neutral/10 text-tone-neutral-fg hover:bg-tone-neutral/20 border-tone-neutral/25';
   return (
     <button
       type="button"

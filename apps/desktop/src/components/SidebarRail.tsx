@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronsLeft, ChevronsRight, LayoutDashboard } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, PanelLeftClose, Pin } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAppStore } from '@/store/useAppStore';
@@ -293,9 +293,16 @@ export function SidebarRail() {
           {expanded && <span className="text-[13px] font-semibold tracking-tight">Dashboard</span>}
         </button>
         {expanded && (
+          // Mirrors the ActivityTimeline pin/collapse pattern so the two
+          // panels read as siblings: an overlay (peek) panel shows a Pin
+          // icon to "pin it open"; a pinned-open panel shows a PanelClose
+          // icon to "collapse it". We use PanelLeftClose (vs Activity's
+          // PanelRightClose) because this rail lives on the left edge —
+          // direction of the chevron should match the side it lives on,
+          // not the platonic ideal of "back".
           <IconButton
-            label={pinned ? 'Unpin sidebar' : 'Pin sidebar'}
-            icon={pinned ? <ChevronsLeft /> : <ChevronsRight />}
+            label={pinned ? 'Collapse sidebar' : 'Pin sidebar open'}
+            icon={pinned ? <PanelLeftClose /> : <Pin />}
             size="xs"
             onClick={() => setPinned((v) => !v)}
           />
