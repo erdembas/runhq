@@ -29,15 +29,17 @@ only ever requests `.webp`; converting from PNG is a one-liner with
 
 ## Required slugs for 0.6.0
 
-| Slug          | Surface to capture                                                                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dashboard`   | Cross-Project Dashboard with at least 6 project cards (mix of dirty / clean / outdated / CVE indicators) and a visible Resource Heatmap band.                 |
-| `diff-viewer` | Source Control window: file tree on the left (Changes section open with a few staged + unstaged files), Monaco diff filling the right, branch picker visible. |
-| `timeline`    | Activity Timeline drawer open on the right edge with a node-graph cluster covering at least one full day of activity.                                         |
+| Slug            | Surface to capture                                                                                                                                                                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dashboard`     | Cross-Project Dashboard with at least 6 project cards (mix of dirty / clean / outdated / CVE indicators), the three-chamber filter bar visible, and a Resource Heatmap or WorstOffenders band on screen.                                                                                                   |
+| `triage-drawer` | Per-project triage drawer (`ProjectDetailDrawer`) opened on a project that has a non-trivial mix of outdated packages and at least one advisory. Severity-tinted tabs visible, multi-select rail engaged on a couple of rows, and the sticky bulk bar at the bottom showing the "Copy upgrade script" CTA. |
+| `diff-viewer`   | Source Control window: file tree on the left (Commit tab open with a few staged + unstaged files showing Material Icon Theme glyphs), Monaco diff filling the right, branch picker visible at the top, the Diffs only / Full file toggle near the breadcrumb.                                              |
+| `timeline`      | Activity Timeline drawer open on the right edge with a node-graph cluster covering at least one full day of activity. The standup export chip should be visible in the toolbar.                                                                                                                            |
 
-The fourth highlight (`plus-more`) intentionally has no `media.src` —
-it falls through to the in-component gradient + icon fallback. If you
-later want a real image there, give it `media.src: '/whatsnew/0.6.0/qol'`.
+The fifth highlight (`polish`) intentionally has no `media.src` — it
+falls through to the in-component gradient + icon fallback. If you
+later want a real image there, give it `media.src: '/whatsnew/0.6.0/polish'`
+and drop in `polish-{light,dark}.webp` next to the other assets.
 
 ## Falling back gracefully
 

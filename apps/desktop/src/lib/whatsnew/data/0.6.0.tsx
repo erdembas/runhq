@@ -1,12 +1,24 @@
 /**
  * 0.6.0 release highlights — the "project command center" chapter.
  *
- * Lifted from CHANGELOG §0.6.0 and rewritten in end-user voice (the
- * CHANGELOG copy is engineer-flavoured and densely cross-referenced).
- * Each highlight maps to one in-app surface so the CTA can drop the
- * user straight into the feature instead of leaving them to hunt.
+ * Scope decision: 5 highlights, not 3 or 7. Five fits inside a single
+ * carousel without forcing the user to decide whether to keep paging,
+ * and matches the rhythm Linear / Raycast / Arc use for major releases.
+ * Three would have collapsed two distinct surfaces (the dashboard's
+ * bird's-eye view vs. the per-project triage drawer) into one bullet
+ * and undersold the work; seven would have read like a spec sheet.
+ *
+ * Each highlight is *the* surface a user can open and play with. We
+ * avoid mixing engineering wins (e.g. two-phase aggregator, serde
+ * boundary fix) into the modal — those live in CHANGELOG.md where
+ * developers go for that level of detail. Here we surface only what
+ * a non-technical adopter cares about: what new thing can I touch?
+ *
+ * Asset slugs map 1:1 to `apps/desktop/public/whatsnew/0.6.0/<slug>-{light,dark}.webp`.
+ * Files that don't exist yet fall back to the in-component gradient,
+ * so this content can ship before screenshots are produced.
  */
-import { GitBranch, History, LayoutDashboard, Sparkles } from 'lucide-react';
+import { GitBranch, History, LayoutDashboard, ShieldCheck, Sparkles } from 'lucide-react';
 import type { WhatsNewRelease } from '../types';
 
 export const release_0_6_0: WhatsNewRelease = {
@@ -21,8 +33,10 @@ export const release_0_6_0: WhatsNewRelease = {
       badge: 'new',
       blurb:
         "Bird's-eye view of every repo on disk — git status, resource heatmap, " +
-        'outdated dependencies and CVE alerts in one screen. Each card opens ' +
-        'a per-project triage drawer with one-click upgrade scripts.',
+        'outdated dependencies and CVE alerts in one screen. The new filter bar ' +
+        'splits into three chambers (Organize · Git · Attention) so you can ' +
+        'narrow to "dirty + at risk" in two clicks, and the WorstOffenders band ' +
+        'always surfaces the projects you should look at first.',
       media: {
         src: '/whatsnew/0.6.0/dashboard',
         themeAware: true,
@@ -37,17 +51,44 @@ export const release_0_6_0: WhatsNewRelease = {
       cta: { kind: 'store-action', label: 'Open Dashboard', actionId: 'open-overview' },
     },
     {
-      id: 'git-diff-viewer',
+      id: 'triage-cockpit',
+      title: 'Triage Cockpit, per project',
+      badge: 'new',
+      blurb:
+        'Click any project card and a triage drawer slides in with severity- and ' +
+        'bump-tinted tabs, a multi-select rail, and a sticky bulk bar that copies ' +
+        'every selected upgrade as a single shell script. Advisories keep their ' +
+        'GHSA link permanently visible — reading the write-up *is* the triage ' +
+        'action, not a buried secondary one. In-drawer rescan, plus an "Open in…" ' +
+        'menu that lists every editor RunHQ detected on your machine.',
+      media: {
+        src: '/whatsnew/0.6.0/triage-drawer',
+        themeAware: true,
+        alt: 'Project triage drawer with severity-tinted tabs, multi-select rows, and a copy-as-script bulk bar',
+        aspectRatio: '16/9',
+      },
+      fallback: {
+        icon: <ShieldCheck className="h-10 w-10" strokeWidth={1.6} />,
+        caption: 'Audit, upgrade, ship',
+        tint: 'emerald',
+      },
+      cta: { kind: 'store-action', label: 'Open Dashboard', actionId: 'open-overview' },
+    },
+    {
+      id: 'source-control',
       title: 'Source Control, built-in',
       badge: 'new',
       blurb:
-        'Full Monaco-powered diff, staging, history, branches and commit graph — ' +
-        'without leaving RunHQ. The cross-project view rolls up every dirty repo ' +
-        'so half-finished commits stop slipping through context switches.',
+        'Full Monaco diff (with a Diffs-only / Full-file toggle that actually ' +
+        'fetches more context), staging, history, branches and a commit graph — ' +
+        'no more bouncing to VSCode. shadcn-style branch picker, 90+ Material ' +
+        'file icons, VSCode-parity right-click menu, and Esc no longer eats your ' +
+        'half-written commit message. The cross-project view rolls up every ' +
+        'dirty repo so half-finished commits stop slipping through context switches.',
       media: {
         src: '/whatsnew/0.6.0/diff-viewer',
         themeAware: true,
-        alt: 'Source Control window with file tree on the left and a Monaco diff editor on the right',
+        alt: 'Source Control window with file tree, Monaco diff editor, branch picker and commit composer',
         aspectRatio: '16/9',
       },
       fallback: {
@@ -63,16 +104,19 @@ export const release_0_6_0: WhatsNewRelease = {
     },
     {
       id: 'activity-timeline',
-      title: 'Activity Timeline',
+      title: 'Activity Timeline & Standup Export',
       badge: 'new',
       blurb:
         '"What did I work on today?" — answered. SQLite-persisted feed of every ' +
-        'service start, git op, error and file change across every project. ' +
-        'Daily / weekly summaries, plus a one-click standup export.',
+        'service start, git op, error and file change across every project, ' +
+        'rendered as a node-graph on the right edge. One-click standup export ' +
+        'turns the day into a clean markdown block ready to paste into Slack or ' +
+        'Linear, with commits grouped by project and error counts surfaced ' +
+        "so retros don't have to invent themselves.",
       media: {
         src: '/whatsnew/0.6.0/timeline',
         themeAware: true,
-        alt: 'Activity timeline drawer with a vertical node graph of color-coded events',
+        alt: 'Activity timeline drawer with a vertical node graph and a standup export chip in the toolbar',
         aspectRatio: '16/9',
       },
       fallback: {
@@ -83,20 +127,21 @@ export const release_0_6_0: WhatsNewRelease = {
       cta: { kind: 'store-action', label: 'Open Timeline', actionId: 'open-timeline' },
     },
     {
-      id: 'plus-more',
-      title: 'And a stack of polish',
+      id: 'polish',
+      title: 'Polish that adds up',
       badge: 'improved',
       blurb:
-        'Cmd/Ctrl + 0 / − UI zoom · cleaner sidebar (no duplicate stack members) · ' +
-        'auto-hiding macOS scrollbars · floating drawer surface · shadcn-style ' +
-        'branch picker · 90+ Material file icons in Source Control.',
+        'Cmd/Ctrl + 0 / − UI zoom · auto-hiding macOS scrollbars · floating ' +
+        'drawer surface · resizable Source Control sidebars (220–720 px, ' +
+        'persisted per surface) · sidebar no longer double-counts services ' +
+        'inside stacks · stable Windows CI on the ScanCache TTL underflow.',
       media: {
         alt: '',
         aspectRatio: '16/9',
       },
       fallback: {
         icon: <Sparkles className="h-10 w-10" strokeWidth={1.6} />,
-        caption: 'Five more quality-of-life upgrades',
+        caption: 'Six more quality-of-life upgrades',
         tint: 'amber',
       },
       cta: {
