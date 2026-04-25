@@ -7,60 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Features
+_No unreleased changes._
 
-- **diff:** modern shadcn-style branch picker (`BranchPicker`) replaces
-  every native `<select>` in the Source Control window — Commit /
-  Branches / History / Graph all share the same combobox now. Built on
-  a portal with auto-flip, type-ahead search, ↑/↓/↵/Esc keyboard
-  contract, and groups so meta-options ("All branches", "Current
-  HEAD") sit on top while real branches live under a "Branches"
-  heading. macOS' ugly bordered popup is gone.
-- **diff:** Graph tab gained a client-side commit search box. Matches
-  subject, author, email, full hash, short hash, and ref labels.
-  Non-matching rows fade to 30% opacity instead of disappearing — the
-  lane topology stays put so spatial memory survives. Live "n/total"
-  counter mirrors HistoryPanel.
-- **diff:** layered Esc handling in the Source Control window. Esc now
-  defers to any open transient overlay (context menu, confirm dialog,
-  popover) so it dismisses *that* first instead of nuking the whole
-  window. With nothing nested open, Esc pops a close-confirm — the old
-  instant-close path was reflex-fire-friendly and routinely lost typed
-  commit messages. The X button still closes immediately because that's
-  a deliberate click, not a reflex.
-- **diff:** right-click context menu for files in the Commit panel's
-  Source Control list. Mirrors VSCode's parity item-for-item: Open
-  File · Reveal in Folder · Copy Path · Copy Relative Path ·
-  Stage / Unstage Changes · Discard Changes (or Restore / Delete File
-  for deleted / untracked entries). The menu is portal-rendered, auto-
-  flips at the viewport edge, and closes on outside-click or Esc.
-- **git:** new `discard_file` core operation in `runhq-core::git`.
-  Auto-detects whether the path is tracked (`git checkout HEAD --
-  <path>` after a defensive index reset so partial-stage states can't
-  survive) or untracked (`git clean -f -d -- <path>`). Exposed via the
-  `git_discard_file` Tauri command and `ipc.gitDiscardFile` on the
-  frontend.
-- **diff:** destructive context-menu actions are gated behind
-  `ConfirmDialog`. Modified / deleted files get a single-click
-  confirmation; untracked files (which `git clean` deletes from disk
-  beyond reflog recovery) require typing `delete` to confirm — same
-  pattern as Force Delete Branch elsewhere in the app, so the UX is
-  consistent across irreversible ops.
-- **diff:** `FileRow` and `TreeView` gained an `onContextMenuFile`
-  prop. Folder rows intentionally do not get a menu (matches VSCode's
-  Source Control behavior — folder operations are global, not
-  per-folder).
+## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-23)
 
-Ships the Cross-Project Dashboard — the killer feature for developers
-with dozens of projects. Turns RunHQ from a per-service manager into a
-bird's-eye view that answers "which ones are out of date? which have
-uncommitted work? which are hogging resources?" without visiting each
-project individually.
+This release is the **project command center** chapter — RunHQ stops
+being a per-service manager and turns into a single window that knows
+about _every_ repo on disk. Three flagship features land together,
+plus a Source Control window built for VSCode parity:
 
-### Features
+1. **Cross-Project Dashboard** — bird's-eye view across all projects
+   ([#32](https://github.com/erdembas/runhq/issues/32))
+2. **Git Diff Viewer** — full Source Control window with diff,
+   staging, history, branches and graph
+   ([#37](https://github.com/erdembas/runhq/issues/37))
+3. **Activity Timeline** — chronological feed across every project,
+   SQLite-persisted, with daily / weekly summaries and standup export
+   ([#34](https://github.com/erdembas/runhq/issues/34))
 
-- **overview:** cross-project dashboard closing the full
-  [#32](https://github.com/erdembas/runhq/issues/32) scope —
+### Cross-Project Dashboard ([#32](https://github.com/erdembas/runhq/issues/32))
+
+The killer feature for developers with dozens of projects. Turns
+RunHQ from a per-service manager into a bird's-eye view that answers
+"which ones are out of date? which have uncommitted work? which are
+hogging resources?" without visiting each project individually.
+
+- **overview:** cross-project dashboard closing the full #32 scope —
   Git Status Matrix, Resource Heatmap, Last Activity Tracker,
   Dependency Outdatedness, Security Alerts, and Filter & Sort all in
   one screen.
@@ -96,6 +68,14 @@ project individually.
   scroll), global `cursor: pointer` on interactive elements, floating
   drawer (margin + radius) scoped to the content area so the sidebar
   rail stays visible underneath.
+
+### Git Diff Viewer ([#37](https://github.com/erdembas/runhq/issues/37))
+
+A full Source Control window — Monaco-powered diff, staging, commit,
+history, branches and graph — built so you never have to bounce out
+to VSCode just to read a diff or write a commit message. Closes
+ROADMAP §5.
+
 - **diff:** Cross-Project Uncommitted Changes view — a fullscreen
   overlay that rolls up every dirty project into one searchable tree,
   so "wait, did I commit that two-line fix before switching branches?"
@@ -106,7 +86,7 @@ project individually.
   Reuses `DiffPane`, `TreeView`, and the existing overview poll — no
   extra backend polling. Monaco theme registration was extracted into a
   shared `useMonacoTheme` hook so the two fullscreen diff surfaces stay
-  visually in sync. Closes ROADMAP §5 (Git Diff Viewer).
+  visually in sync.
 - **diff:** Material Icon Theme (PKief) integration via `@iconify/react`
   + `@iconify-json/material-icon-theme` — the de-facto modern VSCode
   icon theme. Every file row in the Source Control tree (Changes,
@@ -177,7 +157,47 @@ project individually.
   discoverability matters more than density). The DiffPane breadcrumb
   got the same treatment — no more confusing pill, just a coloured
   letter on the right.
-
+- **diff:** modern shadcn-style branch picker (`BranchPicker`) replaces
+  every native `<select>` in the Source Control window — Commit /
+  Branches / History / Graph all share the same combobox now. Built on
+  a portal with auto-flip, type-ahead search, ↑/↓/↵/Esc keyboard
+  contract, and groups so meta-options ("All branches", "Current
+  HEAD") sit on top while real branches live under a "Branches"
+  heading. macOS' ugly bordered popup is gone.
+- **diff:** Graph tab gained a client-side commit search box. Matches
+  subject, author, email, full hash, short hash, and ref labels.
+  Non-matching rows fade to 30% opacity instead of disappearing — the
+  lane topology stays put so spatial memory survives. Live "n/total"
+  counter mirrors HistoryPanel.
+- **diff:** layered Esc handling in the Source Control window. Esc now
+  defers to any open transient overlay (context menu, confirm dialog,
+  popover) so it dismisses *that* first instead of nuking the whole
+  window. With nothing nested open, Esc pops a close-confirm — the old
+  instant-close path was reflex-fire-friendly and routinely lost typed
+  commit messages. The X button still closes immediately because that's
+  a deliberate click, not a reflex.
+- **diff:** right-click context menu for files in the Commit panel's
+  Source Control list. Mirrors VSCode's parity item-for-item: Open
+  File · Reveal in Folder · Copy Path · Copy Relative Path ·
+  Stage / Unstage Changes · Discard Changes (or Restore / Delete File
+  for deleted / untracked entries). The menu is portal-rendered, auto-
+  flips at the viewport edge, and closes on outside-click or Esc.
+- **diff:** destructive context-menu actions are gated behind
+  `ConfirmDialog`. Modified / deleted files get a single-click
+  confirmation; untracked files (which `git clean` deletes from disk
+  beyond reflog recovery) require typing `delete` to confirm — same
+  pattern as Force Delete Branch elsewhere in the app, so the UX is
+  consistent across irreversible ops.
+- **diff:** `FileRow` and `TreeView` gained an `onContextMenuFile`
+  prop. Folder rows intentionally do not get a menu (matches VSCode's
+  Source Control behavior — folder operations are global, not
+  per-folder).
+- **git:** new `discard_file` core operation in `runhq-core::git`.
+  Auto-detects whether the path is tracked (`git checkout HEAD --
+  <path>` after a defensive index reset so partial-stage states can't
+  survive) or untracked (`git clean -f -d -- <path>`). Exposed via the
+  `git_discard_file` Tauri command and `ipc.gitDiscardFile` on the
+  frontend.
 - **git:** DiffViewer and CrossProjectDiffViewer now share the main
   sidebar's elevated surface (`--surface-raised`) instead of layering
   three or four semi-transparent `/20`/`/30`/`/40` variants of
@@ -241,17 +261,77 @@ project individually.
   workflow (comparing two committed refs, no staging) and lumping it
   into the commit panel would have been a VSCode anti-pattern.
 
+### Activity Timeline ([#34](https://github.com/erdembas/runhq/issues/34))
+
+The answer to "what did I work on today?" without `git log` in 8
+repos and shell-history archaeology. A chronological feed of
+everything that happened across every project — service starts, git
+operations, errors, file changes — persisted to SQLite so it survives
+restarts and crashes.
+
+- **timeline:** SQLite-backed activity timeline that survives app
+  restarts. New `runhq-core::timeline` module owns the schema, write
+  path, and aggregation queries; events live in
+  `~/Library/Application Support/runhq/timeline.db` (or the platform
+  equivalent) so history persists across sessions, machine reboots,
+  and crashes. Schema is migrated transparently; no user action ever
+  required.
+- **timeline:** unified chronological feed across **every project** —
+  one stream where service start/stop/crash, git commits, pushes,
+  pulls, checkouts, branch creations, stashes, log errors / warnings,
+  and file changes interleave by timestamp. No more bouncing between
+  per-service log panels to reconstruct the morning.
+- **timeline:** correlated `run_id` ties every event in a single
+  service "run" together — the `service_started`, the noisy stderr it
+  produced, and the terminating `service_stopped` / `service_crashed`
+  collapse into one lifecycle entry. An 80-line shutdown spam stops
+  burying the actual lifecycle event that caused it.
+- **timeline:** **daily summary** rollups — projects worked, commits
+  authored, services started, errors logged, and the unique project
+  list — exposed via `timeline_daily_summary` IPC. Powers the standup
+  export and the in-drawer "today at a glance" header.
+- **timeline:** **weekly summary** with project / time filters —
+  narrow the rollup to a specific project, event type, or time range.
+  The filter set is the same one the live feed uses, so the summary
+  always matches what's on screen.
+- **timeline:** **standup export** — generates a clean
+  "what I did yesterday" markdown block ready to paste into Slack /
+  Linear / a standup doc. Groups commits by project, lists services
+  touched, and surfaces error counts so retrospectives don't have to
+  invent themselves.
+- **timeline:** auto-recording from app events — service status
+  transitions and log error / warning lines hook into the existing
+  `EventSink` so the timeline populates itself with zero user
+  ceremony. Git operations performed inside RunHQ (commits, pushes,
+  branch checkouts via the diff viewer) emit events at the IPC
+  boundary; external `git` calls outside the app are still picked up
+  by the periodic working-tree poll.
+- **timeline:** redesigned as a **right-side drawer** (640px) with a
+  node-graph visualization — events render as connected nodes along a
+  vertical spine, color-coded per type, with the current day's spine
+  pinned at the top. Search box filters by description / project, the
+  standup chip exports the current view, and the drawer can be torn
+  off into a fullscreen mode for end-of-week review.
+- **timeline:** sidebar entry point — a clock-icon button next to the
+  workspace header opens the timeline drawer in one click. Keyboard
+  reachable from the command palette.
+- **timeline:** integrated `tauri-plugin-clipboard-manager` so the
+  standup export and individual event copy actions land cleanly in
+  the system clipboard on every platform (the manual
+  `navigator.clipboard` path was unreliable from the Tauri webview on
+  Linux).
+
 ### Deferred
 
 - **Auto-execute upgrade / CVE-fix commands** — intentionally held
   off. A one-click `npm i pkg@latest` can pull breaking majors, shift
   peer deps, rewrite the lockfile, and burn minutes with no obvious
   rollback; responsibility for that decision normally lives in CI,
-  tests, and review. The current *copy-as-script* pattern already
+  tests, and review. The current _copy-as-script_ pattern already
   captures ~90% of the value with zero risk surface. If ever
   revisited, the preferred shape is **"Run in RunHQ terminal"**: open
   the embedded terminal with `cwd` set and the command pre-filled but
-  *not submitted* — the user sees the exact line and hits Enter
+  _not submitted_ — the user sees the exact line and hits Enter
   themselves. See ROADMAP.md §1 for the full reasoning.
 
 ### Removed
@@ -262,7 +342,7 @@ project individually.
   now. The smaller mode was added defensively but never actually
   used — a 1000×700px diff viewer is unusable on any modern monitor
   and the toggle was just one more piece of UI to read on every open.
-  Keyboard contract simplifies to *Esc closes* and nothing else.
+  Keyboard contract simplifies to _Esc closes_ and nothing else.
 - **dashboard:** the two 4-up stat grids at the top of the dashboard
   (Running / Starting / Stopped / Failed and CVE / Outdated / Stale /
   Dirty). Each one duplicated information already present in the
@@ -270,23 +350,11 @@ project individually.
   band — on a quiet day they burned ~200px of vertical real estate
   to display mostly zeros, pushing the actual project cards below the
   fold. Their filter affordances survived intact in the filter bar
-  chips, which are tighter and more honest about being *filters*.
+  chips, which are tighter and more honest about being _filters_.
 - **components:** orphaned `StatTile` / `AttentionTile` components
   and their barrel export.
 - **components:** old `ProjectDashboard` modal replaced by the
   integrated dashboard + drawer flow.
-
-## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-23)
-
-
-### Features
-
-* **timeline:** add Activity Timeline with SQLite persistence and standup export ([#34](https://github.com/erdembas/runhq/issues/34))
-* **timeline:** add daily & weekly summaries with project/time filters
-* **timeline:** redesign as right drawer with node graph visualization
-* **timeline:** hook status and log events to auto-record timeline entries
-* **timeline:** add Timeline button to sidebar with clock icon
-* **timeline:** integrate clipboard manager and enhance git event tracking
 
 ## [0.5.1](https://github.com/erdembas/runhq/compare/v0.5.0...v0.5.1) (2026-04-22)
 

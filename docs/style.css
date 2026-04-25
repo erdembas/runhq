@@ -2128,6 +2128,351 @@ main {
   font-weight: 300;
 }
 
+/* -------- Project command center (cockpit) --------
+   Three flagship cards: Cross-Project Dashboard, Git Diff Viewer,
+   Activity Timeline. Same surface tone as palette / planes so the page
+   reads as one editorial spine, not a parade of boxed sections. */
+.cockpit {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--section-py) var(--page-gutter);
+}
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  max-width: 1160px;
+  margin: 0 auto;
+}
+@media (max-width: 1000px) {
+  .cockpit-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .cockpit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.cockpit-card {
+  position: relative;
+  padding: 26px 24px 22px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition:
+    border-color 0.2s,
+    transform 0.2s;
+}
+.cockpit-card:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+.cockpit-card-accent {
+  background: linear-gradient(180deg, rgba(251, 146, 60, 0.05), rgba(251, 146, 60, 0))
+    var(--bg-elev);
+  border-color: var(--line-accent);
+}
+.cockpit-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.cockpit-num {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.cockpit-card-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--text);
+  margin: 0;
+  flex: 1 1 auto;
+}
+.cockpit-flag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--emerald);
+  border: 1px solid rgba(52, 211, 153, 0.32);
+  background: rgba(52, 211, 153, 0.08);
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+.cockpit-card-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  letter-spacing: -0.003em;
+}
+.cockpit-card-preview {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 12px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* — Cross-project dashboard preview rows — */
+.cpv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 2px;
+}
+.cpv-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpv-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.cpv-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.cpv-pill-clean {
+  color: var(--emerald);
+  border-color: rgba(52, 211, 153, 0.28);
+  background: rgba(52, 211, 153, 0.08);
+}
+.cpv-pill-dirty {
+  color: var(--accent-soft);
+  border-color: var(--line-accent);
+  background: rgba(251, 146, 60, 0.08);
+}
+.cpv-pill-stale {
+  color: var(--amber);
+  border-color: rgba(250, 204, 21, 0.28);
+  background: rgba(250, 204, 21, 0.08);
+}
+.cpv-pill-cve {
+  color: var(--rose);
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(248, 113, 113, 0.08);
+}
+.cpv-pill-out {
+  color: var(--amber);
+  border-color: rgba(250, 204, 21, 0.24);
+  background: rgba(250, 204, 21, 0.06);
+}
+.cpv-pill-ahead,
+.cpv-pill-behind {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* — Diff viewer preview — */
+.cockpit-pv-diff {
+  padding: 0;
+  overflow: hidden;
+}
+.cpv-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.cpv-diff-file {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpv-diff-stat {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.cpv-diff-stat.cpv-add {
+  color: var(--emerald);
+}
+.cpv-diff-stat.cpv-rem {
+  color: var(--rose);
+}
+.cpv-diff-letter {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-soft);
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid var(--line-accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
+}
+.cpv-diff-line {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cpv-diff-line .cpv-ln {
+  color: var(--text-faint);
+  text-align: right;
+  padding-right: 10px;
+  font-size: 10.5px;
+}
+.cpv-diff-line .cpv-code {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpv-diff-add {
+  background: rgba(52, 211, 153, 0.12);
+}
+.cpv-diff-add .cpv-code {
+  color: var(--text);
+}
+.cpv-diff-rem {
+  background: rgba(248, 113, 113, 0.12);
+}
+.cpv-diff-rem .cpv-code {
+  color: var(--text);
+}
+
+/* — Activity timeline preview — */
+.cockpit-pv-timeline {
+  padding: 10px 12px;
+}
+.cpv-tl-row {
+  display: grid;
+  grid-template-columns: 42px 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11.5px;
+  position: relative;
+}
+.cpv-tl-row + .cpv-tl-row::before {
+  content: '';
+  position: absolute;
+  left: 47px;
+  top: -8px;
+  bottom: 50%;
+  width: 1px;
+  background: var(--line);
+}
+.cpv-tl-time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.cpv-tl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+  margin: 0 auto;
+}
+.cpv-tl-commit {
+  background: var(--accent);
+}
+.cpv-tl-start {
+  background: var(--emerald);
+}
+.cpv-tl-error {
+  background: var(--rose);
+}
+.cpv-tl-push {
+  background: var(--amber);
+}
+.cpv-tl-text {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpv-tl-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.cpv-tl-text em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.cockpit-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit-chips li {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 0.005em;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.cockpit-card-accent .cockpit-chips li {
+  border-color: rgba(251, 146, 60, 0.18);
+}
+.cockpit-note {
+  margin: 36px auto 0;
+  max-width: 720px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.cockpit-note a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-bottom: 1px dashed var(--line-strong);
+}
+.cockpit-note a:hover {
+  color: var(--accent-soft);
+  border-bottom-color: var(--line-accent);
+}
+
 /* -------- Command palette / shortcuts -------- */
 .palette {
   max-width: var(--page-max);

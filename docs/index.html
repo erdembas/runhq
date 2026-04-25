@@ -43,7 +43,7 @@
          cached the stale copy. Changing the URL forces every edge + every
          browser to treat this as a net-new resource and re-fetch. Bump
          this token whenever docs/style.css is materially changed. -->
-    <link rel="stylesheet" href="style.css?v=0.2.0" />
+    <link rel="stylesheet" href="style.css?v=0.7.0" />
   </head>
   <body>
     <div class="page-bg" aria-hidden="true">
@@ -59,6 +59,7 @@
         </a>
         <nav class="nav-links" aria-label="Primary">
           <a href="#platform">Platform</a>
+          <a href="#cockpit">Cockpit</a>
           <a href="#palette">Shortcuts</a>
           <a href="#features">Features</a>
           <a href="#install">Install</a>
@@ -86,8 +87,8 @@
           </h1>
           <p class="hero-lead">
             <strong>Dozens of projects. Hundreds of services.</strong> One native app to start them,
-            open them in your editor, drop into a terminal, and tail their logs — no containers, no
-            cloud, no account.
+            see git status across the whole fleet, read diffs and commit, and replay your day in an
+            activity timeline — no containers, no cloud, no account.
           </p>
 
           <div class="hero-ctas">
@@ -357,6 +358,178 @@
         </div>
       </section>
 
+      <!-- ============ COCKPIT — flagship cross-project surfaces ============ -->
+      <section id="cockpit" class="cockpit">
+        <div class="section-head reveal">
+          <span class="kicker">Project command center</span>
+          <h2 class="section-title">One window that knows every repo on disk.</h2>
+          <p class="section-sub">
+            RunHQ stops at the service boundary in most tools. Here it goes further — a bird's-eye
+            view across every project, a full Source Control window, and a timeline that replays
+            your day automatically.
+          </p>
+        </div>
+
+        <div class="cockpit-grid reveal">
+          <!-- 01 — Cross-Project Dashboard -->
+          <article class="cockpit-card">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">01</span>
+              <h3 class="cockpit-card-title">Cross-Project Dashboard</h3>
+              <span class="cockpit-flag">Shipped</span>
+            </div>
+            <p class="cockpit-card-desc">
+              Every project's git state, resource usage, staleness, outdated dependencies and CVEs
+              in one screen. Filter by status, runtime, or tag — sort by what matters today.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-grid">
+              <div class="cpv-row">
+                <span class="cpv-name">acme-web</span>
+                <span class="cpv-pill cpv-pill-dirty">3 dirty</span>
+                <span class="cpv-pill cpv-pill-ahead">↑2</span>
+                <span class="cpv-meta">312&nbsp;MB · 4%</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">acme-api</span>
+                <span class="cpv-pill cpv-pill-clean">clean</span>
+                <span class="cpv-pill cpv-pill-cve">2 CVE</span>
+                <span class="cpv-meta">486&nbsp;MB · 11%</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">internal-cli</span>
+                <span class="cpv-pill cpv-pill-stale">stale 47d</span>
+                <span class="cpv-pill cpv-pill-out">8↑</span>
+                <span class="cpv-meta">—</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">design-system</span>
+                <span class="cpv-pill cpv-pill-dirty">1 dirty</span>
+                <span class="cpv-pill cpv-pill-behind">↓4</span>
+                <span class="cpv-meta">128&nbsp;MB · 1%</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>Git status matrix</li>
+              <li>Resource heatmap</li>
+              <li>Outdated deps</li>
+              <li>npm / cargo audit</li>
+              <li>Stale tracker</li>
+              <li>Triage drawer</li>
+              <li>Bulk copy-as-script</li>
+            </ul>
+          </article>
+
+          <!-- 02 — Git Diff Viewer / Source Control -->
+          <article class="cockpit-card cockpit-card-accent">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">02</span>
+              <h3 class="cockpit-card-title">Git Diff Viewer</h3>
+              <span class="cockpit-flag">Shipped</span>
+            </div>
+            <p class="cockpit-card-desc">
+              A full Source Control window — Monaco-powered diff, staging, commit, history, branches
+              and graph — built for VSCode parity. Stop bouncing out to an editor just to read a
+              diff or write a commit message.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-diff">
+              <div class="cpv-diff-head">
+                <span class="cpv-diff-file">src/order.ts</span>
+                <span class="cpv-diff-stat cpv-add">+12</span>
+                <span class="cpv-diff-stat cpv-rem">−4</span>
+                <span class="cpv-diff-letter">M</span>
+              </div>
+              <div class="cpv-diff-line cpv-diff-ctx">
+                <span class="cpv-ln">42</span><span class="cpv-code">function total(items) {</span>
+              </div>
+              <div class="cpv-diff-line cpv-diff-rem">
+                <span class="cpv-ln">−</span
+                ><span class="cpv-code"> return items.reduce((a,b) =&gt; a+b.price, 0);</span>
+              </div>
+              <div class="cpv-diff-line cpv-diff-add">
+                <span class="cpv-ln">+</span
+                ><span class="cpv-code">
+                  return items.reduce((a,b) =&gt; a + b.price * b.qty, 0);</span
+                >
+              </div>
+              <div class="cpv-diff-line cpv-diff-ctx">
+                <span class="cpv-ln">44</span><span class="cpv-code">}</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>Side-by-side &amp; inline</li>
+              <li>Syntax highlight</li>
+              <li>Stage / unstage</li>
+              <li>Commit · Push</li>
+              <li>Branch compare</li>
+              <li>History &amp; graph</li>
+              <li>Cross-project dirty view</li>
+            </ul>
+          </article>
+
+          <!-- 03 — Activity Timeline -->
+          <article class="cockpit-card">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">03</span>
+              <h3 class="cockpit-card-title">Activity Timeline</h3>
+              <span class="cockpit-flag">Shipped</span>
+            </div>
+            <p class="cockpit-card-desc">
+              A chronological feed of everything that happened across every project — service
+              starts, commits, pushes, errors, file changes. SQLite-backed, survives restarts,
+              exports a one-click standup.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-timeline">
+              <div class="cpv-tl-row">
+                <span class="cpv-tl-time">09:14</span>
+                <span class="cpv-tl-dot cpv-tl-commit"></span>
+                <span class="cpv-tl-text"
+                  ><strong>commit</strong> · acme-api · <em>fix: pagination off-by-one</em></span
+                >
+              </div>
+              <div class="cpv-tl-row">
+                <span class="cpv-tl-time">09:32</span>
+                <span class="cpv-tl-dot cpv-tl-start"></span>
+                <span class="cpv-tl-text"
+                  ><strong>service started</strong> · acme-web · <em>pnpm dev :3000</em></span
+                >
+              </div>
+              <div class="cpv-tl-row">
+                <span class="cpv-tl-time">10:48</span>
+                <span class="cpv-tl-dot cpv-tl-error"></span>
+                <span class="cpv-tl-text"
+                  ><strong>error</strong> · acme-api · <em>ECONNREFUSED 127.0.0.1:5432</em></span
+                >
+              </div>
+              <div class="cpv-tl-row">
+                <span class="cpv-tl-time">11:05</span>
+                <span class="cpv-tl-dot cpv-tl-push"></span>
+                <span class="cpv-tl-text"
+                  ><strong>push</strong> · acme-api · <em>main → origin (3 commits)</em></span
+                >
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>SQLite persistence</li>
+              <li>Daily &amp; weekly rollups</li>
+              <li>Standup export</li>
+              <li>Auto-records lifecycle</li>
+              <li>Project / type filters</li>
+              <li>Node-graph drawer</li>
+            </ul>
+          </article>
+        </div>
+
+        <p class="cockpit-note reveal">
+          Closes ROADMAP §1, §5 and the Activity Timeline issue (<a
+            href="https://github.com/erdembas/runhq/issues/32"
+            >#32</a
+          >
+          · <a href="https://github.com/erdembas/runhq/issues/37">#37</a> ·
+          <a href="https://github.com/erdembas/runhq/issues/34">#34</a>) — all shipped, all local,
+          all yours.
+        </p>
+      </section>
+
       <!-- ============ COMMAND PALETTE / SHORTCUTS ============ -->
       <section id="palette" class="palette">
         <div class="section-head reveal">
@@ -607,6 +780,65 @@
               <li>Arch</li>
               <li>Windows 10+</li>
               <li>x86_64</li>
+            </ul>
+          </div>
+
+          <div class="feat-group">
+            <div class="feat-head">
+              <span class="feat-num">07</span>
+              <h3>Cross-project view</h3>
+            </div>
+            <ul class="feat-badges">
+              <li>Git status matrix</li>
+              <li>Resource heatmap</li>
+              <li>Last-activity tracker</li>
+              <li>Outdated deps</li>
+              <li>npm audit</li>
+              <li>cargo audit</li>
+              <li>Worst-offenders panel</li>
+              <li>Triage drawer</li>
+              <li>Bulk copy-as-script</li>
+              <li>Filter · sort · group</li>
+            </ul>
+          </div>
+
+          <div class="feat-group">
+            <div class="feat-head">
+              <span class="feat-num">08</span>
+              <h3>Source control</h3>
+            </div>
+            <ul class="feat-badges">
+              <li>Monaco diff</li>
+              <li>Side-by-side</li>
+              <li>Inline diff</li>
+              <li>Stage · unstage</li>
+              <li>Commit · push</li>
+              <li>Amend</li>
+              <li>Branch compare</li>
+              <li>History &amp; graph</li>
+              <li>Discard with confirm</li>
+              <li>Material file icons</li>
+              <li>Search files &amp; commits</li>
+              <li>Cross-project dirty view</li>
+            </ul>
+          </div>
+
+          <div class="feat-group">
+            <div class="feat-head">
+              <span class="feat-num">09</span>
+              <h3>Activity timeline</h3>
+            </div>
+            <ul class="feat-badges">
+              <li>SQLite persistence</li>
+              <li>Cross-project feed</li>
+              <li>Service lifecycle</li>
+              <li>Git events</li>
+              <li>Error capture</li>
+              <li>Daily summary</li>
+              <li>Weekly summary</li>
+              <li>Standup export</li>
+              <li>Project filter</li>
+              <li>Node-graph drawer</li>
             </ul>
           </div>
         </div>
