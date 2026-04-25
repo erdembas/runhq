@@ -321,6 +321,26 @@ restarts and crashes.
   `navigator.clipboard` path was unreliable from the Tauri webview on
   Linux).
 
+### Bug Fixes
+
+- **sidebar:** stack-member services no longer double up in the flat
+  list. Services assigned to a stack were rendering twice in the
+  sidebar — once inside the stack's detail view, and again as
+  standalone entries under _Unassigned_ / their section — so a
+  4-service stack added 4 phantom rows to the top level. `SidebarRail`
+  now computes the set of service IDs belonging to any stack and
+  skips them in `filteredServices`; the result is a clean nested
+  hierarchy where each service appears exactly once, surfaced through
+  its stack row. The "Showing N · M hidden" filter banner is
+  recalculated to subtract stack members so it stays a pure
+  _filter_ counter and doesn't misreport nesting as hiding. Removing
+  a service from a stack puts it back into the flat list
+  automatically. Collapsed (narrow) sidebar mode keeps showing every
+  service in the icon grid — stacks aren't navigable there, so the
+  trade-off is intentional.
+  ([#48](https://github.com/erdembas/runhq/pull/48), thanks
+  [@bedirhansay](https://github.com/bedirhansay))
+
 ### Deferred
 
 - **Auto-execute upgrade / CVE-fix commands** — intentionally held
