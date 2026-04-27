@@ -68,6 +68,8 @@ export default [
         Node: 'readonly',
         NodeFilter: 'readonly',
         Text: 'readonly',
+        URL: 'readonly',
+        performance: 'readonly',
       },
     },
     plugins: {

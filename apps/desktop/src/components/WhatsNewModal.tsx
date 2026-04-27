@@ -115,6 +115,23 @@ function runStoreAction(actionId: WhatsNewActionId, onClose: () => void): void {
       store.openTimeline();
       onClose();
       return;
+    case 'open-ai-chat':
+      // The right-side panel hosts the AI chat hub; clearing the active
+      // conversation drops the user into the empty composer rather than
+      // a stale prior turn list, which is the more useful "show me how"
+      // landing for someone who just came out of the modal.
+      store.setRightPanel('ai');
+      store.setActiveConversation(null);
+      onClose();
+      return;
+    case 'open-ai-settings':
+      // AiSettings is a window-level dialog wired to a CustomEvent so
+      // surfaces deep in the tree don't have to thread props all the
+      // way up. We close the modal first so the dialog isn't stacked
+      // on top of it.
+      onClose();
+      window.dispatchEvent(new CustomEvent('runhq:open-ai-settings'));
+      return;
     case 'open-changelog':
       // Changelog is an external link rather than an in-app surface —
       // surfaced through the data registry's `changelogUrl`. Closing

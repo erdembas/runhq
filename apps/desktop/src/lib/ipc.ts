@@ -1,13 +1,22 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AiProvider,
+  AiProviderInput,
+  AiTestResult,
   AppInfo,
+  ChatMessage,
+  ChatOptions,
+  ChatResponse,
   CommandEntry,
   CommitSummary,
+  Conversation,
+  ConversationSummary,
   DailySummary,
   DependencyScanResult,
   DetectedEditor,
   DiffSummary,
+  GenerateCommitResult,
   GitStatus,
   ListeningPort,
   LogEvent,
@@ -21,6 +30,7 @@ import type {
   ServiceStatus,
   StackDef,
   StackStatus,
+  StreamChunk,
   TimelineEvent,
   TimelineEventType,
 } from '@/types';
@@ -156,6 +166,62 @@ export const ipc = {
   getWeeklySummary: (date: string) => invoke<DailySummary[]>('get_weekly_summary', { date }),
   exportStandup: (sinceMs: number) => invoke<string>('export_standup', { sinceMs }),
 
+  // ---- Conversations (AI chat history) ---------------------------------
+  listConversations: (input: { limit?: number; include_archived?: boolean } = {}) =>
+    invoke<ConversationSummary[]>('list_conversations', {
+      input: {
+        limit: input.limit ?? null,
+        include_archived: input.include_archived ?? false,
+      },
+    }),
+  getConversation: (id: string) => invoke<Conversation>('get_conversation', { id }),
+  createConversation: (input: { title: string; origin: string; context_json?: string | null }) =>
+    invoke<string>('create_conversation', {
+      input: {
+        title: input.title,
+        origin: input.origin,
+        context_json: input.context_json ?? null,
+      },
+    }),
+  appendConversationMessage: (input: {
+    conversation_id: string;
+    /** Stable client-supplied id; supply a turn id to upsert in
+     *  place across continue/cancel/retry loops. Omit for one-shot
+     *  appends where each call should produce a fresh row. */
+    client_id?: string | null;
+    role: 'user' | 'assistant';
+    content: string;
+    reasoning?: string | null;
+    provider_id?: string | null;
+    provider_name?: string | null;
+    model_name?: string | null;
+    finish_reason?: string | null;
+    partial?: boolean;
+    error?: string | null;
+  }) =>
+    invoke<string>('append_conversation_message', {
+      input: {
+        conversation_id: input.conversation_id,
+        client_id: input.client_id ?? null,
+        role: input.role,
+        content: input.content,
+        reasoning: input.reasoning ?? null,
+        provider_id: input.provider_id ?? null,
+        provider_name: input.provider_name ?? null,
+        model_name: input.model_name ?? null,
+        finish_reason: input.finish_reason ?? null,
+        partial: input.partial ?? false,
+        error: input.error ?? null,
+      },
+    }),
+  renameConversation: (id: string, title: string) =>
+    invoke<void>('rename_conversation', { input: { id, title } }),
+  pinConversation: (id: string, pinned: boolean) =>
+    invoke<void>('pin_conversation', { input: { id, pinned } }),
+  archiveConversation: (id: string, archived: boolean) =>
+    invoke<void>('archive_conversation', { input: { id, archived } }),
+  deleteConversation: (id: string) => invoke<void>('delete_conversation', { id }),
+
   gitDiff: (id: ServiceId) => invoke<DiffSummary>('git_diff', { id }),
   gitDiffStaged: (id: ServiceId) => invoke<DiffSummary>('git_diff_staged', { id }),
   gitDiffFile: (id: ServiceId, file: string, context?: number) =>
@@ -192,6 +258,156 @@ export const ipc = {
     invoke<DiffSummary>('git_show_commit', { id, hash }),
   gitDiffCommitFile: (id: ServiceId, hash: string, file: string, context?: number) =>
     invoke<string>('git_diff_commit_file', { id, hash, file, context }),
+
+  // ---- AI providers ------------------------------------------------------
+
+  listAiProviders: () => invoke<AiProvider[]>('list_ai_providers'),
+  upsertAiProvider: (input: AiProviderInput) => invoke<AiProvider>('upsert_ai_provider', { input }),
+  removeAiProvider: (id: string) => invoke<boolean>('remove_ai_provider', { id }),
+  setDefaultAiProvider: (id: string) => invoke<boolean>('set_default_ai_provider', { id }),
+  testAiProvider: (id: string) => invoke<AiTestResult>('test_ai_provider', { id }),
+  aiChatCompletion: (input: {
+    provider_id?: string | null;
+    messages: ChatMessage[];
+    options?: ChatOptions;
+  }) => invoke<ChatResponse>('ai_chat_completion', { input }),
+  aiGenerateCommitMessage: (input: {
+    service_id: ServiceId;
+    provider_id?: string | null;
+    hint?: string | null;
+  }) => invoke<GenerateCommitResult>('ai_generate_commit_message', { input }),
+  /**
+   * Lightweight git context fetch for the AI Chat panel's commit
+   * surface. Returns the staged diff (capped), recent commit subjects,
+   * branch, and a truncation flag. The renderer uses this to seed a
+   * commit-message conversation without round-tripping through the
+   * dedicated `ai_generate_commit_message` endpoint — the user picks
+   * a model in the panel, the assistant streams its draft, and the
+   * action button below the answer fills the commit textarea via a
+   * `runhq:ai-action:use-as-commit` event.
+   */
+  aiCommitChatContext: (input: { service_id: ServiceId }) =>
+    invoke<{
+      branch: string | null;
+      diff: string;
+      recent_subjects: string[];
+      diff_truncated: boolean;
+    }>('ai_commit_chat_context', { input }),
+
+  // ---- AI streaming surfaces --------------------------------------------
+  //
+  // Each streaming command takes a `Channel<StreamChunk>` so the UI can
+  // render token-by-token as the model produces output. Callers pass an
+  // `onChunk` handler; we wrap it in a `Channel` and forward. The promise
+  // resolves once the backend command exits — by which time the channel
+  // has emitted a terminal `done` (or `error`) chunk, so callers don't
+  // need to await both.
+  aiChatCompletionStream: (
+    input: {
+      provider_id?: string | null;
+      messages: ChatMessage[];
+      options?: ChatOptions;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_chat_completion_stream', { input, onChunk: channel });
+  },
+
+  aiExplainDiff: (
+    input: {
+      diff: string;
+      file_path?: string | null;
+      selection_only?: boolean;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_explain_diff', { input, onChunk: channel });
+  },
+
+  aiExplainLog: (
+    input: {
+      line: string;
+      context_lines?: string[];
+      runtime?: string | null;
+      service_name?: string | null;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_explain_log', { input, onChunk: channel });
+  },
+
+  aiPolishStandup: (
+    input: {
+      raw_markdown: string;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_polish_standup', { input, onChunk: channel });
+  },
+
+  aiTriageAdvisories: (
+    input: {
+      advisories: {
+        id: string | null;
+        package: string;
+        severity: string;
+        title: string;
+        vulnerable_range: string | null;
+        fix_version: string | null;
+      }[];
+      project_name?: string | null;
+      runtime?: string | null;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_triage_advisories', { input, onChunk: channel });
+  },
+
+  aiCountTokens: async (texts: string[]): Promise<number> => {
+    const out = await invoke<{ tokens: number }>('ai_count_tokens', {
+      input: { texts },
+    });
+    return out.tokens;
+  },
+
+  aiAnalyzeWorkspace: (
+    input: {
+      facts: Record<string, unknown>;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_analyze_workspace', { input, onChunk: channel });
+  },
+
+  aiExplainProjectState: (
+    input: {
+      headline: string;
+      facts: Record<string, unknown>;
+      provider_id?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ) => {
+    const channel = new Channel<StreamChunk>();
+    channel.onmessage = onChunk;
+    return invoke<void>('ai_explain_project_state', { input, onChunk: channel });
+  },
 };
 
 export const events = {

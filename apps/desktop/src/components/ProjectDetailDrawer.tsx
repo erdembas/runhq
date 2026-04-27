@@ -16,10 +16,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   Skull,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { IS_MAC } from '@/lib/platform';
+import { useAppStore } from '@/store/useAppStore';
+import { buildAdvisoryChatPayload, buildSingleAdvisoryChatPayload } from '@/lib/ai/advisoryPayload';
 import type { Advisory, DetectedEditor, OutdatedPackage, ProjectOverview } from '@/types';
 
 /**
@@ -373,6 +376,7 @@ export function ProjectDetailDrawer({
             onRescan={onRescan}
             scanning={scanning}
             runtime={project.runtime}
+            projectName={project.name}
           />
         ) : (
           <OutdatedPanel
@@ -674,6 +678,7 @@ function AdvisoriesPanel({
   onRescan,
   scanning,
   runtime,
+  projectName,
 }: {
   advisories: Advisory[];
   filtered: Advisory[];
@@ -692,7 +697,58 @@ function AdvisoriesPanel({
   onRescan: () => void;
   scanning: boolean;
   runtime: string | null;
+  projectName: string;
 }) {
+  // AI triage now routes through the unified chat hub on the right
+  // rail. We keep the count-based button label / disabled rules so
+  // the user still sees "Ask AI (12)" when they've narrowed the
+  // visible list — and we open a fresh conversation per click so the
+  // History drawer accumulates one entry per triage attempt rather
+  // than overwriting the last one.
+  const openAiChat = useAppStore((s) => s.openAiChat);
+  const launchAdvisoryTriage = useCallback(() => {
+    if (filtered.length === 0) return;
+    const payload = buildAdvisoryChatPayload({
+      advisories: filtered,
+      projectName,
+      runtime,
+    });
+    void openAiChat({
+      origin: 'advisory',
+      title: payload.title,
+      context: payload.context,
+      draftPrompt: payload.draftPrompt,
+      contextSystemMessage: payload.contextSystemMessage,
+      autoSend: true,
+    });
+  }, [openAiChat, filtered, projectName, runtime]);
+
+  /**
+   * Per-row "Analyze with AI" — opens a fresh chat tab focused on a
+   * single CVE. Auto-sends because the user already expressed intent
+   * by clicking the row's spark icon; making them re-confirm in the
+   * composer would just add a click. The bulk-triage button keeps
+   * the same UX for symmetry.
+   */
+  const launchSingleAnalyze = useCallback(
+    (advisory: Advisory) => {
+      const payload = buildSingleAdvisoryChatPayload({
+        advisory,
+        projectName,
+        runtime,
+      });
+      void openAiChat({
+        origin: 'advisory',
+        title: payload.title,
+        context: payload.context,
+        draftPrompt: payload.draftPrompt,
+        contextSystemMessage: payload.contextSystemMessage,
+        autoSend: true,
+      });
+    },
+    [openAiChat, projectName, runtime],
+  );
+
   if (!hasScan) {
     return <NotScannedState kind="audit" onRescan={onRescan} scanning={scanning} />;
   }
@@ -711,6 +767,19 @@ function AdvisoriesPanel({
     .filter((a, i) => selected.has(advisoryKey(a, i)))
     .map((a) => upgradeCommandForAdvisory(runtime, a))
     .filter((c): c is string => Boolean(c));
+
+  // Dynamic button copy: tells the user *exactly* what'll get sent.
+  // "Ask AI (12)" is far more honest than a generic "Ask AI" when
+  // they've filtered to 12 critical rows out of 64 — the model
+  // operates on the visible list, and the count makes that explicit.
+  const askAiLabel =
+    filtered.length === advisories.length ? `Ask AI (${total})` : `Ask AI (${filtered.length})`;
+
+  // The drawer no longer hosts an inline answer panel — clicking
+  // "Ask AI" hands the rows off to the chat hub. The button stays a
+  // single-shot trigger; if the user wants to re-ask with different
+  // filters they click again and we open a new conversation.
+  const onAskAi = launchAdvisoryTriage;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -736,6 +805,9 @@ function AdvisoriesPanel({
         selectedCount={selected.size}
         onSelectAll={selectAllVisible}
         onClearSelection={clearSelection}
+        onAskAi={onAskAi}
+        askAiLabel={askAiLabel}
+        askAiDisabled={filtered.length === 0}
       />
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
@@ -749,6 +821,7 @@ function AdvisoriesPanel({
                 selected={selected.has(advisoryKey(a, idx))}
                 onToggle={() => toggle(advisoryKey(a, idx))}
                 onOpenUrl={onOpenUrl}
+                onAnalyze={launchSingleAnalyze}
                 runtime={runtime}
               />
             ))}
@@ -765,12 +838,15 @@ function AdvisoryRow({
   selected,
   onToggle,
   onOpenUrl,
+  onAnalyze,
   runtime,
 }: {
   advisory: Advisory;
   selected: boolean;
   onToggle: () => void;
   onOpenUrl: (url: string) => void;
+  /** Opens the AI chat hub with a deep per-CVE analysis prompt. */
+  onAnalyze: (advisory: Advisory) => void;
   runtime: string | null;
 }) {
   const tone = severityTone(advisory.severity);
@@ -814,15 +890,36 @@ function AdvisoryRow({
               {advisory.vulnerable_range}
             </span>
           )}
-          {/* Slot — fixed position + width so rows without an `advisory.url`
-              still end their title line at the same x-coordinate as rows
-              that do have the external-link button. Kept persistently
-              visible (not hover-only) because "open the CVE advisory"
-              is the primary triage action on this row — the user has
-              to read the GHSA write-up before deciding whether to
-              upgrade, pin, or accept the risk. Hiding it behind hover
-              would bury the one thing most likely to be clicked. */}
-          <span className="ml-auto flex w-[22px] shrink-0 items-center justify-end">
+          {/* Action slot — pinned to the row's right edge with a fixed
+              footprint so rows with/without an external CVE URL still
+              line up. Holds two primary affordances:
+                • "Analyze with AI" — per-CVE deep dive. Always visible
+                  because it's the highest-value action on the row;
+                  hiding it behind hover would hide the entire feature
+                  on first sight.
+                • "Open advisory in browser" — only renders when the
+                  source provided a URL. */}
+          <span className="ml-auto flex shrink-0 items-center justify-end gap-0.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAnalyze(advisory);
+              }}
+              className={cn(
+                'text-fg/55 hover:text-accent hover:bg-accent/10 inline-flex items-center',
+                'gap-0.5 rounded px-1 py-0.5 transition',
+                // Subtle accent tint on the icon so the button reads
+                // as the "smart" affordance even when not hovered.
+                'group-hover/row:text-accent/80',
+              )}
+              title={
+                advisory.id ? `Analyze ${advisory.id} with AI` : `Analyze this advisory with AI`
+              }
+              aria-label="Analyze advisory with AI"
+            >
+              <Sparkles size={11} />
+            </button>
             {advisory.url && (
               <button
                 type="button"
@@ -1236,6 +1333,10 @@ function SearchRow({
   selectedCount,
   onSelectAll,
   onClearSelection,
+  onAskAi,
+  askAiLabel,
+  askAiDisabled,
+  askAiActive,
 }: {
   searchRef: React.RefObject<HTMLInputElement>;
   query: string;
@@ -1246,6 +1347,14 @@ function SearchRow({
   selectedCount: number;
   onSelectAll: () => void;
   onClearSelection: () => void;
+  /** Optional "Ask AI" affordance. When supplied, a small Sparkles
+   *  pill is rendered on the right side of the meta row. Kept opt-in
+   *  so the Outdated tab can stay AI-free for now and only the
+   *  Advisories tab — where triage really helps — surfaces it. */
+  onAskAi?: () => void;
+  askAiLabel?: string;
+  askAiDisabled?: boolean;
+  askAiActive?: boolean;
 }) {
   return (
     <div className="border-border/60 bg-surface shrink-0 border-b px-3 py-2">
@@ -1277,25 +1386,53 @@ function SearchRow({
         <span className="text-fg/40 tabular-nums">
           {shown === total ? `${total} total` : `${shown} of ${total}`}
         </span>
-        {selectedCount > 0 ? (
-          <button
-            type="button"
-            onClick={onClearSelection}
-            className="text-fg/55 hover:text-fg transition"
-          >
-            Clear selection
-          </button>
-        ) : (
-          shown > 0 && (
+        <div className="flex items-center gap-2.5">
+          {onAskAi && (
             <button
               type="button"
-              onClick={onSelectAll}
+              onClick={onAskAi}
+              disabled={askAiDisabled}
+              className={cn(
+                'inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition',
+                'border-accent/30 hover:border-accent/60 border',
+                askAiActive
+                  ? 'bg-accent/15 text-accent'
+                  : 'bg-accent/5 text-accent/85 hover:bg-accent/10 hover:text-accent',
+                askAiDisabled && 'hover:bg-accent/5 cursor-not-allowed opacity-50',
+              )}
+              title={
+                askAiDisabled
+                  ? 'Nothing to triage — adjust filters or run a scan first.'
+                  : askAiActive
+                    ? 'Hide the AI triage panel'
+                    : 'Ask the AI to rank and recommend a fix order for the visible advisories'
+              }
+              aria-pressed={askAiActive ?? false}
+            >
+              <Sparkles size={10} />
+              <span className="font-medium">{askAiLabel ?? 'Ask AI'}</span>
+            </button>
+          )}
+          {selectedCount > 0 ? (
+            <button
+              type="button"
+              onClick={onClearSelection}
               className="text-fg/55 hover:text-fg transition"
             >
-              Select all visible
+              Clear selection
             </button>
-          )
-        )}
+          ) : (
+            shown > 0 && (
+              <button
+                type="button"
+                onClick={onSelectAll}
+                className="text-fg/55 hover:text-fg transition"
+              >
+                Select all visible
+              </button>
+            )
+          )}
+        </div>
       </div>
     </div>
   );

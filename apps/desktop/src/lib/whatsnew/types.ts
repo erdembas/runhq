@@ -108,6 +108,8 @@ export type WhatsNewActionId =
   | 'open-overview'
   | 'open-cross-project-diff'
   | 'open-timeline'
+  | 'open-ai-chat'
+  | 'open-ai-settings'
   | 'open-changelog';
 
 export interface Highlight {

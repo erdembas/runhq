@@ -28,6 +28,8 @@ import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import { localUrl } from '@/lib/url';
+import { runtimeFromTags, inferRuntimeFromCmds } from '@/lib/runtimes';
+import { buildLogChatPayload } from '@/lib/ai/logPayload';
 import type { ListeningPort, LogLine } from '@/types';
 
 type PopoverKey = 'ports';
@@ -290,6 +292,7 @@ export function LogPanel() {
   const clearLogsLocal = useAppStore((s) => s.clearLogs);
   const openEditor = useAppStore((s) => s.openEditor);
   const removeServiceLocal = useAppStore((s) => s.removeService);
+  const openAiChat = useAppStore((s) => s.openAiChat);
 
   const [filter, setFilter] = useState('');
   const [follow, setFollow] = useState(true);
@@ -305,6 +308,10 @@ export function LogPanel() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  // AI log-triage now routes through the right-side chat panel via
+  // `openAiChat`. We keep no local triage state — the right-click
+  // handler builds the payload inline and hands it off to the store.
 
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
@@ -777,6 +784,39 @@ export function LogPanel() {
                       'flex items-start gap-3 rounded-[4px] px-2 py-[1px]',
                       isLast && follow && 'log-cursor-line',
                     )}
+                    onContextMenu={(e) => {
+                      // Empty / whitespace-only lines aren't useful to
+                      // triage — they're usually intentional spacers
+                      // from process output. Skip them rather than
+                      // confusing the model.
+                      if (line.text.trim() === '') return;
+                      e.preventDefault();
+                      // Take the previous 30 lines for context — the
+                      // most recent line is `line` itself, so we
+                      // include indices [i-30, i] inclusive. Adding
+                      // *future* lines would be misleading because
+                      // the user clicked while triaging an error,
+                      // not when reading a happy-path trace.
+                      const start = Math.max(0, row.index - 30);
+                      const ctx = filtered.slice(start, row.index + 1).map((l) => l.text);
+                      const runtime = service
+                        ? (runtimeFromTags(service.tags) ?? inferRuntimeFromCmds(service.cmds))
+                        : null;
+                      const payload = buildLogChatPayload({
+                        line: line.text,
+                        contextLines: ctx,
+                        runtime,
+                        serviceName: service?.name ?? null,
+                      });
+                      void openAiChat({
+                        origin: 'log',
+                        title: payload.title,
+                        context: payload.context,
+                        draftPrompt: payload.draftPrompt,
+                        contextSystemMessage: payload.contextSystemMessage,
+                        autoSend: true,
+                      });
+                    }}
                   >
                     {showTimestamp && (
                       // Blank log rows (a literal "\n" from the child process,

@@ -23,8 +23,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 Input.displayName = 'Input';
 
 interface FieldProps {
-  label: string;
-  hint?: string;
+  label: React.ReactNode;
+  hint?: React.ReactNode;
   error?: string | null;
   children: React.ReactNode;
   className?: string;

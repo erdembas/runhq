@@ -37,11 +37,13 @@ import { modChord } from '@/lib/platform';
 import type { ProjectOverview, SectionId, ServiceDef, Status } from '@/types';
 import type { GitStatus } from '@/types';
 import { ServiceCard } from './ServiceCard';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import { WorstOffenders } from './WorstOffenders';
+import { buildWorkspaceFacts } from '@/lib/ai/workspaceSummary';
+import { buildWorkspaceReportChatPayload } from '@/lib/ai/workspaceReportPayload';
 import { riskScore } from '@/lib/risk';
 import { ResourceHeatmap } from './ResourceHeatmap';
 import { SectionHeader, HeaderAction } from './SectionHeader';
-import { ActivityTimeline } from '@/components/ActivityTimeline';
 
 interface Props {
   onScan: () => void;
@@ -125,6 +127,7 @@ function greeting(): string {
 
 export function Dashboard({ onScan }: Props) {
   const services = useAppStore((s) => s.services);
+  const servicesLoaded = useAppStore((s) => s.servicesLoaded);
   const statuses = useAppStore((s) => s.statuses);
   const resources = useAppStore((s) => s.resources);
   const ports = useAppStore((s) => s.ports);
@@ -211,6 +214,42 @@ export function Dashboard({ onScan }: Props) {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  /**
+   * Open a workspace-report conversation in the right-side chat hub.
+   *
+   * Pre-Phase 6 this lived in a dedicated `AiWorkspaceReportDialog` —
+   * the dialog mounted its own stream + copy buttons. Routing through
+   * `openAiChat` instead means the user picks the model, the report
+   * persists to History, and follow-up questions ("ok, what about
+   * the staging cluster only?") work without a new surface.
+   *
+   * We snapshot the dashboard state at click-time, not on every
+   * render, so the model gets a consistent view and a regenerate
+   * compares apples to apples — sampling per-render would mean the
+   * running CPU figure shifts under the model mid-stream.
+   */
+  const openAiChat = useAppStore((s) => s.openAiChat);
+  const launchWorkspaceReport = useCallback(() => {
+    if (services.length === 0) return;
+    const facts = buildWorkspaceFacts({
+      services,
+      statuses,
+      resources,
+      git,
+      listening_port_count: ports.length,
+      overview,
+    });
+    const payload = buildWorkspaceReportChatPayload(facts);
+    void openAiChat({
+      origin: 'dashboard_report',
+      title: payload.title,
+      context: payload.context,
+      draftPrompt: payload.draftPrompt,
+      contextSystemMessage: payload.contextSystemMessage,
+      autoSend: true,
+    });
+  }, [openAiChat, services, statuses, resources, git, ports.length, overview]);
 
   const stats = useMemo(() => {
     let running = 0,
@@ -528,6 +567,17 @@ export function Dashboard({ onScan }: Props) {
     );
   }, [eligibleServices, groupBy, statuses, sections, serviceSection, comparator]);
 
+  // Cold-start guard: the IPC roster fetch hasn't resolved yet, so
+  // we don't actually know whether the user has zero services or a
+  // hundred. Render the skeleton instead of either branch below —
+  // a 200-400ms flash of "Ready when you are" on every launch is a
+  // confidence-eroder for users who definitely *do* have projects
+  // configured. Once `setServices` fires (even with an empty array)
+  // we move on to the real branches.
+  if (!servicesLoaded) {
+    return <DashboardSkeleton />;
+  }
+
   if (total === 0) {
     return (
       <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
@@ -572,9 +622,6 @@ export function Dashboard({ onScan }: Props) {
             </div>
           </div>
         </div>
-        <aside className="relative hidden h-full min-h-0 shrink-0 xl:flex xl:flex-col">
-          <ActivityTimeline variant="inline" />
-        </aside>
       </div>
     );
   }
@@ -717,6 +764,20 @@ export function Dashboard({ onScan }: Props) {
                       ? 'Rescan deps'
                       : 'Scan deps'}
                 </button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Sparkles className="h-4 w-4" />}
+                  onClick={launchWorkspaceReport}
+                  disabled={services.length === 0}
+                  title={
+                    services.length === 0
+                      ? 'Add some services first'
+                      : 'Generate an AI report across all projects, statuses, and CVEs'
+                  }
+                >
+                  Analyze workspace
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1070,9 +1131,6 @@ export function Dashboard({ onScan }: Props) {
           )}
         </div>
       </div>
-      <aside className="relative hidden h-full min-h-0 shrink-0 xl:flex xl:flex-col">
-        <ActivityTimeline variant="inline" />
-      </aside>
       {openDetailProject && detail && (
         <ProjectDetailDrawer
           project={openDetailProject}

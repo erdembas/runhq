@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
+use crate::ai::AiProvider;
 use crate::paths;
 
 pub const CONFIG_VERSION: u32 = 1;
@@ -121,6 +122,12 @@ pub struct Config {
     pub stacks: Vec<StackDef>,
     #[serde(default)]
     pub prefs: Prefs,
+    /// Registered AI providers. The first record with `default: true`
+    /// is used by features that don't ask the user which provider to
+    /// pick — kept here (rather than as a separate file) so the whole
+    /// config still saves atomically and migrates as one unit.
+    #[serde(default)]
+    pub ai_providers: Vec<AiProvider>,
 }
 
 impl Default for Config {
@@ -130,6 +137,7 @@ impl Default for Config {
             services: Vec::new(),
             stacks: Vec::new(),
             prefs: Prefs::default(),
+            ai_providers: Vec::new(),
         }
     }
 }
@@ -260,6 +268,93 @@ impl Store {
         };
         self.persist()?;
         Ok(removed)
+    }
+
+    // ---- AI providers ------------------------------------------------------
+
+    pub fn ai_providers(&self) -> Vec<AiProvider> {
+        self.inner.read().ai_providers.clone()
+    }
+
+    pub fn ai_provider(&self, id: &str) -> Option<AiProvider> {
+        self.inner
+            .read()
+            .ai_providers
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+    }
+
+    /// Pick the user-chosen default provider, falling back to the first
+    /// registered record. Returning `None` only when the user has
+    /// configured zero providers keeps callers' "is AI enabled?"
+    /// branches simple.
+    pub fn default_ai_provider(&self) -> Option<AiProvider> {
+        let cfg = self.inner.read();
+        cfg.ai_providers
+            .iter()
+            .find(|p| p.default)
+            .cloned()
+            .or_else(|| cfg.ai_providers.first().cloned())
+    }
+
+    /// Insert or update a provider. If `provider.default` is true, every
+    /// other record is silently flipped to `false` so the "default"
+    /// invariant (at most one) holds without requiring a separate
+    /// `set_default` call from the UI in the common path.
+    pub fn upsert_ai_provider(&self, provider: AiProvider) -> Result<()> {
+        {
+            let mut cfg = self.inner.write();
+            if provider.default {
+                for p in &mut cfg.ai_providers {
+                    p.default = false;
+                }
+            }
+            if let Some(existing) = cfg.ai_providers.iter_mut().find(|p| p.id == provider.id) {
+                *existing = provider;
+            } else {
+                cfg.ai_providers.push(provider);
+            }
+            // If nobody's marked default, promote the first one so the
+            // app always has *something* to point features at.
+            if !cfg.ai_providers.is_empty() && !cfg.ai_providers.iter().any(|p| p.default) {
+                cfg.ai_providers[0].default = true;
+            }
+        }
+        self.persist()
+    }
+
+    pub fn remove_ai_provider(&self, id: &str) -> Result<bool> {
+        let removed = {
+            let mut cfg = self.inner.write();
+            let len_before = cfg.ai_providers.len();
+            cfg.ai_providers.retain(|p| p.id != id);
+            // Promote a new default if we just deleted the only one.
+            if !cfg.ai_providers.is_empty() && !cfg.ai_providers.iter().any(|p| p.default) {
+                cfg.ai_providers[0].default = true;
+            }
+            len_before != cfg.ai_providers.len()
+        };
+        self.persist()?;
+        Ok(removed)
+    }
+
+    pub fn set_default_ai_provider(&self, id: &str) -> Result<bool> {
+        let found = {
+            let mut cfg = self.inner.write();
+            let mut found = false;
+            for p in &mut cfg.ai_providers {
+                if p.id == id {
+                    p.default = true;
+                    found = true;
+                } else {
+                    p.default = false;
+                }
+            }
+            found
+        };
+        self.persist()?;
+        Ok(found)
     }
 
     fn persist(&self) -> Result<()> {

@@ -1,6 +1,6 @@
 [package]
 name = "runhq-core"
-version = "0.6.0" # x-release-please-version
+version = "0.7.0" # x-release-please-version
 edition = "2021"
 rust-version = "1.77"
 license = "MIT"
@@ -30,6 +30,22 @@ listeners = "0.5"
 tracing = "0.1"
 parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# `rustls-tls` keeps us off OpenSSL on every platform — no system-library
+# coupling, no `pkg-config` build hassle on Windows, identical bundled
+# binaries across CI runners. The default-features off + json + rustls
+# combo is the smallest reqwest footprint that still gives us serde
+# JSON helpers.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Token counting for the chat composer's "context length" meter.
+# tiktoken-rs ships with the OpenAI BPE tables (cl100k_base, o200k_base,
+# r50k_base) baked in — accurate for the OpenAI family and a reasonable
+# proxy for any model that doesn't expose its own tokenizer (Anthropic,
+# Gemini, llama.cpp). We pick `cl100k_base` as the default and degrade
+# gracefully to a char-based approximation if the BPE init ever fails
+# at runtime, so the meter is best-effort and never blocks send.
+tiktoken-rs = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }

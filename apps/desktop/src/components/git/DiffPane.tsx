@@ -1,6 +1,13 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
-import { ChevronRight, File, RefreshCw, UnfoldVertical, FoldVertical } from 'lucide-react';
+import {
+  ChevronRight,
+  File,
+  RefreshCw,
+  UnfoldVertical,
+  FoldVertical,
+  Sparkles,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { FileTypeIcon } from '@/lib/fileIcon';
 import { useAppStore } from '@/store/useAppStore';
@@ -15,6 +22,7 @@ import {
   statusLetter,
 } from '@/lib/gitDiff';
 import { BinaryPreview } from '@/components/git/shared';
+import { buildDiffChatPayload } from '@/lib/ai/diffPayload';
 
 export type DiffViewMode = 'side-by-side' | 'inline';
 
@@ -52,6 +60,29 @@ export function DiffPane({
   // same flag to request a wider `-U` context from git.
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
   const setShowUnchanged = useAppStore((s) => s.setDiffShowUnchanged);
+  const openAiChat = useAppStore((s) => s.openAiChat);
+
+  // "Explain this diff" used to mount an inline AiAnswer below the
+  // header. Phase 4 of the AI Chat Hub plan moves it to the right-
+  // side chat panel: clicking Explain opens a new conversation seeded
+  // with the file path + diff blob, model-pickable, history-tracked.
+  // The header button is now a one-shot dispatcher with no local
+  // streaming state.
+  const triggerExplain = useCallback(() => {
+    if (!fileDiff || fileDiff.trim().length === 0) return;
+    const payload = buildDiffChatPayload({
+      diff: fileDiff,
+      filePath: selectedFile,
+    });
+    void openAiChat({
+      origin: 'diff',
+      title: payload.title,
+      context: payload.context,
+      draftPrompt: payload.draftPrompt,
+      contextSystemMessage: payload.contextSystemMessage,
+      autoSend: true,
+    });
+  }, [fileDiff, selectedFile, openAiChat]);
 
   const { original, modified } = useMemo(() => {
     if (!fileDiff) return { original: '', modified: '' };
@@ -145,6 +176,25 @@ export function DiffPane({
         >
           {showUnchanged ? <FoldVertical size={11} /> : <UnfoldVertical size={11} />}
           <span className="hidden sm:inline">{showUnchanged ? 'Full file' : 'Diffs only'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={triggerExplain}
+          disabled={!fileDiff || binaryInfo === true}
+          title={
+            binaryInfo
+              ? 'AI explanation is unavailable for binary files'
+              : 'Explain this diff in the AI chat panel'
+          }
+          aria-label="Explain this diff with AI"
+          className={cn(
+            'flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium transition',
+            'disabled:cursor-not-allowed disabled:opacity-40',
+            'text-fg/50 hover:bg-fg/10 hover:text-fg',
+          )}
+        >
+          <Sparkles size={11} />
+          <span className="hidden sm:inline">Explain</span>
         </button>
         {fileLoading && <RefreshCw size={10} className="text-fg/30 animate-spin" />}
       </div>

@@ -5,6 +5,261 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+_No unreleased changes._
+
+## [0.7.0](https://github.com/erdembas/runhq/compare/v0.6.0...v0.7.0) (2026-04-27)
+
+This release is the **AI assistant** chapter — RunHQ stops being a
+purely deterministic project manager and grows a model-agnostic chat
+substrate that every existing AI affordance now plugs into. You bring
+the endpoint (anything OpenAI-compatible: OpenAI, Azure, Together,
+OpenRouter, vLLM, Ollama, LiteLLM, …), and every surface in the app
+that used to launch a one-shot popover now feeds into the same
+persistent right-rail conversation. There is no proprietary inference
+running anywhere; your code stays where you sent it.
+
+Three flagship pieces land together:
+
+1. **AI Chat Hub** — a unified right-rail panel with multi-tab
+   conversations (up to 5), SQLite-persisted history, per-turn model
+   switching, language picker with country flags, and a live token
+   meter against the active model's context window.
+2. **AI on every surface** — Project · Why?, Log Triage, Diff Explain,
+   Commit Message generation, Standup Polish, Workspace global
+   analysis (new!), and Per-CVE deep analysis (new!) all route into
+   the same chat hub. Per-turn action hooks let the model write *into*
+   your flow ("Use as commit message", "Insert into standup").
+3. **Streaming reliability overhaul** — local / reasoning-heavy models
+   no longer cut out mid-sentence, hide the answer in `<thinking>`
+   blocks, or silently die on a non-ASCII byte.
+
+### AI Chat Hub
+
+A bring-your-own-LLM chat panel — RunHQ never proxies your requests
+through a hosted service, the connection goes straight from the
+desktop app to whichever OpenAI-compatible endpoint you configure.
+
+- **ai-settings:** new Settings → AI dialog with multi-provider
+  storage. Each provider is `{ name, base_url, api_key?, model }`;
+  API key is optional (vLLM, Ollama, internal LiteLLM gateways
+  routinely run without one). Switch providers from the chat
+  composer's model pill — every turn records which provider × model
+  produced it, so when one model stalls and another finishes you can
+  see *which* in the turn metadata instead of guessing.
+- **ai-settings:** language picker upgraded from a native `<select>`
+  to a custom `LanguagePicker` with country flags, type-ahead search,
+  and full keyboard navigation. The native dropdown couldn't render
+  emoji flags reliably across macOS / Windows / Linux webviews and
+  trying to find your locale by scrolling 100+ rows was the kind of
+  micro-friction that compounds over a day. Default is "Auto"
+  (matches the OS), explicit selection wins for users mixing English
+  documentation with Turkish / Spanish / Arabic stand-ups.
+- **chat:** persistent SQLite-backed conversation store
+  (`runhq-core::conversations`) — schema, CRUD, and aggregation
+  queries live in `~/Library/Application Support/runhq/conversations.db`
+  (or platform equivalent). Conversations survive restarts and
+  crashes; switching projects, coming back tomorrow, or rebooting
+  the machine never loses the chat thread you were reasoning through.
+  History is exposed via a drawer that mirrors VSCode's "Recent" list
+  — pick from the past, the active conversation rehydrates with full
+  turn-by-turn provenance (model, finish reason, partial flag,
+  reasoning trace, action hooks).
+- **chat:** Cursor-style multi-tab strip. Up to 5 conversations open
+  simultaneously with streaming indicators per tab, and a FIFO
+  eviction policy that explicitly *never* closes the active or
+  in-flight tab — so a long-running deep-analysis can't be killed by
+  someone clicking "+New" five times. Tab titles are lazy-loaded
+  from the conversation table, cached locally, and normalised to
+  strip surface prefixes (e.g. "Why · belgehub-backend" becomes
+  "belgehub-backend") so the strip stays scannable.
+- **chat:** per-turn token meter (`tiktoken-rs` powered) ticks live as
+  you type, showing `input + history vs context window` and tinting
+  amber → red as you approach the model's documented limit. `gpt-4o`,
+  `claude-3.5`, `glm-4.5`, `qwen-2.5`, `llama-3.1`, and the local
+  variants of each are mapped to the right encoder so the count is
+  accurate, not just a `chars / 4` approximation. The component
+  surfaces a "Compact context?" hint when the budget's almost gone
+  rather than letting the model truncate silently from the head.
+- **chat:** auto-resizing composer textarea. Shift+Enter inserts a
+  newline, height tracks `scrollHeight` clamped at 180px, then
+  scroll — same shape as ChatGPT / Claude. Replaces the previous
+  fixed 3-line box that forced you to either crank the panel wider
+  or accept hidden text bleeding off the bottom.
+
+### AI on Every Surface
+
+Every existing AI affordance — and a couple of new ones — now feeds
+the same persistent chat. No more popovers that vanish when you
+click outside, no more one-shot answers you can't follow up on.
+
+- **ai-hub:** every AI surface now goes through one bridge —
+  `useAppStore.openAiChat({ history, draft, autoSend?, actionHook? })`.
+  The store either rehydrates an existing conversation or seeds a
+  draft turn the user can edit before send; the right-rail panel
+  picks up the draft, the conversation is persisted on send, and
+  per-turn hooks render contextual buttons under the answer ("Use as
+  commit message", "Insert into standup") that mutate the surface
+  the request originated from.
+- **ai-hub:** Project · Why? popover — replaced by an `openAiChat`
+  call that pre-loads project context (recent runs, dirty file count,
+  outdated deps, advisory severity histogram) and asks the model for
+  a "what's going on with this project?" report. Saves into chat
+  history so you can refer back two days later when the report ages.
+- **ai-hub:** Log right-click triage — popover deleted in favour of a
+  context-menu item that captures the surrounding 50 lines of stderr
+  / stdout and asks the model to triage the error. The chat hub
+  retains the surrounding lines as conversation context, so
+  follow-ups like "why does that null pointer happen on a fresh
+  install?" don't have to re-paste anything.
+- **ai-hub:** Diff Explain — the inline DiffPane "Explain" button
+  now opens the chat hub with the unified diff and a tuned prompt
+  ("explain *what changed*, not what each line does"). Works in
+  both per-service DiffViewer and the Cross-Project Changes view.
+- **ai-hub:** Commit Message generator — Generate button on the
+  Commit panel now seeds a chat with the staged diff and an
+  explicit `actionHook: 'use_as_commit'`, so the model's reply gets
+  a "Use as commit message" button that drops the message straight
+  into the commit textarea. No more copy-paste round-trips.
+- **ai-hub:** Standup Polish — Activity Timeline's Polish dialog is
+  retired. The standup chip now seeds a chat with the day's events
+  and a `actionHook: 'insert_standup'`; the polished output drops
+  into the timeline standup composer with one click, but you can
+  also keep iterating ("make it shorter", "drop the Linux items")
+  without losing the previous draft.
+- **ai-hub:** Dashboard "Analyze workspace" button — new global
+  surface that snapshots every project (running services, dirty
+  state, outdated dep majors, unresolved CVEs by severity) into a
+  single workspace report. Designed for end-of-week review and
+  "what should I tackle Monday?" triage; the report is plain
+  markdown so you can paste it into Linear / Slack / Confluence.
+- **ai-hub:** Per-CVE Deep Analysis (new). Clicking the sparkles
+  icon next to any advisory in the project drawer launches a
+  chat with a strict five-section prompt: TL;DR · Where it bites ·
+  Worst case · Am I likely affected? · Fix. The prompt explicitly
+  forbids the model from inventing symbols that aren't in the
+  passed-in package metadata, so it can't hallucinate vulnerable
+  call sites. Distinct from the bulk Triage flow, which buckets
+  many advisories at once — this is the "tell me about *this one*"
+  affordance you reach for when the GHSA write-up is too generic to
+  act on.
+
+### Streaming Reliability
+
+The headline bug class for the entire AI surface, mostly hit by
+local / reasoning-heavy models (GLM, Qwen, Llama variants) where
+the model emits a long `<thinking>` trace and then either truncates
+the actual answer, hangs mid-token, or — until this release — crashed
+the Tokio worker on a non-ASCII byte and silently terminated the
+stream with no `done` event.
+
+- **ai:** **UTF-8 panic fix**. `safe_emit_len` was performing
+  byte-indexed string slicing on the SSE buffer to detect partial
+  closing tags, but the slice point wasn't snapped to a UTF-8
+  character boundary. A single em-dash (`—`, three bytes) inside
+  the streamed answer was enough to panic the parser with `start
+  byte index 2 is not a char boundary; it is inside '—'`, killing
+  the worker before it could emit the `done` event. The user-facing
+  symptom was "the response just stopped, no error, no end-of-stream
+  marker, no way to continue". Fix snaps the split index back to
+  the nearest `is_char_boundary == true` byte; regression tests
+  cover multi-byte boundaries and emoji prefixes.
+- **ai:** content-progress-based idle timeout. Previously a flat 60s
+  ceiling closed the stream regardless of whether the model was
+  actively writing reasoning tokens. Long-form deep analyses on
+  reasoning-heavy models routinely exceed 60s of pure CoT before
+  the answer body starts. Now the timer resets every time we
+  receive *any* visible content (delta or reasoning), so streams
+  only abort when actually stalled.
+- **ai:** auto-retry / auto-continue on stalled streams. When a
+  stall is detected, the frontend automatically issues a
+  continuation request with the partial body as context — the user
+  doesn't have to manually click Continue unless the auto-retry
+  also fails.
+- **ai:** "answer hidden in reasoning" heuristic. Detects the
+  pathological case where the model finished cleanly (`finish_reason
+  = "stop"`) but the answer body is suspiciously short (~ < 200
+  chars) while the reasoning trace is rich (multi-paragraph). In
+  that case we issue an automatic append-only continuation with a
+  prompt nudging the model to print the actual answer rather than
+  thinking it silently. Works for the GLM and Qwen reasoning
+  variants that occasionally treat the thinking buffer as the only
+  required output.
+- **ai:** `partial: boolean` flag on `Turn`. Surfaces an
+  "Answer looks incomplete" banner on any partial turn not already
+  covered by a `length` or `timeout` finish reason, with a
+  one-click Continue button that resumes the same conversation
+  with append-only context. Eliminates the "is this done? do I
+  click again?" ambiguity.
+- **ai:** Cursor-style reasoning pill. The model's chain-of-thought
+  is now collapsed into a calm, dimmed, fixed-height (120px),
+  auto-scrolling pill underneath the answer body, default-open
+  while streaming and click-to-collapse afterwards. Replaces the
+  previous mode where reasoning rendered as if it *were* the
+  answer, which made every response read three times longer than
+  it needed to. Pill is theme-aware (dim foreground in light, even
+  dimmer in dark) and never accidentally renders as if it's the
+  primary content.
+- **ai:** unlimited `max_output_tokens` by default. The previous
+  1500-token cap made sense for a single-turn assistant but
+  routinely truncated multi-project workspace reports and large
+  diff explainers on million-token-context models. Default is now
+  uncapped (let the model finish); per-provider overrides still
+  available in Settings → AI for users who want to bound spend.
+- **ai:** stream lifecycle tracing. Every stream gets a stable
+  `stream_id`, with `tracing::debug` / `warn` / `trace` events at
+  begin / first reasoning / first delta / done / abort / timeout
+  boundaries. Surfaced in the frontend through a
+  `localStorage.runhq_debug_ai = '1'` flag that flips on console
+  logging in `AiChatPanel`, mirrored to the Rust side via
+  `RUST_LOG=runhq_core::ai=debug`. Made the UTF-8 panic above
+  diagnosable in the first place.
+
+### Quality of Life
+
+- **dashboard:** loading skeleton. The dashboard previously rendered
+  empty state for ~ 200ms while the cross-project poll completed,
+  which read as "RunHQ has no projects" until the cards finally
+  hydrated. New `DashboardSkeleton` paints placeholder cards so the
+  first-paint feels instant; the real cards swap in once data
+  arrives. Same trick applied to `WorstOffenders` and the resource
+  heatmap.
+- **layout:** right-side rail tone now matches the left sidebar
+  exactly. The previous 3-stop opacity wash on the right made the
+  AI panel read as a different surface tier from the rest of the
+  app; now both rails inherit `--surface-raised` and the visual
+  weight balances around the editor canvas in the middle.
+- **ui:** auto-resizing chat composer (Shift+Enter inserts newline,
+  height tracks content up to 180px), redesigned chat shell with a
+  single outer border, and a model pill in the composer that opens
+  a real dropdown instead of cycling through providers on click.
+
+### Bug Fixes
+
+- **ai:** UTF-8 panic in SSE buffer slicing — see "Streaming
+  Reliability → UTF-8 panic fix" above. Worker no longer dies
+  silently on em-dashes, smart quotes, emoji, or any non-ASCII
+  payload byte.
+- **ai:** model picker dropdown didn't open on click in the chat
+  composer (the trigger was registering as both the popover toggle
+  and an outside-click dismissal). Fixed by routing the popover
+  through a portal with a stable anchor ref.
+- **ai:** chat panel scroll position no longer jumps to top when a
+  new chunk arrives during reasoning. The body is now followed only
+  if the user is already pinned to the bottom — same heuristic
+  every chat client uses, prevents losing your read position on
+  long-form responses.
+
+### Removed
+
+- **ai-popovers:** `ProjectExplainPopover`, `LogTriagePopover`, and
+  the inline diff Explain dropdown — superseded by the unified chat
+  hub. Surfaces that used to vanish on outside-click now keep their
+  conversation around for follow-ups.
+- **ai:** `AiStandupDialog` — replaced by an `openAiChat` call with
+  the `insert_standup` action hook.
+
 ## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-25)
 
 
@@ -60,9 +315,245 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **roadmap:** plan OpenAI-compatible AI integration (Phase 6–8) ([1a4dfb3](https://github.com/erdembas/runhq/commit/1a4dfb3a99e7e5a281b8ece397133489b24c5a0f))
 * **whatsnew:** broaden 0.6.0 highlights to cover the full v0.5.1..v0.6.0 surface ([895c05e](https://github.com/erdembas/runhq/commit/895c05e2c87752d603d9a500b293c51593acf241))
 
-## [Unreleased]
+Three flagship pieces land together:
 
-_No unreleased changes._
+1. **AI Chat Hub** — a unified right-rail panel with multi-tab
+   conversations (up to 5), SQLite-persisted history, per-turn model
+   switching, language picker with country flags, and a live token
+   meter against the active model's context window.
+2. **AI on every surface** — Project · Why?, Log Triage, Diff Explain,
+   Commit Message generation, Standup Polish, Workspace global
+   analysis (new!), and Per-CVE deep analysis (new!) all route into
+   the same chat hub. Per-turn action hooks let the model write *into*
+   your flow ("Use as commit message", "Insert into standup").
+3. **Streaming reliability overhaul** — local / reasoning-heavy models
+   no longer cut out mid-sentence, hide the answer in `<thinking>`
+   blocks, or silently die on a non-ASCII byte.
+
+### AI Chat Hub
+
+A bring-your-own-LLM chat panel — RunHQ never proxies your requests
+through a hosted service, the connection goes straight from the
+desktop app to whichever OpenAI-compatible endpoint you configure.
+
+- **ai-settings:** new Settings → AI dialog with multi-provider
+  storage. Each provider is `{ name, base_url, api_key?, model }`;
+  API key is optional (vLLM, Ollama, internal LiteLLM gateways
+  routinely run without one). Switch providers from the chat
+  composer's model pill — every turn records which provider × model
+  produced it, so when one model stalls and another finishes you can
+  see *which* in the turn metadata instead of guessing.
+- **ai-settings:** language picker upgraded from a native `<select>`
+  to a custom `LanguagePicker` with country flags, type-ahead search,
+  and full keyboard navigation. The native dropdown couldn't render
+  emoji flags reliably across macOS / Windows / Linux webviews and
+  trying to find your locale by scrolling 100+ rows was the kind of
+  micro-friction that compounds over a day. Default is "Auto"
+  (matches the OS), explicit selection wins for users mixing English
+  documentation with Turkish / Spanish / Arabic stand-ups.
+- **chat:** persistent SQLite-backed conversation store
+  (`runhq-core::conversations`) — schema, CRUD, and aggregation
+  queries live in `~/Library/Application Support/runhq/conversations.db`
+  (or platform equivalent). Conversations survive restarts and
+  crashes; switching projects, coming back tomorrow, or rebooting
+  the machine never loses the chat thread you were reasoning through.
+  History is exposed via a drawer that mirrors VSCode's "Recent" list
+  — pick from the past, the active conversation rehydrates with full
+  turn-by-turn provenance (model, finish reason, partial flag,
+  reasoning trace, action hooks).
+- **chat:** Cursor-style multi-tab strip. Up to 5 conversations open
+  simultaneously with streaming indicators per tab, and a FIFO
+  eviction policy that explicitly *never* closes the active or
+  in-flight tab — so a long-running deep-analysis can't be killed by
+  someone clicking "+New" five times. Tab titles are lazy-loaded
+  from the conversation table, cached locally, and normalised to
+  strip surface prefixes (e.g. "Why · belgehub-backend" becomes
+  "belgehub-backend") so the strip stays scannable.
+- **chat:** per-turn token meter (`tiktoken-rs` powered) ticks live as
+  you type, showing `input + history vs context window` and tinting
+  amber → red as you approach the model's documented limit. `gpt-4o`,
+  `claude-3.5`, `glm-4.5`, `qwen-2.5`, `llama-3.1`, and the local
+  variants of each are mapped to the right encoder so the count is
+  accurate, not just a `chars / 4` approximation. The component
+  surfaces a "Compact context?" hint when the budget's almost gone
+  rather than letting the model truncate silently from the head.
+- **chat:** auto-resizing composer textarea. Shift+Enter inserts a
+  newline, height tracks `scrollHeight` clamped at 180px, then
+  scroll — same shape as ChatGPT / Claude. Replaces the previous
+  fixed 3-line box that forced you to either crank the panel wider
+  or accept hidden text bleeding off the bottom.
+
+### AI on Every Surface
+
+Every existing AI affordance — and a couple of new ones — now feeds
+the same persistent chat. No more popovers that vanish when you
+click outside, no more one-shot answers you can't follow up on.
+
+- **ai-hub:** every AI surface now goes through one bridge —
+  `useAppStore.openAiChat({ history, draft, autoSend?, actionHook? })`.
+  The store either rehydrates an existing conversation or seeds a
+  draft turn the user can edit before send; the right-rail panel
+  picks up the draft, the conversation is persisted on send, and
+  per-turn hooks render contextual buttons under the answer ("Use as
+  commit message", "Insert into standup") that mutate the surface
+  the request originated from.
+- **ai-hub:** Project · Why? popover — replaced by an `openAiChat`
+  call that pre-loads project context (recent runs, dirty file count,
+  outdated deps, advisory severity histogram) and asks the model for
+  a "what's going on with this project?" report. Saves into chat
+  history so you can refer back two days later when the report ages.
+- **ai-hub:** Log right-click triage — popover deleted in favour of a
+  context-menu item that captures the surrounding 50 lines of stderr
+  / stdout and asks the model to triage the error. The chat hub
+  retains the surrounding lines as conversation context, so
+  follow-ups like "why does that null pointer happen on a fresh
+  install?" don't have to re-paste anything.
+- **ai-hub:** Diff Explain — the inline DiffPane "Explain" button
+  now opens the chat hub with the unified diff and a tuned prompt
+  ("explain *what changed*, not what each line does"). Works in
+  both per-service DiffViewer and the Cross-Project Changes view.
+- **ai-hub:** Commit Message generator — Generate button on the
+  Commit panel now seeds a chat with the staged diff and an
+  explicit `actionHook: 'use_as_commit'`, so the model's reply gets
+  a "Use as commit message" button that drops the message straight
+  into the commit textarea. No more copy-paste round-trips.
+- **ai-hub:** Standup Polish — Activity Timeline's Polish dialog is
+  retired. The standup chip now seeds a chat with the day's events
+  and a `actionHook: 'insert_standup'`; the polished output drops
+  into the timeline standup composer with one click, but you can
+  also keep iterating ("make it shorter", "drop the Linux items")
+  without losing the previous draft.
+- **ai-hub:** Dashboard "Analyze workspace" button — new global
+  surface that snapshots every project (running services, dirty
+  state, outdated dep majors, unresolved CVEs by severity) into a
+  single workspace report. Designed for end-of-week review and
+  "what should I tackle Monday?" triage; the report is plain
+  markdown so you can paste it into Linear / Slack / Confluence.
+- **ai-hub:** Per-CVE Deep Analysis (new). Clicking the sparkles
+  icon next to any advisory in the project drawer launches a
+  chat with a strict five-section prompt: TL;DR · Where it bites ·
+  Worst case · Am I likely affected? · Fix. The prompt explicitly
+  forbids the model from inventing symbols that aren't in the
+  passed-in package metadata, so it can't hallucinate vulnerable
+  call sites. Distinct from the bulk Triage flow, which buckets
+  many advisories at once — this is the "tell me about *this one*"
+  affordance you reach for when the GHSA write-up is too generic to
+  act on.
+
+### Streaming Reliability
+
+The headline bug class for the entire AI surface, mostly hit by
+local / reasoning-heavy models (GLM, Qwen, Llama variants) where
+the model emits a long `<thinking>` trace and then either truncates
+the actual answer, hangs mid-token, or — until this release — crashed
+the Tokio worker on a non-ASCII byte and silently terminated the
+stream with no `done` event.
+
+- **ai:** **UTF-8 panic fix**. `safe_emit_len` was performing
+  byte-indexed string slicing on the SSE buffer to detect partial
+  closing tags, but the slice point wasn't snapped to a UTF-8
+  character boundary. A single em-dash (`—`, three bytes) inside
+  the streamed answer was enough to panic the parser with `start
+  byte index 2 is not a char boundary; it is inside '—'`, killing
+  the worker before it could emit the `done` event. The user-facing
+  symptom was "the response just stopped, no error, no end-of-stream
+  marker, no way to continue". Fix snaps the split index back to
+  the nearest `is_char_boundary == true` byte; regression tests
+  cover multi-byte boundaries and emoji prefixes.
+- **ai:** content-progress-based idle timeout. Previously a flat 60s
+  ceiling closed the stream regardless of whether the model was
+  actively writing reasoning tokens. Long-form deep analyses on
+  reasoning-heavy models routinely exceed 60s of pure CoT before
+  the answer body starts. Now the timer resets every time we
+  receive *any* visible content (delta or reasoning), so streams
+  only abort when actually stalled.
+- **ai:** auto-retry / auto-continue on stalled streams. When a
+  stall is detected, the frontend automatically issues a
+  continuation request with the partial body as context — the user
+  doesn't have to manually click Continue unless the auto-retry
+  also fails.
+- **ai:** "answer hidden in reasoning" heuristic. Detects the
+  pathological case where the model finished cleanly (`finish_reason
+  = "stop"`) but the answer body is suspiciously short (~ < 200
+  chars) while the reasoning trace is rich (multi-paragraph). In
+  that case we issue an automatic append-only continuation with a
+  prompt nudging the model to print the actual answer rather than
+  thinking it silently. Works for the GLM and Qwen reasoning
+  variants that occasionally treat the thinking buffer as the only
+  required output.
+- **ai:** `partial: boolean` flag on `Turn`. Surfaces an
+  "Answer looks incomplete" banner on any partial turn not already
+  covered by a `length` or `timeout` finish reason, with a
+  one-click Continue button that resumes the same conversation
+  with append-only context. Eliminates the "is this done? do I
+  click again?" ambiguity.
+- **ai:** Cursor-style reasoning pill. The model's chain-of-thought
+  is now collapsed into a calm, dimmed, fixed-height (120px),
+  auto-scrolling pill underneath the answer body, default-open
+  while streaming and click-to-collapse afterwards. Replaces the
+  previous mode where reasoning rendered as if it *were* the
+  answer, which made every response read three times longer than
+  it needed to. Pill is theme-aware (dim foreground in light, even
+  dimmer in dark) and never accidentally renders as if it's the
+  primary content.
+- **ai:** unlimited `max_output_tokens` by default. The previous
+  1500-token cap made sense for a single-turn assistant but
+  routinely truncated multi-project workspace reports and large
+  diff explainers on million-token-context models. Default is now
+  uncapped (let the model finish); per-provider overrides still
+  available in Settings → AI for users who want to bound spend.
+- **ai:** stream lifecycle tracing. Every stream gets a stable
+  `stream_id`, with `tracing::debug` / `warn` / `trace` events at
+  begin / first reasoning / first delta / done / abort / timeout
+  boundaries. Surfaced in the frontend through a
+  `localStorage.runhq_debug_ai = '1'` flag that flips on console
+  logging in `AiChatPanel`, mirrored to the Rust side via
+  `RUST_LOG=runhq_core::ai=debug`. Made the UTF-8 panic above
+  diagnosable in the first place.
+
+### Quality of Life
+
+- **dashboard:** loading skeleton. The dashboard previously rendered
+  empty state for ~ 200ms while the cross-project poll completed,
+  which read as "RunHQ has no projects" until the cards finally
+  hydrated. New `DashboardSkeleton` paints placeholder cards so the
+  first-paint feels instant; the real cards swap in once data
+  arrives. Same trick applied to `WorstOffenders` and the resource
+  heatmap.
+- **layout:** right-side rail tone now matches the left sidebar
+  exactly. The previous 3-stop opacity wash on the right made the
+  AI panel read as a different surface tier from the rest of the
+  app; now both rails inherit `--surface-raised` and the visual
+  weight balances around the editor canvas in the middle.
+- **ui:** auto-resizing chat composer (Shift+Enter inserts newline,
+  height tracks content up to 180px), redesigned chat shell with a
+  single outer border, and a model pill in the composer that opens
+  a real dropdown instead of cycling through providers on click.
+
+### Bug Fixes
+
+- **ai:** UTF-8 panic in SSE buffer slicing — see "Streaming
+  Reliability → UTF-8 panic fix" above. Worker no longer dies
+  silently on em-dashes, smart quotes, emoji, or any non-ASCII
+  payload byte.
+- **ai:** model picker dropdown didn't open on click in the chat
+  composer (the trigger was registering as both the popover toggle
+  and an outside-click dismissal). Fixed by routing the popover
+  through a portal with a stable anchor ref.
+- **ai:** chat panel scroll position no longer jumps to top when a
+  new chunk arrives during reasoning. The body is now followed only
+  if the user is already pinned to the bottom — same heuristic
+  every chat client uses, prevents losing your read position on
+  long-form responses.
+
+### Removed
+
+- **ai-popovers:** `ProjectExplainPopover`, `LogTriagePopover`, and
+  the inline diff Explain dropdown — superseded by the unified chat
+  hub. Surfaces that used to vanish on outside-click now keep their
+  conversation around for follow-ups.
+- **ai:** `AiStandupDialog` — replaced by an `openAiChat` call with
+  the `insert_standup` action hook.
 
 ## [0.6.0](https://github.com/erdembas/runhq/compare/v0.5.1...v0.6.0) (2026-04-23)
 

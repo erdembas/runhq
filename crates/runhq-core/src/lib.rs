@@ -22,6 +22,8 @@
 //! [`events::EventSink`] trait — the desktop shell provides a Tauri-backed
 //! implementation, the CLI could provide a stdout one.
 
+pub mod ai;
+pub mod conversations;
 pub mod editors;
 pub mod error;
 pub mod events;
@@ -35,6 +37,7 @@ pub mod resources;
 pub mod scanner;
 pub mod state;
 pub mod timeline;
+pub mod tokens;
 
 pub use error::{AppError, AppResult};
 pub use events::EventSink;

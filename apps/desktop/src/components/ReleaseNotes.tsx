@@ -111,6 +111,18 @@ function runStoreAction(actionId: WhatsNewActionId, onAfter: () => void): void {
       store.openTimeline();
       onAfter();
       return;
+    case 'open-ai-chat':
+      // Mirror of `WhatsNewModal`: drop into the AI panel with a fresh
+      // composer so the CTA reads as "here, try it", not "scroll back
+      // through whatever you had open last".
+      store.setRightPanel('ai');
+      store.setActiveConversation(null);
+      onAfter();
+      return;
+    case 'open-ai-settings':
+      onAfter();
+      window.dispatchEvent(new CustomEvent('runhq:open-ai-settings'));
+      return;
     case 'open-changelog':
       // The surrounding card carries the external link; the action is
       // a no-op here so the click can fall through to the anchor.

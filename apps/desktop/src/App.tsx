@@ -11,13 +11,15 @@ import { StackEditor } from '@/components/StackEditor';
 import { StackDetail } from '@/components/StackDetail';
 import { ScanDialog } from '@/components/ScanDialog';
 import { ShortcutSettings } from '@/components/ShortcutSettings';
+import { AiSettings } from '@/components/AiSettings';
+import { RightActivityBar } from '@/components/RightActivityBar';
+import { RightSidePanel } from '@/components/RightSidePanel';
 import { ResizeHandles } from '@/components/ResizeHandles';
 import { StatusBar } from '@/components/StatusBar';
 import { TitleBar } from '@/components/TitleBar';
 import { WelcomeTour } from '@/components/WelcomeTour';
 import { WhatsNewModal } from '@/components/WhatsNewModal';
 import { ReleaseNotes } from '@/components/ReleaseNotes';
-import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
 import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
 import { useAppStore, logKey } from '@/store/useAppStore';
@@ -45,8 +47,7 @@ export default function App() {
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const closeStackEditor = useAppStore((s) => s.closeStackEditor);
   const setStacks = useAppStore((s) => s.setStacks);
-  const timelineOpen = useAppStore((s) => s.timelineOpen);
-  const closeTimeline = useAppStore((s) => s.closeTimeline);
+  const toggleRightPanel = useAppStore((s) => s.toggleRightPanel);
   const diffViewerOpen = useAppStore((s) => s.diffViewerOpen);
   const diffViewerServiceId = useAppStore((s) => s.diffViewerServiceId);
   const closeDiffViewer = useAppStore((s) => s.closeDiffViewer);
@@ -62,6 +63,19 @@ export default function App() {
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  // Cross-component bridge for opening AI Settings without prop-
+  // drilling. Surfaces like the chat composer's model pill — which
+  // live deep inside `RightSidePanel` — fire `runhq:open-ai-settings`
+  // and we react here. Window-level CustomEvent keeps the chat
+  // panel decoupled from App's local state shape; the alternative
+  // (lifting `aiSettingsOpen` into Zustand) would touch a much larger
+  // store API surface for what is effectively a pub/sub edge.
+  useEffect(() => {
+    const onOpen = () => setAiSettingsOpen(true);
+    window.addEventListener('runhq:open-ai-settings', onOpen);
+    return () => window.removeEventListener('runhq:open-ai-settings', onOpen);
+  }, []);
   // When the quick-action palette opens over the top of the running app, we
   // dim the main window so the floating palette reads as a modal layer rather
   // than something floating in mid-air. Rust only emits `palette-opened`
@@ -518,22 +532,37 @@ export default function App() {
   // shortcut and the titlebar trigger. We prefer the plain chord (no Shift)
   // inside the app because users' hands are already on the main window;
   // ⌘/Ctrl + Shift + K remains the OS-wide summon from other apps.
+  //
+  // ⌘/Ctrl + L → AI chat panel. Mirrors Cursor's "ask" chord, which the
+  // target audience already has muscle memory for. We only open the
+  // panel from this shortcut — closing happens on Esc inside the panel
+  // or via the close button, so the chord can't accidentally hide a
+  // half-typed question.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
-        // Don't swallow the chord while the user is editing a form field —
-        // ⌘K has no browser default there, but this keeps future input
-        // widgets (rich editors, command palettes) free to own it.
-        const target = e.target as HTMLElement | null;
-        const tag = target?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-        e.preventDefault();
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'k' && key !== 'l') return;
+      // Don't swallow the chord while the user is editing a form
+      // field — they may want the browser's native ⌘L (focus URL,
+      // not relevant here) or simply paste/cut characters. The chat
+      // panel's own input is exempt because it owns Esc-to-close.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      e.preventDefault();
+      if (key === 'k') {
         void ipc.showQuickAction().catch((err) => console.error('show_quick_action failed', err));
+      } else {
+        // ⌘L now toggles the AI panel inside the right activity bar
+        // — it opens it when collapsed / a different panel is up,
+        // and closes it when AI is already the active panel.
+        toggleRightPanel('ai');
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [toggleRightPanel]);
 
   return (
     <div className="bg-surface text-fg relative flex h-screen flex-col overflow-hidden">
@@ -556,6 +585,13 @@ export default function App() {
             <Dashboard onScan={startScan} />
           )}
         </main>
+        {/* VSCode-style right side: panel host (renders the active
+            view, nothing if collapsed) + a permanent 36px icon rail
+            on the far edge. The order matters — the rail must be
+            the right-most element so the panel can resize freely
+            against the rail's left edge. */}
+        <RightSidePanel />
+        <RightActivityBar />
       </div>
 
       <UpdateBanner />
@@ -563,6 +599,8 @@ export default function App() {
       <StatusBar
         onOpenPortManager={() => setPortManagerOpen(true)}
         onOpenShortcutSettings={() => setShortcutSettingsOpen(true)}
+        onOpenAiSettings={() => setAiSettingsOpen(true)}
+        onToggleAiChat={() => toggleRightPanel('ai')}
       />
 
       {editorService !== undefined && (
@@ -580,7 +618,10 @@ export default function App() {
           }}
         />
       )}
-      {timelineOpen && <ActivityTimeline onClose={closeTimeline} />}
+      {aiSettingsOpen && <AiSettings onClose={() => setAiSettingsOpen(false)} />}
+      {/* AI Chat and Activity Timeline are now both rendered inside
+          the right-side shell (RightSidePanel), so we no longer
+          mount them as standalone drawers/overlays here. */}
       {diffViewerOpen && diffViewerServiceId && (
         <DiffViewer serviceId={diffViewerServiceId} onClose={closeDiffViewer} />
       )}

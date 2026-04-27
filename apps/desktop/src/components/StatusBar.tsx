@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Cpu, Keyboard, MemoryStick, Network, Sparkles } from 'lucide-react';
+import { BrainCircuit, Cpu, Keyboard, MemoryStick, Network, Sparkles } from 'lucide-react';
 import { cpuToneClass, memoryToneClass } from '@/lib/resourceTone';
 import { ThemeMenu } from '@/components/ThemeMenu';
 import { useAppStore } from '@/store/useAppStore';
@@ -10,9 +10,16 @@ import type { Status } from '@/types';
 interface Props {
   onOpenPortManager: () => void;
   onOpenShortcutSettings: () => void;
+  onOpenAiSettings: () => void;
+  onToggleAiChat: () => void;
 }
 
-export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) {
+export function StatusBar({
+  onOpenPortManager,
+  onOpenShortcutSettings,
+  onOpenAiSettings,
+  onToggleAiChat,
+}: Props) {
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const ports = useAppStore((s) => s.ports);
@@ -99,6 +106,24 @@ export function StatusBar({ onOpenPortManager, onOpenShortcutSettings }: Props) 
           <Network className="h-3 w-3" />
           <span className="tabular-nums">{ports.length}</span>
           <span className="text-fg-dim">ports</span>
+        </button>
+        <button
+          type="button"
+          onClick={onToggleAiChat}
+          className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
+          title="AI chat (⌘L)"
+        >
+          <Sparkles className="text-accent h-3 w-3" />
+          <span className="text-fg-dim">Ask AI</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenAiSettings}
+          className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
+          title="AI providers"
+        >
+          <BrainCircuit className="h-3 w-3" />
+          <span className="text-fg-dim">AI</span>
         </button>
         <button
           type="button"

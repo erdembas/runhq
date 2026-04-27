@@ -6,6 +6,14 @@
 
 use std::path::PathBuf;
 
+use runhq_core::ai::{
+    self, AiProvider, AiProviderKind, ChatMessage, ChatOptions, ChatResponse, StreamChunk,
+    TestResult,
+};
+use runhq_core::conversations::{
+    self, AppendMessageInput, Conversation, ConversationSummary, ConversationsDb,
+    CreateConversationInput,
+};
 use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
 use runhq_core::git::{self, CommitSummary, DiffSummary, GitStatus};
@@ -548,6 +556,115 @@ pub fn export_standup(since_ms: i64, state: State<'_, AppState>) -> AppResult<St
     db.export_standup(since_ms)
 }
 
+// ---- Conversations (AI chat history) -------------------------------------
+
+fn open_conversations_db(state: &State<'_, AppState>) -> AppResult<ConversationsDb> {
+    let db_path = state
+        .store
+        .path()
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("conversations.db");
+    ConversationsDb::open(&db_path)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListConversationsInput {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub include_archived: bool,
+}
+
+#[tauri::command]
+pub fn list_conversations(
+    input: ListConversationsInput,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ConversationSummary>> {
+    let db = open_conversations_db(&state)?;
+    let lim = input.limit.unwrap_or(200).min(2000);
+    db.list_conversations(lim, input.include_archived)
+}
+
+#[tauri::command]
+pub fn get_conversation(id: String, state: State<'_, AppState>) -> AppResult<Conversation> {
+    let db = open_conversations_db(&state)?;
+    db.get_conversation(&id)
+}
+
+#[tauri::command]
+pub fn create_conversation(
+    input: CreateConversationInput,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let db = open_conversations_db(&state)?;
+    db.create_conversation(input)
+}
+
+#[tauri::command]
+pub fn append_conversation_message(
+    input: AppendMessageInput,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let db = open_conversations_db(&state)?;
+    db.append_message(input)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameConversationInput {
+    pub id: String,
+    pub title: String,
+}
+
+#[tauri::command]
+pub fn rename_conversation(
+    input: RenameConversationInput,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let db = open_conversations_db(&state)?;
+    db.rename_conversation(&input.id, &input.title)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PinConversationInput {
+    pub id: String,
+    pub pinned: bool,
+}
+
+#[tauri::command]
+pub fn pin_conversation(input: PinConversationInput, state: State<'_, AppState>) -> AppResult<()> {
+    let db = open_conversations_db(&state)?;
+    db.pin_conversation(&input.id, input.pinned)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveConversationInput {
+    pub id: String,
+    pub archived: bool,
+}
+
+#[tauri::command]
+pub fn archive_conversation(
+    input: ArchiveConversationInput,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let db = open_conversations_db(&state)?;
+    db.archive_conversation(&input.id, input.archived)
+}
+
+#[tauri::command]
+pub fn delete_conversation(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let db = open_conversations_db(&state)?;
+    db.delete_conversation(&id)
+}
+
+// Force module-use so the unused-import lint stays happy when the
+// module exports types we re-export but don't directly call inside ipc.
+#[allow(dead_code)]
+fn _conversations_module_link() {
+    let _ = std::any::type_name::<conversations::Message>();
+}
+
 // ---- Git -----------------------------------------------------------------
 
 fn resolve_cwd(id: &str, state: &State<'_, AppState>) -> AppResult<PathBuf> {
@@ -788,6 +905,700 @@ pub fn git_diff_commit_file(
     git::diff_commit_file(&cwd, &hash, &file, context)
 }
 
+// ---- AI providers --------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AiProviderInput {
+    /// When omitted we mint a new id; passing one updates the existing
+    /// record. Lets the React form reuse the same endpoint for create
+    /// and edit without juggling separate IPC routes.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub kind: AiProviderKind,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    #[serde(default)]
+    pub default: bool,
+    /// Preferred response language as a BCP-47-ish code (`en`, `tr`,
+    /// `auto`, …). Optional — when absent the model decides on its
+    /// own (typically English or whatever the user wrote in).
+    #[serde(default)]
+    pub response_language: Option<String>,
+    /// Per-provider hard ceiling on output tokens. `None` means "no
+    /// client-side cap" — let the server decide. The form treats an
+    /// empty input as `None`; a positive integer is forwarded as-is
+    /// and clamps every AI surface (chat, diff, log, standup,
+    /// project, commit message). See `AiProvider::max_output_tokens`
+    /// for the resolution rules.
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    /// Optional context window (input + output) in tokens. Drives the
+    /// chat composer's TokenMeter. 0/None means "no denominator" —
+    /// the meter still shows the raw count.
+    #[serde(default)]
+    pub context_window: Option<u32>,
+}
+
+#[tauri::command]
+pub fn list_ai_providers(state: State<'_, AppState>) -> AppResult<Vec<AiProvider>> {
+    Ok(state.store.ai_providers())
+}
+
+#[tauri::command]
+pub fn upsert_ai_provider(
+    input: AiProviderInput,
+    state: State<'_, AppState>,
+) -> AppResult<AiProvider> {
+    if input.name.trim().is_empty() {
+        return Err(AppError::Invalid("name is required".into()));
+    }
+    if input.base_url.trim().is_empty() {
+        return Err(AppError::Invalid("base URL is required".into()));
+    }
+    if input.model.trim().is_empty() {
+        return Err(AppError::Invalid("model is required".into()));
+    }
+
+    // Preserve the original `created_at_ms` on edits — purely cosmetic
+    // ("added 3 days ago") but a stable timestamp keeps the list order
+    // honest after every save.
+    let (id, created_at_ms) = match input.id.as_deref() {
+        Some(id) if !id.is_empty() => {
+            let existing_ts = state
+                .store
+                .ai_provider(id)
+                .map(|p| p.created_at_ms)
+                .unwrap_or_else(now_ms);
+            (id.to_string(), existing_ts)
+        }
+        _ => (uuid::Uuid::new_v4().to_string(), now_ms()),
+    };
+
+    let provider = AiProvider {
+        id,
+        name: input.name.trim().to_string(),
+        kind: input.kind,
+        base_url: input.base_url.trim().to_string(),
+        api_key: input.api_key,
+        model: input.model.trim().to_string(),
+        default: input.default,
+        response_language: input
+            .response_language
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        // 0 from the form means "blank → no cap", same as `None`. Any
+        // positive value is forwarded as-is. We don't clamp to a
+        // minimum here: if the user types `1` they get `1`, and the
+        // resulting truncated answer is its own teaching moment.
+        max_output_tokens: input.max_output_tokens.filter(|v| *v > 0),
+        context_window: input.context_window.filter(|v| *v > 0),
+        created_at_ms,
+    };
+    state
+        .store
+        .upsert_ai_provider(provider.clone())
+        .map_err(AppError::from)?;
+    Ok(provider)
+}
+
+#[tauri::command]
+pub fn remove_ai_provider(id: String, state: State<'_, AppState>) -> AppResult<bool> {
+    state.store.remove_ai_provider(&id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn set_default_ai_provider(id: String, state: State<'_, AppState>) -> AppResult<bool> {
+    state
+        .store
+        .set_default_ai_provider(&id)
+        .map_err(AppError::from)
+}
+
+/// Probe the provider's `/chat/completions` endpoint without burning
+/// real tokens. Returns a structured success/failure record so the UI
+/// can render a green check + latency or a red error message without
+/// having to parse exception strings.
+#[tauri::command]
+pub async fn test_ai_provider(id: String, state: State<'_, AppState>) -> AppResult<TestResult> {
+    let provider = state.store.ai_provider(&id).ok_or(AppError::NotFound(id))?;
+    ai::test_provider(&provider).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatRequestInput {
+    /// When `None`, we resolve the user's default provider. Lets feature
+    /// surfaces (commit panel, future inline chat, etc.) call this
+    /// without each one re-implementing default-resolution.
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    pub messages: Vec<ChatMessage>,
+    #[serde(default)]
+    pub options: ChatOptions,
+}
+
+#[tauri::command]
+pub async fn ai_chat_completion(
+    input: ChatRequestInput,
+    state: State<'_, AppState>,
+) -> AppResult<ChatResponse> {
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    ai::chat_completion(&provider, input.messages, input.options).await
+}
+
+/// Snapshot of the data needed to seed a commit-message chat in the
+/// AI Chat panel. The Phase-5 chat-hub flow asks the renderer to drive
+/// the conversation (so the user can switch models, follow up, etc.),
+/// but git plumbing is still cheapest in Rust — we run the diff and
+/// log here, hand the plain text to JS, and let the panel build its
+/// own prompt around it.
+///
+/// Why not just return the prompt strings?
+/// We could, but that hard-codes the prompt structure on the Rust
+/// side. By shipping the raw evidence the renderer can iterate on
+/// wording / persona without an IPC version bump.
+#[derive(Debug, Serialize)]
+pub struct CommitChatContext {
+    pub branch: Option<String>,
+    pub diff: String,
+    pub recent_subjects: Vec<String>,
+    /// Truncation marker so the renderer can show a "[diff truncated]"
+    /// pill or similar without re-implementing the size policy. Set
+    /// when we cap the staged diff at `MAX_COMMIT_CHAT_DIFF_CHARS`.
+    pub diff_truncated: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitChatContextInput {
+    pub service_id: String,
+}
+
+/// Soft cap for the staged-diff blob shipped to the chat panel. Big
+/// enough to capture a meaty refactor (~250 lines), small enough that
+/// even tiny-context models won't choke when we tack on the system
+/// prompt + recent commits.
+const MAX_COMMIT_CHAT_DIFF_CHARS: usize = 12_000;
+
+#[tauri::command]
+pub async fn ai_commit_chat_context(
+    input: CommitChatContextInput,
+    state: State<'_, AppState>,
+) -> AppResult<CommitChatContext> {
+    let cwd = resolve_cwd(&input.service_id, &state)?;
+
+    let cwd_for_diff = cwd.clone();
+    let mut diff = tokio::task::spawn_blocking(move || git::diff_staged_raw(&cwd_for_diff))
+        .await
+        .map_err(|e| AppError::Other(format!("diff task join failed: {e}")))??;
+    let mut diff_truncated = false;
+    if diff.len() > MAX_COMMIT_CHAT_DIFF_CHARS {
+        diff.truncate(MAX_COMMIT_CHAT_DIFF_CHARS);
+        diff.push_str("\n[diff truncated by RunHQ — only the leading hunks were sent]");
+        diff_truncated = true;
+    }
+
+    let cwd_for_log = cwd.clone();
+    let recent = tokio::task::spawn_blocking(move || git::log(&cwd_for_log, None, 8))
+        .await
+        .map_err(|e| AppError::Other(format!("log task join failed: {e}")))?
+        .unwrap_or_default();
+    let recent_subjects: Vec<String> = recent.into_iter().map(|c| c.subject).collect();
+
+    let branch = git::status(&cwd).and_then(|s| s.branch);
+
+    Ok(CommitChatContext {
+        branch,
+        diff,
+        recent_subjects,
+        diff_truncated,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateCommitInput {
+    /// Service whose working tree we summarise. Service id (rather than
+    /// raw cwd) keeps the surface uniform with every other git command.
+    pub service_id: String,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    /// Optional one-line nudge from the user ("focus on the perf fix")
+    /// — the AI gives it weight when picking which area of the diff
+    /// to emphasise.
+    #[serde(default)]
+    pub hint: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerateCommitResult {
+    pub message: String,
+    pub model: Option<String>,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub provider_id: String,
+    pub provider_name: String,
+}
+
+#[tauri::command]
+pub async fn ai_generate_commit_message(
+    input: GenerateCommitInput,
+    state: State<'_, AppState>,
+) -> AppResult<GenerateCommitResult> {
+    let cwd = resolve_cwd(&input.service_id, &state)?;
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+
+    // Pull tone-matching context off the main thread — git shells out,
+    // so even quick reads block briefly. Wrapping in `spawn_blocking`
+    // is cheap insurance against ever-so-slightly-slow filesystems.
+    let cwd_for_diff = cwd.clone();
+    let diff = tokio::task::spawn_blocking(move || git::diff_staged_raw(&cwd_for_diff))
+        .await
+        .map_err(|e| AppError::Other(format!("diff task join failed: {e}")))??;
+
+    let cwd_for_log = cwd.clone();
+    let recent = tokio::task::spawn_blocking(move || git::log(&cwd_for_log, None, 8))
+        .await
+        .map_err(|e| AppError::Other(format!("log task join failed: {e}")))?
+        .unwrap_or_default();
+    let recent_subjects: Vec<String> = recent.into_iter().map(|c| c.subject).collect();
+
+    let branch = git::status(&cwd).and_then(|s| s.branch);
+
+    let raw = ai::generate_commit_message(
+        &provider,
+        &diff,
+        branch.as_deref(),
+        &recent_subjects,
+        input.hint.as_deref(),
+    )
+    .await?;
+
+    Ok(GenerateCommitResult {
+        message: raw,
+        // We don't have a token count here because `generate_commit_message`
+        // discards the raw `ChatResponse`. Keeping the fields in the IPC
+        // shape (rather than dropping them) lets us start surfacing
+        // "Used N tokens" in the UI later without an IPC version bump.
+        model: Some(provider.model.clone()),
+        prompt_tokens: None,
+        completion_tokens: None,
+        provider_id: provider.id.clone(),
+        provider_name: provider.name.clone(),
+    })
+}
+
+// ---- AI streaming surfaces -----------------------------------------------
+
+/// Generic chat completion with streaming. The frontend hooks a
+/// `Channel<StreamChunk>` and renders deltas as they arrive — matches
+/// the OpenAI streaming experience users already know.
+#[tauri::command]
+pub async fn ai_chat_completion_stream(
+    input: ChatRequestInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    stream_with_fallback(&provider, input.messages, input.options, on_chunk).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExplainDiffInput {
+    /// Unified diff text. The frontend ships it raw so the backend
+    /// doesn't have to know which surface (commit panel, history,
+    /// branches, cross-project) the diff came from.
+    pub diff: String,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    /// `true` when the diff represents a hand-picked selection
+    /// (single hunk) rather than a whole file. Adjusts the prompt
+    /// wording so the model knows the scope is narrow.
+    #[serde(default)]
+    pub selection_only: bool,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_explain_diff(
+    input: ExplainDiffInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if input.diff.trim().is_empty() {
+        return Err(AppError::Invalid(
+            "There is no diff to explain — stage or open a change first.".into(),
+        ));
+    }
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let messages = ai::build_explain_diff_prompt(
+        &input.diff,
+        input.file_path.as_deref(),
+        input.selection_only,
+    );
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            // A tad warmer than commit messages: explanations benefit
+            // from one or two paraphrasing attempts when the user
+            // hits "regenerate".
+            temperature: Some(0.3),
+            // No surface-level cap. Diff explanation is the surface
+            // most likely to need a *lot* of room — a power user on
+            // a Gemini 1M / Claude 200K model might paste 800 commits
+            // of history and expect a multi-section walk-through. A
+            // hard 1500 here would silently truncate that. We trust
+            // the provider's `max_output_tokens` (configured in AI
+            // Settings) or the server's own per-model default to be
+            // the safety net. The `<think>` parser and scratchpad
+            // reclassifier already hide planning preambles from the
+            // UI, so giving the model unlimited rope only costs the
+            // user's own latency / quota — their call to make.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExplainLogInput {
+    /// The single log line the user right-clicked on.
+    pub line: String,
+    /// The surrounding ±N lines. Order is preserved (oldest first);
+    /// the prompt frames it as "most-recent last" to match how
+    /// engineers read tail output.
+    #[serde(default)]
+    pub context_lines: Vec<String>,
+    /// Inferred runtime hint ("node", "rust", "go", "python", …).
+    /// Drives ecosystem-aware suggestions in the model's reply.
+    #[serde(default)]
+    pub runtime: Option<String>,
+    /// User-friendly service name (`api-svc`), used so the model can
+    /// speak about the failure in concrete terms.
+    #[serde(default)]
+    pub service_name: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_explain_log(
+    input: ExplainLogInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if input.line.trim().is_empty() {
+        return Err(AppError::Invalid("Log line is empty.".into()));
+    }
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let messages = ai::build_log_triage_prompt(
+        &input.line,
+        &input.context_lines,
+        input.runtime.as_deref(),
+        input.service_name.as_deref(),
+    );
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            temperature: Some(0.2),
+            // No surface cap. Triage body is naturally short (~250t)
+            // because the prompt format constrains it ("Likely cause:
+            // … Try this: …"), but we let the provider / server be
+            // the ceiling so users on long-context models can paste
+            // whole stack traces and get back equally thorough
+            // breakdowns. If a local 3B model goes overboard with
+            // its planning preamble, the user can either set a
+            // provider-level `max_output_tokens` cap or hit Stop.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TriageAdvisoriesInput {
+    /// The (already filtered + ordered) advisory rows the user wants
+    /// the model to triage. Frontend ships them through unchanged
+    /// from the visible list — that way the model triages exactly
+    /// what the user is looking at, even when severity tile filters
+    /// have narrowed the view to "CRITICAL only".
+    pub advisories: Vec<ai::AdvisoryBrief>,
+    /// Friendly project name (e.g. `belgehub-mobile`). Drives the
+    /// "Project: `…`" header in the prompt; lets the model speak
+    /// about the failure in concrete terms.
+    #[serde(default)]
+    pub project_name: Option<String>,
+    /// Inferred runtime (`node`, `python`, `rust`, …). Adjusts the
+    /// model's fix recommendations toward the right ecosystem
+    /// (`npm install` vs `pip install` vs `cargo update`).
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_triage_advisories(
+    input: TriageAdvisoriesInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if input.advisories.is_empty() {
+        return Err(AppError::Invalid(
+            "No advisories to triage — clear filters or run a scan first.".into(),
+        ));
+    }
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let messages = ai::build_advisory_triage_prompt(
+        &input.advisories,
+        input.project_name.as_deref(),
+        input.runtime.as_deref(),
+    );
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            // Slightly cool — triage benefits from consistent
+            // ordering across regenerations more than it does from
+            // creative phrasing. Hot temperatures here have shown
+            // (in QA) a tendency to swap the top-3 fix order on
+            // each regenerate, which destroys the "did it agree
+            // with itself?" sanity check the user does mentally.
+            temperature: Some(0.2),
+            // No surface cap; defer to provider/model. The prompt's
+            // self-imposed 300-word limit constrains output even on
+            // verbose models, but a 60-row triage with proper
+            // grouping rationale legitimately exceeds 1500 tokens
+            // on smaller models — past tests with a hard cap here
+            // produced mid-list cutoffs that hid the most useful
+            // recommendations.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PolishStandupInput {
+    /// Raw markdown produced by `timeline::export_standup`. We
+    /// intentionally ship it as a string instead of re-deriving on the
+    /// backend so the user gets the same content they're staring at.
+    pub raw_markdown: String,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_polish_standup(
+    input: PolishStandupInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if input.raw_markdown.trim().is_empty() {
+        return Err(AppError::Invalid(
+            "Nothing to polish — record some activity first.".into(),
+        ));
+    }
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let messages = ai::build_polish_standup_prompt(&input.raw_markdown);
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            temperature: Some(0.4),
+            // No surface cap. The polished standup itself is bounded
+            // by format (~250t of Yesterday / Today / Blockers
+            // bullets), but a long week of activity legitimately
+            // produces longer standups, and scratchpad-heavy models
+            // need uncapped room to think. The provider-level
+            // `max_output_tokens` is the place to clamp this if the
+            // user is on a small model with a fixed output window.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnalyzeWorkspaceInput {
+    /// Pre-aggregated portfolio snapshot built by the frontend (see
+    /// `lib/ai/workspaceSummary.ts`). We accept it as a free-form
+    /// `serde_json::Value` rather than a typed schema so the
+    /// dashboard can grow new signal columns (e.g. log-error
+    /// counts, dependabot alerts, deployment status) without
+    /// dragging the IPC layer along — the prompt is JSON-aware and
+    /// the model handles missing keys gracefully.
+    #[serde(default)]
+    pub facts: serde_json::Value,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_analyze_workspace(
+    input: AnalyzeWorkspaceInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if input.facts.is_null() {
+        return Err(AppError::Invalid(
+            "Nothing to analyse — workspace snapshot is empty.".into(),
+        ));
+    }
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let facts_pretty =
+        serde_json::to_string_pretty(&input.facts).unwrap_or_else(|_| input.facts.to_string());
+    let messages = ai::build_workspace_report_prompt(&facts_pretty);
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            // Cool — the workspace report is a structured executive
+            // summary; users regenerate it expecting the same risk
+            // picture, only re-phrased. A hot temperature here
+            // produces wildly different "top hotspot" rankings on
+            // back-to-back runs and erodes trust.
+            temperature: Some(0.2),
+            // No surface cap. The prompt's 250-word ceiling
+            // keeps output bounded; uncapped lets reasoning-heavy
+            // models think privately without clipping the visible
+            // report.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExplainProjectInput {
+    /// Pre-built one-line summary from the dashboard ("api-svc · 3
+    /// critical CVEs · 47d stale · dirty tree"). The frontend builds
+    /// it because it has the user's chosen number formatting; the
+    /// backend just frames it for the LLM.
+    pub headline: String,
+    /// Structured facts as a free-form JSON object. Anything the
+    /// dashboard already knows about the project: `dirty_files`,
+    /// `branch`, `ahead`, `behind`, `cve_critical`, `outdated_total`,
+    /// `last_activity_days`, `runtime`, etc. Passing it as JSON
+    /// (rather than a typed Rust struct) keeps the IPC stable as the
+    /// dashboard adds new dimensions.
+    #[serde(default)]
+    pub facts: serde_json::Value,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_explain_project_state(
+    input: ExplainProjectInput,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let mut block = String::new();
+    if !input.headline.trim().is_empty() {
+        block.push_str(&format!("Headline: {}\n\n", input.headline.trim()));
+    }
+    let facts_pretty =
+        serde_json::to_string_pretty(&input.facts).unwrap_or_else(|_| input.facts.to_string());
+    block.push_str("Facts:\n```json\n");
+    block.push_str(&facts_pretty);
+    block.push_str("\n```\n");
+
+    let messages = ai::build_explain_project_prompt(&block);
+    stream_with_fallback(
+        &provider,
+        messages,
+        ChatOptions {
+            // Dashboard explanation is a hover-popover; we want a
+            // calm, factual tone, not creative writing.
+            temperature: Some(0.1),
+            // No surface cap — defer to provider / server. The
+            // popover answer is bounded by the prompt itself ("one
+            // tight paragraph") so we don't *need* a numeric ceiling
+            // to keep it short, and an uncapped budget gives small
+            // models room to plan in private without truncating the
+            // visible paragraph that comes after.
+            max_tokens: None,
+        },
+        on_chunk,
+    )
+    .await
+}
+
+/// Run a streaming completion and guarantee that the channel sees
+/// exactly one terminal event (`Done` from the core, or an `Error`
+/// emitted here when the network/SSE parser bails mid-stream). Without
+/// this, a dropped connection would leave the UI spinner stuck forever
+/// because no terminal chunk ever arrives.
+async fn stream_with_fallback(
+    provider: &AiProvider,
+    mut messages: Vec<ChatMessage>,
+    options: ChatOptions,
+    on_chunk: tauri::ipc::Channel<StreamChunk>,
+) -> AppResult<()> {
+    // Apply the provider's preferred response language uniformly across
+    // every streaming surface (chat panel, diff explainer, log triage,
+    // standup polisher, project state). Doing it here — rather than in
+    // each prompt builder — keeps the builders pure and means a future
+    // 6th feature inherits the behaviour for free.
+    if let Some(directive) = provider.language_directive() {
+        ai::apply_language_to_vec(&mut messages, &directive);
+    }
+    // Note: we don't merge `options.max_tokens` against
+    // `provider.max_output_tokens` here. `chat_completion_stream`
+    // calls `provider.resolve_max_tokens(options.max_tokens)` at
+    // body-building time and applies the same min-rule that
+    // `chat_completion` (non-streaming) uses, so commit-message
+    // generation and streaming surfaces honour the user's
+    // per-provider cap identically.
+    let result = ai::chat_completion_stream(provider, messages, options, |chunk| {
+        let _ = on_chunk.send(chunk);
+    })
+    .await;
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Best-effort terminal Error so the UI can render a
+            // failure state instead of an indefinite "thinking…".
+            let _ = on_chunk.send(StreamChunk::Error {
+                message: e.to_string(),
+            });
+            Err(e)
+        }
+    }
+}
+
+fn resolve_ai_provider(
+    explicit_id: Option<&str>,
+    state: &State<'_, AppState>,
+) -> AppResult<AiProvider> {
+    if let Some(id) = explicit_id {
+        return state
+            .store
+            .ai_provider(id)
+            .ok_or_else(|| AppError::NotFound(format!("AI provider {id}")));
+    }
+    state.store.default_ai_provider().ok_or_else(|| {
+        AppError::Invalid(
+            "No AI provider configured. Open Settings → AI Providers to add one.".into(),
+        )
+    })
+}
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
 #[tauri::command]
 pub async fn restart_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStatus> {
     let stack = state
@@ -818,4 +1629,38 @@ pub async fn restart_stack(id: String, state: State<'_, AppState>) -> AppResult<
         running,
         total,
     })
+}
+
+// ---- Token counting (chat composer meter) -------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct CountTokensInput {
+    /// String fragments to count. The frontend passes one entry per
+    /// chat history message + the live composer text — summing on
+    /// our side avoids materialising a single oversized `String` on
+    /// every keystroke.
+    pub texts: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CountTokensOutput {
+    /// BPE-estimated token total. See `runhq_core::tokens` for the
+    /// tokeniser choice and fallback semantics.
+    pub tokens: u32,
+}
+
+/// Estimate the prompt size in tokens for the chat composer's meter.
+///
+/// Cheap by tiktoken standards — we use `o200k_base` (GPT-4o family,
+/// efficient for non-Latin scripts) and the call is linear in input
+/// length. Frontend can call this on every keystroke without
+/// debouncing for prompts up to ~50KB; bigger payloads should be
+/// debounced at ~100ms by the caller.
+#[tauri::command]
+pub async fn ai_count_tokens(input: CountTokensInput) -> AppResult<CountTokensOutput> {
+    // The tokeniser does its own thread-safe lazy init, so we can
+    // call it directly from the async context without spawning to
+    // a blocking pool. Empty inputs short-circuit inside `count_tokens`.
+    let tokens = runhq_core::tokens::count_tokens_many(&input.texts);
+    Ok(CountTokensOutput { tokens })
 }

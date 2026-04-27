@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Keyboard, Rocket, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, Check, Keyboard, Rocket, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { markTourSeen } from '@/lib/onboarding';
 import { MOD_LABEL, MOD_SYMBOL } from '@/lib/platform';
@@ -106,6 +106,44 @@ function TrayVisual() {
   );
 }
 
+function AiHubVisual() {
+  // Minimalist mockup of the right-rail chat panel. Drawn in CSS rather
+  // than as a screenshot so it stays sharp at every zoom level and
+  // re-themes automatically. Shows just enough surface to anchor the
+  // copy: a model pill, a short reasoning trace, and the answer body —
+  // the three artefacts the user will recognise once they actually
+  // open the panel.
+  return (
+    <div className="border-border bg-surface-raised/80 rounded-app-md w-full max-w-[280px] overflow-hidden border shadow-md">
+      <div className="border-border bg-surface-overlay/60 flex items-center justify-between gap-2 border-b px-2.5 py-1.5">
+        <span className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
+          <Bot className="h-3 w-3" /> AI Assistant
+        </span>
+        <span className="border-border bg-surface-muted text-fg-dim rounded-full border px-1.5 py-px font-mono text-[9px]">
+          gpt-4o
+        </span>
+      </div>
+      <div className="space-y-2 px-3 py-2.5">
+        <div className="text-fg-muted text-[10.5px] leading-snug">Why is this build failing?</div>
+        <div className="border-accent/30 bg-accent/5 rounded border-l-2 px-2 py-1.5">
+          <div className="text-fg-dim mb-1 text-[9px] font-medium tracking-wide uppercase">
+            Thinking
+          </div>
+          <div className="text-fg-dim/80 line-clamp-2 text-[10px] leading-snug italic">
+            Stack trace points at a missing peer dep after the Tailwind v4 bump…
+          </div>
+        </div>
+        <div className="text-fg space-y-1 text-[10.5px] leading-snug">
+          <div>
+            <strong className="font-semibold">Root cause:</strong> peer-dep mismatch.
+          </div>
+          <div className="text-fg-muted">Run `pnpm install --strict-peers`.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReadyVisual() {
   return (
     <div className="flex flex-col items-center gap-3">
@@ -173,6 +211,23 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
           </>
         ),
         visual: <TrayVisual />,
+      },
+      {
+        id: 'ai',
+        icon: <Bot className="h-4 w-4" />,
+        eyebrow: 'Bring your own AI',
+        title: 'AI Assistant on every surface',
+        body: (
+          <>
+            Plug any <span className="text-fg font-medium">OpenAI-compatible</span> endpoint
+            (OpenAI, Azure, OpenRouter, Ollama, vLLM, LiteLLM…) into{' '}
+            <span className="text-fg font-medium">Settings → AI</span>. Then ask{' '}
+            <span className="text-fg font-medium">Why?</span> on any project, right-click any log
+            line for triage, generate commit messages, polish your standup, or analyse a CVE — every
+            answer lands in the same persistent chat on the right rail.
+          </>
+        ),
+        visual: <AiHubVisual />,
       },
       {
         id: 'ready',

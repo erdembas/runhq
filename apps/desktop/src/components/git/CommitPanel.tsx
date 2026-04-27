@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Trash2,
   UnfoldVertical,
   Undo2,
@@ -21,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
+import { cn } from '@/lib/cn';
 import { type FileEntry, buildTree, collectFolderPaths, statusLetterStyle } from '@/lib/gitDiff';
 import { useAppStore } from '@/store/useAppStore';
 import { useResizableWidth } from '@/lib/useResizableWidth';
@@ -60,6 +62,11 @@ export function CommitPanel({
   const [amend, setAmend] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generationMeta, setGenerationMeta] = useState<{
+    provider: string;
+    model: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedSource>(null);
   const [fileDiff, setFileDiff] = useState<string | null>(null);
@@ -180,6 +187,7 @@ export function CommitPanel({
 
   // Huge context for "Full file" view — see DiffViewer for rationale.
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
+  const openAiChat = useAppStore((s) => s.openAiChat);
   const fullFileContext = showUnchanged ? 100_000 : undefined;
 
   // Load selected file's diff (staged or working tree).
@@ -385,6 +393,107 @@ export function CommitPanel({
     }
   }, [serviceId, message, amend, canCommit, onAfterMutation, reload]);
 
+  // AI commit-message generator. Phase-5 of the AI Chat Hub plan
+  // routes this through the right-side chat panel: we fetch the
+  // staged diff + recent commits, hand them to `openAiChat` with the
+  // `use_as_commit` action hook, and let the assistant stream into a
+  // persistent conversation. The user picks the model in the panel,
+  // can iterate ("make it imperative"), and clicks the action button
+  // to fill the textarea — see the `runhq:ai-action:use-as-commit`
+  // listener below.
+  //
+  // We deliberately keep `generating` state for the brief window
+  // between click and chat-panel arrival so the button shows a
+  // spinner — opening the panel is fast but fetching the staged
+  // diff can take a beat on big stages.
+  const generateMessage = useCallback(async () => {
+    if (stagedEntriesAll.length === 0) {
+      setError('Stage some changes first — there is nothing to summarise.');
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    try {
+      const ctx = await ipc.aiCommitChatContext({ service_id: serviceId });
+      const hint = message.trim() || null;
+      const recentBlock =
+        ctx.recent_subjects.length > 0
+          ? `Recent commit subjects on this branch (newest first):\n${ctx.recent_subjects
+              .map((s) => `- ${s}`)
+              .join('\n')}`
+          : 'No recent commits available.';
+      const branchPart = ctx.branch ? `Branch: \`${ctx.branch}\`` : 'Branch: (detached HEAD)';
+      const hintPart = hint ? `User hint: "${hint}"` : 'No additional hint from the user.';
+      const contextSystemMessage = [
+        'User is asking the AI to draft a git commit message in RunHQ. Read the staged diff and write a concise Conventional-Commits-style message: a single subject line of <=72 chars (imperative, no trailing period), then an optional blank line and a wrap-72 body if context is needed. Reference real symbols from the diff. Never wrap the answer in code fences. The first character of your reply must be the start of the commit message.',
+        '',
+        branchPart,
+        hintPart,
+        '',
+        recentBlock,
+        '',
+        'Staged diff:',
+        '```diff',
+        ctx.diff || '[no staged diff]',
+        '```',
+      ].join('\n');
+
+      const summary = ctx.diff_truncated
+        ? '(staged diff truncated for the model)'
+        : `${stagedEntriesAll.length} staged file${stagedEntriesAll.length === 1 ? '' : 's'}`;
+
+      await openAiChat({
+        origin: 'commit',
+        title: ctx.branch ? `Commit · ${ctx.branch}` : 'Commit message',
+        context: {
+          kind: 'commit',
+          service_id: serviceId,
+          branch: ctx.branch,
+          summary,
+        },
+        draftPrompt: hint
+          ? `Write a commit message. Hint: ${hint}`
+          : 'Write a commit message for the staged changes.',
+        contextSystemMessage,
+        actionHook: { kind: 'use_as_commit', service_id: serviceId },
+        autoSend: true,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
+  }, [serviceId, message, stagedEntriesAll.length, openAiChat]);
+
+  /**
+   * Listen for the action-hook dispatch from the chat panel. The
+   * panel fires a `runhq:ai-action:use-as-commit` event when the
+   * user clicks the "Use as commit message" button under an
+   * assistant turn. We filter on `service_id` so a multi-window
+   * future doesn't cross-pollinate (and so a parallel commit panel
+   * for a different service ignores us).
+   */
+  useEffect(() => {
+    const onUseAsCommit = (e: Event) => {
+      const ce = e as CustomEvent<{ service_id: string; content: string }>;
+      const detail = ce.detail;
+      if (!detail || detail.service_id !== serviceId) return;
+      const trimmed = detail.content.trim();
+      if (!trimmed) return;
+      setMessage(trimmed);
+      setGenerationMeta({ provider: 'AI Chat', model: null });
+      window.setTimeout(() => {
+        const ta = messageRef.current;
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(trimmed.length, trimmed.length);
+        }
+      }, 0);
+    };
+    window.addEventListener('runhq:ai-action:use-as-commit', onUseAsCommit);
+    return () => window.removeEventListener('runhq:ai-action:use-as-commit', onUseAsCommit);
+  }, [serviceId]);
+
   const pushNow = useCallback(async () => {
     setPushing(true);
     setError(null);
@@ -423,17 +532,58 @@ export function CommitPanel({
             <span>Commit message</span>
             <span className="text-fg/30 tracking-normal normal-case">⌘ ↵ to commit</span>
           </label>
-          <textarea
-            ref={messageRef}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={onKeyDownMessage}
-            rows={3}
-            placeholder={
-              amend ? 'Amend previous commit message…' : 'Summary (first line) + optional body'
-            }
-            className="border-border bg-surface text-fg placeholder:text-fg/30 focus:border-accent/60 focus:ring-accent/20 w-full resize-y rounded border px-2 py-1.5 font-mono text-[12px] leading-snug outline-none focus:ring-2"
-          />
+          <div className="relative">
+            <textarea
+              ref={messageRef}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={onKeyDownMessage}
+              rows={3}
+              placeholder={
+                amend ? 'Amend previous commit message…' : 'Summary (first line) + optional body'
+              }
+              className="border-border bg-surface text-fg placeholder:text-fg/30 focus:border-accent/60 focus:ring-accent/20 w-full resize-y rounded border px-2 py-1.5 pr-8 font-mono text-[12px] leading-snug outline-none focus:ring-2"
+            />
+            {/* AI generate trigger — overlaid on the textarea's top-right
+                corner. The pr-8 above keeps long lines from sliding under
+                it. Title doubles as the regenerate hint when the textarea
+                already has content (the value is forwarded as a "hint"
+                to the model). */}
+            <button
+              type="button"
+              onClick={() => void generateMessage()}
+              disabled={generating || stagedEntriesAll.length === 0}
+              className={cn(
+                'absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded transition',
+                generating
+                  ? 'text-accent bg-accent/15'
+                  : 'text-fg/40 hover:text-accent hover:bg-accent/10',
+                'disabled:cursor-not-allowed disabled:opacity-30',
+              )}
+              title={
+                stagedEntriesAll.length === 0
+                  ? 'Stage changes to generate a commit message'
+                  : message.trim()
+                    ? 'Regenerate using current text as a hint'
+                    : 'Generate commit message with AI'
+              }
+            >
+              {generating ? (
+                <RefreshCw size={11} className="animate-spin" />
+              ) : (
+                <Sparkles size={11} />
+              )}
+            </button>
+          </div>
+          {generationMeta && !generating && (
+            <div className="text-fg/40 flex items-center gap-1 text-[10px]">
+              <Sparkles size={9} className="text-accent/70" />
+              <span>
+                Generated by {generationMeta.provider}
+                {generationMeta.model ? ` · ${generationMeta.model}` : ''}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <label className="text-fg/70 hover:text-fg flex cursor-pointer items-center gap-1.5 text-[11px]">
               <input

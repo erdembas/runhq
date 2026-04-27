@@ -21,6 +21,7 @@ import {
   FilterX,
   Check,
   Maximize2,
+  Sparkles,
 } from 'lucide-react';
 import { ipc, events as ipcEvents } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
@@ -30,7 +31,6 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { TimelineEvent, DailySummary, LogLine } from '@/types';
 import { Select } from './ui/Select';
 import { Dialog } from './ui/Dialog';
-
 /** Unified shape for console-rendering — lets ConsoleOutput draw the same
  *  block whether the lines came from the live in-memory log buffer (current
  *  session, full stdout+stderr) or from DB-persisted `log_error` /
@@ -109,6 +109,22 @@ function nameHue(name: string): number {
 interface ActivityTimelineProps {
   onClose?: () => void;
   variant?: 'overlay' | 'inline';
+  /**
+   * Embedded mode — the panel is rendered inside the right-side
+   * shell which owns visibility (via `<RightActivityBar />`) and
+   * width (via `<RightSidePanel />`). In this mode the timeline:
+   *   - never renders its own collapsed 44px rail
+   *   - hides the in-header collapse/pin button (the rail icon is
+   *     the canonical "open/close this panel" control — duplicating
+   *     it inside would create the "two controls for one job"
+   *     ambiguity the user explicitly called out)
+   *   - lets the parent decide width (we honour our own
+   *     localStorage width when no explicit width is bound, but
+   *     pin/peek/collapse internal state is bypassed)
+   *
+   * Only meaningful when `variant === 'inline'`.
+   */
+  embedded?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -396,7 +412,11 @@ const FILTER_PILLS: Array<{ key: string; label: string }> = [
   { key: 'file_changed', label: 'Files' },
 ];
 
-export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimelineProps) {
+export function ActivityTimeline({
+  onClose,
+  variant = 'overlay',
+  embedded = false,
+}: ActivityTimelineProps) {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [weeklySummary, setWeeklySummary] = useState<DailySummary[] | null>(null);
@@ -408,6 +428,10 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [modalEventId, setModalEventId] = useState<number | null>(null);
   const [standupCopied, setStandupCopied] = useState(false);
+  // The "AI Polish" surface used to mount its own modal dialog. As of
+  // Phase 5 of the AI Chat Hub plan it routes to the right-side chat
+  // panel instead — `openAiStandupChat` below builds the payload and
+  // hands it off via `openAiChat`. We keep no local "open" flag.
   const [detailCopied, setDetailCopied] = useState(false);
   const [collapsed, setCollapsedState] = useState<boolean>(() => loadTimelineCollapsed());
   const [hoverOpen, setHoverOpen] = useState(false);
@@ -505,6 +529,48 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
   // the DB children so the modal still has something meaningful to show.
   const logsBySvc = useAppStore((s) => s.logs);
   const services = useAppStore((s) => s.services);
+  const openAiChat = useAppStore((s) => s.openAiChat);
+
+  /**
+   * Build the chat payload from the same `exportStandup` markdown the
+   * legacy dialog used and open the right-side chat panel. Auto-sends
+   * so the user gets the polished version streaming in immediately;
+   * the action button under the answer copies the result back into
+   * the timeline as a regular note via the `insert_standup` event.
+   */
+  const openAiStandupChat = useCallback(async () => {
+    try {
+      const since = Date.now() - 86_400_000;
+      const text = await ipc.exportStandup(since);
+      if (!text.trim()) {
+        // No-op rather than open an empty conversation — the legacy
+        // dialog showed an inline error here. We surface the same
+        // message via console + nothing visible since the user
+        // already has the timeline open and can see it's empty.
+        console.warn('Nothing to polish — timeline is empty for the last 24h.');
+        return;
+      }
+      const contextSystemMessage = [
+        'User is asking the AI to polish a standup note. Output exactly three sections in GitHub-flavoured Markdown: **Yesterday**, **Today**, **Blockers**. Each section: 1–4 short bullets, present tense for "Today", past tense for "Yesterday". Empty sections render as "_(none)_". Reference real project names from the raw notes. Do not invent activity. The first character of your reply must be a `#` or `**`.',
+        '',
+        'Raw activity (last 24h, exported from RunHQ timeline):',
+        '```markdown',
+        text,
+        '```',
+      ].join('\n');
+      await openAiChat({
+        origin: 'standup',
+        title: 'Standup polish',
+        context: { kind: 'standup', raw_chars: text.length },
+        draftPrompt: 'Polish this into Yesterday / Today / Blockers.',
+        contextSystemMessage,
+        actionHook: { kind: 'insert_standup' },
+        autoSend: true,
+      });
+    } catch (e) {
+      console.error('openAiStandupChat failed:', e);
+    }
+  }, [openAiChat]);
 
   // ─────────────── ANSI → HTML converter (theme-aware) ───────────────
   // Child log lines (log_error / log_warning) stored in the DB still carry
@@ -525,6 +591,28 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
     return () => obs.disconnect();
   }, []);
   const ansi = useMemo(() => makeAnsiConverter(isDark), [isDark]);
+
+  /**
+   * Listen for the chat panel's "insert into standup draft" action.
+   * The legacy AiStandupDialog had a "Copy AI version" button — we
+   * preserve the same UX by writing the polished markdown straight
+   * to the clipboard, since the timeline doesn't have a draft area
+   * of its own. Future iterations can route this into a richer
+   * note-composer surface.
+   */
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ content: string }>).detail;
+      if (!detail?.content?.trim()) return;
+      try {
+        await writeText(detail.content);
+      } catch (err) {
+        console.error('insert-standup clipboard write failed:', err);
+      }
+    };
+    window.addEventListener('runhq:ai-action:insert-standup', handler);
+    return () => window.removeEventListener('runhq:ai-action:insert-standup', handler);
+  }, []);
 
   const hoverTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1748,8 +1836,12 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
 
   // ─────────────── INLINE VARIANT ───────────────
   if (isInline) {
-    const isPanelVisible = !collapsed || hoverOpen;
-    const isOverlay = collapsed && hoverOpen;
+    // Embedded mode (rail-driven shell): the right activity bar
+    // controls visibility, so we ignore our own `collapsed` state
+    // entirely and always render the full panel. No 44px rail, no
+    // peek-on-hover (the rail icon does that job globally).
+    const isPanelVisible = embedded ? true : !collapsed || hoverOpen;
+    const isOverlay = !embedded && collapsed && hoverOpen;
 
     return (
       <div
@@ -1758,19 +1850,22 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
           // to the main area so it never encroaches on the status bar.
           'relative flex h-full min-h-0 shrink-0 self-stretch',
         )}
-        // Width comes from state so the user can drag-resize like the
-        // sidebar; collapsed state is a fixed 44px rail regardless of
-        // the stored width so peek-hover always aligns to the edge.
-        style={{ width: collapsed ? TIMELINE_COLLAPSED_W : width }}
+        // Embedded mode lets the parent (RightSidePanel) pick width
+        // — we fill `100%` of the slot. Standalone inline keeps the
+        // legacy resizable behavior with a 44px rail when collapsed.
+        style={embedded ? { width: '100%' } : { width: collapsed ? TIMELINE_COLLAPSED_W : width }}
         onMouseEnter={() => {
-          if (collapsed) scheduleHoverOpen();
+          if (!embedded && collapsed) scheduleHoverOpen();
         }}
         onMouseLeave={() => {
-          if (collapsed) scheduleHoverClose();
+          if (!embedded && collapsed) scheduleHoverClose();
         }}
       >
-        {/* Collapsed rail — 44px anchor with at-a-glance badges */}
-        {collapsed && (
+        {/* Collapsed rail — 44px anchor with at-a-glance badges.
+            Only ever rendered in standalone inline mode (Dashboard
+            integration); in embedded mode the right activity rail
+            owns this affordance. */}
+        {!embedded && collapsed && (
           <button
             type="button"
             onClick={() => setCollapsed(false)}
@@ -1826,7 +1921,16 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
               // ConsoleOutput's `w-max` rows would blow out the right
               // edge and eat the header's action buttons on narrow
               // widths.
-              'bg-surface border-border/60 flex min-h-0 min-w-0 flex-col overflow-hidden border-l',
+              'border-border/60 flex min-h-0 min-w-0 flex-col overflow-hidden',
+              // Embedded mode: the parent shell already provides
+              // chrome borders AND the surface (`chrome-gradient` +
+              // `bg-surface-raised`) we want to show through, so we
+              // skip both `border-l` and our own `bg-surface` here.
+              // Standalone inline / overlay still need an opaque
+              // surface and a left border to delineate from the
+              // main column behind them.
+              !embedded && 'bg-surface border-l',
+              embedded && 'bg-transparent',
               isOverlay
                 ? // absolute overlay — strictly inside the wrapper so status bar
                   // is never covered.
@@ -1880,6 +1984,18 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
               )}
               <div className="flex shrink-0 items-center gap-1">
                 <button
+                  onClick={() => void openAiStandupChat()}
+                  className={cn(
+                    'flex items-center gap-1 rounded-md px-2 py-1 font-medium transition',
+                    size.meta,
+                    'hover:bg-accent/10 text-accent/80 hover:text-accent',
+                  )}
+                  title="Polish standup with AI (last 24h → Yesterday/Today/Blockers)"
+                >
+                  <Sparkles size={12} />
+                  AI
+                </button>
+                <button
                   onClick={() => void handleExportStandup()}
                   className={cn(
                     'flex items-center gap-1 rounded-md px-2 py-1 font-medium transition',
@@ -1888,7 +2004,7 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
                       ? 'bg-emerald-500/15 text-emerald-400'
                       : 'hover:bg-fg/8 text-fg/55 hover:text-fg/85',
                   )}
-                  title="Copy last 24h as standup notes"
+                  title="Copy last 24h as raw standup notes"
                 >
                   {standupCopied ? <Check size={12} /> : <Copy size={12} />}
                   {standupCopied ? 'Copied' : 'Standup'}
@@ -1902,25 +2018,32 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
                 >
                   <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
                 </button>
-                {isOverlay ? (
-                  <button
-                    onClick={() => setCollapsed(false)}
-                    className="hover:bg-accent/10 text-fg/50 hover:text-accent rounded-md p-1.5 transition"
-                    title="Pin open"
-                    aria-label="Pin open"
-                  >
-                    <Pin size={13} />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setCollapsed(true)}
-                    className="hover:bg-fg/8 text-fg/50 hover:text-fg/80 rounded-md p-1.5 transition"
-                    title="Collapse (hover rail to peek)"
-                    aria-label="Collapse timeline"
-                  >
-                    <PanelRightClose size={13} />
-                  </button>
-                )}
+                {/* In embedded mode the right activity rail is the
+                    canonical open/close control — duplicating it
+                    inside the panel header creates the "two
+                    controls for one job" ambiguity the user asked
+                    us to clean up. So the in-header pin/collapse
+                    button only renders in standalone inline mode. */}
+                {!embedded &&
+                  (isOverlay ? (
+                    <button
+                      onClick={() => setCollapsed(false)}
+                      className="hover:bg-accent/10 text-fg/50 hover:text-accent rounded-md p-1.5 transition"
+                      title="Pin open"
+                      aria-label="Pin open"
+                    >
+                      <Pin size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setCollapsed(true)}
+                      className="hover:bg-fg/8 text-fg/50 hover:text-fg/80 rounded-md p-1.5 transition"
+                      title="Collapse (hover rail to peek)"
+                      aria-label="Collapse timeline"
+                    >
+                      <PanelRightClose size={13} />
+                    </button>
+                  ))}
               </div>
             </div>
 
@@ -1937,7 +2060,11 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
             mode — when collapsed there's nothing to resize (it's a
             44px rail), and in peek-overlay mode the panel is a
             transient hover state that shouldn't be drag-resized. */}
-        {!collapsed && (
+        {/* Embedded mode delegates resizing to the parent shell
+            (RightSidePanel owns the drag handle), so we skip our own
+            gutter — otherwise two stacked drag affordances at the
+            same x coordinate would fight each other. */}
+        {!embedded && !collapsed && (
           <div
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}
@@ -1981,6 +2108,18 @@ export function ActivityTimeline({ onClose, variant = 'overlay' }: ActivityTimel
           <h2 className={cn('text-fg font-semibold tracking-tight', size.title)}>Activity</h2>
           <span className={cn('text-fg/40 tabular-nums', size.meta)}>{events.length} total</span>
           <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => void openAiStandupChat()}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition',
+                size.meta,
+                'hover:bg-accent/10 text-accent/80 hover:text-accent',
+              )}
+              title="Polish standup with AI"
+            >
+              <Sparkles size={13} />
+              AI
+            </button>
             <button
               onClick={() => void handleExportStandup()}
               className={cn(

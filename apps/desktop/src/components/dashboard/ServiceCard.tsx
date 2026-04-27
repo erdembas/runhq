@@ -3,6 +3,7 @@ import {
   Clock,
   FolderOpen,
   Globe,
+  HelpCircle,
   Loader2,
   Package,
   Pencil,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { buildWhyChatPayload } from '@/lib/ai/whyPayload';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
 import { ResourceBadge } from '@/components/ResourceBadge';
@@ -109,6 +111,7 @@ export function ServiceCard({
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const openAiChat = useAppStore((s) => s.openAiChat);
 
   const statuses = useAppStore((s) => s.statuses);
   const setSelected = useAppStore((s) => s.setSelected);
@@ -126,6 +129,8 @@ export function ServiceCard({
 
   const runtimeKey = runtimeFromTags(svc.tags) ?? inferRuntimeFromCmds(svc.cmds);
   const runtime = runtimeKey ? runtimeMeta(runtimeKey) : null;
+
+  const flagCount = countAttentionFlags(projectMeta);
 
   return (
     <div
@@ -219,6 +224,36 @@ export function ServiceCard({
               audit={projectMeta.audit}
               onClick={() => onOpenDetail(svc.id, 'advisories')}
             />
+          )}
+          {projectMeta && flagCount > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!projectMeta) return;
+                const payload = buildWhyChatPayload(projectMeta);
+                void openAiChat({
+                  origin: 'why',
+                  title: payload.title,
+                  context: payload.context,
+                  draftPrompt: payload.draftPrompt,
+                  contextSystemMessage: payload.contextSystemMessage,
+                  // Auto-send: the user already committed by clicking
+                  // Why?; routing through the chat panel is meant to
+                  // give them the *answer* in a persistent place, not
+                  // make them re-confirm by hitting Enter.
+                  autoSend: true,
+                });
+              }}
+              title={`Ask AI: why is this project flagged? (${flagCount} signal${
+                flagCount === 1 ? '' : 's'
+              })`}
+              aria-label="Explain why this project is flagged"
+              className="rounded-app-sm border-accent/30 bg-accent/8 text-accent hover:bg-accent/15 inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold transition"
+            >
+              <HelpCircle className="h-3 w-3" />
+              Why?
+            </button>
           )}
           {runtime && (
             <span
@@ -349,6 +384,25 @@ export function ServiceCard({
       )}
     </div>
   );
+}
+
+/**
+ * How many "attention" signals are firing on this project right now?
+ * Drives the visibility of the inline "Why?" AI explainer chip — we
+ * don't want to push users into the model for projects that look
+ * clean (it would feel like noise and burn tokens for nothing).
+ */
+function countAttentionFlags(p: ProjectOverview | null | undefined): number {
+  if (!p) return 0;
+  let n = 0;
+  if (p.is_stale) n += 1;
+  if (p.git_status?.is_dirty) n += 1;
+  if (p.outdated && p.outdated.total > 0) n += 1;
+  if (p.audit) {
+    const total = p.audit.critical + p.audit.high + p.audit.medium + p.audit.low;
+    if (total > 0) n += 1;
+  }
+  return n;
 }
 
 /**

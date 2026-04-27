@@ -453,6 +453,35 @@ button:disabled,
   animation: slide-in-right 180ms cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 
+/* Shimmer used by the AI "Thinking…" pill while the model is in
+ * its chain-of-thought phase. Subtle: cycles a brighter foreground
+ * across the label without changing layout, so the pill stays a
+ * compact strip of UI while the model takes its time. */
+@keyframes reasoning-shimmer {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+.reasoning-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--fg) / 0.55) 0%,
+    rgb(var(--fg) / 0.55) 35%,
+    rgb(var(--accent) / 0.95) 50%,
+    rgb(var(--fg) / 0.55) 65%,
+    rgb(var(--fg) / 0.55) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: reasoning-shimmer 2.4s linear infinite;
+}
+
 .glow-ring {
   box-shadow:
     inset 0 0 0 1px rgb(var(--accent) / 0.35),

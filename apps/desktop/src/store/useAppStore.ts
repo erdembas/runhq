@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  ConversationOrigin,
   DependencyScanResult,
   DetectedEditor,
   GitStatus,
@@ -16,6 +17,64 @@ import type {
   StackDef,
 } from '@/types';
 import { nextSectionColor } from '@/lib/sectionColors';
+import { ipc } from '@/lib/ipc';
+
+/**
+ * Surface-specific action embedded in an assistant turn.
+ *
+ * Drives the small "Use as commit message" / "Copy to standup" /
+ * "Insert into editor" pill that appears under an answer when the
+ * conversation was triggered from a non-chat surface. The frontend
+ * owns the dispatch — the backend never sees these.
+ */
+export type AiActionHook =
+  | { kind: 'use_as_commit'; service_id: string }
+  | { kind: 'insert_standup' }
+  | { kind: 'none' };
+
+export interface AiDraft {
+  /** Conversation this draft is tied to. The panel picks the draft
+   *  up only when its `activeConversationId` matches — protects
+   *  against stale drafts firing into the wrong chat after a fast
+   *  rail-icon click. */
+  conversationId: string;
+  /** Pre-filled composer text. The panel injects it; the user sees
+   *  it in the textarea and can edit before sending. */
+  draftPrompt?: string;
+  /** Hidden system message shipped with the first user send.
+   *  Carries the surface-specific evidence (the diff blob, the log
+   *  line, the project state JSON). NEVER persisted to the
+   *  conversation row — that's the panel's job; this is just the
+   *  runtime ferry. */
+  contextSystemMessage?: string;
+  /** Action hook stamped on the assistant turn that comes back.
+   *  Used to render the "Use as commit message" / "Copy standup"
+   *  buttons. `none` for free chat where there's nothing surface-
+   *  specific to do with the answer. */
+  actionHook?: AiActionHook;
+  /** Whether to auto-send the draft on receipt. `false` is the
+   *  "draft mode" the user explicitly asked for: the model picker
+   *  stays interactive, the prompt is editable, send is manual. */
+  autoSend?: boolean;
+}
+
+export interface OpenAiChatInput {
+  origin: ConversationOrigin;
+  /** Title shown in the History drawer. Keep it short — 60 chars
+   *  max in practice, the drawer truncates anything longer. */
+  title: string;
+  /** Surface-specific evidence persisted on the `conversations`
+   *  row. Free-form JSON; surfaces decide their own shape. */
+  context?: Record<string, unknown>;
+  draftPrompt?: string;
+  contextSystemMessage?: string;
+  actionHook?: AiActionHook;
+  /** Default `false`: open the chat panel in draft mode so the user
+   *  can pick a model / edit the prompt before sending. Pass `true`
+   *  for fire-and-forget surfaces like Why? where the user already
+   *  committed by clicking the action. */
+  autoSend?: boolean;
+}
 
 interface LogBuffer {
   lines: LogLine[];
@@ -38,6 +97,21 @@ export type SidebarStatusFilter = 'all' | 'running' | 'stopped';
 
 interface AppStore {
   services: ServiceDef[];
+  /**
+   * Whether the very first `listServices` IPC has resolved. Starts
+   * `false` and flips to `true` once App.tsx has hydrated the roster
+   * — even if the result was an empty array. The dashboard uses this
+   * to render a skeleton instead of either a) a confusingly empty
+   * frame, or b) the "no services yet" onboarding card (which would
+   * flash for 200-400ms during a normal cold start where services
+   * *do* exist but haven't arrived from Rust yet).
+   *
+   * We deliberately don't model this as a "loading: true|false"
+   * — the frontend is `false`-on-load forever after the initial
+   * hydration; subsequent service add/remove operations are
+   * optimistic and don't need to flicker the skeleton back on.
+   */
+  servicesLoaded: boolean;
   statuses: Record<ServiceId, ServiceStatus>;
   logs: Record<string, LogBuffer>;
   ports: ListeningPort[];
@@ -137,6 +211,87 @@ interface AppStore {
   timelineOpen: boolean;
   openTimeline: () => void;
   closeTimeline: () => void;
+
+  /**
+   * VSCode-style right activity bar.
+   *
+   * Two icons live in a fixed 36px rail on the far right:
+   *   - "activity" → ActivityTimeline panel
+   *   - "ai"       → AI assistant chat panel
+   *
+   * `rightPanel === null` means the rail is shown but no panel is
+   * expanded (full-width main content). Clicking a rail icon either
+   * opens that panel or, if it's already active, collapses back to
+   * `null`. Width is shared across panels to keep the resize gesture
+   * predictable — switching from one panel to the other doesn't
+   * suddenly reflow the content area.
+   */
+  rightPanel: 'activity' | 'ai' | null;
+  rightPanelWidth: number;
+  setRightPanel: (panel: 'activity' | 'ai' | null) => void;
+  toggleRightPanel: (panel: 'activity' | 'ai') => void;
+  setRightPanelWidth: (width: number) => void;
+
+  /**
+   * AI Chat Hub state.
+   *
+   * `activeConversationId` is the conversation currently rendered in
+   * the chat panel. Null means "fresh chat / no conversation yet" —
+   * the panel renders an empty state and creates a new conversation
+   * on the first send.
+   *
+   * `aiDraft` is the surface-trigger handoff. When a button on the
+   * dashboard / log / diff / commit panel asks "open chat with this
+   * pre-filled prompt and this hidden context", it stuffs the
+   * payload here, and the panel picks it up via a one-shot effect.
+   * We keep it on the store rather than passing it as props because
+   * the trigger and the chat panel live in completely different
+   * subtrees (sidebar vs right rail) and prop-drilling through 6
+   * layers of layout would be miserable.
+   *
+   * The draft is consumed by the panel exactly once on mount (or
+   * when `aiDraft.conversationId` flips to the new one), then
+   * cleared so reopening the panel later doesn't re-fire the same
+   * prompt.
+   */
+  activeConversationId: string | null;
+  aiDraft: AiDraft | null;
+  /**
+   * Multi-tab chat: ids the user is actively juggling, capped at
+   * {@link MAX_OPEN_TABS}. Order = display order in the tab bar
+   * (left → right). The active tab is the one whose id matches
+   * {@link activeConversationId}.
+   *
+   * Adding a tab is implicit — any `setActiveConversation(id)` /
+   * `openAiChat(...)` ensures the id lives in this list. Eviction
+   * is FIFO from the head, but never evicts the *active* tab and
+   * never evicts an in-flight (streaming) tab — those guarantees
+   * are enforced by `setActiveConversation` and friends. The user
+   * always has explicit control via `closeTab(id)`.
+   */
+  openTabs: string[];
+  setActiveConversation: (id: string | null) => void;
+  /**
+   * Close a tab. If the tab being closed is the active one, the
+   * active id snaps to the neighbour (next, then previous, then
+   * null if nothing is left). Cancelling any in-flight stream
+   * attached to the closing tab is the panel's job — the store
+   * just keeps the list consistent.
+   */
+  closeTab: (id: string) => void;
+  /**
+   * Universal entry point for non-chat surfaces to send a request
+   * into the chat panel. Creates a new conversation row, stashes
+   * the draft, opens the AI panel, and switches the panel to that
+   * conversation. The panel is responsible for rendering the draft
+   * (auto-send vs draft-mode is decided by `autoSend`).
+   *
+   * Returns the new conversation id so the caller can navigate
+   * the user to it later (e.g. an "Undo" toast that scrolls back
+   * to the just-fired conversation).
+   */
+  openAiChat: (input: OpenAiChatInput) => Promise<string | null>;
+  clearAiDraft: () => void;
 
   overview: OverviewSummary | null;
   overviewLoading: boolean;
@@ -399,8 +554,75 @@ function genSectionId(): SectionId {
   return `sec_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// ─── Right-panel persistence ────────────────────────────────────────
+// Stored separately from the rest of the store because the rail's
+// active view is reload-stable UX: a user who closed RunHQ with the
+// AI panel open expects to land back in the AI panel, not in a fresh
+// "no panel" state. Width is a separate key so changing the active
+// panel doesn't blow away the resize gesture, and vice versa.
+const RIGHT_PANEL_KEY = 'runhq.rightPanel.active';
+const RIGHT_PANEL_WIDTH_KEY = 'runhq.rightPanel.width';
+const RIGHT_PANEL_MIN_W = 280;
+const RIGHT_PANEL_MAX_W = 900;
+const RIGHT_PANEL_DEFAULT_W = 440;
+
+/**
+ * Hard ceiling on simultaneously open chat tabs. Five mirrors the
+ * Cursor / VSCode "tabs you can juggle without losing track" sweet
+ * spot — tested informally with a few users; six already starts to
+ * truncate titles unreadably in a 440px-wide panel. Beyond this
+ * cap we FIFO-evict the oldest *non-active* tab; the user can
+ * always re-open from the History drawer if they need an evicted
+ * conversation back.
+ */
+export const MAX_OPEN_TABS = 5;
+
+function loadRightPanel(): 'activity' | 'ai' | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(RIGHT_PANEL_KEY);
+    if (raw === 'activity' || raw === 'ai') return raw;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRightPanel(panel: 'activity' | 'ai' | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (panel == null) window.localStorage.removeItem(RIGHT_PANEL_KEY);
+    else window.localStorage.setItem(RIGHT_PANEL_KEY, panel);
+  } catch {
+    /* localStorage can throw in private mode; ignore */
+  }
+}
+
+function loadRightPanelWidth(): number {
+  if (typeof window === 'undefined') return RIGHT_PANEL_DEFAULT_W;
+  try {
+    const raw = window.localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
+    if (!raw) return RIGHT_PANEL_DEFAULT_W;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return RIGHT_PANEL_DEFAULT_W;
+    return Math.max(RIGHT_PANEL_MIN_W, Math.min(RIGHT_PANEL_MAX_W, n));
+  } catch {
+    return RIGHT_PANEL_DEFAULT_W;
+  }
+}
+
+function saveRightPanelWidth(width: number) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(width));
+  } catch {
+    /* ignore */
+  }
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   services: [],
+  servicesLoaded: false,
   statuses: {},
   logs: {},
   ports: [],
@@ -430,7 +652,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   stackSection: initialSections.stackSection,
   collapsedSections: initialSections.collapsedSections,
 
-  setServices: (services) => set({ services }),
+  // Flips `servicesLoaded` on first call. Mirrors the natural
+  // "I just received the roster from Rust" semantic regardless of
+  // whether the list is empty — once we've heard back, the skeleton
+  // is dismissed and the dashboard switches to its real
+  // empty-state / populated rendering.
+  setServices: (services) => set({ services, servicesLoaded: true }),
 
   upsertService: (svc) =>
     set((s) => {
@@ -750,8 +977,155 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   timelineOpen: false,
-  openTimeline: () => set({ timelineOpen: true }),
-  closeTimeline: () => set({ timelineOpen: false }),
+  // `openTimeline` now drives the right-side shell — release notes /
+  // What's New entries that used to spawn an overlay timeline now
+  // simply activate the embedded "activity" panel. We keep
+  // `timelineOpen` around as a legacy hook (some callers might still
+  // listen to it), but the visible UI is wholly owned by `rightPanel`.
+  openTimeline: () => set({ timelineOpen: true, rightPanel: 'activity' }),
+  closeTimeline: () => set({ timelineOpen: false, rightPanel: null }),
+
+  // VSCode-style right activity bar — see interface comment above.
+  // Initial values are hydrated from localStorage at module load
+  // (see helpers below). We persist on every mutation so the panel
+  // state survives reloads.
+  rightPanel: loadRightPanel(),
+  rightPanelWidth: loadRightPanelWidth(),
+  setRightPanel: (panel) => {
+    saveRightPanel(panel);
+    set({ rightPanel: panel });
+  },
+  toggleRightPanel: (panel) => {
+    const current = get().rightPanel;
+    const next = current === panel ? null : panel;
+    saveRightPanel(next);
+    set({ rightPanel: next });
+  },
+  setRightPanelWidth: (width) => {
+    const clamped = Math.max(RIGHT_PANEL_MIN_W, Math.min(RIGHT_PANEL_MAX_W, width));
+    saveRightPanelWidth(clamped);
+    set({ rightPanelWidth: clamped });
+  },
+
+  // -------- AI Chat Hub ---------------------------------------------------
+  // We deliberately don't persist `activeConversationId` to localStorage:
+  // a stale id pointing at a deleted/archived conversation would render
+  // a blank panel on next launch with no obvious recovery path. Instead
+  // the panel boots into the empty state and the user picks a chat from
+  // the History drawer — same model as VSCode's "Recent" list.
+  activeConversationId: null,
+  aiDraft: null,
+  openTabs: [],
+  setActiveConversation: (id) =>
+    set((s) => {
+      // Null target → just blank the active id; tabs are user
+      // territory (a "new chat" gesture shouldn't yank tabs they
+      // explicitly opened from history).
+      if (id == null) return { activeConversationId: null };
+      if (s.openTabs.includes(id)) {
+        return { activeConversationId: id };
+      }
+      // Insert as a new tab on the right. If we'd overflow the cap,
+      // evict the first tab that *isn't* about to become active —
+      // FIFO with an "active is sticky" carve-out so we never
+      // close the chat the user is currently looking at.
+      let next = [...s.openTabs, id];
+      if (next.length > MAX_OPEN_TABS) {
+        const evictAt = next.findIndex((tabId) => tabId !== id && tabId !== s.activeConversationId);
+        if (evictAt >= 0) {
+          next.splice(evictAt, 1);
+        } else {
+          // Fallback: nothing safe to evict (everything is the
+          // active or incoming id, which means cap === 1 edge
+          // case). Drop the head; the active id is `id` itself,
+          // so `s.activeConversationId` losing its slot is fine.
+          next = next.slice(1);
+        }
+      }
+      return { activeConversationId: id, openTabs: next };
+    }),
+  closeTab: (id) =>
+    set((s) => {
+      const idx = s.openTabs.indexOf(id);
+      if (idx < 0) return s;
+      const next = s.openTabs.filter((t) => t !== id);
+      if (s.activeConversationId !== id) {
+        return { openTabs: next };
+      }
+      // Closing the active tab → snap to the neighbour. We prefer
+      // the tab that took the closing tab's slot (idx in `next`),
+      // falling back to the previous one. This matches VSCode's
+      // editor-tab close behaviour and keeps the user's mental
+      // model intact: closing tab N puts you on the new tab N
+      // (the one that just shifted left), or on N-1 if N was the
+      // last tab.
+      const fallback = next[idx] ?? next[idx - 1] ?? null;
+      return { openTabs: next, activeConversationId: fallback };
+    }),
+  clearAiDraft: () => set({ aiDraft: null }),
+  openAiChat: async (input) => {
+    // Step 1: persist the conversation row first. We need the id
+    // so the panel can rehydrate the right rows on activation —
+    // even if the user closes the rail before sending.
+    let conversationId: string;
+    try {
+      conversationId = await ipc.createConversation({
+        title: input.title.slice(0, 200),
+        origin: input.origin,
+        context_json: input.context ? JSON.stringify(input.context) : null,
+      });
+    } catch (e) {
+      // Store-side errors should never be silent — surface in
+      // console for now; a toast layer can pick this up later.
+      console.error('openAiChat: failed to create conversation', e);
+      return null;
+    }
+
+    const draft: AiDraft = {
+      conversationId,
+      draftPrompt: input.draftPrompt,
+      contextSystemMessage: input.contextSystemMessage,
+      actionHook: input.actionHook ?? { kind: 'none' },
+      autoSend: input.autoSend ?? false,
+    };
+
+    // Stash draft + active id + open the panel atomically. Doing
+    // them in one set() prevents the panel from waking up between
+    // states (e.g. `activeConversationId` set but `aiDraft` still
+    // null would show the empty conversation for a frame).
+    //
+    // Tab insertion mirrors `setActiveConversation`: append to the
+    // right; FIFO-evict the oldest non-active, non-incoming tab if
+    // we'd overflow the cap. We can't just call the action here
+    // because we also need to write `aiDraft` and `rightPanel` in
+    // the same set() — splitting them would race with the panel's
+    // mount effect.
+    saveRightPanel('ai');
+    set((s) => {
+      let openTabs = s.openTabs;
+      if (!openTabs.includes(conversationId)) {
+        const next = [...openTabs, conversationId];
+        if (next.length > MAX_OPEN_TABS) {
+          const evictAt = next.findIndex(
+            (tabId) => tabId !== conversationId && tabId !== s.activeConversationId,
+          );
+          if (evictAt >= 0) {
+            next.splice(evictAt, 1);
+          } else {
+            next.shift();
+          }
+        }
+        openTabs = next;
+      }
+      return {
+        aiDraft: draft,
+        activeConversationId: conversationId,
+        rightPanel: 'ai',
+        openTabs,
+      };
+    });
+    return conversationId;
+  },
 
   overview: null,
   overviewLoading: false,
