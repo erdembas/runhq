@@ -201,11 +201,10 @@ pub fn apply_language_directive(messages: &mut [ChatMessage], directive: &str) {
     if let Some(sys) = messages.iter_mut().find(|m| m.role == "system") {
         sys.content.push_str("\n\n");
         sys.content.push_str(directive);
-        return;
     }
-    // No system message present: prepend one. We don't have a mutable
-    // Vec here, so we silently no-op rather than panicking on slice
-    // mutation. Callers that own the Vec should prefer
+    // No system message present: we silently no-op rather than
+    // panicking on slice mutation, since this fn only borrows a
+    // `&mut [ChatMessage]`. Callers that own the Vec should prefer
     // `apply_language_to_vec` below.
 }
 

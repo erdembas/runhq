@@ -68,7 +68,7 @@ pub fn count_tokens(text: &str) -> u32 {
     // than `len()` so multi-byte UTF-8 (Turkish, CJK) doesn't get
     // double-counted as bytes. The `+ 3` rounds up so a 1-char
     // string still counts as 1, not 0.
-    ((text.chars().count() as u32) + 3) / 4
+    (text.chars().count() as u32).div_ceil(4)
 }
 
 /// Sum the token count across an arbitrary slice of strings. Same
