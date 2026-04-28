@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RunHQ — The native process orchestrator for local dev</title>
+    <title>RunHQ — The cockpit for your local dev portfolio</title>
     <meta
       name="description"
-      content="One window to start, stop, monitor, and debug every local dev service — Node, Go, .NET, Python, Docker — without containers. 100% local, <100MB RAM."
+      content="One window over every project on your disk — health, CVEs, outdated deps, ports, processes, git, AI. Auto-indexed across Node, Go, .NET, Python, Java, Rust, Ruby, PHP, Docker. 100% local, < 100 MB RAM."
     />
-    <meta property="og:title" content="RunHQ — The native process orchestrator for local dev" />
+    <meta property="og:title" content="RunHQ — The cockpit for your local dev portfolio" />
     <meta
       property="og:description"
-      content="One window to rule all your local dev services. Native, local, offline. No telemetry, no cloud, no account."
+      content="Every project on your machine, indexed once and surfaced forever. Cross-project health, CVEs, AI workspace reports. Native, local, offline."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://runhq.dev" />
@@ -20,10 +20,10 @@
     <meta property="og:image:height" content="512" />
     <meta property="og:image:alt" content="RunHQ app icon" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="RunHQ — The native process orchestrator for local dev" />
+    <meta name="twitter:title" content="RunHQ — The cockpit for your local dev portfolio" />
     <meta
       name="twitter:description"
-      content="One window to rule all your local dev services. Native, local, offline. No telemetry, no cloud, no account."
+      content="Every project on your machine, indexed once and surfaced forever. Cross-project health, CVEs, AI workspace reports. Native, local, offline."
     />
     <meta name="twitter:image" content="https://runhq.dev/icon.png" />
     <meta name="theme-color" content="#0c0c0c" />
@@ -75,22 +75,23 @@
       <!-- ============ HERO ============ -->
       <section class="hero">
         <div class="hero-inner">
-          <div class="hero-tagline">The native process orchestrator</div>
+          <div class="hero-tagline">The cockpit for your local dev portfolio</div>
           <h1 class="hero-title">
-            Run every
+            Every
             <span class="tw-wrap">
               <span class="tw-text" aria-live="polite"></span
               ><span class="tw-cursor" aria-hidden="true"></span>
             </span>
             <br />
-            from one window.
+            on your machine, in one window.
           </h1>
           <p class="hero-lead">
-            <strong>Dozens of projects. Hundreds of services.</strong> One native app to start them,
-            see git status across the whole fleet, read diffs and commit, replay your day in an
-            activity timeline, and now <strong>chat with an AI assistant</strong> — local model or
-            cloud, your call — that plugs into every surface. No containers, no cloud lock-in, no
-            account.
+            <strong>Dozens of projects. One question:</strong> which one needs you this week? RunHQ
+            indexes every repo on your disk, surfaces critical CVEs and outdated deps as chips,
+            tells you what's stale or dirty at a glance, and drops you into the offender in two
+            clicks. Process supervision, port watchdog, and an AI assistant that
+            <strong>reasons across all your projects together</strong> — local model or cloud, your
+            call. No containers, no cloud lock-in, no account.
           </p>
 
           <div class="hero-ctas">
@@ -112,7 +113,7 @@
           </div>
 
           <ul class="hero-chips">
-            <li>9 runtimes</li>
+            <li>10 runtimes</li>
             <li>&lt;100 MB RAM</li>
             <li>macOS · Linux · Windows</li>
             <li>MIT · open source</li>
@@ -193,10 +194,10 @@
               </svg>
             </div>
             <div id="heroVideoText" class="video-text-cinematic">
-              <div class="vtc-kicker">RunHQ Orchestrator</div>
-              <div class="vtc-title" id="vtcTitle">One window for all services</div>
+              <div class="vtc-kicker">RunHQ Cockpit</div>
+              <div class="vtc-title" id="vtcTitle">Every project, one cockpit</div>
               <div class="vtc-desc" id="vtcDesc">
-                Start, stop, and monitor every local service without leaving your flow.
+                Indexed, scanned, and one click away — across your whole machine.
               </div>
             </div>
           </a>
@@ -355,7 +356,8 @@
             <span class="persona-ico">◆</span> Platform teams with polyglot monorepos.
           </span>
           <span class="persona-line">
-            <span class="persona-ico">◆</span> Anyone tired of six terminal tabs.
+            <span class="persona-ico">◆</span> Anyone whose <code>~/code</code> has more repos than
+            they can name.
           </span>
         </div>
       </section>
@@ -1276,15 +1278,22 @@
       });
 
       (function () {
+        // Portfolio framing: each word completes the sentence
+        // "Every <word> on your machine, in one window." Wording leans
+        // toward "things that live in your project folder" (project /
+        // repo / crate / module) rather than "things that run"
+        // (service / daemon / worker) because the cockpit pitch is
+        // about discovery + health, not just supervision.
         var words = [
-          'Node.js service',
-          'Go binary',
-          'Python app',
-          '.NET worker',
-          'Rust daemon',
+          'Node.js project',
+          'Rust crate',
+          'Go module',
+          'Python repo',
+          '.NET solution',
+          'Java project',
           'Docker stack',
-          'Ruby job',
-          'Java server',
+          'Bun app',
+          'Ruby gem',
         ];
         var el = document.querySelector('.tw-text');
         if (!el) return;
@@ -1407,20 +1416,20 @@
           if (rotator && vtcTitle && vtcDesc) {
             var snippets = [
               {
-                t: 'One window for all services',
-                d: 'Start, stop, and monitor every local service without leaving your flow.',
+                t: 'Every project, indexed',
+                d: 'Auto-discovered across 10 runtimes — Node, Bun, Deno, .NET, Java, Go, Rust, Python, Ruby, PHP, Docker.',
               },
               {
                 t: 'Native. Local. Offline.',
                 d: 'Built with Rust and Tauri. No containers, no cloud dependencies, no telemetry.',
               },
               {
-                t: 'Less than 100MB RAM',
-                d: "A ridiculously lightweight process orchestrator that respects your machine's resources.",
+                t: 'Less than 100 MB RAM',
+                d: "A ridiculously lightweight cockpit that respects your machine's resources.",
               },
               {
-                t: 'Reclaim your terminal tabs',
-                d: 'Stop digging through dozens of open shells. See all logs and processes in a single unified view.',
+                t: 'What needs you this week?',
+                d: 'CVEs, outdated deps, stale scans, dirty git — surfaced as one cross-portfolio answer, not a hunt across thirty repos.',
               },
             ];
             var snippetIndex = 0;
