@@ -310,6 +310,13 @@ mod tests {
         assert_eq!(merged, "/a:/b:/c:/d");
     }
 
+    // Gated to Unix-likes because `canonical_dev_tool_dirs` only emits
+    // OS-specific system-bin entries under `cfg(target_os = "macos")` /
+    // `cfg(target_os = "linux")`. On Windows the binding would be unused
+    // (clippy `-D warnings` rejects this in CI) and the function isn't
+    // even called in production — `import_login_shell_path` early-returns
+    // for `cfg!(windows)`.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn canonical_includes_homebrew_on_macos() {
         let canonical = canonical_dev_tool_dirs();
