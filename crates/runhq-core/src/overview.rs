@@ -1298,7 +1298,24 @@ async fn run_timed(
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
 
-    let child = cmd.spawn().ok()?;
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(err) => {
+            // Log loudly: a missing binary on `$PATH` is the #1 cause of
+            // "scan completed instantly with all-None results" reports
+            // from production users. Surfacing program + cwd + errno
+            // turns a silent "0 outdated, 0 vulnerabilities" UI bug into
+            // a single grep for the developer.
+            tracing::warn!(
+                program,
+                ?cwd,
+                kind = ?err.kind(),
+                error = %err,
+                "overview command failed to spawn (binary missing on PATH?)"
+            );
+            return None;
+        }
+    };
 
     match timeout(deadline, child.wait_with_output()).await {
         Ok(Ok(output)) => {

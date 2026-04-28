@@ -331,6 +331,20 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            // GUI launches (`open RunHQ.app`, Finder, Dock) inherit the
+            // launchd PATH, which is the bare-bones `/usr/bin:/bin:...` set.
+            // That breaks every subprocess we spawn (`npm outdated`,
+            // `cargo audit`, `pip-audit`, AI tool calls, etc.) because dev
+            // binaries installed via `brew`, `nvm`, `fnm`, `volta`, `asdf`,
+            // `rustup`, `pyenv` live elsewhere. Two-layer recovery: probe
+            // the user's login shell PATH AND always merge in canonical
+            // dev-tool dirs so nvm shims (typically initialised in
+            // `.zshrc`, not `.zprofile`) still resolve. Dev builds started
+            // with `cargo run` from a terminal are unaffected (their
+            // parent shell already exports the full PATH) but calling
+            // this unconditionally is cheap and keeps prod/dev parity.
+            runhq_core::shell_env::import_login_shell_path();
+
             let home = paths::runhq_home()?;
             std::fs::create_dir_all(&home)?;
 
@@ -635,6 +649,7 @@ pub fn run() {
             ipc::append_conversation_message,
             ipc::rename_conversation,
             ipc::pin_conversation,
+            ipc::favorite_conversation,
             ipc::archive_conversation,
             ipc::delete_conversation,
             ipc::git_diff,

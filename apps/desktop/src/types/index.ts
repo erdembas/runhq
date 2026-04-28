@@ -487,6 +487,10 @@ export interface Conversation {
   origin: string;
   context_json?: string | null;
   pinned: boolean;
+  /** User-curated star. Pin = always-on-top; favorite = "I want to
+   *  find this again later". A conversation can be favorited without
+   *  being pinned. */
+  favorite: boolean;
   archived: boolean;
   created_at_ms: number;
   updated_at_ms: number;
@@ -498,6 +502,7 @@ export interface ConversationSummary {
   title: string;
   origin: string;
   pinned: boolean;
+  favorite: boolean;
   archived: boolean;
   created_at_ms: number;
   updated_at_ms: number;

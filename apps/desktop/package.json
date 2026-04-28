@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:local": "tauri build --bundles app --config \"{\\\"bundle\\\":{\\\"createUpdaterArtifacts\\\":false}}\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -538,6 +538,17 @@ button:disabled,
   border-radius: 0;
 }
 
+/* Same story for the AI Chat panel's history-drawer search input — it
+ * sits inside a wrapper that already provides its own border, so the
+ * global `*:focus-visible` orange outline doubles up as a thick halo.
+ * Class-based override wins on specificity over the universal rule. */
+.history-search-input,
+.history-search-input:focus,
+.history-search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* -----------------------------------------------------------------------
  * Quick Action — critical layout anchors (Tailwind-agnostic).
  *

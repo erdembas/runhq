@@ -680,6 +680,15 @@ pub struct ListConversationsInput {
     pub limit: Option<usize>,
     #[serde(default)]
     pub include_archived: bool,
+    /// When true, restrict the result set to favorited conversations.
+    /// Honoured independently from `include_archived` so the user can
+    /// browse "favorites + archived" without losing either filter.
+    #[serde(default)]
+    pub favorites_only: bool,
+    /// Optional substring search across title and message content.
+    /// Empty/whitespace strings are treated as "no filter".
+    #[serde(default)]
+    pub query: Option<String>,
 }
 
 #[tauri::command]
@@ -689,7 +698,12 @@ pub fn list_conversations(
 ) -> AppResult<Vec<ConversationSummary>> {
     let db = open_conversations_db(&state)?;
     let lim = input.limit.unwrap_or(200).min(2000);
-    db.list_conversations(lim, input.include_archived)
+    db.list_conversations(
+        lim,
+        input.include_archived,
+        input.favorites_only,
+        input.query.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -741,6 +755,21 @@ pub struct PinConversationInput {
 pub fn pin_conversation(input: PinConversationInput, state: State<'_, AppState>) -> AppResult<()> {
     let db = open_conversations_db(&state)?;
     db.pin_conversation(&input.id, input.pinned)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FavoriteConversationInput {
+    pub id: String,
+    pub favorite: bool,
+}
+
+#[tauri::command]
+pub fn favorite_conversation(
+    input: FavoriteConversationInput,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let db = open_conversations_db(&state)?;
+    db.favorite_conversation(&input.id, input.favorite)
 }
 
 #[derive(Debug, Deserialize)]

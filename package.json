@@ -20,6 +20,7 @@
     "build": "pnpm --filter @runhq/desktop build",
     "tauri:dev": "pnpm --filter @runhq/desktop tauri:dev",
     "tauri:build": "pnpm --filter @runhq/desktop tauri:build",
+    "tauri:build:local": "pnpm --filter @runhq/desktop tauri:build:local",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,html}\"",

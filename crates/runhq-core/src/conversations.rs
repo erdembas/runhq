@@ -41,6 +41,11 @@ pub struct Conversation {
     pub origin: String,
     pub context_json: Option<String>,
     pub pinned: bool,
+    /// User-curated star. Distinct from `pinned`: pin = "always at the
+    /// top of the list", favorite = "I want to find this again later".
+    /// A conversation can be favorited without being pinned (the typical
+    /// "useful reference, but I don't need it sticky" case).
+    pub favorite: bool,
     pub archived: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -57,6 +62,9 @@ pub struct ConversationSummary {
     pub title: String,
     pub origin: String,
     pub pinned: bool,
+    /// See [`Conversation::favorite`]. Surfaced in the History drawer as
+    /// a star toggle separate from the pin badge.
+    pub favorite: bool,
     pub archived: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -182,6 +190,7 @@ impl ConversationsDb {
                     origin TEXT NOT NULL,
                     context_json TEXT,
                     pinned INTEGER NOT NULL DEFAULT 0,
+                    favorite INTEGER NOT NULL DEFAULT 0,
                     archived INTEGER NOT NULL DEFAULT 0,
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL
@@ -225,6 +234,19 @@ impl ConversationsDb {
                 "CREATE INDEX IF NOT EXISTS idx_msg_client_id ON messages(conversation_id, client_id);",
             )
             .map_err(|e| AppError::Other(format!("init client_id index: {e}")))?;
+        // Same pattern for the favorite column. Older installs created
+        // the conversations table before the favorite feature shipped;
+        // attempt the ADD COLUMN and swallow the duplicate-column
+        // error so subsequent SELECTs don't blow up on missing column.
+        let _ = self.conn.execute(
+            "ALTER TABLE conversations ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_conv_favorite ON conversations(favorite);",
+            )
+            .map_err(|e| AppError::Other(format!("init favorite index: {e}")))?;
         Ok(())
     }
 
@@ -365,44 +387,94 @@ impl ConversationsDb {
         &self,
         limit: usize,
         include_archived: bool,
+        favorites_only: bool,
+        query: Option<&str>,
     ) -> AppResult<Vec<ConversationSummary>> {
-        let where_clause = if include_archived {
-            ""
+        // Normalise the search query: trim, lower-case for case-
+        // insensitive LIKE, and bail to the no-search path when empty.
+        // We do NOT split on spaces — searching for "deploy runbook"
+        // should match a title verbatim, not match conversations
+        // mentioning "deploy" OR "runbook" (which is much noisier).
+        let trimmed = query.map(|q| q.trim()).filter(|q| !q.is_empty());
+        let like_pattern = trimmed.map(|q| format!("%{}%", q.to_lowercase()));
+
+        let mut wheres: Vec<&str> = Vec::with_capacity(3);
+        if !include_archived {
+            wheres.push("c.archived = 0");
+        }
+        if favorites_only {
+            wheres.push("c.favorite = 1");
+        }
+        // Search clause matches either the title or the body of any
+        // message in the conversation. We use a correlated EXISTS
+        // subquery rather than a JOIN so each conversation is returned
+        // at most once even when multiple messages match. SQLite's
+        // LIKE is case-insensitive only for ASCII; we lower() both
+        // sides to extend the courtesy to UTF-8 (Türkçe başlıklar için
+        // "İ" / "i" eşleşmesi de bu sayede tutuyor — yine de mükemmel
+        // değil, ICU yok ama kullanıcı için "iyi yeter" düzeyi).
+        if like_pattern.is_some() {
+            wheres.push(
+                "(LOWER(c.title) LIKE ?2 OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND LOWER(m.content) LIKE ?2))",
+            );
+        }
+        let where_sql = if wheres.is_empty() {
+            String::new()
         } else {
-            "WHERE c.archived = 0"
+            format!("WHERE {}", wheres.join(" AND "))
         };
-        // We keep pinned conversations always at the top regardless of
-        // recency — same convention as Slack / Linear / Apple Mail. A
-        // pinned 3-month-old "deploy runbook" conversation would sink
-        // off the list under pure recency sort and the user would have
-        // to scroll for it.
+
+        // Order: pinned > favorite > recency. Favorite conversations
+        // float above non-favorites within the same pinned bucket so
+        // the user's "I want to find this again" choices stay near the
+        // top — but we don't promote a favorite above a pin, because a
+        // pin is the stronger signal ("always at top" beats "I starred
+        // this once").
         let sql = format!(
-            "SELECT c.id, c.title, c.origin, c.pinned, c.archived, c.created_at_ms, c.updated_at_ms,
+            "SELECT c.id, c.title, c.origin, c.pinned, c.favorite, c.archived, c.created_at_ms, c.updated_at_ms,
                     (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count,
                     (SELECT m2.content FROM messages m2 WHERE m2.conversation_id = c.id ORDER BY m2.seq DESC LIMIT 1) AS last_preview
              FROM conversations c
-             {where_clause}
-             ORDER BY c.pinned DESC, c.updated_at_ms DESC
+             {where_sql}
+             ORDER BY c.pinned DESC, c.favorite DESC, c.updated_at_ms DESC
              LIMIT ?1"
         );
         let mut stmt = self
             .conn
             .prepare(&sql)
             .map_err(|e| AppError::Other(format!("prepare list_conversations: {e}")))?;
+        // rusqlite's `params!` doesn't play nicely with conditional
+        // bindings, so we go through the `query` API explicitly.
+        let bound: Box<dyn Iterator<Item = Box<dyn rusqlite::ToSql>>> =
+            if let Some(p) = like_pattern.as_ref() {
+                Box::new(
+                    [
+                        Box::new(limit as i64) as Box<dyn rusqlite::ToSql>,
+                        Box::new(p.clone()) as Box<dyn rusqlite::ToSql>,
+                    ]
+                    .into_iter(),
+                )
+            } else {
+                Box::new([Box::new(limit as i64) as Box<dyn rusqlite::ToSql>].into_iter())
+            };
+        let collected: Vec<Box<dyn rusqlite::ToSql>> = bound.collect();
+        let param_refs: Vec<&dyn rusqlite::ToSql> = collected.iter().map(|p| &**p).collect();
         let rows = stmt
-            .query_map(params![limit as i64], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 let pinned: i64 = row.get(3)?;
-                let archived: i64 = row.get(4)?;
-                let preview: Option<String> = row.get(8).ok();
+                let favorite: i64 = row.get(4)?;
+                let archived: i64 = row.get(5)?;
+                let preview: Option<String> = row.get(9).ok();
                 Ok(ConversationSummary {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     origin: row.get(2)?,
                     pinned: pinned != 0,
+                    favorite: favorite != 0,
                     archived: archived != 0,
-                    created_at_ms: row.get(5)?,
-                    updated_at_ms: row.get(6)?,
-                    message_count: row.get(7)?,
+                    created_at_ms: row.get(6)?,
+                    updated_at_ms: row.get(7)?,
+                    message_count: row.get(8)?,
                     last_preview: preview.map(|s| {
                         // Cap preview at 200 chars — enough to disambiguate,
                         // short enough to fit on one line in the drawer.
@@ -422,23 +494,25 @@ impl ConversationsDb {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, title, origin, context_json, pinned, archived, created_at_ms, updated_at_ms
+                "SELECT id, title, origin, context_json, pinned, favorite, archived, created_at_ms, updated_at_ms
                  FROM conversations WHERE id = ?1",
             )
             .map_err(|e| AppError::Other(format!("prepare get_conversation: {e}")))?;
         let mut conv: Conversation = stmt
             .query_row(params![id], |row| {
                 let pinned: i64 = row.get(4)?;
-                let archived: i64 = row.get(5)?;
+                let favorite: i64 = row.get(5)?;
+                let archived: i64 = row.get(6)?;
                 Ok(Conversation {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     origin: row.get(2)?,
                     context_json: row.get(3)?,
                     pinned: pinned != 0,
+                    favorite: favorite != 0,
                     archived: archived != 0,
-                    created_at_ms: row.get(6)?,
-                    updated_at_ms: row.get(7)?,
+                    created_at_ms: row.get(7)?,
+                    updated_at_ms: row.get(8)?,
                     messages: Vec::new(),
                 })
             })
@@ -505,6 +579,26 @@ impl ConversationsDb {
                 params![pinned as i64, id],
             )
             .map_err(|e| AppError::Other(format!("pin conversation: {e}")))?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("conversation {id}")));
+        }
+        Ok(())
+    }
+
+    /// Toggle the favorite (star) flag. Deliberately does NOT bump
+    /// `updated_at_ms` — favoriting an old conversation should NOT
+    /// re-sort it to the top of the recency list (we sort by
+    /// `pinned, favorite, updated_at_ms` so it floats above non-
+    /// favorites of the same pin bucket but stays at its original
+    /// recency position within the favorites bucket).
+    pub fn favorite_conversation(&self, id: &str, favorite: bool) -> AppResult<()> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE conversations SET favorite = ?1 WHERE id = ?2",
+                params![favorite as i64, id],
+            )
+            .map_err(|e| AppError::Other(format!("favorite conversation: {e}")))?;
         if n == 0 {
             return Err(AppError::NotFound(format!("conversation {id}")));
         }
@@ -665,7 +759,7 @@ mod tests {
         })
         .unwrap();
 
-        let list = db.list_conversations(50, false).unwrap();
+        let list = db.list_conversations(50, false, false, None).unwrap();
         assert_eq!(list.len(), 3);
         // Pinned first.
         assert_eq!(list[0].id, c);
@@ -738,11 +832,11 @@ mod tests {
             .unwrap();
         db.archive_conversation(&hidden, true).unwrap();
 
-        let default_list = db.list_conversations(50, false).unwrap();
+        let default_list = db.list_conversations(50, false, false, None).unwrap();
         assert_eq!(default_list.len(), 1);
         assert_eq!(default_list[0].id, visible);
 
-        let with_archived = db.list_conversations(50, true).unwrap();
+        let with_archived = db.list_conversations(50, true, false, None).unwrap();
         assert_eq!(with_archived.len(), 2);
     }
 
@@ -869,10 +963,144 @@ mod tests {
             error: None,
         })
         .unwrap();
-        let list = db.list_conversations(10, false).unwrap();
+        let list = db.list_conversations(10, false, false, None).unwrap();
         let preview = list[0].last_preview.as_deref().unwrap();
         // 200 base chars + "…" terminator.
         assert!(preview.ends_with('…'));
         assert_eq!(preview.chars().count(), 201);
+    }
+
+    #[test]
+    fn favorite_filter_returns_only_starred() {
+        let db = temp_db();
+        let plain = db
+            .create_conversation(CreateConversationInput {
+                title: "Plain".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        let starred = db
+            .create_conversation(CreateConversationInput {
+                title: "Starred".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        db.favorite_conversation(&starred, true).unwrap();
+
+        let all = db.list_conversations(50, false, false, None).unwrap();
+        assert_eq!(all.len(), 2);
+        // The favorite must come first thanks to the secondary sort
+        // key — same row's favorite=1 vs other's 0, recency tiebreaker
+        // doesn't override.
+        assert_eq!(all[0].id, starred);
+        assert!(all[0].favorite);
+
+        let only_favs = db.list_conversations(50, false, true, None).unwrap();
+        assert_eq!(only_favs.len(), 1);
+        assert_eq!(only_favs[0].id, starred);
+
+        // Toggle off — favorites filter now returns nothing.
+        db.favorite_conversation(&starred, false).unwrap();
+        let after_unfav = db.list_conversations(50, false, true, None).unwrap();
+        assert!(after_unfav.is_empty());
+        // And the plain one is still there in the all-list.
+        let all = db.list_conversations(50, false, false, None).unwrap();
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|c| c.id == plain));
+    }
+
+    #[test]
+    fn search_query_matches_title_and_message_content() {
+        let db = temp_db();
+        let alpha = db
+            .create_conversation(CreateConversationInput {
+                title: "Alpha deploy runbook".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        let beta = db
+            .create_conversation(CreateConversationInput {
+                title: "Daily standup".into(),
+                origin: "standup".into(),
+                context_json: None,
+            })
+            .unwrap();
+        let gamma = db
+            .create_conversation(CreateConversationInput {
+                title: "Sprint planning".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        // Only `gamma` mentions deployment in a *message* body — its
+        // title doesn't have "deploy", so this exercises the EXISTS
+        // subquery on messages.
+        db.append_message(AppendMessageInput {
+            conversation_id: gamma.clone(),
+            client_id: None,
+            role: MessageRole::User,
+            content: "Need to schedule a Friday deploy slot".into(),
+            reasoning: None,
+            provider_id: None,
+            provider_name: None,
+            model_name: None,
+            finish_reason: None,
+            partial: false,
+            error: None,
+        })
+        .unwrap();
+
+        let hits = db
+            .list_conversations(50, false, false, Some("deploy"))
+            .unwrap();
+        let ids: Vec<&str> = hits.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&alpha.as_str()));
+        assert!(ids.contains(&gamma.as_str()));
+        assert!(!ids.contains(&beta.as_str()));
+
+        // Case-insensitive sanity check.
+        let upper = db
+            .list_conversations(50, false, false, Some("DEPLOY"))
+            .unwrap();
+        assert_eq!(upper.len(), 2);
+
+        // Whitespace-only query is treated as no filter, not as
+        // "match nothing" — otherwise an accidental space in the
+        // search box would empty the drawer.
+        let blank = db
+            .list_conversations(50, false, false, Some("   "))
+            .unwrap();
+        assert_eq!(blank.len(), 3);
+    }
+
+    #[test]
+    fn pinned_outranks_favorite_in_sort() {
+        // A pin is the strongest signal — a favorited but unpinned
+        // conversation must NOT float above a pinned non-favorite.
+        let db = temp_db();
+        let pinned = db
+            .create_conversation(CreateConversationInput {
+                title: "Pinned not starred".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let starred = db
+            .create_conversation(CreateConversationInput {
+                title: "Starred not pinned".into(),
+                origin: "free".into(),
+                context_json: None,
+            })
+            .unwrap();
+        db.pin_conversation(&pinned, true).unwrap();
+        db.favorite_conversation(&starred, true).unwrap();
+
+        let list = db.list_conversations(50, false, false, None).unwrap();
+        assert_eq!(list[0].id, pinned);
+        assert_eq!(list[1].id, starred);
     }
 }

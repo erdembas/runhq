@@ -36,6 +36,7 @@ pub mod process;
 pub mod resources;
 pub mod scan_history;
 pub mod scanner;
+pub mod shell_env;
 pub mod state;
 pub mod timeline;
 pub mod tokens;

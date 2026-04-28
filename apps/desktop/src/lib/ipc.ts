@@ -198,11 +198,23 @@ export const ipc = {
   exportStandup: (sinceMs: number) => invoke<string>('export_standup', { sinceMs }),
 
   // ---- Conversations (AI chat history) ---------------------------------
-  listConversations: (input: { limit?: number; include_archived?: boolean } = {}) =>
+  listConversations: (
+    input: {
+      limit?: number;
+      include_archived?: boolean;
+      /** When true, only conversations with `favorite = 1` are returned. */
+      favorites_only?: boolean;
+      /** Substring search across title and message content. Whitespace-only
+       *  strings are treated as no filter by the backend. */
+      query?: string | null;
+    } = {},
+  ) =>
     invoke<ConversationSummary[]>('list_conversations', {
       input: {
         limit: input.limit ?? null,
         include_archived: input.include_archived ?? false,
+        favorites_only: input.favorites_only ?? false,
+        query: input.query ?? null,
       },
     }),
   getConversation: (id: string) => invoke<Conversation>('get_conversation', { id }),
@@ -249,6 +261,8 @@ export const ipc = {
     invoke<void>('rename_conversation', { input: { id, title } }),
   pinConversation: (id: string, pinned: boolean) =>
     invoke<void>('pin_conversation', { input: { id, pinned } }),
+  favoriteConversation: (id: string, favorite: boolean) =>
+    invoke<void>('favorite_conversation', { input: { id, favorite } }),
   archiveConversation: (id: string, archived: boolean) =>
     invoke<void>('archive_conversation', { input: { id, archived } }),
   deleteConversation: (id: string) => invoke<void>('delete_conversation', { id }),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  CheckCircle2,
   Clock,
   FolderOpen,
   Globe,
@@ -369,112 +370,212 @@ export function ServiceCard({
       )}
 
       {/*
-        Card header — two clusters, opposite alignment:
-          Left  = identity     : status dot + name + `stale` badge
-          Right = signals+tech : health chips (Dep / CVE), runtime, port
+        Card header — split into two horizontal strips with distinct
+        purposes, instead of one cramped row that loses to truncation
+        as soon as a project carries 3+ signals:
 
-        Dep / CVE chips live UP here (not in the action row below) on
-        purpose: they describe what this project *is* right now (out of
-        date, vulnerable), which is the same axis as `stale` and
-        `runtime`. Mixing them with action buttons was a semantic
-        error — "20" next to `[Delete]` read as "20 of something you
-        can delete". Here they read as "20 pending upgrades", which
-        is the intended message.
+          Strip 1 — Identity         : status dot + name + tech tags
+                                       (runtime / port). "What this
+                                       service IS." Name owns the
+                                       width, only kerns when truly
+                                       very long. Tech tags pinned
+                                       right because they're identity-
+                                       adjacent (they describe the
+                                       service, not its current health).
+
+          Strip 2 — Health signals   : stale + outdated + audit + Why?
+                                       on the left, scan freshness on
+                                       the right. "What's going on
+                                       with it RIGHT NOW." Renders
+                                       only when at least one signal
+                                       fires — a clean project has no
+                                       second strip at all, which is
+                                       intentional reward.
+
+        This split was the difference between names like
+        `belgehub-backend-api` getting truncated to `belge…` (with
+        every chip stealing the eye) and being fully readable next
+        to a clean Node tag.
       */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <StatusDot status={st} size="md" />
-          <span className="text-fg truncate text-[13px] font-semibold">{svc.name}</span>
-          {projectMeta?.is_stale && (
-            <span
-              className="bg-fg-dim/10 text-fg-dim rounded-app-sm inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
-              title={
-                projectMeta.last_activity
-                  ? `No activity since ${new Date(projectMeta.last_activity).toLocaleDateString()}`
-                  : 'No activity recorded'
-              }
-            >
-              <Clock className="h-3 w-3" />
-              {staleLabel(projectMeta.last_activity)}
-            </span>
-          )}
+          <span className="text-fg truncate text-[13.5px] font-semibold tracking-tight">
+            {svc.name}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {/*
-            Scan-in-progress spinner. Only shown when the global scan is
-            running *and* this project has a runtime the scanners actually
-            touch — otherwise the icon would spin forever for a
-            no-runtime project (e.g. a pure docker-compose stack).
-          */}
-          {overviewScanning && projectMeta?.runtime && (
-            <span
-              className="text-fg-dim inline-flex h-5 items-center px-1"
-              title="Dependency scan in progress for this project"
-              aria-label="Scanning dependencies"
-            >
-              <Loader2 className="h-3 w-3 animate-spin" />
-            </span>
-          )}
-          {/*
-            Per-card "Last scanned X ago" chip. Sourced from the
-            persistent SQLite scan history (hydrated on app mount),
-            so it survives restarts. We only render the chip when
-            we actually have BOTH a freshness timestamp AND scan
-            data on the card; a service without a runtime never
-            scans, and showing "Last scanned: never" everywhere
-            would be noise.
-          */}
-          {scanFreshness != null && (projectMeta?.outdated || projectMeta?.audit) && (
-            <ScanFreshnessChip
-              scannedAtMs={scanFreshness}
-              durationMs={scanDuration ?? null}
-              rescanning={isRescanningThis}
-              onRescan={projectMeta?.runtime ? handleRescan : undefined}
-            />
-          )}
-          {projectMeta?.outdated && onOpenDetail && (
-            <span className="inline-flex items-center">
-              <OutdatedChip
-                outdated={projectMeta.outdated}
-                onClick={() => onOpenDetail(svc.id, 'outdated')}
-              />
-              {scanDelta?.outdated != null && scanDelta.outdated !== 0 && (
-                <ScanDeltaBadge delta={scanDelta.outdated} severity="outdated" />
-              )}
-            </span>
-          )}
-          {projectMeta?.audit && onOpenDetail && (
-            <span className="inline-flex items-center">
-              <AuditChip
-                audit={projectMeta.audit}
-                onClick={() => onOpenDetail(svc.id, 'advisories')}
-              />
-              {scanDelta?.vulnerabilities != null && scanDelta.vulnerabilities !== 0 && (
-                <ScanDeltaBadge delta={scanDelta.vulnerabilities} severity="risk" />
-              )}
-            </span>
-          )}
-          {projectMeta && flagCount > 0 && (
-            <WhyAskButton projectMeta={projectMeta} flagCount={flagCount} />
-          )}
-          {runtime && (
-            <span
-              className={cn(
-                'rounded-app-sm px-1.5 py-0.5 text-[10px] font-semibold',
-                runtime.bg,
-                runtime.color,
-              )}
-            >
-              {runtime.label}
-            </span>
-          )}
-          {svc.port != null && (
-            <span className="bg-accent/10 text-accent rounded-app-sm px-1.5 py-0.5 font-mono text-[11px] font-semibold">
-              :{svc.port}
-            </span>
-          )}
-        </div>
+        {(runtime || svc.port != null) && (
+          <div className="flex shrink-0 items-center gap-1">
+            {runtime && (
+              <span
+                className={cn(
+                  'rounded-app-sm px-1.5 py-0.5 text-[10px] font-semibold',
+                  runtime.bg,
+                  runtime.color,
+                )}
+              >
+                {runtime.label}
+              </span>
+            )}
+            {svc.port != null && (
+              <span className="bg-accent/10 text-accent rounded-app-sm px-1.5 py-0.5 font-mono text-[11px] font-semibold">
+                :{svc.port}
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      {/*
+        Health strip — ALWAYS rendered (with min-height) so cards in
+        the same grid row share the same vertical rhythm even when
+        their contents differ wildly (one card with 4 signals next to
+        a clean Docker-only project no longer creates an asymmetric
+        gap). The strip shows one of four states, top to bottom in
+        priority:
+
+          1. Signals firing → chip cluster + scan-state on the right
+                              (the loud case — what most users come for).
+          2. Clean + scanned → muted "All clear" line + freshness chip.
+                              A tiny but intentional reward for projects
+                              with no debt; reading it across a long
+                              roster scans like a status sweep.
+          3. Has runtime, never scanned → "Not yet scanned" hint
+                              (educates users that a scan is the next
+                              action; doesn't alarm because it's a
+                              neutral tone).
+          4. No runtime to scan (Docker-only, etc.) → a single quiet
+                              em-dash placeholder. Nothing to act on,
+                              but the strip keeps the same vertical
+                              footprint so the cards align.
+
+        We hoist the boolean checks above the JSX so the branching
+        reads as a state ladder instead of a wall of inline `&&`s,
+        which was the readability problem with the previous version.
+      */}
+      {(() => {
+        const hasOutdatedChip = (projectMeta?.outdated?.total ?? 0) > 0;
+        const hasAuditChip =
+          (projectMeta?.audit
+            ? projectMeta.audit.critical +
+              projectMeta.audit.high +
+              projectMeta.audit.medium +
+              projectMeta.audit.low
+            : 0) > 0;
+        const hasSignals =
+          !!projectMeta?.is_stale ||
+          hasOutdatedChip ||
+          hasAuditChip ||
+          (!!projectMeta && flagCount > 0);
+        const isScanning = overviewScanning && !!projectMeta?.runtime;
+        const showFreshness = scanFreshness != null && !!projectMeta?.runtime;
+        const isRuntimeProject = !!projectMeta?.runtime;
+
+        return (
+          <div
+            className="border-border/40 -mx-1 -mt-1 flex min-h-[28px] flex-wrap items-center gap-x-1.5 gap-y-1 border-b px-1 pb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {hasSignals ? (
+              <>
+                {projectMeta?.is_stale && (
+                  <span
+                    className="bg-fg-dim/10 text-fg-dim rounded-app-sm inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                    title={
+                      projectMeta.last_activity
+                        ? `No activity since ${new Date(projectMeta.last_activity).toLocaleDateString()}`
+                        : 'No activity recorded'
+                    }
+                  >
+                    <Clock className="h-3 w-3" />
+                    {staleLabel(projectMeta.last_activity)}
+                  </span>
+                )}
+                {hasOutdatedChip && projectMeta?.outdated && onOpenDetail && (
+                  <span className="inline-flex items-center">
+                    <OutdatedChip
+                      outdated={projectMeta.outdated}
+                      onClick={() => onOpenDetail(svc.id, 'outdated')}
+                    />
+                    {scanDelta?.outdated != null && scanDelta.outdated !== 0 && (
+                      <ScanDeltaBadge delta={scanDelta.outdated} severity="outdated" />
+                    )}
+                  </span>
+                )}
+                {hasAuditChip && projectMeta?.audit && onOpenDetail && (
+                  <span className="inline-flex items-center">
+                    <AuditChip
+                      audit={projectMeta.audit}
+                      onClick={() => onOpenDetail(svc.id, 'advisories')}
+                    />
+                    {scanDelta?.vulnerabilities != null && scanDelta.vulnerabilities !== 0 && (
+                      <ScanDeltaBadge delta={scanDelta.vulnerabilities} severity="risk" />
+                    )}
+                  </span>
+                )}
+                {projectMeta && flagCount > 0 && (
+                  <WhyAskButton projectMeta={projectMeta} flagCount={flagCount} />
+                )}
+              </>
+            ) : isRuntimeProject && showFreshness ? (
+              <span
+                className="text-tone-success-fg/80 inline-flex items-center gap-1 text-[10px] font-semibold tracking-tight"
+                title="No outdated packages, no advisories, no stale activity"
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                All clear
+              </span>
+            ) : isRuntimeProject ? (
+              <span
+                className="text-fg-dim/80 inline-flex items-center gap-1 text-[10px] font-medium"
+                title="No dependency scan recorded yet — run “Rescan deps” to surface CVEs and outdated packages"
+              >
+                <span aria-hidden className="bg-fg-dim/40 inline-block h-1 w-1 rounded-full" />
+                Not yet scanned
+              </span>
+            ) : (
+              <span
+                className="text-fg-dim/50 inline-flex items-center gap-1 text-[10px] font-medium"
+                title="This project has no language runtime detected — dependency scans don't apply"
+              >
+                <span aria-hidden>—</span>
+                <span>No dependency tracking</span>
+              </span>
+            )}
+
+            {/*
+              Right-pinned scan-state cluster — freshness chip and
+              active-scan spinner. Always sits on the right via
+              `ml-auto` so the alignment is the same whether the
+              left side carries 4 chips or just an "All clear" line.
+              Spinner shows whenever the workspace-wide scan is
+              touching this project; freshness chip shows whenever
+              we have a recorded scan timestamp.
+            */}
+            {(isScanning || showFreshness) && (
+              <div className="text-fg-dim ml-auto flex items-center gap-1">
+                {isScanning && (
+                  <span
+                    className="inline-flex h-5 items-center px-1"
+                    title="Dependency scan in progress for this project"
+                    aria-label="Scanning dependencies"
+                  >
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </span>
+                )}
+                {showFreshness && (
+                  <ScanFreshnessChip
+                    scannedAtMs={scanFreshness!}
+                    durationMs={scanDuration ?? null}
+                    rescanning={isRescanningThis}
+                    onRescan={projectMeta?.runtime ? handleRescan : undefined}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="text-fg-muted min-h-[18px] truncate font-mono text-[11px]">
         {svc.cmds.length === 1
