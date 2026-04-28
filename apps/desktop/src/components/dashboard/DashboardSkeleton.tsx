@@ -86,9 +86,10 @@ export function DashboardSkeleton() {
               {/*
                 Action button cluster on the right. We render four
                 ghost buttons matching the real header
-                ("Scan deps · Scan Projects · New stack · New service")
-                so the user sees the affordances about to appear,
-                rather than them popping in mid-scroll.
+                ("Rescan deps · Analyze workspace · Discover projects ·
+                New stack · New service") so the user sees the
+                affordances about to appear, rather than them popping
+                in mid-scroll.
               */}
               <div className="flex items-center gap-2">
                 <SkeletonBar className="h-7 w-24 rounded-md" />

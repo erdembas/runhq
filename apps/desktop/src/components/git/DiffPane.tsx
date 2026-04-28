@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import {
   ChevronRight,
@@ -23,6 +23,7 @@ import {
 } from '@/lib/gitDiff';
 import { BinaryPreview } from '@/components/git/shared';
 import { buildDiffChatPayload } from '@/lib/ai/diffPayload';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 
 export type DiffViewMode = 'side-by-side' | 'inline';
 
@@ -60,29 +61,37 @@ export function DiffPane({
   // same flag to request a wider `-U` context from git.
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
   const setShowUnchanged = useAppStore((s) => s.setDiffShowUnchanged);
-  const openAiChat = useAppStore((s) => s.openAiChat);
 
-  // "Explain this diff" used to mount an inline AiAnswer below the
-  // header. Phase 4 of the AI Chat Hub plan moves it to the right-
-  // side chat panel: clicking Explain opens a new conversation seeded
-  // with the file path + diff blob, model-pickable, history-tracked.
-  // The header button is now a one-shot dispatcher with no local
-  // streaming state.
-  const triggerExplain = useCallback(() => {
-    if (!fileDiff || fileDiff.trim().length === 0) return;
-    const payload = buildDiffChatPayload({
-      diff: fileDiff,
-      filePath: selectedFile,
-    });
-    void openAiChat({
-      origin: 'diff',
-      title: payload.title,
-      context: payload.context,
-      draftPrompt: payload.draftPrompt,
-      contextSystemMessage: payload.contextSystemMessage,
-      autoSend: true,
-    });
-  }, [fileDiff, selectedFile, openAiChat]);
+  // "Explain this diff" routes through the right-side chat panel.
+  // The hook gives us a popover anchored under the Explain button
+  // when multiple models are configured — clicking the model fires
+  // the chat immediately. Single-model setups skip the popover and
+  // dispatch directly. The diff blob is captured at click-time
+  // (not in a useCallback dep) so a re-render mid-edit doesn't
+  // freeze stale content into the prompt.
+  const fileDiffRef = useRef(fileDiff);
+  fileDiffRef.current = fileDiff;
+  const selectedFileRef = useRef(selectedFile);
+  selectedFileRef.current = selectedFile;
+  const {
+    triggerRef: explainTriggerRef,
+    onClick: triggerExplain,
+    popover: explainPopover,
+  } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: () => {
+      const payload = buildDiffChatPayload({
+        diff: fileDiffRef.current ?? '',
+        filePath: selectedFileRef.current,
+      });
+      return {
+        origin: 'diff',
+        title: payload.title,
+        context: payload.context,
+        draftPrompt: payload.draftPrompt,
+        contextSystemMessage: payload.contextSystemMessage,
+      };
+    },
+  });
 
   const { original, modified } = useMemo(() => {
     if (!fileDiff) return { original: '', modified: '' };
@@ -178,8 +187,12 @@ export function DiffPane({
           <span className="hidden sm:inline">{showUnchanged ? 'Full file' : 'Diffs only'}</span>
         </button>
         <button
+          ref={explainTriggerRef}
           type="button"
-          onClick={triggerExplain}
+          onClick={() => {
+            if (!fileDiff || fileDiff.trim().length === 0) return;
+            triggerExplain();
+          }}
           disabled={!fileDiff || binaryInfo === true}
           title={
             binaryInfo
@@ -196,6 +209,7 @@ export function DiffPane({
           <Sparkles size={11} />
           <span className="hidden sm:inline">Explain</span>
         </button>
+        {explainPopover}
         {fileLoading && <RefreshCw size={10} className="text-fg/30 animate-spin" />}
       </div>
       <div className="min-h-0 flex-1">

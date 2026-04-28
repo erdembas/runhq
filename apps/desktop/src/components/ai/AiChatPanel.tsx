@@ -173,7 +173,21 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   // Memoised so the Esc-listener effect's dep array stays stable
   // across renders even when no `onClose` is wired (inline mode).
   const closePanel = useMemo(() => onClose ?? (() => {}), [onClose]);
-  const [turns, setTurns] = useState<Turn[]>([]);
+  /**
+   * Per-conversation turn state. Replaces the legacy `Turn[]` shape so
+   * a stream that starts in conversation A keeps making progress when
+   * the user switches to conversation B and back — the chunk handler
+   * writes straight into A's slot regardless of which tab is on
+   * screen. The displayed `turns` is derived from this map for the
+   * active conversation; non-active conversations remain alive in
+   * memory until the user explicitly closes the tab.
+   *
+   * Implementation note: we re-create the Map only when an entry
+   * actually changes, so unrelated conversations retain referential
+   * identity and React.memo'd children (TurnView etc.) skip their
+   * re-render even when *some* tab made progress.
+   */
+  const [turnsByConv, setTurnsByConv] = useState<Map<string, Turn[]>>(() => new Map());
   const [input, setInput] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   /**
@@ -185,23 +199,27 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
    * up questions that don't need it. Better to keep it in-memory
    * for "as long as the user is working in this conversation",
    * fading away on reload.
+   *
+   * Now keyed by conversation id so a follow-up send into a tab the
+   * user just navigated back to still grounds in the same evidence
+   * the original surface trigger supplied — switching tabs no
+   * longer wipes the panel-level slot.
    */
-  const surfaceContextRef = useRef<string | null>(null);
+  const surfaceContextByConvRef = useRef<Map<string, string>>(new Map());
   /**
    * Action hook attached by a surface (Commit, Standup, etc.). Stamped
    * onto every assistant turn produced in this conversation so the
    * matching TurnView renders its primary action button. Cleared when
    * the panel switches conversations or the user explicitly starts a
-   * new chat — same lifecycle as `surfaceContextRef`.
+   * new chat — same lifecycle as `surfaceContextByConvRef`.
    */
-  const actionHookRef = useRef<AiActionHook | null>(null);
+  const actionHookByConvRef = useRef<Map<string, AiActionHook>>(new Map());
   /**
    * Tracks which message IDs we've already persisted to SQLite so a
-   * recovery / retry loop can't double-write. Reset every time the
-   * panel switches conversations — keys are turn IDs which are
-   * conversation-scoped (`u-${ts}`, `a-${ts}`).
+   * recovery / retry loop can't double-write. Per-conversation so
+   * cross-tab streaming each maintains its own dedupe set.
    */
-  const persistedTurnIdsRef = useRef<Set<string>>(new Set());
+  const persistedTurnIdsByConvRef = useRef<Map<string, Set<string>>>(new Map());
   // Full provider list — drives the model picker. We used to only
   // store the active provider, which made the pill informational
   // ("here's your model") rather than functional ("change your
@@ -211,7 +229,50 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   const [provider, setProvider] = useState<AiProvider | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const requestIdRef = useRef(0);
+  // True once the very first `listAiProviders` IPC has resolved.
+  // Empty `providers` is ambiguous between "no providers configured"
+  // and "still loading"; this flag disambiguates so the auto-send
+  // path doesn't fire into a null `provider` and silently bail.
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  // When a surface-triggered draft has `autoSend: true` *and* the
+  // user has 2+ providers configured, we open the picker and wait
+  // for them to choose — this ref says "as soon as a model is
+  // selected, fire send()". Cleared on dismissal (Esc / outside
+  // click) so the user can also choose to manually edit the prompt.
+  // The mirrored state drives a visual hint inside ModelPicker so
+  // the user knows the click will trigger an immediate send rather
+  // than just changing their default. Kept in sync with the ref by
+  // always setting both together.
+  const pendingAutoSendRef = useRef(false);
+  // Holds the original draft prompt while we wait for the user to
+  // pick a model. We pass it explicitly to `send()` instead of
+  // re-reading from `input` state, matching the single-provider
+  // path and side-stepping any cross-render staleness.
+  const pendingAutoSendPromptRef = useRef<string | null>(null);
+  const [awaitingAutoSend, setAwaitingAutoSend] = useState(false);
+  /**
+   * Per-conversation request-id counters. The legacy single counter
+   * meant cancelling any conversation invalidated EVERY in-flight
+   * stream — exactly the source of "switched tabs and the answer
+   * resets to the start". Now each conversation has its own bump
+   * sequence so a cancel on A leaves B's stream untouched.
+   *
+   * The counter starts at 0 for unseen conversations; each `runStream`
+   * call increments and remembers its own id; the chunk handler
+   * compares against the latest id for *its* conversation, so a stale
+   * stream from an earlier `cancel()` on the same conversation still
+   * gets correctly orphaned without sweeping siblings.
+   */
+  const requestIdsRef = useRef<Map<string, number>>(new Map());
+  /**
+   * Tracks which conversations currently have a live stream running.
+   * Used by the hydration effect to avoid clobbering live progress
+   * with a (now stale) DB load when the user switches back to a tab
+   * that's still mid-answer. Entries are added at the top of
+   * `runStream` and removed when the stream resolves naturally
+   * (`done`/`error`) or is explicitly cancelled.
+   */
+  const inFlightConvsRef = useRef<Set<string>>(new Set());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -223,9 +284,11 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   // function without thrashing its identity.
   type RunStreamFn = (args: {
     targetTurnId: string;
+    targetConvId: string;
     history: ChatMessage[];
     appendOnly: boolean;
     retryAttempt?: number;
+    providerOverride?: AiProvider;
   }) => Promise<void>;
   const runStreamRef = useRef<RunStreamFn | null>(null);
 
@@ -236,6 +299,9 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const openTabs = useAppStore((s) => s.openTabs);
   const closeTab = useAppStore((s) => s.closeTab);
+  const closeOtherTabs = useAppStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useAppStore((s) => s.closeTabsToRight);
+  const closeAllTabs = useAppStore((s) => s.closeAllTabs);
   const aiDraft = useAppStore((s) => s.aiDraft);
   const clearAiDraft = useAppStore((s) => s.clearAiDraft);
   // Track which conversation ID we last hydrated so we don't refetch
@@ -245,6 +311,117 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   // Same idea for the draft consumer — guard against firing the same
   // draft into the panel twice if React re-runs the effect.
   const consumedDraftIdRef = useRef<string | null>(null);
+
+  /**
+   * Derived turn array for the *currently active* conversation. All
+   * existing render code keeps reading `turns` as a flat list — the
+   * per-conversation map is an implementation detail. Memoised so a
+   * write to a non-active conversation (chunk arriving in a tab
+   * that's not on screen) doesn't change this reference and
+   * therefore doesn't propagate a useless render through the message
+   * list.
+   */
+  const turns = useMemo<Turn[]>(
+    () => (activeConversationId ? (turnsByConv.get(activeConversationId) ?? []) : []),
+    [turnsByConv, activeConversationId],
+  );
+
+  /**
+   * Write into a specific conversation's turn list. Used by stream
+   * chunk handlers (which capture the conversation ID at runStream
+   * dispatch and never read it back from React state) so a chunk
+   * still arriving for tab A while the user is looking at tab B
+   * lands in A's slot.
+   *
+   * Returning the same array instance when the updater produced no
+   * change preserves referential identity for downstream memoisation.
+   */
+  const setTurnsForConv = useCallback(
+    (convId: string, updater: Turn[] | ((prev: Turn[]) => Turn[])) => {
+      setTurnsByConv((prev) => {
+        const cur = prev.get(convId) ?? [];
+        const nextTurns = typeof updater === 'function' ? updater(cur) : updater;
+        if (nextTurns === cur) return prev;
+        const next = new Map(prev);
+        next.set(convId, nextTurns);
+        return next;
+      });
+    },
+    [],
+  );
+
+  /**
+   * Convenience setter — writes into the active conversation's list.
+   * Drop-in replacement for the legacy `setTurns(...)` API; if there
+   * is no active conversation (`null` after newChat) the call is a
+   * no-op rather than fabricating an entry under an empty key.
+   */
+  const setTurns = useCallback(
+    (updater: Turn[] | ((prev: Turn[]) => Turn[])) => {
+      if (!activeConversationId) return;
+      setTurnsForConv(activeConversationId, updater);
+    },
+    [activeConversationId, setTurnsForConv],
+  );
+
+  /**
+   * Bump the request id for `convId` so any in-flight chunk handler
+   * that captured the previous id gets ignored on its next chunk.
+   * Keeps every conversation's cancellation isolated — orphaning A's
+   * stream must not also kill B's.
+   */
+  const bumpRequestId = useCallback((convId: string): number => {
+    const cur = requestIdsRef.current.get(convId) ?? 0;
+    const next = cur + 1;
+    requestIdsRef.current.set(convId, next);
+    return next;
+  }, []);
+
+  /**
+   * Lazily-initialised per-conversation persisted-turn dedupe set.
+   * Returns the same Set instance across calls for the same convId
+   * so callers can both query (`.has`) and mutate (`.add`/`.delete`)
+   * without having to write the result back. Newly-seen
+   * conversations get a fresh empty Set on first access.
+   */
+  const getPersistedSet = useCallback((convId: string): Set<string> => {
+    let s = persistedTurnIdsByConvRef.current.get(convId);
+    if (!s) {
+      s = new Set();
+      persistedTurnIdsByConvRef.current.set(convId, s);
+    }
+    return s;
+  }, []);
+
+  /**
+   * Read the current conversation's surface-context system message,
+   * or `null` when none is attached (free chat or reloaded
+   * conversation). Resolves against the active conversation by
+   * default so prompt-builder code paths that already read this
+   * "globally" still work after the per-conv refactor.
+   */
+  const getSurfaceContext = useCallback(
+    (convId?: string | null): string | null => {
+      const id = convId ?? activeConversationId;
+      if (!id) return null;
+      return surfaceContextByConvRef.current.get(id) ?? null;
+    },
+    [activeConversationId],
+  );
+
+  /**
+   * Read the current conversation's action hook (Commit / Standup /
+   * etc.), or `null` for free chats. Stamped onto every assistant
+   * turn produced in that conversation.
+   */
+  const getActionHook = useCallback(
+    (convId?: string | null): AiActionHook | null => {
+      const id = convId ?? activeConversationId;
+      if (!id) return null;
+      return actionHookByConvRef.current.get(id) ?? null;
+    },
+    [activeConversationId],
+  );
 
   /**
    * Map a row from SQLite back into a `Turn`. Reasoning, finish
@@ -290,13 +467,52 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     // every time the panel re-renders (which is constant during
     // streaming).
     if (loadedConversationIdRef.current === activeConversationId) return;
+
+    // Tab-switch fast path: if the user is returning to a
+    // conversation whose turns we already have in memory (either
+    // because we hydrated it earlier OR because it has a live
+    // stream actively writing into it), don't refetch from SQLite.
+    // The map already holds the canonical state — going through DB
+    // would risk replacing a streaming turn with whatever the last
+    // commit looked like. This is the fix for "geri geldiğimde başa
+    // sardığını görüyorum": the previous design cancelled on tab
+    // switch, blanking the visible bubble; without that cancel, the
+    // hydrate-from-DB call would still snap us back to a stale
+    // pre-stream snapshot. Skipping when we have local state keeps
+    // the live progress visible.
+    if (activeConversationId && turnsByConv.has(activeConversationId)) {
+      loadedConversationIdRef.current = activeConversationId;
+      // Surface-context, action-hook, and persisted-turn sets are
+      // already keyed per-conversation, so there's nothing to swap
+      // back in — we just remember that this id is now "loaded".
+      return;
+    }
+
     loadedConversationIdRef.current = activeConversationId;
-    persistedTurnIdsRef.current = new Set();
-    surfaceContextRef.current = null;
-    actionHookRef.current = null;
 
     if (!activeConversationId) {
-      setTurns([]);
+      // No-op for the panel-level state because `turns` is derived;
+      // the empty conversation simply has no map entry.
+      return;
+    }
+
+    // If a surface-triggered draft is already lined up for this
+    // conversation (Why? / Explain / Triage / Explain commit / etc),
+    // the conversation is brand-new — `openAiChat` only just
+    // created it, no rows in SQLite yet — and the draft consumer
+    // effect is about to fire `send()` which appends user +
+    // assistant turns synchronously. Racing a DB hydration here
+    // would resolve a few ms later with `[]` and clobber those
+    // freshly-appended turns; the symptom is exactly the bug the
+    // user reported: "modeli seçiyorum ama analize başlamıyor"
+    // (model selected, Rust streams, UI shows empty conversation
+    // because the async load won the race against the auto-send's
+    // appending update). Pre-seed an empty entry so the
+    // `turnsByConv.has(...)` short-circuit above keeps subsequent
+    // visits stable too.
+    const pendingDraft = useAppStore.getState().aiDraft;
+    if (pendingDraft && pendingDraft.conversationId === activeConversationId) {
+      setTurnsForConv(activeConversationId, []);
       return;
     }
 
@@ -305,7 +521,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
       try {
         const conv: Conversation = await ipc.getConversation(activeConversationId);
         if (cancelled) return;
-        setTurns(conv.messages.map(turnFromMessage));
+        setTurnsForConv(activeConversationId, conv.messages.map(turnFromMessage));
       } catch (e) {
         if (cancelled) return;
         console.error('Failed to load conversation:', e);
@@ -322,39 +538,116 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     return () => {
       cancelled = true;
     };
-  }, [activeConversationId, turnFromMessage]);
+  }, [activeConversationId, turnFromMessage, turnsByConv, setTurnsForConv]);
 
   /**
    * Consume a surface-triggered draft. Fires once per draft (guarded
    * by `consumedDraftIdRef`). Pre-fills the composer text + stashes
-   * the contextSystemMessage; if `autoSend` is true, schedules a
-   * send on next tick after the input is in place.
+   * the contextSystemMessage, then branches the auto-send path on
+   * the number of configured providers:
+   *
+   *   • 0 providers → leave the prompt in the textarea, surface the
+   *     "No AI provider configured" banner. User adds one from
+   *     Settings → AI and clicks Send manually.
+   *   • 1 provider → fire send() immediately. The user already
+   *     committed by clicking Why? / Explain / Triage / etc; making
+   *     them re-confirm here would be redundant friction.
+   *   • 2+ providers → open the model picker and stash a "pending
+   *     auto-send" flag. As soon as the user picks a model
+   *     `selectProvider` consumes the flag and fires send() — so
+   *     the picker click is the single confirmation gesture, not a
+   *     two-step (pick model, then click send) ritual.
+   *
+   * We deliberately wait until `providersLoaded` is true before
+   * consuming the draft. The surface trigger and the panel mount
+   * race the IPC; without this gate, a cold-start auto-send fires
+   * before `provider` is non-null and `send()` would silently bail.
    */
   useEffect(() => {
     if (!aiDraft) return;
     if (aiDraft.conversationId !== activeConversationId) return;
     if (consumedDraftIdRef.current === aiDraft.conversationId) return;
+    if (!providersLoaded) return;
     consumedDraftIdRef.current = aiDraft.conversationId;
 
-    surfaceContextRef.current = aiDraft.contextSystemMessage ?? null;
-    actionHookRef.current = aiDraft.actionHook ?? null;
+    if (aiDraft.contextSystemMessage) {
+      surfaceContextByConvRef.current.set(aiDraft.conversationId, aiDraft.contextSystemMessage);
+    } else {
+      surfaceContextByConvRef.current.delete(aiDraft.conversationId);
+    }
+    if (aiDraft.actionHook) {
+      actionHookByConvRef.current.set(aiDraft.conversationId, aiDraft.actionHook);
+    } else {
+      actionHookByConvRef.current.delete(aiDraft.conversationId);
+    }
     if (aiDraft.draftPrompt) {
       setInput(aiDraft.draftPrompt);
     }
     const shouldAutoSend = aiDraft.autoSend === true;
+    const forcedProviderId = aiDraft.forcedProviderId ?? null;
+    const prompt = aiDraft.draftPrompt;
     // Clear the draft from the store BEFORE auto-send so a re-entry
     // (e.g. user switches away and back) doesn't double-fire.
     clearAiDraft();
-    if (shouldAutoSend) {
-      // Defer one tick so `setInput` lands and `send()` reads the
-      // freshly-set text. We're not racing with anything else here,
-      // so a single requestAnimationFrame is enough.
-      const id = requestAnimationFrame(() => {
-        sendRef.current?.();
-      });
-      return () => cancelAnimationFrame(id);
+
+    if (!shouldAutoSend) return;
+
+    if (providers.length === 0) {
+      // Banner already surfaced via reloadProviders' empty-list
+      // check; nothing to do here, prompt sits in the textarea.
+      return;
     }
-  }, [aiDraft, activeConversationId, clearAiDraft]);
+
+    // The surface-side popover (`useAiSurfaceTrigger`) captured a
+    // model choice next to the trigger button. Honor it: snap the
+    // panel's active provider to that one and fire immediately,
+    // bypassing the in-panel picker entirely. If the id no longer
+    // resolves (provider deleted between click and arrival here)
+    // we fall back to the count-based branches below.
+    if (forcedProviderId) {
+      const forced = providers.find((p) => p.id === forcedProviderId);
+      if (forced) {
+        setProvider(forced);
+        // Persist as the new default for parity with the in-panel
+        // picker — failure is non-fatal.
+        void ipc
+          .setDefaultAiProvider(forced.id)
+          .then(() => {
+            setProviders((prev) => prev.map((x) => ({ ...x, default: x.id === forced.id })));
+          })
+          .catch(() => {
+            /* ignore — local override still wins for this dispatch */
+          });
+        // We can't read the just-set `provider` from `send`'s
+        // closure on this same tick, so pass it explicitly.
+        void sendRef.current?.(prompt, forced);
+        return;
+      }
+    }
+
+    if (providers.length === 1) {
+      // Pass the prompt directly to send() — no rAF dance needed
+      // since the override path doesn't depend on `setInput`
+      // having propagated yet. We deliberately fire synchronously
+      // (well, kick off the async dispatch synchronously): if we
+      // deferred via rAF, the imminent `clearAiDraft()` re-render
+      // would re-run this effect with `aiDraft = null` and the
+      // returned cleanup would cancelAnimationFrame our pending
+      // dispatch — silently dropping the auto-send. Synchronous
+      // dispatch sidesteps that whole class of race.
+      void sendRef.current?.(prompt);
+      return;
+    }
+    // 2+ providers reached the panel without a `forcedProviderId`
+    // — that means a manual `openAiChat` call (free-chat command,
+    // legacy entry point) didn't go through `useAiSurfaceTrigger`.
+    // Fall back to the in-panel picker path so the user still has
+    // a chance to choose before we send.
+    pendingAutoSendRef.current = true;
+    pendingAutoSendPromptRef.current = aiDraft.draftPrompt ?? null;
+    setAwaitingAutoSend(true);
+    setPickerOpen(true);
+  }, [aiDraft, activeConversationId, clearAiDraft, providers, providersLoaded]);
 
   /**
    * Persist a user message immediately on send. We don't wait for
@@ -362,23 +655,27 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
    * already canonical content; if the stream errors out the user
    * still wants to see "I asked X" in the conversation history.
    */
-  const persistUserMessage = useCallback(async (turn: Turn, conversationId: string) => {
-    if (persistedTurnIdsRef.current.has(turn.id)) return;
-    persistedTurnIdsRef.current.add(turn.id);
-    try {
-      await ipc.appendConversationMessage({
-        conversation_id: conversationId,
-        client_id: turn.id,
-        role: 'user',
-        content: turn.content,
-      });
-    } catch (e) {
-      // Non-fatal — the user still sees their text on screen.
-      // We log so a future toast layer can pick this up.
-      console.error('persistUserMessage failed:', e);
-      persistedTurnIdsRef.current.delete(turn.id);
-    }
-  }, []);
+  const persistUserMessage = useCallback(
+    async (turn: Turn, conversationId: string) => {
+      const persisted = getPersistedSet(conversationId);
+      if (persisted.has(turn.id)) return;
+      persisted.add(turn.id);
+      try {
+        await ipc.appendConversationMessage({
+          conversation_id: conversationId,
+          client_id: turn.id,
+          role: 'user',
+          content: turn.content,
+        });
+      } catch (e) {
+        // Non-fatal — the user still sees their text on screen.
+        // We log so a future toast layer can pick this up.
+        console.error('persistUserMessage failed:', e);
+        persisted.delete(turn.id);
+      }
+    },
+    [getPersistedSet],
+  );
 
   /**
    * Persist an assistant message at stream finalisation, or update
@@ -409,8 +706,18 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     }
   }, []);
   // Bind a ref so the auto-send effect (which fires before `send`
-  // is in scope) can call into the freshest closure.
-  const sendRef = useRef<(() => Promise<void>) | null>(null);
+  // is in scope) can call into the freshest closure. Accepts an
+  // optional override text — used by the surface-trigger auto-send
+  // path so we don't depend on `setInput → re-render → send reads
+  // input` happening in lockstep with our rAF (which has burned us
+  // before in StrictMode dev replays). The second arg pins a
+  // provider for this single dispatch (used when the surface-side
+  // popover already captured the user's pick — we can't wait for
+  // React to commit `setProvider` before reading `provider` in
+  // send's closure).
+  const sendRef = useRef<
+    ((overrideText?: string, providerOverride?: AiProvider) => Promise<void>) | null
+  >(null);
   // Same idea for `persistAssistantTurn` — the streaming reducer
   // schedules persistence via `queueMicrotask`, and the closure
   // captured at `runStream` definition would otherwise hold the
@@ -441,6 +748,13 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
       );
     } catch (e) {
       setProviderError(e instanceof Error ? e.message : String(e));
+    } finally {
+      // Flip the loaded gate even on error — otherwise a transient
+      // IPC failure would deadlock the auto-send path forever. The
+      // surface-triggered consumer effect handles `providers.length
+      // === 0` by surfacing the error banner, which is the right
+      // user signal in either case (no providers / failed to list).
+      setProvidersLoaded(true);
     }
   }, []);
 
@@ -458,12 +772,22 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
       const node = pickerRef.current;
       if (node && e.target instanceof Node && !node.contains(e.target)) {
         setPickerOpen(false);
+        // Dismissal cancels any pending auto-send — the user
+        // explicitly stepped out of the picker, which we read as
+        // "let me edit the prompt before sending". The draft stays
+        // in the textarea so they can tweak and click Send manually.
+        pendingAutoSendRef.current = false;
+        pendingAutoSendPromptRef.current = null;
+        setAwaitingAutoSend(false);
       }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         setPickerOpen(false);
+        pendingAutoSendRef.current = false;
+        pendingAutoSendPromptRef.current = null;
+        setAwaitingAutoSend(false);
       }
     };
     window.addEventListener('mousedown', onDown);
@@ -477,6 +801,29 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   const selectProvider = useCallback(async (p: AiProvider) => {
     setProvider(p);
     setPickerOpen(false);
+    // If the picker was opened by the auto-send path (2+ providers
+    // and a surface-triggered draft), the click on a model row IS
+    // the send confirmation — fire send() now. We consume the flag
+    // before the rAF so a stray re-entry (e.g. user clicks twice)
+    // can't double-fire. `send()` reads `provider` from state, but
+    // React batches the setProvider call above so by the time the
+    // animation frame runs the state has flushed.
+    if (pendingAutoSendRef.current) {
+      pendingAutoSendRef.current = false;
+      const prompt = pendingAutoSendPromptRef.current ?? undefined;
+      pendingAutoSendPromptRef.current = null;
+      setAwaitingAutoSend(false);
+      // Defer the dispatch one frame so React commits `setProvider(p)`
+      // before send runs. Without this, `sendRef.current` still
+      // points to the previous render's `send` closure (which
+      // captured the OLD provider) and the request would go to
+      // whatever model was selected *before* the user picked.
+      // This is a useCallback (not a useEffect), so no cleanup
+      // can cancel our rAF — safe to defer.
+      requestAnimationFrame(() => {
+        sendRef.current?.(prompt);
+      });
+    }
     // Persist the choice as the new default so the next session
     // (and other surfaces — diff/log popovers, commit message) all
     // pick up the same model. Failure here is non-fatal: the local
@@ -491,6 +838,12 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
 
   const openAiSettingsFromPicker = useCallback(() => {
     setPickerOpen(false);
+    // User is detouring to AI Settings — they're not committing
+    // to a send, so drop any pending auto-send. They'll come back
+    // and click Send manually (or re-trigger the surface action).
+    pendingAutoSendRef.current = false;
+    pendingAutoSendPromptRef.current = null;
+    setAwaitingAutoSend(false);
     window.dispatchEvent(new CustomEvent('runhq:open-ai-settings'));
   }, []);
 
@@ -569,7 +922,8 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     const handle = window.setTimeout(() => {
       const texts: string[] = [];
       if (contextSystemMessage) texts.push(contextSystemMessage);
-      if (surfaceContextRef.current) texts.push(surfaceContextRef.current);
+      const surfaceCtx = getSurfaceContext();
+      if (surfaceCtx) texts.push(surfaceCtx);
       for (const t of turns) {
         if (t.content) texts.push(t.content);
       }
@@ -592,42 +946,67 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         });
     }, 120);
     return () => window.clearTimeout(handle);
-  }, [turns, input, contextSystemMessage]);
+  }, [turns, input, contextSystemMessage, getSurfaceContext]);
 
+  /**
+   * Cancel a stream targeting a specific conversation. Bumping that
+   * conversation's request id orphans its in-flight chunk handler;
+   * the assistant turn flips out of `streaming` so the UI stops the
+   * spinner. We also mark any cancelled in-flight assistant turn as
+   * `partial` so a reloaded conversation shows it as incomplete (the
+   * user explicitly stopped the model mid-stream), and persist the
+   * partial content to SQLite — losing a half-typed answer on a
+   * hard panel close would be a real "where did my notes go?"
+   * moment.
+   *
+   * Per-conversation cancel (rather than a panel-wide bump) is what
+   * lets the user start streaming in tab A, switch to tab B, kick
+   * off another stream, and have *both* keep going independently.
+   * The legacy single-counter design swept every parallel stream on
+   * every cancel — that was the source of "geri geldiğimde başa
+   * sardığını görüyorum".
+   */
+  const cancelFor = useCallback(
+    (convId: string | null) => {
+      if (!convId) return;
+      bumpRequestId(convId);
+      inFlightConvsRef.current.delete(convId);
+      setTurnsForConv(convId, (prev) =>
+        prev.map((t) => {
+          if (!t.streaming) return t;
+          const next = {
+            ...t,
+            streaming: false,
+            partial: t.role === 'assistant' ? true : t.partial,
+          };
+          if (
+            next.role === 'assistant' &&
+            // Don't persist an utterly blank cancelled turn — clutter
+            // with no information value.
+            next.content.trim().length > 0
+          ) {
+            Promise.resolve().then(() => {
+              void persistAssistantTurnRef.current?.(next, convId);
+            });
+          }
+          return next;
+        }),
+      );
+    },
+    [bumpRequestId, setTurnsForConv],
+  );
+
+  /**
+   * Convenience: cancel the active conversation's stream. Used by
+   * the visible Stop button and by `send()` to clear out any prior
+   * in-flight request on the same conversation before starting a
+   * new one. Tab switches deliberately do NOT call this — streams
+   * keep running in the background until the user closes the tab
+   * or hits Stop.
+   */
   const cancel = useCallback(() => {
-    // Bumping the request id orphans the in-flight stream's chunk
-    // handler; the assistant turn flips out of `streaming` so the
-    // UI stops the spinner. We also mark any cancelled in-flight
-    // assistant turn as `partial` so a reloaded conversation shows
-    // it as incomplete (the user explicitly stopped the model mid-
-    // stream), and persist the partial content to SQLite — losing
-    // a half-typed answer on a hard panel close would be a real
-    // "where did my notes go?" moment.
-    requestIdRef.current += 1;
-    const convId = activeConversationId;
-    setTurns((prev) =>
-      prev.map((t) => {
-        if (!t.streaming) return t;
-        const next = {
-          ...t,
-          streaming: false,
-          partial: t.role === 'assistant' ? true : t.partial,
-        };
-        if (
-          next.role === 'assistant' &&
-          convId &&
-          // Don't persist an utterly blank cancelled turn — clutter
-          // with no information value.
-          next.content.trim().length > 0
-        ) {
-          Promise.resolve().then(() => {
-            void persistAssistantTurnRef.current?.(next, convId);
-          });
-        }
-        return next;
-      }),
-    );
-  }, [activeConversationId]);
+    cancelFor(activeConversationId);
+  }, [activeConversationId, cancelFor]);
 
   /**
    * Run one streaming round-trip into a target assistant turn.
@@ -654,6 +1033,13 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   const runStream = useCallback(
     async (args: {
       targetTurnId: string;
+      /** Conversation that owns this stream. Captured at the call
+       *  site (typically the active conversation when the user hit
+       *  Send) and threaded through every chunk handler so a tab
+       *  switch mid-stream still routes deltas to the originating
+       *  conversation rather than whichever tab happens to be on
+       *  screen now. */
+      targetConvId: string;
       history: ChatMessage[];
       appendOnly: boolean;
       /** 0 for the original send, 1 for an auto-retry. We cap at 1
@@ -664,14 +1050,25 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
        *  button uses a separate code path (`appendOnly: true`) so
        *  it's unaffected by this cap. */
       retryAttempt?: number;
+      /** Pin a provider for this dispatch instead of reading from
+       *  closure-captured `provider`. Used by the surface-popover
+       *  flow where `setProvider(forced)` was called moments ago
+       *  but React hasn't committed it into our closure yet. */
+      providerOverride?: AiProvider;
     }) => {
-      if (!provider) {
+      const activeProvider = args.providerOverride ?? provider;
+      if (!activeProvider) {
         setProviderError('No AI provider configured. Add one from Settings → AI.');
         return;
       }
 
-      const { targetTurnId, history, appendOnly, retryAttempt = 0 } = args;
-      const myId = ++requestIdRef.current;
+      const { targetTurnId, targetConvId, history, appendOnly, retryAttempt = 0 } = args;
+      const myId = bumpRequestId(targetConvId);
+      // Mark this conversation as having a live stream so the
+      // hydration effect knows to leave its turns alone if the user
+      // navigates away and back before the stream lands `done`.
+      inFlightConvsRef.current.add(targetConvId);
+      const isStillCurrent = () => requestIdsRef.current.get(targetConvId) === myId;
       startedAtRef.current = performance.now();
       // Track whether ANY delta arrived during this stream. We need
       // this in the `done` handler to disambiguate two cases:
@@ -718,12 +1115,12 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         appendOnly,
         retryAttempt,
         historyMessages: history.length,
-        provider: provider?.name,
-        model: provider?.model,
+        provider: activeProvider.name,
+        model: activeProvider.model,
       });
 
       const onChunk = (chunk: StreamChunk) => {
-        if (myId !== requestIdRef.current) return;
+        if (!isStillCurrent()) return;
         if (chunk.type === 'delta') {
           sawAnyDelta = true;
           deltaCount += 1;
@@ -732,7 +1129,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           lastDeltaAt = nowPerf;
           dbg('delta', { len: chunk.text.length, count: deltaCount });
           const now = Date.now();
-          setTurns((prev) =>
+          setTurnsForConv(targetConvId, (prev) =>
             prev.map((t) =>
               t.id === targetTurnId
                 ? {
@@ -753,7 +1150,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           reasoningChunkCount += 1;
           dbg('reasoning', { len: chunk.text.length, count: reasoningChunkCount });
           const now = Date.now();
-          setTurns((prev) =>
+          setTurnsForConv(targetConvId, (prev) =>
             prev.map((t) =>
               t.id === targetTurnId
                 ? {
@@ -767,7 +1164,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         } else if (chunk.type === 'reclassify_as_reasoning') {
           if (appendOnly) return;
           dbg('reclassify_as_reasoning');
-          setTurns((prev) =>
+          setTurnsForConv(targetConvId, (prev) =>
             prev.map((t) =>
               t.id === targetTurnId
                 ? {
@@ -843,7 +1240,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           let triggerNudgeAnswer = false;
           let nextContentSnapshot = '';
           let finalisedTurnSnapshot: Turn | null = null;
-          setTurns((prev) =>
+          setTurnsForConv(targetConvId, (prev) =>
             prev.map((t) => {
               if (t.id !== targetTurnId) return t;
               // Reconcile final content. Three cases to cover:
@@ -947,11 +1344,14 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           // Persist outside the reducer (the reducer must stay
           // pure). `queueMicrotask` keeps it on the same tick so a
           // panel-unmount race can't drop the write.
-          if (finalisedTurnSnapshot && activeConversationId) {
+          if (finalisedTurnSnapshot) {
             const snap = finalisedTurnSnapshot as Turn;
-            const convId = activeConversationId;
+            // Stream lifecycle complete — drop the in-flight marker
+            // so a subsequent navigation back to this conversation
+            // hydrates from DB normally.
+            inFlightConvsRef.current.delete(targetConvId);
             Promise.resolve().then(() => {
-              void persistAssistantTurnRef.current?.(snap, convId);
+              void persistAssistantTurnRef.current?.(snap, targetConvId);
             });
           }
           if (triggerRetry) {
@@ -963,7 +1363,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             // its own `done`. Wiping the visible content+reasoning
             // first prevents the user from seeing a half-second
             // flash of the failed nub when the retry races.
-            setTurns((prev) =>
+            setTurnsForConv(targetConvId, (prev) =>
               prev.map((t) =>
                 t.id === targetTurnId
                   ? {
@@ -978,6 +1378,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             );
             void runStreamRef.current?.({
               targetTurnId,
+              targetConvId,
               history,
               appendOnly: false,
               retryAttempt: 1,
@@ -1010,6 +1411,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             ];
             void runStreamRef.current?.({
               targetTurnId,
+              targetConvId,
               history: continueHistory,
               appendOnly: true,
               retryAttempt: 1,
@@ -1036,6 +1438,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             ];
             void runStreamRef.current?.({
               targetTurnId,
+              targetConvId,
               history: continueHistory,
               appendOnly: true,
               retryAttempt: 1,
@@ -1053,7 +1456,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           let recover = false;
           let snapshot = '';
           let errorTurnSnapshot: Turn | null = null;
-          setTurns((prev) =>
+          setTurnsForConv(targetConvId, (prev) =>
             prev.map((t) => {
               if (t.id !== targetTurnId) return t;
               const length = t.content.trim().length;
@@ -1072,11 +1475,14 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
               return next;
             }),
           );
-          if (errorTurnSnapshot && activeConversationId) {
+          if (errorTurnSnapshot) {
             const snap = errorTurnSnapshot as Turn;
-            const convId = activeConversationId;
+            // Terminal error path — no retry coming, mark the
+            // conversation idle so subsequent navigations hydrate
+            // normally.
+            inFlightConvsRef.current.delete(targetConvId);
             Promise.resolve().then(() => {
-              void persistAssistantTurnRef.current?.(snap, convId);
+              void persistAssistantTurnRef.current?.(snap, targetConvId);
             });
           }
           if (recover) {
@@ -1091,6 +1497,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             ];
             void runStreamRef.current?.({
               targetTurnId,
+              targetConvId,
               history: continueHistory,
               appendOnly: true,
               retryAttempt: 1,
@@ -1102,7 +1509,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
       try {
         await ipc.aiChatCompletionStream(
           {
-            provider_id: provider.id,
+            provider_id: activeProvider.id,
             messages: history,
             // No surface-level `max_tokens` cap. We used to send 1200
             // here, which was the silent culprit behind the user's
@@ -1121,10 +1528,10 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           onChunk,
         );
       } catch (e) {
-        if (myId !== requestIdRef.current) return;
+        if (!isStillCurrent()) return;
         const message = e instanceof Error ? e.message : String(e);
         let outerErrorSnapshot: Turn | null = null;
-        setTurns((prev) =>
+        setTurnsForConv(targetConvId, (prev) =>
           prev.map((t) => {
             if (t.id !== targetTurnId) return t;
             const next: Turn = {
@@ -1137,16 +1544,16 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
             return next;
           }),
         );
-        if (outerErrorSnapshot && activeConversationId) {
+        if (outerErrorSnapshot) {
           const snap = outerErrorSnapshot as Turn;
-          const convId = activeConversationId;
+          inFlightConvsRef.current.delete(targetConvId);
           Promise.resolve().then(() => {
-            void persistAssistantTurnRef.current?.(snap, convId);
+            void persistAssistantTurnRef.current?.(snap, targetConvId);
           });
         }
       }
     },
-    [provider, activeConversationId],
+    [provider, bumpRequestId, setTurnsForConv],
   );
   // Keep the ref pointed at the latest `runStream`. Reassigned every
   // render; cheap and avoids the circular-dep problem described at
@@ -1155,123 +1562,167 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   // (with the current `provider`, etc.).
   runStreamRef.current = runStream;
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text) return;
-    if (!provider) {
-      setProviderError('No AI provider configured. Add one from Settings → AI.');
-      return;
-    }
-
-    cancel();
-    setInput('');
-
-    // Ensure a conversation row exists. First send into an empty
-    // panel auto-creates a `'free'` conversation seeded from the
-    // user's first prompt (truncated to 60 chars for the title).
-    // Surface-triggered chats already have an id from `openAiChat`
-    // — we keep it.
-    let convId = activeConversationId;
-    if (!convId) {
-      try {
-        const newId = await ipc.createConversation({
-          title: text.slice(0, 60),
-          origin: 'free',
-          context_json: null,
-        });
-        convId = newId;
-        // Mark this id as "loaded" before we set it on the store
-        // so our hydration effect's id-change guard skips the
-        // round-trip — the conversation is empty, no need to fetch.
-        loadedConversationIdRef.current = newId;
-        setActiveConversation(newId);
-      } catch (e) {
-        setProviderError(
-          `Couldn't start conversation: ${e instanceof Error ? e.message : String(e)}`,
-        );
+  const send = useCallback(
+    async (overrideText?: string, providerOverride?: AiProvider) => {
+      // `overrideText` lets the surface-triggered auto-send path
+      // hand the prompt in directly. We previously relied on
+      // `setInput(prompt)` landing before `send()` reads `input`,
+      // which is fragile when React schedules the re-render across
+      // an rAF (StrictMode dev replays in particular dropped the
+      // prompt). Accepting an explicit text source removes the race
+      // entirely. Manual sends still pass nothing → fall back to
+      // the live composer state.
+      //
+      // `providerOverride` lets the same path pin a specific
+      // provider for this single dispatch — important for the
+      // surface popover flow where `setProvider(p)` was just called
+      // and `provider` from closure is still pointing at the
+      // previous selection. Manual sends omit this and use the
+      // live `provider` state.
+      const text = (overrideText ?? input).trim();
+      if (!text) return;
+      const activeProvider = providerOverride ?? provider;
+      if (!activeProvider) {
+        setProviderError('No AI provider configured. Add one from Settings → AI.');
         return;
       }
-    }
 
-    const userTurn: Turn = {
-      id: `u-${Date.now()}`,
-      role: 'user',
-      content: text,
-    };
-    const startedAt = Date.now();
-    const assistantTurn: Turn = {
-      id: `a-${startedAt}`,
-      role: 'assistant',
-      content: '',
-      streaming: true,
-      streamStartedAtMs: startedAt,
-      reasoningStartedAtMs: startedAt,
-      // Snapshot the *active* provider into the turn. Without this,
-      // switching models mid-conversation would silently relabel
-      // every prior assistant turn with the new model name (the
-      // header just read from the live `provider` state). The user
-      // explicitly asked for "hangi mesaj hangi modele gitmiş bunu
-      // tutalım" — capturing at send-time is the only way to make
-      // that promise honest.
-      providerName: provider.name,
-      modelName: provider.model || undefined,
-      // Stamp the action hook (if any) onto the turn at creation
-      // time. We deliberately apply it to *every* assistant turn in
-      // the session — a follow-up question still benefits from the
-      // primary "Use as commit" / "Insert standup" affordance, and
-      // computing "first turn only" on the fly during render would
-      // need extra state to track whether the action was already
-      // taken. Cheap to over-stamp; harmless for free chat (kind:
-      // 'none' renders nothing).
-      actionHook: actionHookRef.current ?? undefined,
-    };
+      cancel();
+      setInput('');
 
-    const history: ChatMessage[] = [];
-    history.push({ role: 'system', content: SYSTEM_PROMPT });
-    if (contextSystemMessage) {
-      history.push({ role: 'system', content: contextSystemMessage });
-    }
-    // Surface-triggered chats carry a one-shot system message with
-    // the actual evidence (diff blob, log line, project state). We
-    // ship it on EVERY turn in the conversation (not just the
-    // first) so the model still grounds in that evidence on a
-    // follow-up question — without this, "explain again in fewer
-    // words" would silently drop the diff context.
-    if (surfaceContextRef.current) {
-      history.push({ role: 'system', content: surfaceContextRef.current });
-    }
-    for (const t of turns) {
-      if (t.error) continue;
-      history.push({ role: t.role, content: t.content });
-    }
-    history.push({ role: 'user', content: text });
+      // Ensure a conversation row exists. First send into an empty
+      // panel auto-creates a `'free'` conversation seeded from the
+      // user's first prompt (truncated to 60 chars for the title).
+      // Surface-triggered chats already have an id from `openAiChat`
+      // — we keep it.
+      let convId = activeConversationId;
+      if (!convId) {
+        try {
+          const newId = await ipc.createConversation({
+            title: text.slice(0, 60),
+            origin: 'free',
+            context_json: null,
+          });
+          convId = newId;
+          // Mark this id as "loaded" before we set it on the store
+          // so our hydration effect's id-change guard skips the
+          // round-trip — the conversation is empty, no need to fetch.
+          loadedConversationIdRef.current = newId;
+          setActiveConversation(newId);
+        } catch (e) {
+          setProviderError(
+            `Couldn't start conversation: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return;
+        }
+      }
 
-    setTurns((prev) => [...prev, userTurn, assistantTurn]);
-    // Persist the user's message immediately. Don't await — IPC is
-    // a few-ms round-trip even on cold cache, blocking the stream
-    // start would add visible latency. If it fails, the stream
-    // still proceeds; persistence is best-effort and the in-memory
-    // turn is canonical for the rest of this session.
-    if (convId) {
+      const userTurn: Turn = {
+        id: `u-${Date.now()}`,
+        role: 'user',
+        content: text,
+      };
+      const startedAt = Date.now();
+      const assistantTurn: Turn = {
+        id: `a-${startedAt}`,
+        role: 'assistant',
+        content: '',
+        streaming: true,
+        streamStartedAtMs: startedAt,
+        reasoningStartedAtMs: startedAt,
+        // Snapshot the *active* provider into the turn. Without this,
+        // switching models mid-conversation would silently relabel
+        // every prior assistant turn with the new model name (the
+        // header just read from the live `provider` state). The user
+        // explicitly asked for "hangi mesaj hangi modele gitmiş bunu
+        // tutalım" — capturing at send-time is the only way to make
+        // that promise honest.
+        providerName: activeProvider.name,
+        modelName: activeProvider.model || undefined,
+        // Stamp the action hook (if any) onto the turn at creation
+        // time. We deliberately apply it to *every* assistant turn in
+        // the session — a follow-up question still benefits from the
+        // primary "Use as commit" / "Insert standup" affordance, and
+        // computing "first turn only" on the fly during render would
+        // need extra state to track whether the action was already
+        // taken. Cheap to over-stamp; harmless for free chat (kind:
+        // 'none' renders nothing).
+        actionHook: getActionHook(convId) ?? undefined,
+      };
+
+      const history: ChatMessage[] = [];
+      history.push({ role: 'system', content: SYSTEM_PROMPT });
+      if (contextSystemMessage) {
+        history.push({ role: 'system', content: contextSystemMessage });
+      }
+      // Surface-triggered chats carry a one-shot system message with
+      // the actual evidence (diff blob, log line, project state). We
+      // ship it on EVERY turn in the conversation (not just the
+      // first) so the model still grounds in that evidence on a
+      // follow-up question — without this, "explain again in fewer
+      // words" would silently drop the diff context.
+      const surfaceCtxForSend = getSurfaceContext(convId);
+      if (surfaceCtxForSend) {
+        history.push({ role: 'system', content: surfaceCtxForSend });
+      }
+      for (const t of turns) {
+        if (t.error) continue;
+        history.push({ role: t.role, content: t.content });
+      }
+      history.push({ role: 'user', content: text });
+
+      if (!convId) {
+        // Should be impossible — either the panel had an active
+        // conversation or the createConversation block above
+        // populated `convId`. Bail loudly rather than appending
+        // turns to a phantom slot.
+        setProviderError("Couldn't resolve a conversation id for this send.");
+        return;
+      }
+      // Append directly into THIS conversation's slot. Going through
+      // the active-conv setter would race the just-fired
+      // `setActiveConversation(newId)` because React hasn't committed
+      // it yet — `setTurns` would see activeConversationId === null
+      // and silently no-op, losing the user's message.
+      setTurnsForConv(convId, (prev) => [...prev, userTurn, assistantTurn]);
+      // Persist the user's message immediately. Don't await — IPC is
+      // a few-ms round-trip even on cold cache, blocking the stream
+      // start would add visible latency. If it fails, the stream
+      // still proceeds; persistence is best-effort and the in-memory
+      // turn is canonical for the rest of this session.
       void persistUserMessage(userTurn, convId);
-    }
 
-    await runStream({
-      targetTurnId: assistantTurn.id,
-      history,
-      appendOnly: false,
-    });
-  }, [
-    cancel,
-    contextSystemMessage,
-    input,
-    provider,
-    runStream,
-    turns,
-    activeConversationId,
-    setActiveConversation,
-    persistUserMessage,
-  ]);
+      await runStream({
+        targetTurnId: assistantTurn.id,
+        // Pin the stream to this conversation regardless of what the
+        // user does next — switching tabs mid-stream now leaves this
+        // request happily writing into the originating slot rather
+        // than silently retargeting (or being cancelled) when active
+        // changes.
+        targetConvId: convId,
+        history,
+        appendOnly: false,
+        // Forward the override so the IPC actually goes to the
+        // user's just-picked provider rather than whatever React's
+        // committed `provider` state holds at this exact moment.
+        providerOverride: providerOverride,
+      });
+    },
+    [
+      cancel,
+      contextSystemMessage,
+      input,
+      provider,
+      runStream,
+      turns,
+      activeConversationId,
+      setActiveConversation,
+      setTurnsForConv,
+      persistUserMessage,
+      getSurfaceContext,
+      getActionHook,
+    ],
+  );
   sendRef.current = send;
 
   /**
@@ -1281,6 +1732,11 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
    */
   const continueTruncated = useCallback(async () => {
     if (!provider) return;
+    // Continue is always invoked from the visible conversation —
+    // pin the stream there so a later tab switch doesn't drift the
+    // chunks onto the wrong slot.
+    const convId = activeConversationId;
+    if (!convId) return;
     // Find the most recent assistant turn that ended in a state we
     // can resume: truncation by max_tokens (`length`), an upstream
     // stall (`timeout` — synthesised by the Rust parser), or a
@@ -1327,8 +1783,9 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     if (contextSystemMessage) {
       history.push({ role: 'system', content: contextSystemMessage });
     }
-    if (surfaceContextRef.current) {
-      history.push({ role: 'system', content: surfaceContextRef.current });
+    const surfaceCtxForContinue = getSurfaceContext(convId);
+    if (surfaceCtxForContinue) {
+      history.push({ role: 'system', content: surfaceCtxForContinue });
     }
     for (const t of turns) {
       if (t.error) continue;
@@ -1352,59 +1809,154 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
 
     await runStream({
       targetTurnId: target.id,
+      targetConvId: convId,
       history,
       appendOnly: true,
     });
-  }, [cancel, contextSystemMessage, provider, runStream, turns]);
+  }, [
+    activeConversationId,
+    cancel,
+    contextSystemMessage,
+    getSurfaceContext,
+    provider,
+    runStream,
+    setTurns,
+    turns,
+  ]);
 
   const newChat = useCallback(() => {
-    cancel();
-    // Drop the active conversation back to null so the panel sits
-    // in its empty state. A follow-up send will auto-create a fresh
-    // `'free'` conversation row keyed off the user's first prompt
-    // — symmetric to the very first send out of a cold start.
+    // Drop active to null so the panel shows its empty/welcome
+    // state and the next send auto-creates a fresh `'free'`
+    // conversation row. We deliberately do NOT cancel the outgoing
+    // tab's stream (if any) or purge its per-conv state — the tab
+    // stays in the rail; navigating back to it should resume the
+    // running answer (or show its partial state) intact. This is
+    // the symmetric counterpart to selectTab leaving streams alone.
     setActiveConversation(null);
-    surfaceContextRef.current = null;
-    actionHookRef.current = null;
     consumedDraftIdRef.current = null;
-    persistedTurnIdsRef.current = new Set();
-    setTurns([]);
     setInput('');
     inputRef.current?.focus();
-  }, [cancel, setActiveConversation]);
+  }, [setActiveConversation]);
 
   /**
-   * Switch to a different tab. Cancels any in-flight stream on the
-   * outgoing chat — same protocol the History drawer uses, since
-   * stream chunks are addressed by `requestIdRef` and would land on
-   * the wrong conversation otherwise.
+   * Switch to a different tab. Streams in the OUTGOING tab keep
+   * running — only an explicit Stop or tab-close cancels. This is
+   * the fix for "geri geldiğimde başa sardığını görüyorum": the
+   * legacy implementation called `cancel()` here, which bumped the
+   * shared request id and marked any streaming turn as `partial`.
+   * With per-conversation request ids and per-conversation turn
+   * state, we can let the chunk handler keep writing into A's slot
+   * while the user is reading B.
    */
   const selectTab = useCallback(
     (id: string) => {
       if (id === activeConversationId) return;
-      cancel();
       setActiveConversation(id);
     },
-    [activeConversationId, cancel, setActiveConversation],
+    [activeConversationId, setActiveConversation],
   );
 
   /**
-   * Close a tab from the bar. The store handles neighbour-snap if
-   * the closing tab was active; we only need to cancel any stream
-   * tied to that tab so dangling chunks don't bleed into the
-   * neighbour the store snaps us to.
+   * Drop all per-conv state for a closed tab so the maps don't leak
+   * across long sessions. Only called for genuine closures — tab
+   * switches retain everything for "go back and resume" UX.
+   */
+  const purgeConvState = useCallback(
+    (id: string) => {
+      cancelFor(id);
+      surfaceContextByConvRef.current.delete(id);
+      actionHookByConvRef.current.delete(id);
+      persistedTurnIdsByConvRef.current.delete(id);
+      // Keep turnsByConv around briefly? No — once the tab is gone
+      // the user can't see it; the History drawer reloads from DB.
+      setTurnsByConv((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [cancelFor],
+  );
+
+  /**
+   * Close a tab from the bar. Cancel + purge that specific tab's
+   * stream and per-conv state so a long session doesn't accumulate
+   * abandoned conversations in memory. Sibling tabs are untouched —
+   * they keep streaming if they were mid-answer.
    */
   const closeTabFromBar = useCallback(
     (id: string) => {
-      if (id === activeConversationId) {
-        cancel();
-      }
+      purgeConvState(id);
       closeTab(id);
     },
-    [activeConversationId, cancel, closeTab],
+    [purgeConvState, closeTab],
   );
 
+  /**
+   * "Close Others" handler. The store collapses the rail down to
+   * just `keepId`; we purge per-conv state for every tab being
+   * closed so their streams stop and their state doesn't linger.
+   * `keepId` itself is left alone — its stream (if any) keeps
+   * running.
+   */
+  const closeOthersFromBar = useCallback(
+    (keepId: string) => {
+      for (const id of openTabs) {
+        if (id !== keepId) purgeConvState(id);
+      }
+      closeOtherTabs(keepId);
+    },
+    [openTabs, purgeConvState, closeOtherTabs],
+  );
+
+  /**
+   * "Close to the Right" handler. Purge each conversation we're
+   * about to close; everything at or before the anchor stays put,
+   * including any streams those tabs have running.
+   */
+  const closeToRightFromBar = useCallback(
+    (id: string) => {
+      const idx = openTabs.indexOf(id);
+      if (idx < 0) return;
+      for (let i = idx + 1; i < openTabs.length; i += 1) {
+        const closingId = openTabs[i];
+        if (closingId) purgeConvState(closingId);
+      }
+      closeTabsToRight(id);
+    },
+    [openTabs, purgeConvState, closeTabsToRight],
+  );
+
+  /**
+   * "Close All" handler. Purge every conversation in the rail —
+   * everything in the panel collapses back to the empty state.
+   */
+  const closeAllFromBar = useCallback(() => {
+    for (const id of openTabs) {
+      purgeConvState(id);
+    }
+    closeAllTabs();
+  }, [openTabs, purgeConvState, closeAllTabs]);
+
   const isStreaming = turns.some((t) => t.streaming);
+  /**
+   * Set of tab ids whose conversation has at least one streaming
+   * turn — including tabs that aren't currently on screen. Drives
+   * the per-tab spinner in ChatTabs so the user can see at a glance
+   * which background tabs are still working. We rebuild on every
+   * turnsByConv change, but the set creation is cheap (O(N) over
+   * open tabs) and the ChatTabs prop is referentially compared so
+   * downstream re-renders are gated by content, not identity.
+   */
+  const streamingTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of openTabs) {
+      const tabTurns = turnsByConv.get(id);
+      if (tabTurns && tabTurns.some((t) => t.streaming)) ids.add(id);
+    }
+    return ids;
+  }, [openTabs, turnsByConv]);
 
   /**
    * Auto-grow the composer textarea to fit its content.
@@ -1548,8 +2100,12 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         activeConversationId={activeConversationId}
         activeTitleOverride={activeTabTitle}
         activeStreaming={isStreaming}
+        streamingTabIds={streamingTabIds}
         onSelect={selectTab}
         onClose={closeTabFromBar}
+        onCloseOthers={closeOthersFromBar}
+        onCloseToRight={closeToRightFromBar}
+        onCloseAll={closeAllFromBar}
         onNew={newChat}
         // Disable "+" when the active chat is already a fresh empty
         // one: spawning another would be a no-op and just confuse
@@ -1735,6 +2291,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
                     activeId={provider.id}
                     onSelect={selectProvider}
                     onManage={openAiSettingsFromPicker}
+                    awaitingAutoSend={awaitingAutoSend}
                   />
                 )}
               </div>
@@ -2216,11 +2773,18 @@ function ModelPicker({
   activeId,
   onSelect,
   onManage,
+  awaitingAutoSend = false,
 }: {
   providers: AiProvider[];
   activeId: string;
   onSelect: (p: AiProvider) => void;
   onManage: () => void;
+  /** When true, the picker was opened by a surface-triggered draft
+   *  (Why? / Diff Explain / etc) with `autoSend: true` and 2+
+   *  configured providers. Selecting a row will fire the send
+   *  immediately. We surface a one-line hint at the top of the list
+   *  so the click doesn't feel like a surprise. */
+  awaitingAutoSend?: boolean;
 }) {
   return (
     <div
@@ -2231,6 +2795,16 @@ function ModelPicker({
         'rounded-app overflow-hidden border shadow-lg shadow-black/30',
       )}
     >
+      {awaitingAutoSend && (
+        <div
+          className={cn(
+            'border-border/60 bg-accent/8 text-accent',
+            'border-b px-2.5 py-1.5 text-[10.5px] font-medium tracking-wide uppercase',
+          )}
+        >
+          Pick a model to send
+        </div>
+      )}
       <div className="max-h-[280px] overflow-y-auto py-1">
         {providers.length === 0 ? (
           <div className="text-fg-dim px-2.5 py-2 text-[11px]">No providers configured.</div>

@@ -365,7 +365,7 @@ pub fn run() {
             let new_service =
                 MenuItem::with_id(app, "new-service", "New Service…", true, None::<&str>)?;
             let new_stack = MenuItem::with_id(app, "new-stack", "New Stack…", true, None::<&str>)?;
-            let scan = MenuItem::with_id(app, "scan", "Scan Projects…", true, None::<&str>)?;
+            let scan = MenuItem::with_id(app, "scan", "Discover projects…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(
@@ -620,6 +620,10 @@ pub fn run() {
             ipc::git_diff_commit_file,
             ipc::get_project_overview,
             ipc::scan_project_dependencies,
+            ipc::scan_project_dependency_for_service,
+            ipc::list_persisted_scans,
+            ipc::delete_persisted_scan,
+            ipc::clear_persisted_scans,
             ipc::record_timeline_event,
             ipc::get_timeline,
             ipc::get_daily_summary,

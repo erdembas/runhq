@@ -792,6 +792,28 @@ pub fn show_commit(cwd: &Path, hash: &str) -> AppResult<DiffSummary> {
 
 /// Raw unified diff for a single file in a commit (vs. its first parent).
 /// See `diff_file` for how `context` affects the output.
+///
+/// Merge commits are the subtle case: the obvious-looking `<hash>^!`
+/// shorthand expands (per `gitrevisions`) to "the rev minus *all* its
+/// parents". For a merge with two parents that's `A ^A^1 ^A^2` — i.e.
+/// only the lines A introduced that don't appear in *either* parent
+/// (the conflict-resolution diff). For a clean fast-forward-style
+/// merge that's an empty patch, even though `git show -m
+/// --first-parent` over the same commit lists changed files
+/// (`show_commit` does exactly that for the file-tree pane). The
+/// result was the History panel rendering "this merge changed N
+/// files" but the per-file diff coming back blank.
+///
+/// We instead diff explicitly against the first parent
+/// (`<hash>^1..<hash>`), which:
+///   - for a normal commit: same as `^!` (single parent),
+///   - for a merge commit: gives the mainline view — what the merge
+///     *brought in* from the second parent. This matches GitHub /
+///     GitLab / VSCode / `git log --first-parent -p` semantics.
+///
+/// The initial-commit case (no parent) still errors here; callers
+/// already handle it by falling back to `git diff-tree --root`
+/// elsewhere, so we don't paper over it silently.
 pub fn diff_commit_file(
     cwd: &Path,
     hash: &str,
@@ -799,9 +821,9 @@ pub fn diff_commit_file(
     context: Option<u32>,
 ) -> AppResult<String> {
     require_repo(cwd)?;
-    let range = format!("{hash}^!");
+    let range = format!("{hash}^1..{hash}");
     let ctx_flag = context.map(|n| format!("-U{n}"));
-    let mut args: Vec<&str> = vec!["diff", "--first-parent"];
+    let mut args: Vec<&str> = vec!["diff"];
     if let Some(flag) = ctx_flag.as_deref() {
         args.push(flag);
     }
@@ -1425,5 +1447,55 @@ mod tests {
         assert_eq!(d.files.len(), 2);
         let raw = diff_commit_file(td.path(), &head.hash_full, "a.txt", None).unwrap();
         assert!(raw.contains("+two"));
+    }
+
+    /// Regression: a non-conflicting merge commit used to come back
+    /// with an empty per-file diff because we used `<hash>^!`, which
+    /// excludes *all* parents. The History panel then rendered the
+    /// merge as "files changed: N" with blank diff panes (the user
+    /// reported "merge commit'de diff olmaması normal mi?"). With
+    /// the `<hash>^1..<hash>` range we now show the mainline diff
+    /// — what the merge *brought in* from the second parent.
+    #[test]
+    fn diff_commit_file_handles_clean_merge() {
+        let td = tempfile::tempdir().unwrap();
+        init_repo(td.path());
+        // base commit on main
+        write_file(td.path(), "a.txt", "one\n");
+        stage_all(td.path()).unwrap();
+        commit(td.path(), "init", false).unwrap();
+        // branch off and add a file with no overlap on main
+        run_git(td.path(), &["checkout", "-q", "-b", "feature"]).unwrap();
+        write_file(td.path(), "feat.txt", "hello\nworld\n");
+        stage_all(td.path()).unwrap();
+        commit(td.path(), "feat: add feat.txt", false).unwrap();
+        // back to main, merge feature with --no-ff so we get a real
+        // merge commit (otherwise it'd fast-forward and not be a
+        // merge at all).
+        run_git(td.path(), &["checkout", "-q", "main"]).unwrap();
+        let (ok, _, err) = run_git(
+            td.path(),
+            &["merge", "--no-ff", "--no-edit", "-q", "feature"],
+        )
+        .unwrap();
+        assert!(ok, "merge failed: {err}");
+
+        let commits = log(td.path(), None, 10).unwrap();
+        let merge_commit = &commits[0];
+        // sanity: the merge brought in feat.txt
+        let summary = show_commit(td.path(), &merge_commit.hash_full).unwrap();
+        assert!(
+            summary.files.iter().any(|f| f.path == "feat.txt"),
+            "show_commit didn't list feat.txt for the merge: {:?}",
+            summary.files
+        );
+        // The thing the previous implementation got wrong: for a
+        // clean merge the per-file diff was empty. Now it should
+        // contain the inserted lines.
+        let raw = diff_commit_file(td.path(), &merge_commit.hash_full, "feat.txt", None).unwrap();
+        assert!(
+            raw.contains("+hello") && raw.contains("+world"),
+            "expected per-file merge diff to include the merged-in lines, got:\n{raw}"
+        );
     }
 }

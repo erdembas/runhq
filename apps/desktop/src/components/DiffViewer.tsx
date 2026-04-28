@@ -33,13 +33,28 @@ type Tab = 'commit' | 'branches' | 'history' | 'graph';
  * reserve ~76px on the left so nothing sits underneath them. */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+/** Width of the always-visible vertical activity-bar rail on the right
+ *  edge, in pixels. Mirrors `RightActivityBar`'s `w-9` (Tailwind 2.25rem
+ *  ≈ 36px). Hard-coded here instead of measured because the alternative
+ *  (resize observer + ref) jitters during the first paint and the rail
+ *  is statically sized; if anyone ever changes the rail width they'll
+ *  flip both spots in the same commit. */
+const RIGHT_RAIL_WIDTH = 36;
+
 export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
   // Default tab is "Commit" — the merged Changes + Commit view. Used to
   // be two separate tabs ("Changes" for browsing, "Commit" for staging
   // and committing) but they shared ~90% of the same data set, so the
   // browse-only flow now lives inside the commit workflow with the
   // staging buttons hidden until the user wants to act.
-  const [tab, setTab] = useState<Tab>('commit');
+  //
+  // Callers can override the landing tab via the store
+  // (`openDiffViewer(serviceId, 'history')`); the dashboard card's git
+  // popover uses this to land on History when the repo is clean — the
+  // user explicitly opened the panel without any pending diff, so the
+  // commit composer would just stare back empty.
+  const initialTab = useAppStore((s) => s.diffViewerInitialTab);
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'commit');
 
   // Repo-wide totals for the titlebar — independent of which tab the
   // user is currently looking at. Each panel maintains its own copy of
@@ -63,6 +78,17 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
   const serviceCwd = useAppStore(
     (s) => s.services.find((svc) => svc.id === serviceId)?.cwd ?? null,
   );
+
+  // Reserve space on the right for the global rail (Activity Bar + the
+  // currently-open side panel, if any). Without this the diff viewer
+  // covers the entire viewport and clicking "Explain" on a hunk pops
+  // the AI panel *behind* the diff — the user never sees the streamed
+  // answer until they close the diff. By chopping our right edge to
+  // sit flush with the rail's left edge, the AI/Activity panel slides
+  // in alongside the diff viewer instead of behind it.
+  const rightPanel = useAppStore((s) => s.rightPanel);
+  const rightPanelWidth = useAppStore((s) => s.rightPanelWidth);
+  const reservedRight = RIGHT_RAIL_WIDTH + (rightPanel ? rightPanelWidth : 0);
 
   // Layered Esc behaviour:
   //   1. If any transient overlay (context menu, confirm dialog, popover)
@@ -143,7 +169,15 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-black/60 backdrop-blur-sm">
+    // `inset-0` minus the right rail so the right-side panels (AI /
+    // Activity Timeline) and the activity bar stay visible while the
+    // viewer is open. We deliberately do NOT block pointer events on
+    // the reserved strip — the rail must remain interactive (toggle
+    // panels, switch between AI and Activity) while the user diffs.
+    <div
+      className="fixed top-0 bottom-0 left-0 z-50 flex items-stretch justify-stretch bg-black/60 backdrop-blur-sm"
+      style={{ right: reservedRight }}
+    >
       <div className="bg-surface-raised border-border flex h-full w-full flex-col overflow-hidden rounded-none border-0 shadow-2xl">
         {/* Titlebar — draggable on macOS so users can still reposition the
             window when the diff viewer is fullscreen (the OS traffic-lights

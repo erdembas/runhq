@@ -31,6 +31,7 @@ import { DiffPane, type DiffViewMode } from '@/components/git/DiffPane';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FileContextMenu, type FileContextMenuEntry } from '@/components/ui/FileContextMenu';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import type { DiffSummary, GitStatus, ServiceId } from '@/types';
 
 interface CommitPanelProps {
@@ -187,7 +188,6 @@ export function CommitPanel({
 
   // Huge context for "Full file" view — see DiffViewer for rationale.
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
-  const openAiChat = useAppStore((s) => s.openAiChat);
   const fullFileContext = showUnchanged ? 100_000 : undefined;
 
   // Load selected file's diff (staged or working tree).
@@ -406,64 +406,78 @@ export function CommitPanel({
   // between click and chat-panel arrival so the button shows a
   // spinner — opening the panel is fast but fetching the staged
   // diff can take a beat on big stages.
-  const generateMessage = useCallback(async () => {
-    if (stagedEntriesAll.length === 0) {
-      setError('Stage some changes first — there is nothing to summarise.');
-      return;
-    }
-    setGenerating(true);
-    setError(null);
-    try {
-      const ctx = await ipc.aiCommitChatContext({ service_id: serviceId });
-      const hint = message.trim() || null;
-      const recentBlock =
-        ctx.recent_subjects.length > 0
-          ? `Recent commit subjects on this branch (newest first):\n${ctx.recent_subjects
-              .map((s) => `- ${s}`)
-              .join('\n')}`
-          : 'No recent commits available.';
-      const branchPart = ctx.branch ? `Branch: \`${ctx.branch}\`` : 'Branch: (detached HEAD)';
-      const hintPart = hint ? `User hint: "${hint}"` : 'No additional hint from the user.';
-      const contextSystemMessage = [
-        'User is asking the AI to draft a git commit message in RunHQ. Read the staged diff and write a concise Conventional-Commits-style message: a single subject line of <=72 chars (imperative, no trailing period), then an optional blank line and a wrap-72 body if context is needed. Reference real symbols from the diff. Never wrap the answer in code fences. The first character of your reply must be the start of the commit message.',
-        '',
-        branchPart,
-        hintPart,
-        '',
-        recentBlock,
-        '',
-        'Staged diff:',
-        '```diff',
-        ctx.diff || '[no staged diff]',
-        '```',
-      ].join('\n');
+  // Live refs for state values that the lazy `buildPayload` reads
+  // — captures freshest values at click-time without re-binding the
+  // hook on every keystroke.
+  const messageHintRef = useRef(message);
+  messageHintRef.current = message;
+  const stagedCountRef = useRef(stagedEntriesAll.length);
+  stagedCountRef.current = stagedEntriesAll.length;
 
-      const summary = ctx.diff_truncated
-        ? '(staged diff truncated for the model)'
-        : `${stagedEntriesAll.length} staged file${stagedEntriesAll.length === 1 ? '' : 's'}`;
+  const {
+    triggerRef: generateTriggerRef,
+    onClick: generateMessage,
+    popover: generatePopover,
+  } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: async () => {
+      if (stagedCountRef.current === 0) {
+        setError('Stage some changes first — there is nothing to summarise.');
+        return null;
+      }
+      setGenerating(true);
+      setError(null);
+      try {
+        const ctx = await ipc.aiCommitChatContext({ service_id: serviceId });
+        const hint = messageHintRef.current.trim() || null;
+        const recentBlock =
+          ctx.recent_subjects.length > 0
+            ? `Recent commit subjects on this branch (newest first):\n${ctx.recent_subjects
+                .map((s) => `- ${s}`)
+                .join('\n')}`
+            : 'No recent commits available.';
+        const branchPart = ctx.branch ? `Branch: \`${ctx.branch}\`` : 'Branch: (detached HEAD)';
+        const hintPart = hint ? `User hint: "${hint}"` : 'No additional hint from the user.';
+        const contextSystemMessage = [
+          'User is asking the AI to draft a git commit message in RunHQ. Read the staged diff and write a concise Conventional-Commits-style message: a single subject line of <=72 chars (imperative, no trailing period), then an optional blank line and a wrap-72 body if context is needed. Reference real symbols from the diff. Never wrap the answer in code fences. The first character of your reply must be the start of the commit message.',
+          '',
+          branchPart,
+          hintPart,
+          '',
+          recentBlock,
+          '',
+          'Staged diff:',
+          '```diff',
+          ctx.diff || '[no staged diff]',
+          '```',
+        ].join('\n');
 
-      await openAiChat({
-        origin: 'commit',
-        title: ctx.branch ? `Commit · ${ctx.branch}` : 'Commit message',
-        context: {
-          kind: 'commit',
-          service_id: serviceId,
-          branch: ctx.branch,
-          summary,
-        },
-        draftPrompt: hint
-          ? `Write a commit message. Hint: ${hint}`
-          : 'Write a commit message for the staged changes.',
-        contextSystemMessage,
-        actionHook: { kind: 'use_as_commit', service_id: serviceId },
-        autoSend: true,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGenerating(false);
-    }
-  }, [serviceId, message, stagedEntriesAll.length, openAiChat]);
+        const summary = ctx.diff_truncated
+          ? '(staged diff truncated for the model)'
+          : `${stagedCountRef.current} staged file${stagedCountRef.current === 1 ? '' : 's'}`;
+
+        return {
+          origin: 'commit',
+          title: ctx.branch ? `Commit · ${ctx.branch}` : 'Commit message',
+          context: {
+            kind: 'commit',
+            service_id: serviceId,
+            branch: ctx.branch,
+            summary,
+          },
+          draftPrompt: hint
+            ? `Write a commit message. Hint: ${hint}`
+            : 'Write a commit message for the staged changes.',
+          contextSystemMessage,
+          actionHook: { kind: 'use_as_commit', service_id: serviceId },
+        };
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return null;
+      } finally {
+        setGenerating(false);
+      }
+    },
+  });
 
   /**
    * Listen for the action-hook dispatch from the chat panel. The
@@ -550,8 +564,9 @@ export function CommitPanel({
                 already has content (the value is forwarded as a "hint"
                 to the model). */}
             <button
+              ref={generateTriggerRef}
               type="button"
-              onClick={() => void generateMessage()}
+              onClick={() => generateMessage()}
               disabled={generating || stagedEntriesAll.length === 0}
               className={cn(
                 'absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded transition',
@@ -574,6 +589,7 @@ export function CommitPanel({
                 <Sparkles size={11} />
               )}
             </button>
+            {generatePopover}
           </div>
           {generationMeta && !generating && (
             <div className="text-fg/40 flex items-center gap-1 text-[10px]">

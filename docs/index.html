@@ -87,8 +87,10 @@
           </h1>
           <p class="hero-lead">
             <strong>Dozens of projects. Hundreds of services.</strong> One native app to start them,
-            see git status across the whole fleet, read diffs and commit, and replay your day in an
-            activity timeline — no containers, no cloud, no account.
+            see git status across the whole fleet, read diffs and commit, replay your day in an
+            activity timeline, and now <strong>chat with an AI assistant</strong> — local model or
+            cloud, your call — that plugs into every surface. No containers, no cloud lock-in, no
+            account.
           </p>
 
           <div class="hero-ctas">
@@ -365,8 +367,9 @@
           <h2 class="section-title">One window that knows every repo on disk.</h2>
           <p class="section-sub">
             RunHQ stops at the service boundary in most tools. Here it goes further — a bird's-eye
-            view across every project, a full Source Control window, and a timeline that replays
-            your day automatically.
+            view across every project, a full Source Control window, a timeline that replays your
+            day automatically, and an AI assistant that plugs into every surface — local model or
+            cloud, your call.
           </p>
         </div>
 
@@ -515,6 +518,108 @@
               <li>Auto-records lifecycle</li>
               <li>Project / type filters</li>
               <li>Node-graph drawer</li>
+            </ul>
+          </article>
+
+          <!-- 04 — AI Assistant (0.7.0) -->
+          <article class="cockpit-card cockpit-card-accent">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">04</span>
+              <h3 class="cockpit-card-title">AI Assistant — local or cloud</h3>
+              <span class="cockpit-flag">New · 0.7.0</span>
+            </div>
+            <p class="cockpit-card-desc">
+              A right-rail chat hub backed by any OpenAI-compatible endpoint. Point it at the cloud
+              (OpenAI, Azure, Together, OpenRouter, Groq, DeepSeek) or a local model server (Ollama,
+              LM Studio, vLLM, llama.cpp). Project · Why?, log triage, diff explain, commit
+              messages, standup polish, workspace report and per-CVE deep analysis all flow through
+              the same multi-tab chat with persistent SQLite history. Nothing about your code, diffs
+              or logs ever leaves your machine when you target a local endpoint.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-grid">
+              <div class="cpv-row">
+                <span class="cpv-name">Project · Why?</span>
+                <span class="cpv-pill cpv-pill-cve">acme-api</span>
+                <span class="cpv-meta">→ chat tab 1</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">Log triage</span>
+                <span class="cpv-pill cpv-pill-out">ECONNREFUSED</span>
+                <span class="cpv-meta">→ chat tab 2</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">Per-CVE analysis</span>
+                <span class="cpv-pill cpv-pill-cve">GHSA-xxxx</span>
+                <span class="cpv-meta">→ chat tab 3</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">Commit message</span>
+                <span class="cpv-pill cpv-pill-clean">staged diff</span>
+                <span class="cpv-meta">→ Use as msg</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>BYO endpoint</li>
+              <li>Local OR cloud</li>
+              <li>5-tab strip</li>
+              <li>Persistent history</li>
+              <li>Per-turn model picker</li>
+              <li>Token meter</li>
+              <li>Per-CVE deep dive</li>
+              <li>Workspace report</li>
+              <li>Action hooks</li>
+            </ul>
+          </article>
+
+          <!-- 05 — Dependency Hygiene (0.7.0) -->
+          <article class="cockpit-card">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">05</span>
+              <h3 class="cockpit-card-title">Dependency Hygiene</h3>
+              <span class="cockpit-flag">New · 0.7.0</span>
+            </div>
+            <p class="cockpit-card-desc">
+              Every <code>npm outdated</code> / <code>cargo audit</code> / <code>pip audit</code>
+              run is persisted to a local SQLite store, so the dashboard paints chips instantly on
+              cold start. Per-card freshness chip ("3h ago"), one-click rescan for a single project,
+              delta badges showing what changed since the last scan, and a small amber
+              <em>"N stale"</em> pill next to "Rescan deps" that sequentially sweeps just the
+              projects past the 7-day window when clicked.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-grid">
+              <div class="cpv-row">
+                <span class="cpv-name">acme-web</span>
+                <span class="cpv-pill cpv-pill-out">8↑</span>
+                <span class="cpv-pill cpv-pill-clean">3h ago</span>
+                <span class="cpv-meta">+2 since last</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">acme-api</span>
+                <span class="cpv-pill cpv-pill-cve">2 CVE</span>
+                <span class="cpv-pill cpv-pill-stale">9d ago</span>
+                <span class="cpv-meta">rescan rec.</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">internal-cli</span>
+                <span class="cpv-pill cpv-pill-out">1↑</span>
+                <span class="cpv-pill cpv-pill-clean">12m ago</span>
+                <span class="cpv-meta">−1 since last</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">design-system</span>
+                <span class="cpv-pill cpv-pill-clean">clean</span>
+                <span class="cpv-pill cpv-pill-clean">2h ago</span>
+                <span class="cpv-meta">no change</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>Persistent scan cache</li>
+              <li>Per-card freshness</li>
+              <li>Per-project rescan</li>
+              <li>Delta badges</li>
+              <li>"N stale" pill</li>
+              <li>Cold-start hydration</li>
+              <li>Reset cache</li>
             </ul>
           </article>
         </div>
@@ -795,6 +900,13 @@
               <li>Outdated deps</li>
               <li>npm audit</li>
               <li>cargo audit</li>
+              <li>pip audit</li>
+              <li>Persistent scan cache</li>
+              <li>Per-card freshness</li>
+              <li>Per-project rescan</li>
+              <li>Scan delta badges</li>
+              <li>"N stale" pill</li>
+              <li>Discover projects</li>
               <li>Worst-offenders panel</li>
               <li>Triage drawer</li>
               <li>Bulk copy-as-script</li>
@@ -839,6 +951,33 @@
               <li>Standup export</li>
               <li>Project filter</li>
               <li>Node-graph drawer</li>
+            </ul>
+          </div>
+
+          <div class="feat-group">
+            <div class="feat-head">
+              <span class="feat-num">10</span>
+              <h3>AI assistant <small style="opacity: 0.6">(0.7.0)</small></h3>
+            </div>
+            <ul class="feat-badges">
+              <li>OpenAI-compatible</li>
+              <li>Local (Ollama, LM Studio, vLLM)</li>
+              <li>Cloud (OpenAI, Azure, OpenRouter, Groq)</li>
+              <li>Multi-tab chat (5 max)</li>
+              <li>Persistent SQLite history</li>
+              <li>Per-turn model picker</li>
+              <li>Token meter (tiktoken-rs)</li>
+              <li>Language picker w/ flags</li>
+              <li>Project · Why?</li>
+              <li>Log triage</li>
+              <li>Diff explain</li>
+              <li>Commit messages</li>
+              <li>Standup polish</li>
+              <li>Workspace report</li>
+              <li>Per-CVE deep analysis</li>
+              <li>Action hooks</li>
+              <li>Reasoning pill</li>
+              <li>Auto-continue</li>
             </ul>
           </div>
         </div>

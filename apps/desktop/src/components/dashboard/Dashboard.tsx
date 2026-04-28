@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowDownWideNarrow,
   Clock,
   Cpu,
@@ -41,6 +40,7 @@ import { DashboardSkeleton } from './DashboardSkeleton';
 import { WorstOffenders } from './WorstOffenders';
 import { buildWorkspaceFacts } from '@/lib/ai/workspaceSummary';
 import { buildWorkspaceReportChatPayload } from '@/lib/ai/workspaceReportPayload';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import { riskScore } from '@/lib/risk';
 import { ResourceHeatmap } from './ResourceHeatmap';
 import { SectionHeader, HeaderAction } from './SectionHeader';
@@ -48,6 +48,15 @@ import { SectionHeader, HeaderAction } from './SectionHeader';
 interface Props {
   onScan: () => void;
 }
+
+/**
+ * "Rescan recommended" threshold. Mirrors `SCAN_STALE_MS` inside
+ * ServiceCard — a >7d-old scan is the dashboard-level definition of
+ * stale. Hoisted here (rather than imported) so the Dashboard
+ * module doesn't reach into a card-level helper just for a number.
+ * If either surface moves, both should agree on the new value.
+ */
+const STALE_SCAN_THRESHOLD_MS = 7 * 24 * 60 * 60_000;
 
 type DashGroup = {
   key: string;
@@ -149,6 +158,9 @@ export function Dashboard({ onScan }: Props) {
   const overviewScanning = useAppStore((s) => s.overviewScanning);
   const setOverviewScanning = useAppStore((s) => s.setOverviewScanning);
   const patchOverviewScan = useAppStore((s) => s.patchOverviewScan);
+  const patchScanEntry = useAppStore((s) => s.patchScanEntry);
+  const setScanningService = useAppStore((s) => s.setScanningService);
+  const scanFreshnessByService = useAppStore((s) => s.scanFreshnessByService);
   const lastScanAt = useAppStore((s) => s.lastScanAt);
   const editors = useAppStore((s) => s.editors);
 
@@ -204,6 +216,54 @@ export function Dashboard({ onScan }: Props) {
     }
   }, [overviewScanning, setOverviewScanning, patchOverviewScan]);
 
+  /**
+   * Roster of services whose persisted scan is older than 7 days
+   * (or has no persisted scan yet despite having a runtime that
+   * scanners actually touch — those are arguably the most stale of
+   * all). Drives the visibility + behaviour of "Rescan stale".
+   */
+  const staleScanServiceIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const svc of services) {
+      const meta = projectMetaById.get(svc.id);
+      // Only meaningful for projects with a detected runtime — pure
+      // docker-compose stacks have nothing to scan, so they
+      // shouldn't be in the "stale scans" tally.
+      if (!meta?.runtime) continue;
+      const stamped = scanFreshnessByService.get(svc.id);
+      if (stamped == null || now - stamped >= STALE_SCAN_THRESHOLD_MS) {
+        ids.push(svc.id);
+      }
+    }
+    return ids;
+  }, [services, projectMetaById, scanFreshnessByService, now]);
+
+  /**
+   * Rescan only the projects whose persisted scan is past the stale
+   * threshold. Walks them sequentially with a tiny delay between
+   * IPC calls so we don't blast 30 parallel `npm outdated`
+   * subprocesses through Tauri's IPC bridge — the batch endpoint
+   * already does that better. Sequential per-service is the
+   * "incremental refresh" mode: spinner ticks across cards, the
+   * user sees progress, and we never block the UI for the full
+   * duration.
+   */
+  const runStaleRescan = useCallback(async () => {
+    if (overviewScanning) return;
+    if (staleScanServiceIds.length === 0) return;
+    for (const id of staleScanServiceIds) {
+      setScanningService(id, true);
+      try {
+        const entry = await ipc.scanProjectDependencyForService(id, true);
+        patchScanEntry(entry);
+      } catch (err) {
+        console.warn('[Dashboard] stale rescan failed', { serviceId: id, err });
+      } finally {
+        setScanningService(id, false);
+      }
+    }
+  }, [staleScanServiceIds, setScanningService, patchScanEntry, overviewScanning]);
+
   const openDetailProject = useMemo(
     () =>
       detail ? (overview?.projects.find((p) => p.service_id === detail.serviceId) ?? null) : null,
@@ -229,27 +289,33 @@ export function Dashboard({ onScan }: Props) {
    * compares apples to apples — sampling per-render would mean the
    * running CPU figure shifts under the model mid-stream.
    */
-  const openAiChat = useAppStore((s) => s.openAiChat);
-  const launchWorkspaceReport = useCallback(() => {
-    if (services.length === 0) return;
-    const facts = buildWorkspaceFacts({
-      services,
-      statuses,
-      resources,
-      git,
-      listening_port_count: ports.length,
-      overview,
-    });
-    const payload = buildWorkspaceReportChatPayload(facts);
-    void openAiChat({
-      origin: 'dashboard_report',
-      title: payload.title,
-      context: payload.context,
-      draftPrompt: payload.draftPrompt,
-      contextSystemMessage: payload.contextSystemMessage,
-      autoSend: true,
-    });
-  }, [openAiChat, services, statuses, resources, git, ports.length, overview]);
+  // We snapshot dashboard state inside `buildPayload` (called by
+  // the hook at click-time) instead of capturing it in a useCallback
+  // dep — same effect, but the hook handles the popover wiring.
+  const {
+    triggerRef: workspaceReportTriggerRef,
+    onClick: launchWorkspaceReport,
+    popover: workspaceReportPopover,
+  } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: () => {
+      const facts = buildWorkspaceFacts({
+        services,
+        statuses,
+        resources,
+        git,
+        listening_port_count: ports.length,
+        overview,
+      });
+      const payload = buildWorkspaceReportChatPayload(facts);
+      return {
+        origin: 'dashboard_report',
+        title: payload.title,
+        context: payload.context,
+        draftPrompt: payload.draftPrompt,
+        contextSystemMessage: payload.contextSystemMessage,
+      };
+    },
+  });
 
   const stats = useMemo(() => {
     let running = 0,
@@ -605,8 +671,9 @@ export function Dashboard({ onScan }: Props) {
                 size="sm"
                 leftIcon={<FolderSearch className="h-4 w-4" />}
                 onClick={onScan}
+                title="Walk known parent folders looking for new project directories"
               >
-                Scan Projects
+                Discover projects
               </Button>
               <Button
                 variant="primary"
@@ -721,70 +788,25 @@ export function Dashboard({ onScan }: Props) {
                   )}
                 </p>
               </div>
+              {/*
+                Header right cluster keeps "create / grow" actions
+                only — Discover projects, New stack, New service.
+                The dependency-scan + workspace-AI cluster (Rescan
+                deps · stale pill · Analyze workspace) lives in its
+                own "Workspace health" strip below this header so
+                the page reads as: greeting → health → roster,
+                instead of the previous "wall of buttons" mix where
+                a freshness label sat between two unrelated CTAs.
+              */}
               <div className="flex items-center gap-2">
-                {lastScanAt != null && !overviewScanning && (
-                  <span
-                    className="text-fg-dim text-[11px] tabular-nums"
-                    title={`Dependency scan completed ${new Date(lastScanAt).toLocaleString()}`}
-                  >
-                    {scanFreshnessLabel(lastScanAt, now)}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void runScan()}
-                  disabled={overviewScanning || !overview}
-                  className={cn(
-                    'text-fg-dim hover:text-fg hover:bg-surface-muted/60 inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-[11px] font-medium transition',
-                    overviewScanning && 'cursor-not-allowed opacity-60',
-                    // Pulse the scan button when data is >30 minutes old so
-                    // the user gets a gentle nudge to rescan before making
-                    // decisions off stale numbers.
-                    lastScanAt != null &&
-                      !overviewScanning &&
-                      now - lastScanAt > 30 * 60_000 &&
-                      'text-tone-warning-fg hover:text-tone-warning',
-                  )}
-                  title={
-                    overview?.has_dependency_scan
-                      ? 'Re-run npm outdated / cargo audit across all projects'
-                      : 'Run npm outdated / cargo audit across all projects'
-                  }
-                >
-                  {overviewScanning ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : overview?.has_dependency_scan ? (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
-                  {overviewScanning
-                    ? 'Scanning…'
-                    : overview?.has_dependency_scan
-                      ? 'Rescan deps'
-                      : 'Scan deps'}
-                </button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<Sparkles className="h-4 w-4" />}
-                  onClick={launchWorkspaceReport}
-                  disabled={services.length === 0}
-                  title={
-                    services.length === 0
-                      ? 'Add some services first'
-                      : 'Generate an AI report across all projects, statuses, and CVEs'
-                  }
-                >
-                  Analyze workspace
-                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
                   leftIcon={<FolderSearch className="h-4 w-4" />}
                   onClick={onScan}
+                  title="Walk known parent folders looking for new project directories on disk (filesystem discovery — does not run dependency audits)"
                 >
-                  Scan Projects
+                  Discover projects
                 </Button>
                 <Button
                   variant="secondary"
@@ -818,6 +840,203 @@ export function Dashboard({ onScan }: Props) {
             below the fold.
           */}
 
+            {/*
+              Workspace health strip — pulls scan freshness, the
+              "rescan deps" CTA, the stale-only pill, and the AI
+              workspace report into one cohesive cluster. Sits
+              above the offender band so the reading order is:
+              "here's the data freshness + actions that update it"
+              → "here's what those actions surfaced". Both buttons
+              use the same secondary chrome as the header CTAs so
+              the eye doesn't see one outline-y and one filled.
+              Renders only when the roster is non-empty (we already
+              short-circuit to the empty state above when total ===
+              0); during cold-start the skeleton covers this gap.
+            */}
+            {/*
+              Workspace health bar — `justify-between` distributes
+              its four siblings across the row so the eye reads four
+              distinct chambers rather than one left-cluster + one
+              right-cluster. The clusters are: (1) status (label +
+              scan freshness + optional rescan-stale pill), (2)
+              attention chips with persistent tone tint (no label —
+              the colour itself is the label), (3) rescan-deps CTA,
+              (4) analyse-workspace CTA. On narrow widths the row
+              wraps gracefully via `flex-wrap`.
+            */}
+            <section
+              aria-label="Workspace health actions"
+              className="glass flex min-h-11 flex-wrap items-center justify-between gap-x-5 gap-y-2 px-4 py-2"
+            >
+              <div className="text-fg-dim flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="inline-flex items-center gap-1.5 font-semibold tracking-[0.12em] uppercase">
+                  <ShieldAlert className="text-fg-dim h-3.5 w-3.5" />
+                  Workspace
+                </span>
+                {lastScanAt != null && !overviewScanning ? (
+                  <>
+                    <span className="text-fg-dim/50">·</span>
+                    <span
+                      className="tabular-nums"
+                      title={`Dependency scan completed ${new Date(lastScanAt).toLocaleString()}`}
+                    >
+                      {scanFreshnessLabel(lastScanAt, now)}
+                    </span>
+                  </>
+                ) : !overviewScanning && overview && !overview.has_dependency_scan ? (
+                  <>
+                    <span className="text-fg-dim/50">·</span>
+                    <span className="text-fg-dim">
+                      No scan yet — run one to surface CVEs and outdated bumps
+                    </span>
+                  </>
+                ) : null}
+                {staleScanServiceIds.length > 0 && !overviewScanning && (
+                  <button
+                    type="button"
+                    onClick={() => void runStaleRescan()}
+                    className="border-tone-warning/30 bg-tone-warning-bg/25 text-tone-warning-fg hover:bg-tone-warning-bg/45 hover:text-tone-warning ml-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold tabular-nums transition"
+                    title={`${staleScanServiceIds.length} project${
+                      staleScanServiceIds.length === 1 ? '' : 's'
+                    } not scanned in 7+ days — click to rescan only the stale ones (skips the cache lookups for the rest)`}
+                  >
+                    <span className="bg-tone-warning/70 inline-block h-1.5 w-1.5 rounded-full" />
+                    {staleScanServiceIds.length} stale
+                  </button>
+                )}
+              </div>
+
+              {/*
+                Attention chips — persistent tone tint even when
+                inactive so the eye lands on them as alerts, not as
+                grey filter chips. Tones come from the shared
+                semantic palette so they read on both themes:
+                  • Stale → neutral (no severity, just "unwatched")
+                  • Risk  → critical (CVEs are ship-tonight signals)
+                  • Outdated → warning (deferrable but accumulating)
+                Click toggles the dashboard filter; active state
+                deepens the tone, label changes to the lighter shade.
+                Wrapped in its own flex container with no label —
+                the colour does the labelling.
+              */}
+              {attentionStats &&
+                attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    {attentionStats.stale > 0 && (
+                      <AttentionChip
+                        active={attentionFilter === 'stale'}
+                        onClick={() => setAttentionFilter((a) => (a === 'stale' ? 'all' : 'stale'))}
+                        tone="neutral"
+                        icon={<Clock className="h-3 w-3" />}
+                        label="Stale"
+                        count={attentionStats.stale}
+                        title={`${attentionStats.stale} project${
+                          attentionStats.stale === 1 ? '' : 's'
+                        } with no recent activity — click to filter`}
+                      />
+                    )}
+                    {attentionStats.risk > 0 && (
+                      <AttentionChip
+                        active={attentionFilter === 'risk'}
+                        onClick={() => setAttentionFilter((a) => (a === 'risk' ? 'all' : 'risk'))}
+                        tone="critical"
+                        icon={<ShieldAlert className="h-3 w-3" />}
+                        label="Risk"
+                        count={attentionStats.risk}
+                        title={`${attentionStats.risk} project${
+                          attentionStats.risk === 1 ? '' : 's'
+                        } with critical or high CVEs — click to filter`}
+                      />
+                    )}
+                    {attentionStats.outdated > 0 && (
+                      <AttentionChip
+                        active={attentionFilter === 'outdated'}
+                        onClick={() =>
+                          setAttentionFilter((a) => (a === 'outdated' ? 'all' : 'outdated'))
+                        }
+                        tone="warning"
+                        icon={<Package className="h-3 w-3" />}
+                        label="Outdated"
+                        count={attentionStats.outdated}
+                        title={`${attentionStats.outdated} project${
+                          attentionStats.outdated === 1 ? '' : 's'
+                        } with outdated dependencies — click to filter`}
+                      />
+                    )}
+                  </div>
+                )}
+
+              {/*
+                Segmented "act on the workspace" control — Rescan
+                deps and Analyze workspace share one continuous
+                pill with no gap or visible divider between halves;
+                hover state alone signals which half the cursor is
+                on. The right button keeps its left border (so the
+                two halves are separated by a single hairline that
+                belongs to the right button itself, not a dedicated
+                spacer). Wrapping in `inline-flex` keeps them glued
+                even when the workspace bar wraps to a new row.
+              */}
+              <div className="inline-flex shrink-0 items-stretch">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={
+                    overviewScanning ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : overview?.has_dependency_scan ? (
+                      <RefreshCw className="h-4 w-4" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )
+                  }
+                  onClick={() => void runScan()}
+                  disabled={overviewScanning || !overview}
+                  className={cn(
+                    'rounded-r-none border-r-0',
+                    // Pulse the scan button when data is >30 minutes old
+                    // so the user gets a gentle nudge to rescan before
+                    // making decisions off stale numbers.
+                    lastScanAt != null &&
+                      !overviewScanning &&
+                      now - lastScanAt > 30 * 60_000 &&
+                      'text-tone-warning-fg',
+                  )}
+                  title={
+                    overview?.has_dependency_scan
+                      ? 'Re-run npm outdated / cargo audit across all projects'
+                      : 'Run npm outdated / cargo audit across all projects'
+                  }
+                >
+                  {overviewScanning
+                    ? 'Scanning…'
+                    : overview?.has_dependency_scan
+                      ? 'Rescan deps'
+                      : 'Scan deps'}
+                </Button>
+                <Button
+                  ref={workspaceReportTriggerRef}
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Sparkles className="h-4 w-4" />}
+                  onClick={() => {
+                    if (services.length === 0) return;
+                    launchWorkspaceReport();
+                  }}
+                  disabled={services.length === 0}
+                  className="rounded-l-none"
+                  title={
+                    services.length === 0
+                      ? 'Add some services first'
+                      : 'Generate an AI report across all projects, statuses, and CVEs'
+                  }
+                >
+                  Analyze workspace
+                </Button>
+              </div>
+              {workspaceReportPopover}
+            </section>
+
             {overview && overview.projects.length > 0 && (
               <WorstOffenders projects={overview.projects} onOpenDetail={openDetail} limit={5} />
             )}
@@ -848,16 +1067,60 @@ export function Dashboard({ onScan }: Props) {
             they'd be noise.
           */}
             {/*
-            Each logical cluster — Organize · Git · Attention — is a
-            single flex child so its label stays glued to its pills and
-            the group reads as one unit. Between clusters we use a
-            larger `gap-x-5` + a vertical divider so the eye sees three
-            distinct "chambers" on a single row, not a flat stream of
-            controls. Within a cluster, gaps are deliberately tighter
-            (gap-2 / gap-1) to amplify the same contrast.
+            Flat filter row — no glass frames around the clusters
+            so the controls sit directly on the page background.
+            Git filters live on the left, Organize (Group/Sort)
+            sticks to the far right via `ml-auto` even when the
+            row wraps. Attention chips moved up into the Workspace
+            health bar above. The row collapses gracefully when
+            git data is empty — Organize remains alone on the
+            right.
           */}
-            <div className="glass flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
-              <FilterGroup>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              {gitStats.dirty + gitStats.clean > 0 && (
+                <FilterGroup label="Git" icon={<GitBranch className="text-fg-dim h-3.5 w-3.5" />}>
+                  <FilterPill
+                    active={gitFilter === 'all'}
+                    onClick={() => setGitFilter('all')}
+                    label="All"
+                    count={gitStats.dirty + gitStats.clean}
+                  />
+                  <FilterPill
+                    active={gitFilter === 'dirty'}
+                    onClick={() => setGitFilter('dirty')}
+                    label="Dirty"
+                    count={gitStats.dirty}
+                    tone="dirty"
+                  />
+                  <FilterPill
+                    active={gitFilter === 'clean'}
+                    onClick={() => setGitFilter('clean')}
+                    label="Clean"
+                    count={gitStats.clean}
+                    tone="clean"
+                  />
+                  <FilterPill
+                    active={gitFilter === 'ahead'}
+                    onClick={() => setGitFilter('ahead')}
+                    label="Ahead"
+                    count={gitStats.ahead}
+                  />
+                  <FilterPill
+                    active={gitFilter === 'behind'}
+                    onClick={() => setGitFilter('behind')}
+                    label="Behind"
+                    count={gitStats.behind}
+                  />
+                  <FilterPill
+                    active={gitFilter === 'no-upstream'}
+                    onClick={() => setGitFilter('no-upstream')}
+                    label="No upstream"
+                    count={gitStats.noUpstream}
+                  />
+                </FilterGroup>
+              )}
+
+              <div className="ml-auto flex items-center gap-2">
                 <Select
                   value={groupBy}
                   onChange={(v) => setGroupBy(v as DashboardGroupBy)}
@@ -880,98 +1143,7 @@ export function Dashboard({ onScan }: Props) {
                   ariaLabel="Sort cards by"
                   leading={<ArrowDownWideNarrow size={11} />}
                 />
-              </FilterGroup>
-
-              {gitStats.dirty + gitStats.clean > 0 && (
-                <>
-                  <GroupDivider />
-                  <FilterGroup label="Git" icon={<GitBranch className="text-fg-dim h-3.5 w-3.5" />}>
-                    <FilterPill
-                      active={gitFilter === 'all'}
-                      onClick={() => setGitFilter('all')}
-                      label="All"
-                      count={gitStats.dirty + gitStats.clean}
-                    />
-                    <FilterPill
-                      active={gitFilter === 'dirty'}
-                      onClick={() => setGitFilter('dirty')}
-                      label="Dirty"
-                      count={gitStats.dirty}
-                      tone="dirty"
-                    />
-                    <FilterPill
-                      active={gitFilter === 'clean'}
-                      onClick={() => setGitFilter('clean')}
-                      label="Clean"
-                      count={gitStats.clean}
-                      tone="clean"
-                    />
-                    <FilterPill
-                      active={gitFilter === 'ahead'}
-                      onClick={() => setGitFilter('ahead')}
-                      label="Ahead"
-                      count={gitStats.ahead}
-                    />
-                    <FilterPill
-                      active={gitFilter === 'behind'}
-                      onClick={() => setGitFilter('behind')}
-                      label="Behind"
-                      count={gitStats.behind}
-                    />
-                    <FilterPill
-                      active={gitFilter === 'no-upstream'}
-                      onClick={() => setGitFilter('no-upstream')}
-                      label="No upstream"
-                      count={gitStats.noUpstream}
-                    />
-                  </FilterGroup>
-                </>
-              )}
-
-              {attentionStats &&
-                attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
-                  <>
-                    <GroupDivider />
-                    <FilterGroup
-                      label="Attention"
-                      icon={<AlertTriangle className="text-fg-dim h-3.5 w-3.5" />}
-                    >
-                      {attentionStats.stale > 0 && (
-                        <FilterPill
-                          active={attentionFilter === 'stale'}
-                          onClick={() =>
-                            setAttentionFilter((a) => (a === 'stale' ? 'all' : 'stale'))
-                          }
-                          label="Stale"
-                          count={attentionStats.stale}
-                          icon={<Clock className="h-3 w-3" />}
-                        />
-                      )}
-                      {attentionStats.risk > 0 && (
-                        <FilterPill
-                          active={attentionFilter === 'risk'}
-                          onClick={() => setAttentionFilter((a) => (a === 'risk' ? 'all' : 'risk'))}
-                          label="Risk"
-                          count={attentionStats.risk}
-                          tone="risk"
-                          icon={<ShieldAlert className="h-3 w-3" />}
-                        />
-                      )}
-                      {attentionStats.outdated > 0 && (
-                        <FilterPill
-                          active={attentionFilter === 'outdated'}
-                          onClick={() =>
-                            setAttentionFilter((a) => (a === 'outdated' ? 'all' : 'outdated'))
-                          }
-                          label="Outdated"
-                          count={attentionStats.outdated}
-                          tone="outdated"
-                          icon={<Package className="h-3 w-3" />}
-                        />
-                      )}
-                    </FilterGroup>
-                  </>
-                )}
+              </div>
             </div>
 
             {stacks.map((stack) => {
@@ -1196,9 +1368,73 @@ function FilterGroup({
   );
 }
 
-/** Vertical rule between filter chambers. */
-function GroupDivider() {
-  return <span aria-hidden className="bg-border/70 h-4 w-px shrink-0" />;
+/**
+ * Workspace-bar attention chip — variant of FilterPill that always
+ * carries its tone tint (border + bg) so the eye treats it as an
+ * alert badge, not a grey filter pill. Stale uses neutral tones
+ * (the project is just unwatched, no severity), Risk uses critical
+ * (CVEs are ship-tonight), Outdated uses warning (deferrable but
+ * accumulates). Active state deepens the tone; inactive still keeps
+ * a tinted background so the cluster reads as "X projects in this
+ * health bucket" at a glance.
+ */
+function AttentionChip({
+  active,
+  onClick,
+  tone,
+  icon,
+  label,
+  count,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  tone: 'neutral' | 'critical' | 'warning';
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  title?: string;
+}) {
+  const palette =
+    tone === 'critical'
+      ? {
+          idle: 'border-tone-critical/30 bg-tone-critical/12 text-tone-critical-fg hover:bg-tone-critical/20',
+          active:
+            'border-tone-critical/55 bg-tone-critical/28 text-tone-critical-fg shadow-[0_0_0_1px_rgb(var(--tone-critical)/0.35)_inset]',
+          dot: 'bg-tone-critical/80',
+        }
+      : tone === 'warning'
+        ? {
+            idle: 'border-tone-warning/30 bg-tone-warning/12 text-tone-warning-fg hover:bg-tone-warning/20',
+            active:
+              'border-tone-warning/55 bg-tone-warning/28 text-tone-warning-fg shadow-[0_0_0_1px_rgb(var(--tone-warning)/0.35)_inset]',
+            dot: 'bg-tone-warning/80',
+          }
+        : {
+            idle: 'border-fg-dim/25 bg-fg-dim/10 text-fg-dim hover:bg-fg-dim/15 hover:text-fg/85',
+            active:
+              'border-fg-dim/45 bg-fg-dim/22 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.15)_inset]',
+            dot: 'bg-fg-dim/70',
+          };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold tabular-nums transition',
+        active ? palette.active : palette.idle,
+      )}
+    >
+      <span aria-hidden className={cn('inline-block h-1.5 w-1.5 rounded-full', palette.dot)} />
+      {icon}
+      <span>{label}</span>
+      <span className="rounded-sm bg-black/15 px-1 text-[10px] tabular-nums dark:bg-white/10">
+        {count}
+      </span>
+    </button>
+  );
 }
 
 function FilterPill({

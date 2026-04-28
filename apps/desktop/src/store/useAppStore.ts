@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import type {
   ConversationOrigin,
+  DependencyScanEntry,
   DependencyScanResult,
   DetectedEditor,
   GitStatus,
   ListeningPort,
   LogLine,
   OverviewSummary,
+  PersistedScan,
   ResourceSample,
   Section,
   SectionColor,
@@ -56,6 +58,13 @@ export interface AiDraft {
    *  "draft mode" the user explicitly asked for: the model picker
    *  stays interactive, the prompt is editable, send is manual. */
   autoSend?: boolean;
+  /** When set, the panel forces this provider as the active one
+   *  before dispatching the draft, bypassing both its current
+   *  selection and the in-panel multi-model picker. Used by the
+   *  surface-side popover (`useAiSurfaceTrigger`) — it captures
+   *  the user's choice next to the trigger button so the panel
+   *  doesn't need to ask again. */
+  forcedProviderId?: string;
 }
 
 export interface OpenAiChatInput {
@@ -74,6 +83,12 @@ export interface OpenAiChatInput {
    *  for fire-and-forget surfaces like Why? where the user already
    *  committed by clicking the action. */
   autoSend?: boolean;
+  /** Pin a specific provider for the dispatched send. Surfaces that
+   *  show their own model-chooser popover (via
+   *  `useAiSurfaceTrigger`) capture the user's pick at click-time
+   *  and pass it through here so the panel can fire immediately
+   *  against the chosen model — no in-panel re-prompt. */
+  forcedProviderId?: string;
 }
 
 interface LogBuffer {
@@ -280,6 +295,29 @@ interface AppStore {
    */
   closeTab: (id: string) => void;
   /**
+   * Bulk-close every tab except `keepId`. The kept tab becomes
+   * active so the user is never left looking at a now-closed tab.
+   * No-op when `keepId` isn't in `openTabs`. Like {@link closeTab},
+   * the panel is responsible for cancelling any streams attached
+   * to closing tabs.
+   */
+  closeOtherTabs: (keepId: string) => void;
+  /**
+   * Close every tab to the right of (after) the given id, leaving
+   * the id itself plus everything before it open. If the active
+   * tab was in the closed range, active snaps back to the
+   * right-clicked tab — same "you don't lose your place" guarantee
+   * as `closeTab`.
+   */
+  closeTabsToRight: (id: string) => void;
+  /**
+   * Close every tab. `activeConversationId` becomes null so the
+   * panel falls back to its empty state. Useful as a "reset the
+   * rail" gesture; the underlying conversations are not deleted —
+   * History drawer can still bring them back.
+   */
+  closeAllTabs: () => void;
+  /**
    * Universal entry point for non-chat surfaces to send a request
    * into the chat panel. Creates a new conversation row, stashes
    * the draft, opens the AI panel, and switches the panel to that
@@ -296,15 +334,82 @@ interface AppStore {
   overview: OverviewSummary | null;
   overviewLoading: boolean;
   overviewScanning: boolean;
+  /** Global "most-recent scan in this workspace" timestamp. Drives the
+   *  dashboard header's "Last scanned X ago" label. Set by both
+   *  `patchOverviewScan` (after an explicit scan) and
+   *  `hydratePersistedScans` (on cold start) so we don't flash a
+   *  "never scanned" state on every launch. */
   lastScanAt: number | null;
+  /**
+   * Per-project scan freshness, keyed by `service_id`. Sourced from
+   * the persistent `dependency_scans` SQLite table on mount and updated
+   * after every explicit scan. Lets a service card render its OWN
+   * "Last scanned 3h ago" chip without needing to inflate
+   * `OverviewSummary` with another field — the dashboard's project
+   * overview mirrors what the Rust core knows; this is a UI-only
+   * companion store.
+   */
+  scanFreshnessByService: Map<ServiceId, number>;
+  /** Mirror of how long each project's last scan ran (ms). Optional —
+   *  `null` for cache-hit entries from the in-memory L1. The drawer
+   *  uses it to show "took 14s last time" before a manual rescan. */
+  scanDurationByService: Map<ServiceId, number | null>;
+  /**
+   * Scan delta cache: per-service `{ outdated, vulns }` deltas
+   * relative to the row this scan replaced. Drives the "+3 since
+   * last scan" badge on the dashboard's audit/outdated chips.
+   * Cleared when a service's scan reaches "fresh enough that the
+   * delta is no longer interesting" (>30 minutes — see
+   * `scanDeltaTtlMs`) so it doesn't linger as stale UI noise.
+   */
+  scanDeltasByService: Map<ServiceId, { outdated: number | null; vulnerabilities: number | null }>;
+  /** Per-service "rescanning" flag so a card-level spinner can sit
+   *  next to the freshness chip without bouncing the global
+   *  `overviewScanning` state when only one project is being
+   *  rescanned. */
+  scanningServiceIds: Set<ServiceId>;
   setOverview: (v: OverviewSummary | null) => void;
   setOverviewLoading: (v: boolean) => void;
   setOverviewScanning: (v: boolean) => void;
   patchOverviewScan: (result: DependencyScanResult) => void;
+  /**
+   * Splice a single per-project rescan result into the overview and
+   * freshness maps. Same shape as `patchOverviewScan` but for one
+   * service — used by the per-card "Rescan this" affordance and any
+   * future auto-rescan flows.
+   */
+  patchScanEntry: (entry: DependencyScanEntry) => void;
+  /**
+   * Track that a per-project rescan is in flight for `serviceId`,
+   * so the card can render a spinner without consulting the global
+   * scanning flag. Mirror of `setOverviewScanning` but scoped.
+   */
+  setScanningService: (serviceId: ServiceId, scanning: boolean) => void;
+  /**
+   * Replay the persisted scan rows fetched from SQLite into the live
+   * dashboard state. Called once on app mount before the first
+   * background overview refresh — without it the dashboard would
+   * flash empty audit chips for ~30s on every cold start, even
+   * though we have last night's scan saved on disk. Re-running it
+   * after an explicit scan is also safe; the merge is by
+   * `service_id` and the most recent scan always wins.
+   */
+  hydratePersistedScans: (rows: PersistedScan[]) => void;
 
   diffViewerOpen: boolean;
   diffViewerServiceId: ServiceId | null;
-  openDiffViewer: (serviceId: ServiceId) => void;
+  /** Tab the Source Control window should land on when next opened.
+   *  Cleared on close so subsequent opens don't inherit a stale choice
+   *  from a previous session. Callers pass it via {@link openDiffViewer};
+   *  most leave it undefined (defaults to "commit"), but the dashboard
+   *  card's git popover passes "history" when the repo is clean so
+   *  clicking the button on a clean repo lands on something useful
+   *  instead of an empty Commit tab. */
+  diffViewerInitialTab?: 'commit' | 'branches' | 'history' | 'graph';
+  openDiffViewer: (
+    serviceId: ServiceId,
+    initialTab?: 'commit' | 'branches' | 'history' | 'graph',
+  ) => void;
   closeDiffViewer: () => void;
 
   /** Cross-project uncommitted changes viewer — shows every service that
@@ -1062,6 +1167,30 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const fallback = next[idx] ?? next[idx - 1] ?? null;
       return { openTabs: next, activeConversationId: fallback };
     }),
+  closeOtherTabs: (keepId) =>
+    set((s) => {
+      if (!s.openTabs.includes(keepId)) return s;
+      // No work needed if the kept tab is already the only one —
+      // returning a fresh array would force a re-render for nothing.
+      if (s.openTabs.length === 1) return s;
+      return { openTabs: [keepId], activeConversationId: keepId };
+    }),
+  closeTabsToRight: (id) =>
+    set((s) => {
+      const idx = s.openTabs.indexOf(id);
+      if (idx < 0) return s;
+      // Already the rightmost tab — nothing to close.
+      if (idx === s.openTabs.length - 1) return s;
+      const next = s.openTabs.slice(0, idx + 1);
+      if (s.activeConversationId == null || next.includes(s.activeConversationId)) {
+        return { openTabs: next };
+      }
+      // The active tab lived in the closed range; snap to the
+      // anchor tab so the user lands on a sensible neighbour
+      // instead of an empty rail.
+      return { openTabs: next, activeConversationId: id };
+    }),
+  closeAllTabs: () => set({ openTabs: [], activeConversationId: null }),
   clearAiDraft: () => set({ aiDraft: null }),
   openAiChat: async (input) => {
     // Step 1: persist the conversation row first. We need the id
@@ -1087,6 +1216,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       contextSystemMessage: input.contextSystemMessage,
       actionHook: input.actionHook ?? { kind: 'none' },
       autoSend: input.autoSend ?? false,
+      forcedProviderId: input.forcedProviderId,
     };
 
     // Stash draft + active id + open the panel atomically. Doing
@@ -1131,6 +1261,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   overviewLoading: false,
   overviewScanning: false,
   lastScanAt: null,
+  scanFreshnessByService: new Map<ServiceId, number>(),
+  scanDurationByService: new Map<ServiceId, number | null>(),
+  scanDeltasByService: new Map(),
+  scanningServiceIds: new Set<ServiceId>(),
   setOverview: (v) => set({ overview: v }),
   setOverviewLoading: (v) => set({ overviewLoading: v }),
   setOverviewScanning: (v) => set({ overviewScanning: v }),
@@ -1142,6 +1276,48 @@ export const useAppStore = create<AppStore>((set, get) => ({
         const hit = byId.get(p.service_id);
         return hit ? { ...p, outdated: hit.outdated, audit: hit.audit } : p;
       });
+
+      // Stamp per-project freshness from each entry's own
+      // `scanned_at_ms`, not a single `Date.now()`. A 30-project
+      // scan returns its results over several seconds; using the
+      // batch's own per-entry timestamps keeps the UI honest about
+      // which project finished first. Cache-hit entries reuse the
+      // original scan's timestamp from the in-memory L1, so they
+      // don't falsely advertise "scanned 0s ago".
+      const freshness = new Map(s.scanFreshnessByService);
+      const durations = new Map(s.scanDurationByService);
+      const deltas = new Map(s.scanDeltasByService);
+      let maxScannedAt = s.lastScanAt ?? 0;
+      for (const e of result.entries) {
+        freshness.set(e.service_id, e.scanned_at_ms);
+        durations.set(e.service_id, e.duration_ms);
+        if (e.scanned_at_ms > maxScannedAt) maxScannedAt = e.scanned_at_ms;
+
+        // Compute delta only for fresh runs that have a prior row
+        // to compare against. Cache hits expose neither
+        // `previous_*` nor a meaningful "what changed", so we drop
+        // any leftover delta for that service to avoid showing a
+        // stale "+3" forever.
+        if (!e.from_cache) {
+          const liveOutdated = e.outdated?.total ?? 0;
+          const liveVulns = e.audit
+            ? e.audit.critical + e.audit.high + e.audit.medium + e.audit.low
+            : 0;
+          const dOutdated =
+            e.previous_total_outdated != null ? liveOutdated - e.previous_total_outdated : null;
+          const dVulns =
+            e.previous_total_vulnerabilities != null
+              ? liveVulns - e.previous_total_vulnerabilities
+              : null;
+          if ((dOutdated != null && dOutdated !== 0) || (dVulns != null && dVulns !== 0)) {
+            deltas.set(e.service_id, { outdated: dOutdated, vulnerabilities: dVulns });
+          } else {
+            deltas.delete(e.service_id);
+          }
+        } else {
+          deltas.delete(e.service_id);
+        }
+      }
       return {
         overview: {
           ...s.overview,
@@ -1150,14 +1326,182 @@ export const useAppStore = create<AppStore>((set, get) => ({
           total_vulnerabilities: result.total_vulnerabilities,
           has_dependency_scan: true,
         },
-        lastScanAt: Date.now(),
+        lastScanAt: maxScannedAt > 0 ? maxScannedAt : Date.now(),
+        scanFreshnessByService: freshness,
+        scanDurationByService: durations,
+        scanDeltasByService: deltas,
+      };
+    }),
+  patchScanEntry: (entry) =>
+    set((s) => {
+      // Single-project mirror of `patchOverviewScan`. Skip the heavy
+      // recompute of total_outdated / total_vulnerabilities — those
+      // numbers stay correct because we update *one* project's
+      // contribution in place and adjust the global totals by the
+      // delta.
+      const overview = s.overview
+        ? {
+            ...s.overview,
+            projects: s.overview.projects.map((p) =>
+              p.service_id === entry.service_id
+                ? { ...p, outdated: entry.outdated, audit: entry.audit }
+                : p,
+            ),
+            // Adjust workspace totals by the per-project delta so the
+            // header chip ("12 advisories") doesn't drift after a
+            // single rescan. Falls back to a cheap local recompute
+            // when the previous-totals fields aren't available.
+            total_outdated: (() => {
+              const old = s.overview!.projects.find((p) => p.service_id === entry.service_id);
+              const oldT = old?.outdated?.total ?? 0;
+              const newT = entry.outdated?.total ?? 0;
+              return Math.max(0, s.overview!.total_outdated + (newT - oldT));
+            })(),
+            total_vulnerabilities: (() => {
+              const old = s.overview!.projects.find((p) => p.service_id === entry.service_id);
+              const oldA = old?.audit;
+              const oldT = oldA ? oldA.critical + oldA.high + oldA.medium + oldA.low : 0;
+              const newA = entry.audit;
+              const newT = newA ? newA.critical + newA.high + newA.medium + newA.low : 0;
+              return Math.max(0, s.overview!.total_vulnerabilities + (newT - oldT));
+            })(),
+            has_dependency_scan: true,
+          }
+        : s.overview;
+
+      const freshness = new Map(s.scanFreshnessByService);
+      freshness.set(entry.service_id, entry.scanned_at_ms);
+      const durations = new Map(s.scanDurationByService);
+      durations.set(entry.service_id, entry.duration_ms);
+
+      const deltas = new Map(s.scanDeltasByService);
+      if (!entry.from_cache) {
+        const liveOutdated = entry.outdated?.total ?? 0;
+        const liveVulns = entry.audit
+          ? entry.audit.critical + entry.audit.high + entry.audit.medium + entry.audit.low
+          : 0;
+        const dOutdated =
+          entry.previous_total_outdated != null
+            ? liveOutdated - entry.previous_total_outdated
+            : null;
+        const dVulns =
+          entry.previous_total_vulnerabilities != null
+            ? liveVulns - entry.previous_total_vulnerabilities
+            : null;
+        if ((dOutdated != null && dOutdated !== 0) || (dVulns != null && dVulns !== 0)) {
+          deltas.set(entry.service_id, { outdated: dOutdated, vulnerabilities: dVulns });
+        } else {
+          deltas.delete(entry.service_id);
+        }
+      } else {
+        deltas.delete(entry.service_id);
+      }
+
+      const lastScanAt = Math.max(s.lastScanAt ?? 0, entry.scanned_at_ms);
+
+      return {
+        overview,
+        scanFreshnessByService: freshness,
+        scanDurationByService: durations,
+        scanDeltasByService: deltas,
+        lastScanAt: lastScanAt > 0 ? lastScanAt : s.lastScanAt,
+      };
+    }),
+  setScanningService: (serviceId, scanning) =>
+    set((s) => {
+      // We re-create the Set only when membership actually changes —
+      // selectors that subscribe to scanningServiceIds via Set
+      // identity won't re-render unless their service flipped.
+      const has = s.scanningServiceIds.has(serviceId);
+      if (scanning && has) return s;
+      if (!scanning && !has) return s;
+      const next = new Set(s.scanningServiceIds);
+      if (scanning) next.add(serviceId);
+      else next.delete(serviceId);
+      return { scanningServiceIds: next };
+    }),
+  hydratePersistedScans: (rows) =>
+    set((s) => {
+      if (rows.length === 0) {
+        return s;
+      }
+
+      // Two-step merge: (1) seed the freshness/duration maps so the
+      // chips light up immediately, (2) splice the persisted
+      // outdated/audit blobs into `overview.projects` so the
+      // numerical chips (12 outdated, 3 advisories) render too. The
+      // overview merge is a no-op when overview hasn't loaded yet —
+      // the next `setOverview` will pick this up via the freshness
+      // map alone.
+      const freshness = new Map(s.scanFreshnessByService);
+      const durations = new Map(s.scanDurationByService);
+      const persistedById = new Map<string, PersistedScan>();
+      let maxScannedAt = s.lastScanAt ?? 0;
+      for (const row of rows) {
+        // Don't clobber a fresher in-memory entry — the user might
+        // have just kicked off a scan whose first results arrived
+        // a tick before this hydration call resolved. Persisted
+        // rows are at best as fresh as the scan that wrote them.
+        const existing = freshness.get(row.service_id);
+        if (existing == null || existing < row.scanned_at_ms) {
+          freshness.set(row.service_id, row.scanned_at_ms);
+          durations.set(row.service_id, row.duration_ms);
+        }
+        persistedById.set(row.service_id, row);
+        if (row.scanned_at_ms > maxScannedAt) maxScannedAt = row.scanned_at_ms;
+      }
+
+      // The Rust side ALSO merges persisted scans into the overview
+      // it returns from `get_project_overview`, so usually `overview`
+      // already carries the audit/outdated data by the time this
+      // runs. We splice anyway for the corner case where the
+      // overview was fetched before persistence existed (older app
+      // version's overview cached in memory) or where a service's
+      // overview row is somehow missing the chips — defensive,
+      // cheap, idempotent.
+      const overview = s.overview
+        ? {
+            ...s.overview,
+            projects: s.overview.projects.map((p) => {
+              const hit = persistedById.get(p.service_id);
+              if (!hit) return p;
+              return {
+                ...p,
+                outdated: p.outdated ?? hit.outdated,
+                audit: p.audit ?? hit.audit,
+              };
+            }),
+            has_dependency_scan: s.overview.has_dependency_scan || rows.length > 0,
+          }
+        : s.overview;
+
+      return {
+        overview,
+        scanFreshnessByService: freshness,
+        scanDurationByService: durations,
+        // Only advance the global "last scanned" if it's older than
+        // the freshest persisted row — otherwise a hydration call
+        // post-scan would rewind the badge.
+        lastScanAt: maxScannedAt > (s.lastScanAt ?? 0) ? maxScannedAt : s.lastScanAt,
       };
     }),
 
   diffViewerOpen: false,
   diffViewerServiceId: null,
-  openDiffViewer: (serviceId) => set({ diffViewerOpen: true, diffViewerServiceId: serviceId }),
-  closeDiffViewer: () => set({ diffViewerOpen: false, diffViewerServiceId: null }),
+  diffViewerInitialTab: undefined,
+  openDiffViewer: (serviceId, initialTab) =>
+    set({
+      diffViewerOpen: true,
+      diffViewerServiceId: serviceId,
+      diffViewerInitialTab: initialTab,
+    }),
+  closeDiffViewer: () =>
+    set({
+      diffViewerOpen: false,
+      diffViewerServiceId: null,
+      // Reset so the next open doesn't inherit the previous tab choice.
+      diffViewerInitialTab: undefined,
+    }),
 
   crossProjectDiffOpen: false,
   openCrossProjectDiff: () => set({ crossProjectDiffOpen: true }),

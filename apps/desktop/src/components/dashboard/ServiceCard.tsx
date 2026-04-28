@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Clock,
   FolderOpen,
   Globe,
   HelpCircle,
+  History,
   Loader2,
   Package,
   Pencil,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import { buildWhyChatPayload } from '@/lib/ai/whyPayload';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
@@ -53,6 +55,172 @@ function staleLabel(lastActivity: string | null): string {
   } catch {
     return 'Stale';
   }
+}
+
+/**
+ * "Scan freshness" thresholds, in ms. Values picked to match the
+ * cadence the existing in-memory cache and dashboard-pulse already
+ * use:
+ *
+ *   < 1h     → "fresh" (subtle, no recommendation)
+ *   1h–24h   → "recent" (neutral muted, plain age label)
+ *   24h–7d   → "aging" (amber tone, "consider rescanning")
+ *   ≥ 7d     → "stale" (warning tone, "rescan recommended")
+ *
+ * The 24h threshold is deliberately lenient: pulling `npm audit` 12
+ * times a day on a workspace with 30 services is wasteful, and most
+ * advisory feeds publish at most once a day. 7d is the "you really
+ * should rescan before shipping" line — beyond that the data is
+ * basically a guess.
+ */
+const SCAN_AGING_MS = 24 * 60 * 60_000;
+const SCAN_STALE_MS = 7 * 24 * 60 * 60_000;
+
+function scanAgeLabel(scannedAtMs: number, now: number): string {
+  const diff = Math.max(0, now - scannedAtMs);
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 30 * 86_400_000) return `${Math.floor(diff / (7 * 86_400_000))}w ago`;
+  return `${Math.floor(diff / (30 * 86_400_000))}mo ago`;
+}
+
+function ScanFreshnessChip({
+  scannedAtMs,
+  durationMs,
+  rescanning,
+  onRescan,
+}: {
+  scannedAtMs: number;
+  durationMs: number | null;
+  /** True while a per-project rescan is mid-flight. Swaps the
+   *  history icon for a spinner and disables the click. */
+  rescanning: boolean;
+  /** Click handler — when supplied, the chip becomes a button so
+   *  power users can rescan a single project without going through
+   *  the workspace-wide CTA. */
+  onRescan?: () => void;
+}) {
+  // Re-tick once per minute so the label rolls forward without
+  // depending on the parent. A card-level interval is cheap because
+  // the dashboard typically renders <50 cards and most stay mounted
+  // for the lifetime of the session anyway.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const age = now - scannedAtMs;
+  const tone =
+    age >= SCAN_STALE_MS
+      ? 'bg-tone-danger/10 text-tone-danger-fg'
+      : age >= SCAN_AGING_MS
+        ? 'bg-tone-warning/10 text-tone-warning-fg'
+        : 'bg-fg-dim/10 text-fg-dim';
+  const recommendation =
+    age >= SCAN_STALE_MS
+      ? ' — rescan recommended'
+      : age >= SCAN_AGING_MS
+        ? ' — consider rescanning'
+        : '';
+
+  const tooltip = rescanning
+    ? 'Rescanning this project…'
+    : `Last scanned ${new Date(scannedAtMs).toLocaleString()}${
+        durationMs != null ? ` (took ${(durationMs / 1000).toFixed(1)}s)` : ''
+      }${recommendation}${onRescan ? ' · click to rescan' : ''}`;
+
+  const label = rescanning ? 'scanning…' : scanAgeLabel(scannedAtMs, now);
+
+  const sharedClass = cn(
+    'rounded-app-sm inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition',
+    tone,
+    onRescan && !rescanning && 'cursor-pointer hover:brightness-110',
+    rescanning && 'opacity-70 cursor-wait',
+  );
+
+  if (onRescan) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!rescanning) onRescan();
+        }}
+        disabled={rescanning}
+        className={sharedClass}
+        title={tooltip}
+        aria-label={tooltip}
+      >
+        {rescanning ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <History className="h-3 w-3" />
+        )}
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <span
+      className={sharedClass}
+      title={tooltip}
+      aria-label={`Last scanned ${scanAgeLabel(scannedAtMs, now)}`}
+    >
+      <History className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Tiny "+3" / "−1" badge attached to the audit/outdated chip when the
+ * latest persisted scan saw a count change vs the prior one. Renders
+ * `null` when the delta is zero or unavailable so it doesn't clutter
+ * cards in steady state — the user only sees this badge when something
+ * actually moved, which is exactly when they should care.
+ */
+function ScanDeltaBadge({ delta, severity }: { delta: number; severity: 'risk' | 'outdated' }) {
+  if (delta === 0) return null;
+  const sign = delta > 0 ? '+' : '';
+  const isRise = delta > 0;
+  // For risk (advisories), more is bad — red on rise, green on drop.
+  // For outdated, more is also bad-ish but less alarming — amber on
+  // rise, neutral on drop. Tones picked to match the dashboard's
+  // existing severity palette without inventing new ones.
+  const tone =
+    severity === 'risk'
+      ? isRise
+        ? 'bg-tone-danger/15 text-tone-danger-fg'
+        : 'bg-tone-success/15 text-tone-success-fg'
+      : isRise
+        ? 'bg-tone-warning/15 text-tone-warning-fg'
+        : 'bg-fg-dim/10 text-fg-dim';
+  const abs = Math.abs(delta);
+  const noun =
+    severity === 'risk'
+      ? abs === 1
+        ? 'advisory'
+        : 'advisories'
+      : abs === 1
+        ? 'outdated package'
+        : 'outdated packages';
+  return (
+    <span
+      className={cn(
+        'rounded-app-sm ml-0.5 inline-flex shrink-0 items-center px-1 py-0.5 text-[9px] font-bold tabular-nums',
+        tone,
+      )}
+      title={`${sign}${delta} ${noun} since last scan`}
+      aria-label={`${sign}${delta} since last scan`}
+    >
+      {sign}
+      {delta}
+    </span>
+  );
 }
 
 function CardAction({
@@ -111,8 +279,6 @@ export function ServiceCard({
     message: string;
     onConfirm: () => void;
   } | null>(null);
-  const openAiChat = useAppStore((s) => s.openAiChat);
-
   const statuses = useAppStore((s) => s.statuses);
   const setSelected = useAppStore((s) => s.setSelected);
   const openEditor = useAppStore((s) => s.openEditor);
@@ -121,6 +287,42 @@ export function ServiceCard({
   const resourceSample = useAppStore((s) => s.resources[svc.id]);
   const resourceHistory = useAppStore((s) => s.resourceHistory[svc.id]);
   const overviewScanning = useAppStore((s) => s.overviewScanning);
+  // Per-project scan freshness & duration come from the
+  // store-side maps that mirror the SQLite scan history. Selecting
+  // each service's slot directly keeps the re-render scope tight —
+  // unrelated cards don't re-render when one project's scan
+  // finishes.
+  const scanFreshness = useAppStore((s) => s.scanFreshnessByService.get(svc.id));
+  const scanDuration = useAppStore((s) => s.scanDurationByService.get(svc.id));
+  const scanDelta = useAppStore((s) => s.scanDeltasByService.get(svc.id));
+  const isRescanningThis = useAppStore((s) => s.scanningServiceIds.has(svc.id));
+  const patchScanEntry = useAppStore((s) => s.patchScanEntry);
+  const setScanningService = useAppStore((s) => s.setScanningService);
+
+  /**
+   * Per-project rescan handler. Bypasses the in-memory cache (force=true)
+   * because the only reason to manually trigger this from the card is
+   * "I want fresh numbers right now"; if cached data was good enough,
+   * the chip wouldn't have been clicked.
+   *
+   * Errors are logged but not surfaced as a blocking dialog — the
+   * card stays on the previous (still-valid) numbers and the user
+   * can click again. We deliberately don't toast either, because
+   * scan failures are noisy at the workspace level (one project
+   * having no `package.json` shouldn't pollute the UI of 30 others).
+   */
+  const handleRescan = async () => {
+    if (isRescanningThis) return;
+    setScanningService(svc.id, true);
+    try {
+      const entry = await ipc.scanProjectDependencyForService(svc.id, true);
+      patchScanEntry(entry);
+    } catch (err) {
+      console.warn('[ServiceCard] rescan failed', { serviceId: svc.id, err });
+    } finally {
+      setScanningService(svc.id, false);
+    }
+  };
   const st: Status = statuses[svc.id]?.status ?? 'stopped';
   const isRunning = st === 'running' || st === 'starting';
   const logLines =
@@ -213,47 +415,47 @@ export function ServiceCard({
               <Loader2 className="h-3 w-3 animate-spin" />
             </span>
           )}
-          {projectMeta?.outdated && onOpenDetail && (
-            <OutdatedChip
-              outdated={projectMeta.outdated}
-              onClick={() => onOpenDetail(svc.id, 'outdated')}
+          {/*
+            Per-card "Last scanned X ago" chip. Sourced from the
+            persistent SQLite scan history (hydrated on app mount),
+            so it survives restarts. We only render the chip when
+            we actually have BOTH a freshness timestamp AND scan
+            data on the card; a service without a runtime never
+            scans, and showing "Last scanned: never" everywhere
+            would be noise.
+          */}
+          {scanFreshness != null && (projectMeta?.outdated || projectMeta?.audit) && (
+            <ScanFreshnessChip
+              scannedAtMs={scanFreshness}
+              durationMs={scanDuration ?? null}
+              rescanning={isRescanningThis}
+              onRescan={projectMeta?.runtime ? handleRescan : undefined}
             />
+          )}
+          {projectMeta?.outdated && onOpenDetail && (
+            <span className="inline-flex items-center">
+              <OutdatedChip
+                outdated={projectMeta.outdated}
+                onClick={() => onOpenDetail(svc.id, 'outdated')}
+              />
+              {scanDelta?.outdated != null && scanDelta.outdated !== 0 && (
+                <ScanDeltaBadge delta={scanDelta.outdated} severity="outdated" />
+              )}
+            </span>
           )}
           {projectMeta?.audit && onOpenDetail && (
-            <AuditChip
-              audit={projectMeta.audit}
-              onClick={() => onOpenDetail(svc.id, 'advisories')}
-            />
+            <span className="inline-flex items-center">
+              <AuditChip
+                audit={projectMeta.audit}
+                onClick={() => onOpenDetail(svc.id, 'advisories')}
+              />
+              {scanDelta?.vulnerabilities != null && scanDelta.vulnerabilities !== 0 && (
+                <ScanDeltaBadge delta={scanDelta.vulnerabilities} severity="risk" />
+              )}
+            </span>
           )}
           {projectMeta && flagCount > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!projectMeta) return;
-                const payload = buildWhyChatPayload(projectMeta);
-                void openAiChat({
-                  origin: 'why',
-                  title: payload.title,
-                  context: payload.context,
-                  draftPrompt: payload.draftPrompt,
-                  contextSystemMessage: payload.contextSystemMessage,
-                  // Auto-send: the user already committed by clicking
-                  // Why?; routing through the chat panel is meant to
-                  // give them the *answer* in a persistent place, not
-                  // make them re-confirm by hitting Enter.
-                  autoSend: true,
-                });
-              }}
-              title={`Ask AI: why is this project flagged? (${flagCount} signal${
-                flagCount === 1 ? '' : 's'
-              })`}
-              aria-label="Explain why this project is flagged"
-              className="rounded-app-sm border-accent/30 bg-accent/8 text-accent hover:bg-accent/15 inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold transition"
-            >
-              <HelpCircle className="h-3 w-3" />
-              Why?
-            </button>
+            <WhyAskButton projectMeta={projectMeta} flagCount={flagCount} />
           )}
           {runtime && (
             <span
@@ -500,5 +702,55 @@ function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () => void
       <Shield className="h-3 w-3" />
       {total}
     </button>
+  );
+}
+
+/**
+ * "Why is this project flagged?" trigger — a thin AI-action button
+ * that owns its own provider chooser popover. Extracted into a
+ * sub-component because `useAiSurfaceTrigger` (the hook that drives
+ * single-vs-multi model UX) can't be called conditionally inside
+ * the parent's JSX, and the button itself only renders when the
+ * project actually has flags.
+ */
+function WhyAskButton({
+  projectMeta,
+  flagCount,
+}: {
+  projectMeta: ProjectOverview;
+  flagCount: number;
+}) {
+  const { triggerRef, onClick, popover } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: () => {
+      const payload = buildWhyChatPayload(projectMeta);
+      return {
+        origin: 'why',
+        title: payload.title,
+        context: payload.context,
+        draftPrompt: payload.draftPrompt,
+        contextSystemMessage: payload.contextSystemMessage,
+      };
+    },
+  });
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        title={`Ask AI: why is this project flagged? (${flagCount} signal${
+          flagCount === 1 ? '' : 's'
+        })`}
+        aria-label="Explain why this project is flagged"
+        className="rounded-app-sm border-accent/30 bg-accent/8 text-accent hover:bg-accent/15 inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold transition"
+      >
+        <HelpCircle className="h-3 w-3" />
+        Why?
+      </button>
+      {popover}
+    </>
   );
 }

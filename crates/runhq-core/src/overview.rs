@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
@@ -39,6 +39,7 @@ use crate::error::AppResult;
 use crate::git::{self, GitStatus};
 use crate::process::Supervisor;
 use crate::resources::ResourceSample;
+use crate::scan_history::{PersistedScan, ScanHistoryDb};
 use crate::state::Store;
 
 /// Hard cap per external command. Exceeding this kills the child and
@@ -73,7 +74,7 @@ pub struct ProjectOverview {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct OutdatedResult {
     pub total: usize,
     pub major: usize,
@@ -85,7 +86,7 @@ pub struct OutdatedResult {
     pub packages: Vec<OutdatedPackage>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutdatedPackage {
     pub name: String,
     pub current: String,
@@ -99,7 +100,7 @@ pub struct OutdatedPackage {
     pub homepage: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AuditResult {
     pub critical: usize,
     pub high: usize,
@@ -112,7 +113,7 @@ pub struct AuditResult {
     pub advisories: Vec<Advisory>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Advisory {
     /// CVE / GHSA / RUSTSEC identifier when present.
     pub id: Option<String>,
@@ -159,6 +160,51 @@ pub struct DependencyScanEntry {
     pub service_id: String,
     pub outdated: Option<OutdatedResult>,
     pub audit: Option<AuditResult>,
+    /// Wall-clock timestamp when this individual project's scan
+    /// completed, in epoch ms. Stamped per-entry rather than per-batch
+    /// so a 30-project run still tells the UI "react app finished
+    /// 14s before lodash app", which feeds the per-card "Last
+    /// scanned 3h ago" chip.
+    pub scanned_at_ms: i64,
+    /// How long this single project's scan took (outdated + audit
+    /// concurrent), in ms. `None` for cache hits — those are
+    /// near-instant and reusing the original duration would lie about
+    /// what the network just did.
+    pub duration_ms: Option<i64>,
+    /// `true` when the entry came straight out of the in-memory
+    /// `ScanCache` rather than a fresh subprocess run. Lets the UI
+    /// distinguish "you just rescanned" from "we reused a 4-minute-old
+    /// result" and tone down the success toast accordingly.
+    pub from_cache: bool,
+    /// Total outdated count from the **previous** persisted scan for
+    /// this project, when one exists. Drives the dashboard's
+    /// "↑3 since last scan" delta badge — comparing live numbers
+    /// against persisted ones is exactly the kind of "what's
+    /// changed?" signal a power user wants when they trigger a
+    /// rescan after running `npm install`. `None` means there's no
+    /// prior row yet (first ever scan for this project) or this
+    /// entry came from cache (in which case it IS the persisted row,
+    /// so a delta would always be zero).
+    pub previous_total_outdated: Option<i64>,
+    pub previous_total_vulnerabilities: Option<i64>,
+}
+
+// ---- Helpers --------------------------------------------------------------
+
+fn now_ms() -> i64 {
+    Utc::now().timestamp_millis()
+}
+
+/// Approximate the wall-clock millisecond timestamp at which the given
+/// `Instant` was captured. We can't recover an exact wall time from a
+/// monotonic instant — and we don't need to; the caller only uses this
+/// to render "X minutes ago" labels — but we can subtract its
+/// `elapsed()` from the current wall clock with low single-digit-ms
+/// drift. Saturates at 0 on the off-chance the system clock jumped
+/// backward enough to make the subtraction underflow.
+fn ms_from_instant(inst: Instant) -> i64 {
+    let elapsed = inst.elapsed().as_millis() as i64;
+    now_ms().saturating_sub(elapsed).max(0)
 }
 
 // ---- Fast path ------------------------------------------------------------
@@ -168,8 +214,64 @@ pub async fn gather_overview(
     supervisor: &Supervisor,
     stale_threshold_days: i64,
 ) -> AppResult<OverviewSummary> {
+    gather_overview_with_history(store, supervisor, stale_threshold_days, None).await
+}
+
+/// Same as [`gather_overview`] but also seeds each project's
+/// `outdated` / `audit` from the persistent scan-history DB at
+/// `scan_history_db_path` when the in-memory `ScanCache` doesn't have
+/// a fresh entry for it.
+///
+/// The point of this is the **cold-start dashboard**: before this lived
+/// here, after a desktop restart the user faced empty audit chips for
+/// 30 seconds while `npm audit` re-ran across the workspace, even
+/// though we'd just persisted last night's results to disk. Now we
+/// hydrate from SQLite synchronously on the fast path so the chip
+/// renders with "12 advisories • last scanned 2h ago" immediately,
+/// and a background rescan can refresh it.
+///
+/// Layered priority is intentional:
+///   1. In-memory `ScanCache` (TTL 5min) — freshest, includes any
+///      result the user kicked off seconds ago.
+///   2. SQLite `dependency_scans` (no TTL) — survives restarts,
+///      arbitrarily old.
+///   3. `None` — show "scan dependencies" CTA.
+///
+/// We don't *replace* an in-memory entry with an older SQLite one;
+/// SQLite only fills the gap. Otherwise refreshing the dashboard
+/// during a scan would visibly time-travel.
+pub async fn gather_overview_with_history(
+    store: &Store,
+    supervisor: &Supervisor,
+    stale_threshold_days: i64,
+    scan_history_db_path: Option<&Path>,
+) -> AppResult<OverviewSummary> {
     let services = store.services();
     let cutoff = Utc::now() - chrono::Duration::days(stale_threshold_days);
+
+    // Open and slurp the persisted scans up-front so the per-project
+    // loop below can do a constant-time lookup. The DB is small
+    // (one row per service, JSON blobs in the low KBs each) so a
+    // single list-all is cheaper than a query per service.
+    let persisted_by_id: HashMap<String, PersistedScan> = match scan_history_db_path {
+        Some(path) => match ScanHistoryDb::open(path) {
+            Ok(db) => match db.list_all() {
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|r| (r.service_id.clone(), r))
+                    .collect(),
+                Err(e) => {
+                    tracing::warn!("scan history list_all failed: {e}");
+                    HashMap::new()
+                }
+            },
+            Err(e) => {
+                tracing::warn!("scan history open failed: {e}");
+                HashMap::new()
+            }
+        },
+        None => HashMap::new(),
+    };
 
     // Fire cheap per-service git lookups in parallel: on a workspace with
     // 20 repos, sequential git-status adds up to hundreds of ms.
@@ -249,10 +351,27 @@ pub async fn gather_overview(
         // Reuse last scan result if it's still within TTL. This lets the
         // user close and reopen the dashboard without paying the full
         // scan cost each time.
-        let (outdated, audit) = scan_snapshot
+        let (mut outdated, mut audit) = scan_snapshot
             .get(&svc.cwd)
             .map(|e| (e.outdated.clone(), e.audit.clone()))
             .unwrap_or((None, None));
+
+        // Fall back to the persistent scan history when the in-memory
+        // cache doesn't cover this service (the typical cold-start
+        // case). We stitch outdated and audit independently because
+        // some runtimes only persist one of the two — losing both
+        // because one was missing would defeat the whole hydration.
+        if outdated.is_none() || audit.is_none() {
+            if let Some(persisted) = persisted_by_id.get(&svc.id) {
+                if outdated.is_none() {
+                    outdated = persisted.outdated.clone();
+                }
+                if audit.is_none() {
+                    audit = persisted.audit.clone();
+                }
+            }
+        }
+
         if outdated.is_some() || audit.is_some() {
             has_dependency_scan = true;
         }
@@ -306,8 +425,34 @@ pub async fn gather_overview(
 /// skipped entirely. Pass `force = true` from an explicit "refresh" action
 /// to bypass the cache.
 pub async fn gather_dependency_scan(store: &Store, force: bool) -> AppResult<DependencyScanResult> {
+    gather_dependency_scan_with_history(store, force, None).await
+}
+
+/// Same as [`gather_dependency_scan`] but additionally upserts every
+/// fresh per-service result into the persistent SQLite scan history at
+/// `scan_history_db_path` so subsequent dashboard cold-starts can
+/// hydrate the chips immediately without rerunning the tools.
+///
+/// Cache hits are *not* re-persisted — they were already written when
+/// the original run completed, and rewriting them would only update
+/// the timestamp, falsely advertising "scanned 30s ago" to the user
+/// when nothing actually ran.
+pub async fn gather_dependency_scan_with_history(
+    store: &Store,
+    force: bool,
+    scan_history_db_path: Option<&Path>,
+) -> AppResult<DependencyScanResult> {
     let services = store.services();
     let scan_cache = ScanCache::global();
+
+    // Snapshot of (id, name, cwd) so the JoinSet tasks can persist
+    // back without holding a Store reference (Store isn't `Send` past
+    // an .await, and plumbing it through the JoinSet would require
+    // an Arc clone we don't otherwise need).
+    let svc_meta: HashMap<String, (String, PathBuf)> = services
+        .iter()
+        .map(|s| (s.id.clone(), (s.name.clone(), s.cwd.clone())))
+        .collect();
 
     let mut tasks: JoinSet<DependencyScanEntry> = JoinSet::new();
     for svc in &services {
@@ -319,11 +464,17 @@ pub async fn gather_dependency_scan(store: &Store, force: bool) -> AppResult<Dep
         // heavy external commands on every click.
         if !force {
             if let Some(entry) = scan_cache.get_fresh(&cwd) {
+                let scanned_at_ms = ms_from_instant(entry.fetched_at);
                 tasks.spawn(async move {
                     DependencyScanEntry {
                         service_id,
                         outdated: entry.outdated,
                         audit: entry.audit,
+                        scanned_at_ms,
+                        duration_ms: None,
+                        from_cache: true,
+                        previous_total_outdated: None,
+                        previous_total_vulnerabilities: None,
                     }
                 });
                 continue;
@@ -332,29 +483,98 @@ pub async fn gather_dependency_scan(store: &Store, force: bool) -> AppResult<Dep
 
         let cache = scan_cache.clone();
         tasks.spawn(async move {
+            let started = Instant::now();
             let outdated_fut = run_outdated(&cwd, runtime.as_deref());
             let audit_fut = run_audit(&cwd, runtime.as_deref());
             let (outdated, audit) = tokio::join!(outdated_fut, audit_fut);
+            let duration_ms = started.elapsed().as_millis() as i64;
             cache.insert(&cwd, outdated.clone(), audit.clone());
             DependencyScanEntry {
                 service_id,
                 outdated,
                 audit,
+                scanned_at_ms: now_ms(),
+                duration_ms: Some(duration_ms),
+                from_cache: false,
+                previous_total_outdated: None,
+                previous_total_vulnerabilities: None,
             }
         });
     }
+
+    // Open the history DB lazily — only if a path is supplied. Failing
+    // to open it must NOT abort the scan; the user still gets live
+    // results in the UI, we just lose the persistence side-effect for
+    // this run. A loud warn-log makes the fallout debuggable.
+    let history_db: Option<ScanHistoryDb> = scan_history_db_path.and_then(|path| {
+        ScanHistoryDb::open(path)
+            .map_err(|e| {
+                tracing::warn!("scan history open failed (skipping persistence): {e}");
+                e
+            })
+            .ok()
+    });
 
     let mut entries = Vec::with_capacity(services.len());
     let mut total_outdated = 0usize;
     let mut total_vulnerabilities = 0usize;
     while let Some(res) = tasks.join_next().await {
-        let Ok(entry) = res else { continue };
+        let Ok(mut entry) = res else { continue };
         if let Some(ref o) = entry.outdated {
             total_outdated += o.total;
         }
         if let Some(ref a) = entry.audit {
             total_vulnerabilities += a.critical + a.high + a.medium + a.low;
         }
+
+        // Persist fresh runs only — see function-level docstring for
+        // why cache hits are skipped. We tolerate a failed write per
+        // entry because losing one row's persistence is much better
+        // than losing the whole batch's UI update.
+        if !entry.from_cache {
+            if let (Some(db), Some((name, cwd))) = (
+                history_db.as_ref(),
+                svc_meta.get(&entry.service_id).cloned(),
+            ) {
+                // Read the prior row BEFORE upsert so we can stamp
+                // a "what changed" delta onto the entry. Used by the
+                // dashboard to render "+3 advisories since last
+                // scan" — the kind of signal that converts a passive
+                // "scan deps" affordance into an active risk
+                // notification. Skipped for first-ever scans (no
+                // prior row, deltas remain None).
+                if let Ok(Some(prev)) = db.get_by_service(&entry.service_id) {
+                    entry.previous_total_outdated = Some(prev.total_outdated);
+                    entry.previous_total_vulnerabilities = Some(prev.total_vulnerabilities);
+                }
+
+                let entry_total_outdated =
+                    entry.outdated.as_ref().map(|o| o.total).unwrap_or(0) as i64;
+                let entry_total_vulns = entry
+                    .audit
+                    .as_ref()
+                    .map(|a| a.critical + a.high + a.medium + a.low)
+                    .unwrap_or(0) as i64;
+                let scan_row = PersistedScan {
+                    service_id: entry.service_id.clone(),
+                    cwd: cwd.to_string_lossy().to_string(),
+                    service_name: name,
+                    outdated: entry.outdated.clone(),
+                    audit: entry.audit.clone(),
+                    scanned_at_ms: entry.scanned_at_ms,
+                    duration_ms: entry.duration_ms,
+                    total_outdated: entry_total_outdated,
+                    total_vulnerabilities: entry_total_vulns,
+                };
+                if let Err(e) = db.upsert(&scan_row) {
+                    tracing::warn!(
+                        service_id = %entry.service_id,
+                        "scan history upsert failed: {e}"
+                    );
+                }
+            }
+        }
+
         entries.push(entry);
     }
 
@@ -363,6 +583,115 @@ pub async fn gather_dependency_scan(store: &Store, force: bool) -> AppResult<Dep
         total_outdated,
         total_vulnerabilities,
     })
+}
+
+/// Single-service variant of [`gather_dependency_scan_with_history`].
+///
+/// Lets the UI offer a "Rescan this project" affordance that doesn't
+/// have to wait on every other registered service to finish — a real
+/// concern on a 30-project workspace where running the full suite
+/// just to verify a `lodash` advisory takes a coffee break.
+///
+/// `force` semantics match the batch variant: skipped when the
+/// in-memory cache is fresh, unless the caller explicitly asks to
+/// bypass it.
+///
+/// Returns `Ok(None)` when the supplied `service_id` doesn't match
+/// any registered service — the IPC layer turns that into a 404-style
+/// "no such service" error rather than a silent empty result.
+pub async fn gather_dependency_scan_for_service(
+    store: &Store,
+    service_id: &str,
+    force: bool,
+    scan_history_db_path: Option<&Path>,
+) -> AppResult<Option<DependencyScanEntry>> {
+    let services = store.services();
+    let Some(svc) = services.iter().find(|s| s.id == service_id) else {
+        return Ok(None);
+    };
+    let svc_id = svc.id.clone();
+    let svc_name = svc.name.clone();
+    let cwd = svc.cwd.clone();
+    let runtime = detect_runtime(&svc.cwd);
+
+    let scan_cache = ScanCache::global();
+
+    // Fast cache path — same shape as the batch variant. Cache hits
+    // get a None duration and `from_cache: true` so the UI can avoid
+    // claiming "scan completed in 0.0s" when nothing actually ran.
+    if !force {
+        if let Some(cached) = scan_cache.get_fresh(&cwd) {
+            return Ok(Some(DependencyScanEntry {
+                service_id: svc_id,
+                outdated: cached.outdated,
+                audit: cached.audit,
+                scanned_at_ms: ms_from_instant(cached.fetched_at),
+                duration_ms: None,
+                from_cache: true,
+                previous_total_outdated: None,
+                previous_total_vulnerabilities: None,
+            }));
+        }
+    }
+
+    let started = Instant::now();
+    let outdated_fut = run_outdated(&cwd, runtime.as_deref());
+    let audit_fut = run_audit(&cwd, runtime.as_deref());
+    let (outdated, audit) = tokio::join!(outdated_fut, audit_fut);
+    let duration_ms = started.elapsed().as_millis() as i64;
+    scan_cache.insert(&cwd, outdated.clone(), audit.clone());
+
+    let mut entry = DependencyScanEntry {
+        service_id: svc_id.clone(),
+        outdated: outdated.clone(),
+        audit: audit.clone(),
+        scanned_at_ms: now_ms(),
+        duration_ms: Some(duration_ms),
+        from_cache: false,
+        previous_total_outdated: None,
+        previous_total_vulnerabilities: None,
+    };
+
+    if let Some(path) = scan_history_db_path {
+        if let Ok(db) = ScanHistoryDb::open(path).map_err(|e| {
+            tracing::warn!("scan history open failed (single scan persistence skipped): {e}");
+            e
+        }) {
+            // Capture deltas before the upsert clobbers the prior
+            // row — same trick as the batch variant, kept inline
+            // here so the function reads top-to-bottom without a
+            // helper round-trip.
+            if let Ok(Some(prev)) = db.get_by_service(&svc_id) {
+                entry.previous_total_outdated = Some(prev.total_outdated);
+                entry.previous_total_vulnerabilities = Some(prev.total_vulnerabilities);
+            }
+
+            let total_outdated = outdated.as_ref().map(|o| o.total).unwrap_or(0) as i64;
+            let total_vulns = audit
+                .as_ref()
+                .map(|a| a.critical + a.high + a.medium + a.low)
+                .unwrap_or(0) as i64;
+            let scan_row = PersistedScan {
+                service_id: svc_id,
+                cwd: cwd.to_string_lossy().to_string(),
+                service_name: svc_name,
+                outdated,
+                audit,
+                scanned_at_ms: entry.scanned_at_ms,
+                duration_ms: entry.duration_ms,
+                total_outdated,
+                total_vulnerabilities: total_vulns,
+            };
+            if let Err(e) = db.upsert(&scan_row) {
+                tracing::warn!(
+                    service_id = %entry.service_id,
+                    "single scan history upsert failed: {e}"
+                );
+            }
+        }
+    }
+
+    Ok(Some(entry))
 }
 
 async fn run_outdated(cwd: &Path, runtime: Option<&str>) -> Option<OutdatedResult> {

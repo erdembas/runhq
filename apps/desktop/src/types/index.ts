@@ -249,10 +249,56 @@ export interface DependencyScanEntry {
   service_id: string;
   outdated: OutdatedResult | null;
   audit: AuditResult | null;
+  /**
+   * Wall-clock epoch ms when this individual project's scan finished.
+   * Used to drive the per-card "Last scanned 3h ago" chip.
+   */
+  scanned_at_ms: number;
+  /** How long the per-project scan ran (ms). null on cache hits. */
+  duration_ms: number | null;
+  /**
+   * `true` when the entry came out of the in-memory 5-minute cache
+   * rather than a fresh subprocess run. Lets the UI tell "you just
+   * rescanned" apart from "we reused a stale result".
+   */
+  from_cache: boolean;
+  /**
+   * Total outdated count from the previous persisted scan for this
+   * project. `null` when there is no prior scan (first run) or this
+   * entry came from cache (no meaningful comparison). Drives the
+   * "↑3 since last scan" delta badge on the dashboard's outdated
+   * chip — the difference between the live total and this number
+   * tells the user "what changed since I last looked".
+   */
+  previous_total_outdated: number | null;
+  previous_total_vulnerabilities: number | null;
 }
 
 export interface DependencyScanResult {
   entries: DependencyScanEntry[];
+  total_outdated: number;
+  total_vulnerabilities: number;
+}
+
+/**
+ * One row from the persistent SQLite scan history. Returned by
+ * `listPersistedScans()` so the dashboard can render a "Last scanned"
+ * chip on every project card the moment it mounts, without having to
+ * wait for a full rescan.
+ *
+ * Mirrors the Rust `PersistedScan` shape one-to-one. `cwd` and
+ * `service_name` are denormalised at write time so we can label rows
+ * even after a service has been removed and re-added (which would
+ * orphan the row by `service_id`).
+ */
+export interface PersistedScan {
+  service_id: string;
+  cwd: string;
+  service_name: string;
+  outdated: OutdatedResult | null;
+  audit: AuditResult | null;
+  scanned_at_ms: number;
+  duration_ms: number | null;
   total_outdated: number;
   total_vulnerabilities: number;
 }

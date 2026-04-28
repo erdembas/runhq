@@ -153,6 +153,12 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
   const [shortcuts, setShortcuts] = useState<Shortcuts>(DEFAULT_SHORTCUTS);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [saving, setSaving] = useState(false);
+  // "Data & cache" section state. Kept local because none of these
+  // values are interesting beyond this dialog's lifetime — a global
+  // store would just add re-render surface for no benefit.
+  const [scanRowCount, setScanRowCount] = useState<number | null>(null);
+  const [confirmResetScans, setConfirmResetScans] = useState(false);
+  const [resettingScans, setResettingScans] = useState(false);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
   const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
   // Only render the release links if there's actually a release entry
@@ -166,7 +172,46 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
       setPrefs(p);
       if (p.shortcuts) setShortcuts(p.shortcuts);
     });
+    // Fire-and-forget the row count for the "Reset scan cache"
+    // section. We don't block the rest of the dialog on this — a
+    // failed read just leaves the count as "unknown", which the UI
+    // still renders sensibly.
+    ipc
+      .listPersistedScans()
+      .then((rows) => setScanRowCount(rows.length))
+      .catch(() => setScanRowCount(null));
   }, []);
+
+  /**
+   * Wipe the persistent dependency-scan database, then clear the
+   * matching in-memory store maps so the dashboard immediately
+   * reflects "no scans on file" rather than continuing to show
+   * stale "scanned 3h ago" chips. The actual `npm outdated` /
+   * `cargo audit` data on the project cards stays intact (it
+   * lives on the live overview, not in the scan history) so the
+   * user doesn't lose visible signal until the next refresh.
+   */
+  const handleResetScanCache = async () => {
+    setResettingScans(true);
+    try {
+      const cleared = await ipc.clearPersistedScans();
+      // Drop freshness/duration/delta maps in one shot so chips
+      // disappear from the dashboard. Live audit/outdated values
+      // stay because they're driven by the overview snapshot.
+      useAppStore.setState({
+        scanFreshnessByService: new Map(),
+        scanDurationByService: new Map(),
+        scanDeltasByService: new Map(),
+      });
+      setScanRowCount(0);
+      console.info(`[Settings] cleared ${cleared} persisted scan(s)`);
+    } catch (err) {
+      console.error('[Settings] reset scan cache failed', err);
+    } finally {
+      setResettingScans(false);
+      setConfirmResetScans(false);
+    }
+  };
 
   const handleChange = (id: keyof Shortcuts, value: string) => {
     setShortcuts((prev) => ({ ...prev, [id]: value }));
@@ -228,6 +273,60 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
         Changes to the Quick Action shortcut take effect after restarting the app. A modifier key
         (Cmd/Ctrl) is required for all shortcuts.
       </p>
+
+      {/*
+        Data & cache section. Lives in the same dialog as keyboard
+        shortcuts because both are "preferences I tweak rarely" — a
+        dedicated Settings window for one button felt overkill, and
+        the user already lands here from the gear icon. The row
+        count tells the user up-front "this will affect 14
+        projects", so the destructive action isn't fired blind.
+      */}
+      <div className="border-border mt-4 border-t pt-3">
+        <div className="text-fg mb-1 text-[12px] font-semibold">Dependency scan history</div>
+        <p className="text-fg-dim mb-2 text-[11px]">
+          Cached scan results survive restarts so the dashboard can render audit/outdated chips
+          instantly on cold start. Resetting forces every project to be rescanned on the next
+          dependency sweep.
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-fg-dim flex items-center gap-1.5 text-[11px]">
+            <History className="h-3.5 w-3.5" />
+            {scanRowCount == null
+              ? 'Loading scan cache…'
+              : scanRowCount === 0
+                ? 'No persisted scans yet'
+                : `${scanRowCount} project${scanRowCount === 1 ? '' : 's'} cached`}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmResetScans(true)}
+            disabled={resettingScans || scanRowCount === 0 || scanRowCount == null}
+            leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+          >
+            {resettingScans ? 'Clearing…' : 'Reset scan cache'}
+          </Button>
+        </div>
+      </div>
+
+      {confirmResetScans && (
+        <ConfirmDialog
+          title="Reset scan cache?"
+          message={
+            scanRowCount && scanRowCount > 0
+              ? `This will delete ${scanRowCount} cached scan result${
+                  scanRowCount === 1 ? '' : 's'
+                }. The next dependency sweep will rerun npm outdated / cargo audit for every project.`
+              : 'This will delete all cached dependency scan results.'
+          }
+          confirmLabel="Reset cache"
+          confirmWord="reset"
+          tone="danger"
+          onConfirm={() => void handleResetScanCache()}
+          onCancel={() => setConfirmResetScans(false)}
+        />
+      )}
 
       {(onReplayTour || latestRelease) && (
         <div className="border-border mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3">

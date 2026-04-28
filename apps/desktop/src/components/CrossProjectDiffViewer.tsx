@@ -35,6 +35,11 @@ import type { DiffSummary, ProjectOverview } from '@/types';
  *  as DiffViewer — keeps behaviour consistent across fullscreen surfaces. */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+/** Width of the always-visible vertical activity-bar rail on the right
+ *  edge, in pixels. Mirrors `RightActivityBar`'s `w-9`; kept in sync
+ *  with the matching constant in `DiffViewer.tsx`. */
+const RIGHT_RAIL_WIDTH = 36;
+
 interface Props {
   onClose: () => void;
 }
@@ -76,6 +81,16 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
   const services = useAppStore((s) => s.services);
   const openDiffViewer = useAppStore((s) => s.openDiffViewer);
   const closeCrossProjectDiff = useAppStore((s) => s.closeCrossProjectDiff);
+
+  // Reserve right-edge space for the always-visible activity rail and
+  // the AI / Activity panel (when open) — same rationale as DiffViewer:
+  // clicking "Explain" inside this view used to pop the AI panel
+  // *behind* the overlay, leaving the user staring at a diff with no
+  // streamed answer in sight. Only applied in fullscreen mode; the
+  // windowed mode already has natural margins on both sides.
+  const rightPanel = useAppStore((s) => s.rightPanel);
+  const rightPanelWidth = useAppStore((s) => s.rightPanelWidth);
+  const reservedRight = RIGHT_RAIL_WIDTH + (rightPanel ? rightPanelWidth : 0);
 
   const { effective: effectiveTheme } = useTheme();
   const monacoTheme = useMonacoTheme(effectiveTheme);
@@ -360,9 +375,17 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
   return (
     <div
       className={cn(
-        'fixed inset-0 z-50 flex bg-black/60 backdrop-blur-sm',
+        'fixed top-0 bottom-0 left-0 z-50 flex bg-black/60 backdrop-blur-sm',
         isFullscreen ? 'items-stretch justify-stretch' : 'items-center justify-center',
       )}
+      // In fullscreen we leave room for the global right rail (Activity
+      // Bar + open side panel), so AI/Activity panels triggered from
+      // inside the diff (e.g. "Explain") stay visible alongside it. In
+      // windowed mode the inner card already has whitespace margins, so
+      // the backdrop spans the full viewport — keeps the centred dim
+      // effect symmetrical and stops the rail's edge from poking out
+      // into a half-tinted strip.
+      style={isFullscreen ? { right: reservedRight } : undefined}
     >
       <div
         className={cn(

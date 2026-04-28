@@ -103,7 +103,7 @@ export default function App() {
     (): Array<{ label: string; action?: () => void; separator?: boolean; shortcut?: string }> => [
       { label: 'New Service…', action: () => openEditor(null), shortcut: '⌘N' },
       { label: 'New Stack…', action: () => openStackEditor(null) },
-      { label: 'Scan Projects…', action: startScan },
+      { label: 'Discover projects…', action: startScan },
       { separator: true, label: '' },
       {
         label: 'Reload',
@@ -395,9 +395,30 @@ export default function App() {
   // sub-second freshness for "is this project stale?". The Rust side also
   // caches dependency-scan output (5 min TTL), so an explicit "Scan
   // dependencies" click is what actually refreshes audit/outdated numbers.
+  //
+  // On the very first call we ALSO hydrate the persisted scan rows from
+  // SQLite so the per-card "Last scanned 3h ago" chip lights up
+  // immediately — without this, post-restart the dashboard renders
+  // empty audit chips and "Never scanned" badges for every project
+  // until someone hits Rescan, even though we have last night's data
+  // sitting on disk.
   useEffect(() => {
     const store = useAppStore.getState();
     let alive = true;
+
+    // Fire-and-forget hydration before the first poll so the chips
+    // can render alongside the overview rather than after. Errors
+    // are non-fatal: a missing / corrupt scan history just falls
+    // back to "no scan yet" which is the existing behaviour.
+    void (async () => {
+      try {
+        const rows = await ipc.listPersistedScans();
+        if (alive) useAppStore.getState().hydratePersistedScans(rows);
+      } catch (err) {
+        console.error('list_persisted_scans failed', err);
+      }
+    })();
+
     const poll = async () => {
       try {
         store.setOverviewLoading(true);

@@ -375,7 +375,7 @@ export function WhatsNewModal({ version, onClose }: Props) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="border-border bg-surface-overlay animate-fade-in rounded-app-lg relative flex w-full max-w-2xl flex-col overflow-hidden border shadow-2xl"
+        className="border-border bg-surface-overlay animate-fade-in rounded-app-lg relative flex w-full max-w-2xl flex-col overflow-hidden border shadow-2xl select-text"
       >
         <div
           aria-hidden

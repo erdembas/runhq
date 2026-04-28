@@ -13,6 +13,7 @@ import type {
   Conversation,
   ConversationSummary,
   DailySummary,
+  DependencyScanEntry,
   DependencyScanResult,
   DetectedEditor,
   DiffSummary,
@@ -22,6 +23,7 @@ import type {
   LogEvent,
   LogLine,
   OverviewSummary,
+  PersistedScan,
   Prefs,
   ProjectCandidate,
   ResourceEvent,
@@ -135,6 +137,35 @@ export const ipc = {
     }),
   scanProjectDependencies: (force = false) =>
     invoke<DependencyScanResult>('scan_project_dependencies', { force }),
+  /**
+   * Rescan one project. Default `force = true` because the only
+   * sensible reason to invoke this directly is "I want fresh data
+   * for THIS project right now"; if the user wanted cached data the
+   * dashboard would already have it.
+   */
+  scanProjectDependencyForService: (serviceId: ServiceId, force = true) =>
+    invoke<DependencyScanEntry>('scan_project_dependency_for_service', {
+      serviceId,
+      force,
+    }),
+  /**
+   * Hydrate the dashboard's freshness chips on cold start: returns every
+   * persisted dependency scan, newest first. The Rust side merges
+   * persisted entries into `OverviewSummary` automatically, but the
+   * frontend still needs the raw list to render per-card "Last scanned"
+   * timestamps that aren't part of the overview shape.
+   */
+  listPersistedScans: () => invoke<PersistedScan[]>('list_persisted_scans'),
+  /**
+   * Drop the cached scan row for one project so its freshness chip
+   * disappears until the user reruns the scan. Useful when a project's
+   * registry / lockfile has been swapped under the app and the stale
+   * advisory list is now misleading.
+   */
+  deletePersistedScan: (serviceId: ServiceId) =>
+    invoke<void>('delete_persisted_scan', { serviceId }),
+  /** Wipe every persisted scan row; returns the number dropped. */
+  clearPersistedScans: () => invoke<number>('clear_persisted_scans'),
 
   recordTimelineEvent: (
     eventType: TimelineEventType,

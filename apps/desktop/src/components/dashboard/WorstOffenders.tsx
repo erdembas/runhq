@@ -1,6 +1,7 @@
-import { Flame, Package, ShieldAlert, Clock, ArrowUpRight } from 'lucide-react';
+import { ChevronDown, Flame, Package, ShieldAlert, Clock, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { riskScore } from '@/lib/risk';
+import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
 import type { ProjectOverview } from '@/types';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 
@@ -113,11 +114,58 @@ export function WorstOffenders({
       : 'border-border';
 
   return (
+    <WorstOffendersInner
+      accent={accent}
+      hasCritical={hasCritical}
+      hasHigh={hasHigh}
+      shown={shown}
+      totalCount={offenders.length}
+      onOpenDetail={onOpenDetail}
+    />
+  );
+}
+
+/**
+ * Inner component so the collapse hook lives below the early-return
+ * guard above (no offenders → no section, no hook). Splitting also
+ * makes the persistent-bool key colocated with its consumer.
+ */
+function WorstOffendersInner({
+  accent,
+  hasCritical,
+  hasHigh,
+  shown,
+  totalCount,
+  onOpenDetail,
+}: {
+  accent: string;
+  hasCritical: boolean;
+  hasHigh: boolean;
+  shown: OffenderEntry[];
+  totalCount: number;
+  onOpenDetail: (serviceId: string, tab: DetailTab) => void;
+}) {
+  // Collapse state survives navigation / restart so a user who's
+  // habitually closed the offender band keeps it closed. Default
+  // open — the band only renders when there are real offenders, so
+  // hiding it by default would defeat its purpose.
+  const [collapsed, setCollapsed] = usePersistentBoolean(
+    'runhq.dashboard.offenders.collapsed',
+    false,
+  );
+  return (
     <section
       className={cn('rounded-app overflow-hidden border transition', accent)}
       aria-label="Projects needing attention"
     >
-      <header className="border-border/60 flex items-center gap-2 border-b px-4 py-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
+        aria-controls="dashboard-offenders-list"
+        className="border-border/60 hover:bg-fg/5 flex w-full items-center gap-2 border-b px-4 py-2 text-left transition"
+        title={collapsed ? 'Expand the attention list' : 'Collapse the attention list'}
+      >
         <Flame
           className={cn(
             'h-3.5 w-3.5',
@@ -128,14 +176,23 @@ export function WorstOffenders({
           Needs attention
         </span>
         <span className="text-fg-dim text-[11px] tabular-nums">
-          {shown.length} of {offenders.length}
+          {shown.length} of {totalCount}
         </span>
-      </header>
-      <ul className="divide-border/60 divide-y">
-        {shown.map((entry) => (
-          <OffenderRow key={entry.project.service_id} entry={entry} onOpenDetail={onOpenDetail} />
-        ))}
-      </ul>
+        <ChevronDown
+          className={cn(
+            'text-fg-dim ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
+            collapsed && '-rotate-90',
+          )}
+          aria-hidden
+        />
+      </button>
+      {!collapsed && (
+        <ul id="dashboard-offenders-list" className="divide-border/60 divide-y">
+          {shown.map((entry) => (
+            <OffenderRow key={entry.project.service_id} entry={entry} onOpenDetail={onOpenDetail} />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

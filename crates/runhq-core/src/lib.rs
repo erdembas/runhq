@@ -34,6 +34,7 @@ pub mod paths;
 pub mod ports;
 pub mod process;
 pub mod resources;
+pub mod scan_history;
 pub mod scanner;
 pub mod state;
 pub mod timeline;

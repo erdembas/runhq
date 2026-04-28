@@ -21,8 +21,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { IS_MAC } from '@/lib/platform';
-import { useAppStore } from '@/store/useAppStore';
 import { buildAdvisoryChatPayload, buildSingleAdvisoryChatPayload } from '@/lib/ai/advisoryPayload';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import type { Advisory, DetectedEditor, OutdatedPackage, ProjectOverview } from '@/types';
 
 /**
@@ -699,55 +699,33 @@ function AdvisoriesPanel({
   runtime: string | null;
   projectName: string;
 }) {
-  // AI triage now routes through the unified chat hub on the right
-  // rail. We keep the count-based button label / disabled rules so
-  // the user still sees "Ask AI (12)" when they've narrowed the
-  // visible list — and we open a fresh conversation per click so the
-  // History drawer accumulates one entry per triage attempt rather
-  // than overwriting the last one.
-  const openAiChat = useAppStore((s) => s.openAiChat);
-  const launchAdvisoryTriage = useCallback(() => {
-    if (filtered.length === 0) return;
-    const payload = buildAdvisoryChatPayload({
-      advisories: filtered,
-      projectName,
-      runtime,
-    });
-    void openAiChat({
-      origin: 'advisory',
-      title: payload.title,
-      context: payload.context,
-      draftPrompt: payload.draftPrompt,
-      contextSystemMessage: payload.contextSystemMessage,
-      autoSend: true,
-    });
-  }, [openAiChat, filtered, projectName, runtime]);
-
-  /**
-   * Per-row "Analyze with AI" — opens a fresh chat tab focused on a
-   * single CVE. Auto-sends because the user already expressed intent
-   * by clicking the row's spark icon; making them re-confirm in the
-   * composer would just add a click. The bulk-triage button keeps
-   * the same UX for symmetry.
-   */
-  const launchSingleAnalyze = useCallback(
-    (advisory: Advisory) => {
-      const payload = buildSingleAdvisoryChatPayload({
-        advisory,
+  // AI triage routes through the unified chat hub on the right
+  // rail. The bulk button uses `useAiSurfaceTrigger` so a multi-
+  // model setup gets a popover anchored under "Ask AI" instead of
+  // bouncing the user into the panel and asking there.
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const {
+    triggerRef: askAiTriggerRef,
+    onClick: onAskAi,
+    popover: askAiPopover,
+  } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: () => {
+      const list = filteredRef.current;
+      const payload = buildAdvisoryChatPayload({
+        advisories: list,
         projectName,
         runtime,
       });
-      void openAiChat({
+      return {
         origin: 'advisory',
         title: payload.title,
         context: payload.context,
         draftPrompt: payload.draftPrompt,
         contextSystemMessage: payload.contextSystemMessage,
-        autoSend: true,
-      });
+      };
     },
-    [openAiChat, projectName, runtime],
-  );
+  });
 
   if (!hasScan) {
     return <NotScannedState kind="audit" onRescan={onRescan} scanning={scanning} />;
@@ -775,12 +753,6 @@ function AdvisoriesPanel({
   const askAiLabel =
     filtered.length === advisories.length ? `Ask AI (${total})` : `Ask AI (${filtered.length})`;
 
-  // The drawer no longer hosts an inline answer panel — clicking
-  // "Ask AI" hands the rows off to the chat hub. The button stays a
-  // single-shot trigger; if the user wants to re-ask with different
-  // filters they click again and we open a new conversation.
-  const onAskAi = launchAdvisoryTriage;
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <TriageRail
@@ -805,10 +777,15 @@ function AdvisoriesPanel({
         selectedCount={selected.size}
         onSelectAll={selectAllVisible}
         onClearSelection={clearSelection}
-        onAskAi={onAskAi}
+        onAskAi={() => {
+          if (filtered.length === 0) return;
+          onAskAi();
+        }}
         askAiLabel={askAiLabel}
         askAiDisabled={filtered.length === 0}
+        askAiTriggerRef={askAiTriggerRef}
       />
+      {askAiPopover}
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
           <EmptyState title="No matches" hint="Try clearing the search or the severity filter." />
@@ -821,7 +798,7 @@ function AdvisoriesPanel({
                 selected={selected.has(advisoryKey(a, idx))}
                 onToggle={() => toggle(advisoryKey(a, idx))}
                 onOpenUrl={onOpenUrl}
-                onAnalyze={launchSingleAnalyze}
+                projectName={projectName}
                 runtime={runtime}
               />
             ))}
@@ -838,20 +815,45 @@ function AdvisoryRow({
   selected,
   onToggle,
   onOpenUrl,
-  onAnalyze,
+  projectName,
   runtime,
 }: {
   advisory: Advisory;
   selected: boolean;
   onToggle: () => void;
   onOpenUrl: (url: string) => void;
-  /** Opens the AI chat hub with a deep per-CVE analysis prompt. */
-  onAnalyze: (advisory: Advisory) => void;
+  /** Project name + runtime are passed through (rather than a
+   *  pre-bound `onAnalyze` callback) so each row can host its own
+   *  `useAiSurfaceTrigger` and anchor its model picker right under
+   *  the row's Sparkles button. Going through a parent callback
+   *  would force a single shared anchor and the popover would
+   *  always pop under the bulk Ask AI button — the wrong row. */
+  projectName: string;
   runtime: string | null;
 }) {
   const tone = severityTone(advisory.severity);
   const cmd = upgradeCommandForAdvisory(runtime, advisory);
   const Icon = tone.icon;
+  const {
+    triggerRef: analyzeTriggerRef,
+    onClick: onAnalyzeClick,
+    popover: analyzePopover,
+  } = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: () => {
+      const payload = buildSingleAdvisoryChatPayload({
+        advisory,
+        projectName,
+        runtime,
+      });
+      return {
+        origin: 'advisory',
+        title: payload.title,
+        context: payload.context,
+        draftPrompt: payload.draftPrompt,
+        contextSystemMessage: payload.contextSystemMessage,
+      };
+    },
+  });
 
   return (
     <li
@@ -901,10 +903,11 @@ function AdvisoryRow({
                   source provided a URL. */}
           <span className="ml-auto flex shrink-0 items-center justify-end gap-0.5">
             <button
+              ref={analyzeTriggerRef}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onAnalyze(advisory);
+                onAnalyzeClick();
               }}
               className={cn(
                 'text-fg/55 hover:text-accent hover:bg-accent/10 inline-flex items-center',
@@ -920,6 +923,7 @@ function AdvisoryRow({
             >
               <Sparkles size={11} />
             </button>
+            {analyzePopover}
             {advisory.url && (
               <button
                 type="button"
@@ -1337,6 +1341,7 @@ function SearchRow({
   askAiLabel,
   askAiDisabled,
   askAiActive,
+  askAiTriggerRef,
 }: {
   searchRef: React.RefObject<HTMLInputElement>;
   query: string;
@@ -1355,6 +1360,11 @@ function SearchRow({
   askAiLabel?: string;
   askAiDisabled?: boolean;
   askAiActive?: boolean;
+  /** Anchor for the surface-side model chooser popover (see
+   *  `useAiSurfaceTrigger`). Forwarded to the Ask AI button so the
+   *  popover floats below the actual trigger element. The parent
+   *  also renders the matching `popover` JSX (portaled to body). */
+  askAiTriggerRef?: React.RefObject<HTMLButtonElement>;
 }) {
   return (
     <div className="border-border/60 bg-surface shrink-0 border-b px-3 py-2">
@@ -1389,6 +1399,7 @@ function SearchRow({
         <div className="flex items-center gap-2.5">
           {onAskAi && (
             <button
+              ref={askAiTriggerRef}
               type="button"
               onClick={onAskAi}
               disabled={askAiDisabled}

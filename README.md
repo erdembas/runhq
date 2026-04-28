@@ -45,6 +45,7 @@ Every project also has its own ritual: `pnpm dev` here, `go run ./cmd/api` there
 - **Every project, every command, one window.** Custom commands per service, open-in-editor across 8 editors, embedded PTY terminal, Cmd+K palette, Cmd+Shift+K global hotkey.
 - **Local, private, offline.** No telemetry, no cloud sync, no account.
 - **One window to rule them.** Start / stop / restart, kill ports, search logs, in one place.
+- **AI assistant on every surface — local _or_ cloud, your call.** A right-rail chat hub backed by any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, OpenAI, Azure, Together, OpenRouter, Groq, DeepSeek). Project · Why?, log triage, diff explain, commit message generation, standup polish, workspace report and per-CVE analysis all flow into the same multi-tab chat with persistent SQLite history. Point it at a local model on your laptop and nothing about your code, diffs, or logs ever leaves your machine.
 
 ## Comparison
 
@@ -58,6 +59,8 @@ Every project also has its own ritual: `pnpm dev` here, `go run ./cmd/api` there
 | **Embedded terminal**  | Yes (full PTY)                                                  | No                   | No                    | Yes (limited)         | Yes (tmux)      |
 | **Command palette**    | Yes (Cmd+K, global hotkey)                                      | No                   | No                    | No                    | No              |
 | **Editor integration** | 8 editors (VS Code, Cursor, Zed, …)                             | No                   | No                    | No                    | No              |
+| **AI assistant**       | Yes — BYO endpoint, local or cloud                              | No                   | No                    | No                    | No              |
+| **Dependency audit**   | Yes — npm / cargo / pip, persisted, deltas                      | No                   | No                    | No (image scan only)  | No              |
 | **Cross-platform**     | macOS, Linux, Windows                                           | macOS, Linux         | macOS, Linux, Windows | macOS, Linux, Windows | macOS, Linux    |
 | **Container required** | No                                                              | No                   | No                    | Yes                   | No              |
 | **Telemetry**          | None                                                            | None                 | Optional              | Yes                   | None            |
@@ -85,6 +88,25 @@ Every project also has its own ritual: `pnpm dev` here, `go run ./cmd/api` there
 - **Category & runtime filters** — narrow the service list by category or runtime at a glance.
 - **Auto-update** — in-app update banner with one-click "Update & Restart".
 - **System tray** — close hides to tray; quit from tray menu.
+
+### AI Assistant (0.7.0)
+
+A unified right-rail chat hub backed by **any OpenAI-compatible endpoint** — point it at the cloud (OpenAI, Azure, Together, OpenRouter, Groq, DeepSeek) or run it fully offline against a local server (Ollama, LM Studio, llama.cpp, vLLM, text-generation-webui). 8 GB of RAM is enough to drive small open models (Llama 3.2 3B, Qwen2.5-Coder 7B, DeepSeek-Coder-V2 Lite, Phi-4 Mini). Configure as many providers as you like, switch per turn, pick a reply language from a flag-and-search dropdown.
+
+- **Multi-tab chat** — up to 5 simultaneous conversations with per-tab streaming indicators, persisted in a local SQLite store (`conversations.db`). Switch projects, reboot, come back tomorrow — your "why is this slow?" thread is still there.
+- **AI on every surface** — Project · Why?, log right-click triage, diff explain, commit message generation, standup polish, dashboard "Analyze workspace" report, and per-CVE deep analysis all route into the same chat hub. Per-turn action hooks ("Use as commit message", "Insert into standup") let the model write _into_ your flow.
+- **Model picker, in place** — multi-provider setups pop a dropdown directly under the AI button you clicked; single-provider setups dispatch immediately. No modal, no mode switch.
+- **Live token meter** — `tiktoken-rs` powered, accurate per-model context-window readouts (gpt-4o, claude-3.5, glm-4.5, qwen-2.5, llama-3.1, …) instead of `chars / 4` guesswork.
+- **Streaming reliability** — content-progress-based idle timeouts, auto-continue on stalled streams, "answer hidden in reasoning" nudge, partial-turn Continue banner, and a UTF-8 panic fix that turned local-model output from a flaky beta into something you can leave running overnight.
+
+### Dependency Hygiene (0.7.0)
+
+`npm outdated` / `cargo audit` / `pip audit` results across every project, persisted to a local SQLite store (`dependency_scans.db`) so the dashboard paints chips instantly on cold start instead of flashing empty for 30 seconds.
+
+- **Per-card freshness chip** — "Last scanned 3h ago", color-coded amber after 24h, red after 7 days. Click to rescan **just that project** — no more re-running 30 scans to verify one `lodash` advisory.
+- **Scan delta badges** — after a rescan, audit and outdated chips show "+3" / "−1" badges when counts changed since the previous scan. Hidden in steady state — the badge only appears when something actually moved.
+- **Stale-alert pill** next to the "Rescan deps" header button — shows "N stale" in amber when at least one project's last scan is >7 days old, click it to sequentially rescan only those (skipping cache lookups for the fresh ones). Sibling **"Discover projects"** button (renamed from "Scan Projects") handles filesystem discovery — no more three buttons containing the word "scan" in the same row.
+- **Settings → Reset scan cache** — surfaces the cached row count up front, gates the destructive confirm behind a typed `reset` keyword. Removed services drop their scan rows automatically.
 
 ## Install
 
@@ -239,10 +261,15 @@ RunHQ keeps all state under `~/.runhq/`:
 
 ```
 ~/.runhq/
-└── config.json         # services, preferences — atomic JSON writes
+├── config.json             # services, preferences — atomic JSON writes
+├── conversations.db        # AI chat history (SQLite) — 0.7.0+
+├── dependency_scans.db     # persisted npm outdated / cargo audit results — 0.7.0+
+└── timeline.db             # activity timeline — 0.6.0+
 ```
 
-Override with the `RUNHQ_HOME` environment variable (e.g. for tests).
+The two databases are independent and can be deleted any time. AI chat history goes through the in-app History drawer; dependency scans can be cleared via Settings → Keyboard Shortcuts → "Reset scan cache".
+
+Override the location with the `RUNHQ_HOME` environment variable (e.g. for tests).
 
 ## Contributing
 

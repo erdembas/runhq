@@ -849,17 +849,40 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
                       label="Pop"
                       title="git stash pop — reapply the most recent stash"
                     />
+                    {/* "Source" — entry point to the full Source Control
+                        window. Always enabled, even on a clean repo: the
+                        panel hosts History / Branches / Graph too, and
+                        users frequently open it just to inspect the
+                        commit graph or switch branches without any
+                        pending diff. We pick the landing tab based on
+                        state so the user lands on something useful:
+                        Commit when there are uncommitted changes (the
+                        90% case), History when the repo is clean (the
+                        "I just want to see what shipped" case). */}
                     <ActionBtn
-                      disabled={!is_dirty}
+                      disabled={false}
                       loading={false}
                       onClick={() => {
                         setOpen(false);
-                        openDiffViewer(serviceId);
+                        openDiffViewer(serviceId, is_dirty ? 'commit' : 'history');
                       }}
                       icon={<FileEdit className="h-3 w-3" />}
-                      label="Diff"
+                      // The label tracks the *destination* of the
+                      // click, not an abstract action name. Dirty
+                      // → Commit tab → "Changes" (matches VSCode
+                      // Source Control / GitHub "Files changed";
+                      // the badge unambiguously reads "N changed
+                      // files"). Clean → History tab → "History".
+                      // Picking concrete tab names beats a generic
+                      // "Source" because the user knows exactly
+                      // what they'll see before clicking.
+                      label={is_dirty ? 'Changes' : 'History'}
                       badge={is_dirty ? String(dirty_count) : undefined}
-                      title={!is_dirty ? 'No changes to diff' : 'View uncommitted changes'}
+                      title={
+                        is_dirty
+                          ? `Review ${dirty_count} uncommitted change${dirty_count === 1 ? '' : 's'}`
+                          : 'Open commit history, branches & graph'
+                      }
                     />
                   </div>
                 </div>

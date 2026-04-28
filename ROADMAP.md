@@ -306,20 +306,197 @@ Doing it BYOK + OpenAI-compatible from day one means every user keeps their exis
 
 ---
 
+## 11. Docker Compose Integration
+
+**Priority:** Medium-High | **Effort:** Medium | **Status:** Planned
+
+First-class Docker Compose support — discover, manage, and monitor compose stacks alongside native services.
+
+### Scope
+
+- **Compose File Detection** — Automatically detect `docker-compose.yml`, `compose.yaml`, and Dockerfile in scanned directories. Parse service names, ports, and dependencies from the compose file.
+- **Compose Stack as a Service** — Each compose project appears as a service in RunHQ. Start/stop the entire compose project with one click. Individual compose services can be toggled via the existing multi-command pattern.
+- **Log Aggregation** — Stream `docker compose logs --follow` output into the service's log panel, merged with any native services running alongside.
+- **Port Exposure** — Parse exposed ports from compose files and register them with the port watchdog. Show which compose service maps to which port.
+- **Compose UI Actions** — Quick actions: `docker compose build`, `docker compose pull`, `docker compose down --volumes`, `docker compose restart <service>`.
+- **Hybrid Stacks** — Mix compose projects and native services in a single stack. A full-stack app might start a compose project (DB, Redis) alongside native Node/Go services.
+
+### Why
+
+A huge percentage of local dev environments rely on Docker Compose for infrastructure (databases, queues, caches). Today, users either manage compose separately or skip RunHQ for those projects. Native compose integration makes RunHQ the single orchestrator for _everything_ a project needs.
+
+---
+
+## 12. Web UI Mode (`runhq serve`)
+
+**Priority:** Medium | **Effort:** Medium | **Status:** Planned
+
+Serve the RunHQ UI over HTTP — use it from any browser without the Tauri desktop app.
+
+### Scope
+
+- **Headless HTTP Server** — A new binary target (`crates/runhq-server`) that consumes `runhq-core` and exposes a web API (Axum or Actix-web). Reuses the same domain logic — state, process supervisor, git, logs.
+- **Web Frontend** — A lightweight web build of the React frontend (separate Vite config, no Tauri APIs). Tauri-specific features (tray, global shortcuts, native dialogs) gracefully degrade. PTY terminal is omitted; logs are served via SSE or WebSocket.
+- **SSE / WebSocket Log Streaming** — Replace Tauri event channels with Server-Sent Events for real-time log streaming in the browser.
+- **Authentication** — Optional basic auth or token-based auth for the web interface. Defaults to localhost-only for security.
+- **Shared State** — The desktop app and web server share the same `~/.runhq/` config. Run them simultaneously (desktop for terminal/tray, web for dashboard).
+- **CI/CD Mode** — `runhq serve --ci` starts services, runs a health check loop, and exits with the appropriate status code. Integrates into GitHub Actions, GitLab CI, etc.
+
+### Technical Notes
+
+- `runhq-core` already has zero Tauri dependencies. The `EventSink` trait abstracts all side effects. A new `WebSocketSink` or `SSESink` implementation is all that's needed on the core side.
+- The web frontend shares components with the desktop app via the existing `apps/desktop/src/` tree, conditionally importing Tauri-free versions of platform code.
+
+### Why
+
+The desktop app requires installation and a GUI environment. A web UI works on headless servers, in CI pipelines, over SSH, and on devices where you can't install Tauri apps (Chromebooks, tablets, remote dev boxes). It transforms RunHQ from "a desktop app" into "a platform."
+
+---
+
+## 13. Remote Machine Management (SSH)
+
+**Priority:** Low-Medium | **Effort:** High | **Status:** Planned
+
+Manage services on remote machines from the same RunHQ interface.
+
+### Scope
+
+- **Remote Connection Profiles** — Save SSH connection details: host, port, user, auth method (key, agent, password). Test connection with a single click.
+- **Remote Agent** — A lightweight `runhq agent` binary that runs on the remote machine. It exposes the same `runhq-core` operations over a thin TCP or SSH-tunneled protocol.
+- **Unified Dashboard** — Remote machines appear as collapsible sections in the sidebar, alongside local services. Filter by remote/local. Indicators show connection status (connected, reconnecting, disconnected).
+- **Log & Status Streaming** — Real-time log streaming from remote services via the same `EventSink` abstraction, tunneled over the SSH connection.
+- **File Sync** — Optional bidirectional file sync (rsync-based) for remote development. "Edit locally, run remotely."
+- **Port Forwarding** — Automatically forward remote service ports to localhost so the Internal Browser (#3) can preview remote services.
+- **Security Boundary** — Connections are user-initiated and per-session. No persistent background connections. All remote operations are clearly labeled in the UI with the hostname.
+
+### Technical Notes
+
+- Implement the remote agent protocol on top of the existing `EventSink` trait. The agent is just `runhq-core` wrapped in a minimal TCP listener.
+- For SSH transport, use the `ssh2` crate (libssh2 bindings) or shell out to the system `ssh` command for key-agent forwarding support.
+- The Tauri shell handles connection lifecycle; the core crate remains network-unaware.
+
+### Why
+
+Developers don't always work on a single machine. They have dev servers, staging environments, cloud workstations, and team boxes. Remote management turns RunHQ into a universal control plane, not just a local tool. This is the kind of feature that makes a team standardise on RunHQ.
+
+---
+
+## 14. Hot Reload & Watch Mode
+
+**Priority:** Medium | **Effort:** Low-Medium | **Status:** Planned
+
+Automatically restart services when files change — no more switching to a terminal to re-run after every edit.
+
+### Scope
+
+- **File Watcher per Service** — Use the system filesystem notification API (via `notify` crate) to watch each service's working directory for changes.
+- **Watch Strategy by Runtime** — Different strategies per runtime:
+  - **Node/Bun**: delegate to the project's existing dev script (`nodemon`, `tsx watch`, `bun --watch`) if detected.
+  - **Rust**: run `cargo watch` or trigger a build on change.
+  - **Go**: use `air` or `gow` if available, or `go build && restart`.
+  - **Python**: use `uvicorn --reload`, `fastapi dev`, or detect `watchfiles`.
+  - **Generic**: debounced restart — wait 500ms of file silence, then SIGTERM + restart.
+- **Watch Exclusions** — Respect `.gitignore` patterns. Add additional exclusion globs via UI (e.g., exclude `**/*.test.ts`).
+- **UI Indicators** — A "watching" badge on the service card. Show last restart reason and time. A small activity log: "Restarted due to changes in src/routes/users.ts."
+- **Per-Service Toggle** — Enable/disable watch mode per service. Some services (databases, infra) should never auto-restart.
+- **Graceful Restart** — Reuse the existing graceful shutdown infrastructure (SIGTERM → grace → SIGKILL). The restart respects the service's grace period.
+
+### Why
+
+The edit-save-restart loop is one of the most frequent developer workflows. Automating it saves dozens of context switches per day. RunHQ already knows the runtime — it can pick the right watch strategy without the user configuring anything.
+
+---
+
+## 15. Historical Performance Charts
+
+**Priority:** Low-Medium | **Effort:** Medium | **Status:** Planned
+
+Track CPU, memory, and port activity over time — visualize trends, find leaks, and correlate changes with deployments.
+
+### Scope
+
+- **Time-Series Storage** — Persist CPU and memory samples to SQLite (alongside the existing timeline DB). Configurable sampling interval (default: 10s). Retention policy (default: 7 days).
+- **Dashboard Charts** — Per-service sparklines on the service card showing CPU/memory over the last hour. Expand to a full chart view with configurable time ranges (1h, 6h, 24h, 7d).
+- **Cross-Project Comparison** — "Which services consumed the most memory this week?" Sortable bar chart view across all projects.
+- **Anomaly Detection** — Highlight significant deviations from baseline. "Service X is using 3x its normal memory — possible leak?"
+- **Correlation with Events** — Overlay timeline events (deployments, git operations, crashes) on the performance chart. "Memory spiked right after that deploy at 14:32."
+- **Export** — Export performance data as CSV or JSON for external analysis.
+
+### Technical Notes
+
+- Extend the existing resource sampling infrastructure (`resources.rs`, 2s interval). Add a `ResourceSample` struct with timestamp, CPU%, memory bytes, and RSS.
+- The timeline DB already has event correlation infrastructure. Add a `resource_samples` table with service_id, timestamp, cpu_pct, memory_bytes.
+- Charts render on the frontend using a lightweight charting library (e.g., `uplot` or a minimal Canvas-based approach).
+
+### Why
+
+Right now, RunHQ shows live resource usage but has no memory. When a service starts consuming more memory over time, or CPU spikes after a certain deploy, there's no way to see the trend. Historical charts turn RunHQ from a snapshot tool into a diagnostic tool — especially valuable for performance regressions and memory leak hunting.
+
+---
+
+## 16. Service Templates
+
+**Priority:** Medium | **Effort:** Low | **Status:** Planned
+
+One-click service creation from pre-built templates for common project types.
+
+### Scope
+
+- **Built-in Template Library** — Templates for common project types:
+  - **Node**: Next.js, Express API, NestJS, Nuxt, Astro, Remix
+  - **Rust**: Axum API, Actix-web, Tauri app, CLI tool
+  - **Python**: FastAPI, Django, Flask, Litestar
+  - **Go**: Gin API, Fiber, standard HTTP server
+  - **Docker**: Docker Compose with Postgres/Redis, single Dockerfile
+- **Template Contents** — Each template defines: commands to run, port to watch, environment variables, pre-commands, suggested tags, and a README snippet.
+- **Quick Start Flow** — "Add Service" → pick template → select or create directory → template fills in the config → tweak and save. Reduces setup from minutes to seconds.
+- **Custom Templates** — Users can define their own templates as JSON/YAML files in `~/.runhq/templates/`. Share them with the team.
+- **Template Suggestions on Scan** — When `runhq scan` detects a `package.json` with `next`, suggest the Next.js template. Pre-fill detected values (build command, dev script, port).
+
+### Why
+
+Adding a new project to RunHQ requires configuring commands, ports, env vars, and tags manually — even though 90% of projects follow known patterns. Templates eliminate that friction and make RunHQ feel proactive rather than reactive.
+
+---
+
+## 17. Service Run Profiles
+
+**Priority:** Medium | **Effort:** Low-Medium | **Status:** Planned
+
+Define multiple execution configurations per service — dev, staging, production-like, test, debug.
+
+### Scope
+
+- **Profiles per Service** — Each service can have named profiles (e.g., "dev", "debug", "profiling"). Each profile overrides: commands, environment variables, path override, pre-commands, port, grace period, watch mode, and health check config.
+- **Profile Switcher** — A dropdown on the service card to switch profiles. Switching restarts the service with the new profile.
+- **Inheritance** — Profiles inherit from a base config. Override only what differs. "The debug profile is the same as dev but with `RUST_LOG=debug` and `--features debug`."
+- **Profile-Aware Stacks** — Stacks can specify which profile each member service should use. "Start the full stack with all services in debug profile."
+- **Quick Profile Actions** — Right-click a service → "Start with profile..." → select profile. Keyboard shortcut for the most recently used profile.
+- **Profile Export/Import** — Export a service's profiles as JSON. Share with teammates for consistent setup.
+
+### Why
+
+Services behave differently across contexts. In dev, you want hot reload and verbose logging. In debugging, you want debug symbols and trace-level logs. For a demo, you might want production-like config (minification, no dev tools). Profiles make it trivial to switch between these contexts without editing config files or remembering which flags to pass.
+
+---
+
 ## Implementation Order
 
 The suggested implementation sequence, balancing impact and dependencies:
 
-| Phase       | Features                                               | Rationale                                                                                                                                                                     |
-| ----------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase 1** | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness.                                                                                 |
-| **Phase 2** | Quick .env Editor                                      | High daily value, relatively self-contained.                                                                                                                                  |
-| **Phase 3** | Internal Browser, ~~Git Diff Viewer~~ (shipped)        | Rich UI features that require new embedded components.                                                                                                                        |
-| **Phase 4** | Service Health Checks, Log Persistence                 | Infrastructure improvements that other features can build on.                                                                                                                 |
-| **Phase 5** | Workspace Snapshots, CLI Interface                     | Polish and reach — snapshots for convenience, CLI for new audiences.                                                                                                          |
-| **Phase 6** | AI Integration — Foundations + Commit Messages         | Provider plumbing, secure keychain, redaction, streaming, and the smallest viable surface (commit message generator) so the rest can land iteratively without re-platforming. |
-| **Phase 7** | AI Integration — Diff & Log Triage, PR Drafting        | Context-aware surfaces that ride on top of features already shipped (#5, #9). Reuses the foundations from Phase 6.                                                            |
-| **Phase 8** | AI Integration — Project & Cross-Project Q&A           | The hardest surface (context assembly, retrieval) and the one that benefits most from the dashboard data already available (#1).                                              |
+| Phase        | Features                                               | Rationale                                                                                                                                                                     |
+| ------------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 1**  | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness.                                                                                 |
+| **Phase 2**  | Quick .env Editor, Service Templates                   | High daily value, relatively self-contained. Templates reduce setup friction on day one.                                                                                      |
+| **Phase 3**  | Internal Browser, ~~Git Diff Viewer~~ (shipped)        | Rich UI features that require new embedded components.                                                                                                                        |
+| **Phase 4**  | Service Health Checks, Log Persistence, Docker Compose | Infrastructure improvements that other features can build on. Docker Compose closes the biggest gap in service coverage.                                                      |
+| **Phase 5**  | Hot Reload / Watch Mode, Service Run Profiles          | Developer velocity — automate the edit-restart loop and make context switching effortless.                                                                                    |
+| **Phase 6**  | Historical Performance Charts, Workspace Snapshots     | Diagnostics and convenience — turn RunHQ from a snapshot tool into a time-machine for your dev environment.                                                                   |
+| **Phase 7**  | AI Integration — Foundations + Commit Messages         | Provider plumbing, secure keychain, redaction, streaming, and the smallest viable surface (commit message generator) so the rest can land iteratively without re-platforming. |
+| **Phase 8**  | AI Integration — Diff & Log Triage, PR Drafting        | Context-aware surfaces that ride on top of features already shipped (#5, #9). Reuses the foundations from Phase 7.                                                            |
+| **Phase 9**  | AI Integration — Project & Cross-Project Q&A           | The hardest surface (context assembly, retrieval) and the one that benefits most from the dashboard data already available (#1).                                              |
+| **Phase 10** | Web UI Mode (`runhq serve`), CLI Interface             | Reach — desktop app, browser, and terminal from the same codebase. Unlocks CI/CD, remote dev boxes, and headless environments.                                                |
+| **Phase 11** | Remote Machine Management (SSH)                        | The most ambitious — a universal control plane for all machines. Deferred to allow core and web infrastructure to stabilise first.                                            |
 
 ---
 

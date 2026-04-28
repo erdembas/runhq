@@ -551,7 +551,7 @@ export function ReleaseNotes() {
             </div>
           </aside>
 
-          <main ref={scrollerRef} className="min-w-0 flex-1 overflow-y-auto">
+          <main ref={scrollerRef} className="min-w-0 flex-1 overflow-y-auto select-text">
             {selected ? (
               <ReleaseDetail
                 release={selected}

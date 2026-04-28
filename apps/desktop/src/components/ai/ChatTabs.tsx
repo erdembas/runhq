@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X, Loader2, Sparkles } from 'lucide-react';
+import { Plus, X, Loader2, Sparkles, ListX, ChevronsRight, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
 import { MAX_OPEN_TABS } from '@/store/useAppStore';
 import type { ConversationSummary } from '@/types';
+import { FileContextMenu, type FileContextMenuEntry } from '@/components/ui/FileContextMenu';
 
 /**
  * Cached lookup: conversation id → display label. We hydrate this
@@ -32,9 +33,28 @@ interface ChatTabsProps {
    *  parent owns this state — we just pulse a tiny spinner on the
    *  matching tab so a peripheral switch doesn't lose the thread. */
   activeStreaming?: boolean;
+  /** Set of conversation ids (active OR background) that currently
+   *  have a live stream running. Lets a tab the user navigated away
+   *  from still advertise "I'm thinking" with a spinner, so a peek
+   *  back to the rail tells them everything in flight at a glance —
+   *  this is the visible counterpart of the "tab streams keep
+   *  running on switch" fix.
+   *
+   *  Optional: callers that don't care about background streams can
+   *  omit it and rely on `activeStreaming` for the active tab only. */
+  streamingTabIds?: ReadonlySet<string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
+  /** Bulk close: every tab except the right-clicked one. The
+   *  right-clicked tab becomes active. */
+  onCloseOthers: (keepId: string) => void;
+  /** Bulk close: every tab to the right of the right-clicked one.
+   *  Tabs to the left + the right-clicked tab itself stay open. */
+  onCloseToRight: (id: string) => void;
+  /** Bulk close: every tab. Active conversation becomes null and
+   *  the panel falls back to its empty/welcome state. */
+  onCloseAll: () => void;
   /** Disable the "+" affordance when the parent knows a new chat
    *  would either overflow the cap (enforced anyway) or land on an
    *  already-empty fresh chat (which would be a no-op). Keeping the
@@ -62,9 +82,13 @@ export const ChatTabs = memo(function ChatTabs({
   activeConversationId,
   activeTitleOverride,
   activeStreaming,
+  streamingTabIds,
   onSelect,
   onClose,
   onNew,
+  onCloseOthers,
+  onCloseToRight,
+  onCloseAll,
   newDisabled,
 }: ChatTabsProps) {
   // Force a re-render when titleCache hydrates new entries. The
@@ -73,6 +97,13 @@ export const ChatTabs = memo(function ChatTabs({
   // job without forcing every consumer to wire up a context.
   const [, setHydrationTick] = useState(0);
   const inflightRef = useRef<Set<string>>(new Set());
+
+  // Right-click context menu state. The id is the tab the user
+  // right-clicked (the *target* of the menu's actions, not
+  // necessarily the active tab). We keep it in component state so
+  // a single open menu cleanly overlays the rail and disables
+  // itself on Esc / click-outside via FileContextMenu's handlers.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   // Lazy-fetch summaries for tabs we haven't titled yet. We hit
   // `listConversations` once and pull every missing id out of the
@@ -145,11 +176,66 @@ export const ChatTabs = memo(function ChatTabs({
     [onClose],
   );
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+    // Prevent the default (Tauri/macOS) WebView context menu from
+    // popping in over our rail — without this the user gets the
+    // OS-level "Reload / Inspect Element" menu instead of our
+    // tab-aware one.
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ id, x: e.clientX, y: e.clientY });
+  }, []);
+
   // Don't render the bar at all when there's nothing to switch
   // *to* — a single fresh chat shouldn't pay the chrome cost of a
   // tab strip. We still show the bar for a single persisted tab
   // so the user can spawn a second one via "+".
   if (openTabs.length === 0) return null;
+
+  // Build the context-menu entries lazily, gated on the
+  // right-clicked tab's position. "Close Others" / "Close to the
+  // Right" / "Close All" disable themselves when they'd be no-ops
+  // — keeps the menu honest instead of letting the user click into
+  // dead options.
+  const menuItems: FileContextMenuEntry[] | null = (() => {
+    if (!menu) return null;
+    const idx = openTabs.indexOf(menu.id);
+    if (idx < 0) return null;
+    const total = openTabs.length;
+    const tabsToRight = total - idx - 1;
+    return [
+      {
+        id: 'close',
+        label: 'Close',
+        icon: <X size={12} />,
+        onClick: () => onClose(menu.id),
+      },
+      {
+        id: 'close-others',
+        label: 'Close Others',
+        icon: <ListX size={12} />,
+        disabled: total <= 1,
+        onClick: () => onCloseOthers(menu.id),
+      },
+      {
+        id: 'close-to-right',
+        label: 'Close to the Right',
+        icon: <ChevronsRight size={12} />,
+        disabled: tabsToRight === 0,
+        hint: tabsToRight > 0 ? String(tabsToRight) : undefined,
+        onClick: () => onCloseToRight(menu.id),
+      },
+      { id: 'sep-1', separator: true },
+      {
+        id: 'close-all',
+        label: 'Close All',
+        icon: <Trash2 size={12} />,
+        tone: 'danger',
+        onClick: () => onCloseAll(),
+        hint: String(total),
+      },
+    ];
+  })();
 
   return (
     <div
@@ -161,12 +247,15 @@ export const ChatTabs = memo(function ChatTabs({
         // active tab's underline reads as an *override* of that
         // border rather than a free-floating mark.
         'border-border bg-surface-raised/60 flex items-center gap-0.5 border-b px-1.5 py-1',
-        'overflow-x-auto',
-        // Hide the scrollbar but keep horizontal overflow scrollable
-        // (trackpad / shift-scroll). At 5-tab cap with 440px panel
-        // width some tabs will still get tight; the user can drag
-        // to reveal.
-        '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        // No horizontal scroll: tabs share the available row via
+        // flex-grow so they always fit. Earlier we used overflow-x
+        // + a hard min-width, which triggered macOS's auto-hiding
+        // scrollbar gutter the moment the panel was narrower than
+        // 5 × min-width — looked dirty above the strip. With 5 as
+        // the open-tab cap and a sensible per-tab basis the row
+        // always fits in the rail (and titles truncate gracefully
+        // when crowded), so we just clip overflow to be safe.
+        'overflow-hidden',
       )}
     >
       {openTabs.map((id) => {
@@ -175,15 +264,25 @@ export const ChatTabs = memo(function ChatTabs({
           isActive && activeTitleOverride != null && activeTitleOverride !== ''
             ? activeTitleOverride
             : (titleCache.get(id) ?? PLACEHOLDER_TITLE);
+        // Streaming on the *active* tab is a fast in-render boolean
+        // the panel already exposes; for *inactive* tabs we read
+        // from the streamingTabIds set (populated from the panel's
+        // turnsByConv map). This is what makes the spinner stick on
+        // tab A while the user looks at tab B.
+        const tabStreaming = isActive
+          ? Boolean(activeStreaming)
+          : Boolean(streamingTabIds?.has(id));
         return (
           <TabPill
             key={id}
             id={id}
             title={title}
             isActive={isActive}
-            isStreaming={Boolean(isActive && activeStreaming)}
+            isStreaming={tabStreaming}
+            isContextTarget={menu?.id === id}
             onSelect={onSelect}
             onClose={handleClose}
+            onContextMenu={handleContextMenu}
           />
         );
       })}
@@ -205,6 +304,9 @@ export const ChatTabs = memo(function ChatTabs({
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
       </button>
+      {menu && menuItems && (
+        <FileContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 });
@@ -214,15 +316,24 @@ const TabPill = memo(function TabPill({
   title,
   isActive,
   isStreaming,
+  isContextTarget,
   onSelect,
   onClose,
+  onContextMenu,
 }: {
   id: string;
   title: string;
   isActive: boolean;
   isStreaming: boolean;
+  /** True when this tab is the current context-menu target. We
+   *  draw a soft ring around it so the user can see *which* tab
+   *  the menu is operating on — important when right-clicking an
+   *  inactive tab, where there'd otherwise be no visual link
+   *  between the cursor and the popped menu. */
+  isContextTarget: boolean;
   onSelect: (id: string) => void;
   onClose: (e: React.MouseEvent, id: string) => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
 }) {
   return (
     <div
@@ -230,6 +341,7 @@ const TabPill = memo(function TabPill({
       aria-selected={isActive}
       tabIndex={isActive ? 0 : -1}
       onClick={() => onSelect(id)}
+      onContextMenu={(e) => onContextMenu(e, id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -240,12 +352,19 @@ const TabPill = memo(function TabPill({
       // it's outside the textual hover area (the icon is small
       // enough that hover-targeting just it is fiddly).
       className={cn(
-        'group relative flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md',
+        'group relative flex h-7 cursor-pointer items-center gap-1.5 rounded-md',
         'pr-1 pl-2 text-[11.5px] transition-colors select-none',
-        'max-w-[160px] min-w-[80px]',
+        // `flex-1 basis-0 min-w-0` lets every tab share the row
+        // width equally and *truncate* instead of overflowing. We
+        // cap at 160px so a single tab in a wide panel doesn't
+        // sprawl across the strip, and floor at ~64px so the icon
+        // + a few characters of title stay legible even at the
+        // 5-tab cap on a narrow rail.
+        'max-w-[160px] min-w-[64px] flex-1 basis-0',
         isActive
           ? 'bg-surface text-fg shadow-[0_1px_0_var(--color-border)]'
           : 'text-fg-dim hover:bg-fg/6 hover:text-fg/90',
+        isContextTarget && 'ring-accent/40 ring-1',
       )}
     >
       {/* Tiny leading glyph: spinner during stream, accent dot for

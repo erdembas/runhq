@@ -31,6 +31,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { TimelineEvent, DailySummary, LogLine } from '@/types';
 import { Select } from './ui/Select';
 import { Dialog } from './ui/Dialog';
+import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 /** Unified shape for console-rendering — lets ConsoleOutput draw the same
  *  block whether the lines came from the live in-memory log buffer (current
  *  session, full stdout+stderr) or from DB-persisted `log_error` /
@@ -529,26 +530,28 @@ export function ActivityTimeline({
   // the DB children so the modal still has something meaningful to show.
   const logsBySvc = useAppStore((s) => s.logs);
   const services = useAppStore((s) => s.services);
-  const openAiChat = useAppStore((s) => s.openAiChat);
 
   /**
    * Build the chat payload from the same `exportStandup` markdown the
-   * legacy dialog used and open the right-side chat panel. Auto-sends
-   * so the user gets the polished version streaming in immediately;
-   * the action button under the answer copies the result back into
-   * the timeline as a regular note via the `insert_standup` event.
+   * legacy dialog used. Auto-sends so the user gets the polished
+   * version streaming in immediately; the action button under the
+   * answer copies the result back into the timeline as a regular note
+   * via the `insert_standup` event.
+   *
+   * Shared across two buttons (modal/inline vs. main timeline header)
+   * — each gets its own trigger so the model picker pops under the
+   * actual button the user pressed instead of always under the
+   * primary header.
    */
-  const openAiStandupChat = useCallback(async () => {
+  const buildStandupPayload = useCallback(async () => {
     try {
       const since = Date.now() - 86_400_000;
       const text = await ipc.exportStandup(since);
       if (!text.trim()) {
-        // No-op rather than open an empty conversation — the legacy
-        // dialog showed an inline error here. We surface the same
-        // message via console + nothing visible since the user
-        // already has the timeline open and can see it's empty.
+        // Nothing to polish. Match legacy behaviour by quietly
+        // bailing — the user can see the timeline is empty.
         console.warn('Nothing to polish — timeline is empty for the last 24h.');
-        return;
+        return null;
       }
       const contextSystemMessage = [
         'User is asking the AI to polish a standup note. Output exactly three sections in GitHub-flavoured Markdown: **Yesterday**, **Today**, **Blockers**. Each section: 1–4 short bullets, present tense for "Today", past tense for "Yesterday". Empty sections render as "_(none)_". Reference real project names from the raw notes. Do not invent activity. The first character of your reply must be a `#` or `**`.',
@@ -558,19 +561,26 @@ export function ActivityTimeline({
         text,
         '```',
       ].join('\n');
-      await openAiChat({
-        origin: 'standup',
+      return {
+        origin: 'standup' as const,
         title: 'Standup polish',
         context: { kind: 'standup', raw_chars: text.length },
         draftPrompt: 'Polish this into Yesterday / Today / Blockers.',
         contextSystemMessage,
-        actionHook: { kind: 'insert_standup' },
-        autoSend: true,
-      });
+        actionHook: { kind: 'insert_standup' as const },
+      };
     } catch (e) {
-      console.error('openAiStandupChat failed:', e);
+      console.error('buildStandupPayload failed:', e);
+      return null;
     }
-  }, [openAiChat]);
+  }, []);
+
+  const standupHeader = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: buildStandupPayload,
+  });
+  const standupOverlay = useAiSurfaceTrigger<HTMLButtonElement>({
+    buildPayload: buildStandupPayload,
+  });
 
   // ─────────────── ANSI → HTML converter (theme-aware) ───────────────
   // Child log lines (log_error / log_warning) stored in the DB still carry
@@ -1984,7 +1994,8 @@ export function ActivityTimeline({
               )}
               <div className="flex shrink-0 items-center gap-1">
                 <button
-                  onClick={() => void openAiStandupChat()}
+                  ref={standupOverlay.triggerRef}
+                  onClick={() => standupOverlay.onClick()}
                   className={cn(
                     'flex items-center gap-1 rounded-md px-2 py-1 font-medium transition',
                     size.meta,
@@ -1995,6 +2006,7 @@ export function ActivityTimeline({
                   <Sparkles size={12} />
                   AI
                 </button>
+                {standupOverlay.popover}
                 <button
                   onClick={() => void handleExportStandup()}
                   className={cn(
@@ -2109,7 +2121,8 @@ export function ActivityTimeline({
           <span className={cn('text-fg/40 tabular-nums', size.meta)}>{events.length} total</span>
           <div className="ml-auto flex items-center gap-1">
             <button
-              onClick={() => void openAiStandupChat()}
+              ref={standupHeader.triggerRef}
+              onClick={() => standupHeader.onClick()}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition',
                 size.meta,
@@ -2120,6 +2133,7 @@ export function ActivityTimeline({
               <Sparkles size={13} />
               AI
             </button>
+            {standupHeader.popover}
             <button
               onClick={() => void handleExportStandup()}
               className={cn(
