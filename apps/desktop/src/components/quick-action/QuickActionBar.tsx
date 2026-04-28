@@ -4,7 +4,15 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { cn } from '@/lib/cn';
 import { useSyncedTheme } from '@/lib/theme';
 import { ipc } from '@/lib/ipc';
-import type { CommandStatus, ServiceDef, ServiceId, StackDef, Status } from '@/types';
+import { recordActionUse } from '@/lib/actionStats';
+import type {
+  CommandStatus,
+  DetectedEditor,
+  ServiceDef,
+  ServiceId,
+  StackDef,
+  Status,
+} from '@/types';
 import { isRunning, isSelectable, type FilterMode, type ListItem, type ServiceCmd } from './types';
 import { fetchServices, fetchStatus, focusMainWindow } from './hooks';
 import { buildItems } from './items';
@@ -18,8 +26,14 @@ export function QuickActionBar() {
   const [filter, setFilter] = useState<FilterMode>('all');
   const [services, setServices] = useState<ServiceDef[]>([]);
   const [stacks, setStacks] = useState<StackDef[]>([]);
+  const [editors, setEditors] = useState<DetectedEditor[]>([]);
   const [cmdStatuses, setCmdStatuses] = useState<Record<ServiceId, CommandStatus[]>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Sub-drill inside an expanded service's action sheet: when true, the
+  // list collapses to just the "Open in <Editor>" rows so the palette
+  // stays short. Reset whenever the parent drill changes — see the effect
+  // below — so backing out always lands on a clean state.
+  const [editorPickerOpen, setEditorPickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +54,15 @@ export function QuickActionBar() {
     ipc
       .listStacks()
       .then(setStacks)
+      .catch(() => {});
+    // Detection runs on every quick-action mount rather than once at boot:
+    // the QA window is its own webview, so it doesn't share the main app's
+    // store, and re-probing here means a freshly installed editor (Cursor
+    // shim, new .app dropped into /Applications) shows up the next time
+    // the user opens the palette without restarting RunHQ.
+    ipc
+      .detectEditors()
+      .then(setEditors)
       .catch(() => {});
   }, []);
 
@@ -73,7 +96,15 @@ export function QuickActionBar() {
     setCursor(0);
     setFilter('all');
     setExpandedId(null);
+    setEditorPickerOpen(false);
   }, []);
+
+  // Close the editor sub-drill whenever the parent expand changes (user
+  // backed out, picked a different service, etc.). Without this the picker
+  // would silently "stick" to the next service the user expands.
+  useEffect(() => {
+    setEditorPickerOpen(false);
+  }, [expandedId]);
 
   const refreshStatus = useCallback(async (id: ServiceId) => {
     try {
@@ -104,6 +135,8 @@ export function QuickActionBar() {
     return stacks.find((s) => s.id === sid) ?? null;
   }, [expandedId, stacks]);
 
+  const toggleEditorPicker = useCallback(() => setEditorPickerOpen((prev) => !prev), []);
+
   const items = useMemo<ListItem[]>(
     () =>
       buildItems({
@@ -111,14 +144,30 @@ export function QuickActionBar() {
         filter,
         services,
         stacks,
+        editors,
         expandedService,
         expandedStack,
+        editorPickerOpen,
+        toggleEditorPicker,
         getCmds,
         hide,
         refreshStatus,
         focusMainWindow,
       }),
-    [services, stacks, query, filter, expandedService, expandedStack, getCmds, hide, refreshStatus],
+    [
+      services,
+      stacks,
+      editors,
+      query,
+      filter,
+      expandedService,
+      expandedStack,
+      editorPickerOpen,
+      toggleEditorPicker,
+      getCmds,
+      hide,
+      refreshStatus,
+    ],
   );
 
   useEffect(() => {
@@ -170,6 +219,10 @@ export function QuickActionBar() {
             await ipc.startServiceCmd(item.serviceId, item.cmd.name);
           }
           await refreshStatus(item.serviceId);
+          // Track start AND stop under the same key — from a usage POV
+          // the user "interacts with this script", and splitting would
+          // halve the count for any cmd they cycle frequently.
+          recordActionUse(item.serviceId, `cmd:${item.cmd.name}`);
           break;
         case 'cmd':
           if (isRunning(item.status)) {
@@ -178,6 +231,7 @@ export function QuickActionBar() {
             await ipc.startServiceCmd(item.serviceId, item.cmdName);
           }
           await refreshStatus(item.serviceId);
+          recordActionUse(item.serviceId, `cmd:${item.cmdName}`);
           break;
         case 'sub-action':
           await item.run();
@@ -207,6 +261,10 @@ export function QuickActionBar() {
     }
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (editorPickerOpen) {
+        setEditorPickerOpen(false);
+        return;
+      }
       if (expandedId) {
         setExpandedId(null);
         return;
@@ -218,9 +276,10 @@ export function QuickActionBar() {
       hide();
       return;
     }
-    if (e.key === 'Backspace' && expandedId && query === '') {
+    if (e.key === 'Backspace' && (editorPickerOpen || expandedId) && query === '') {
       e.preventDefault();
-      setExpandedId(null);
+      if (editorPickerOpen) setEditorPickerOpen(false);
+      else setExpandedId(null);
       return;
     }
     if (e.key === 'ArrowDown') {
@@ -246,10 +305,48 @@ export function QuickActionBar() {
         setExpandedId(item.service.id);
       } else if (item?.type === 'stack') {
         setExpandedId(`stack:${item.stack.id}`);
+      } else if (item?.type === 'sub-action' && item.expandable) {
+        if (!item.expanded) {
+          // → on a collapsed expandable row expands without committing,
+          // letting users peek at the children before deciding. Enter
+          // remains the explicit "do something" key.
+          execute(item);
+        } else {
+          // → on an already-expanded parent dives into its first
+          // nested child (Finder list view convention). Without this
+          // the key is a dead no-op for repeat presses, which feels
+          // broken.
+          for (let n = cursor + 1; n < items.length; n++) {
+            const next = items[n];
+            if (!next) break;
+            if (next.type === 'sub-action' && next.nested) {
+              setCursor(n);
+              break;
+            }
+            if (next.type === 'sub-action' && !next.nested) break;
+          }
+        }
       }
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      if (expandedId) {
+      const item = items[cursor];
+      if (editorPickerOpen) {
+        // If the cursor sits inside the expanded list, snap it back to
+        // the parent before collapsing so it doesn't get stranded on
+        // the next unrelated sibling (e.g. landing on "Open in Finder"
+        // when the user just wanted to back out of the IDE picker).
+        if (item?.type === 'sub-action' && item.nested) {
+          for (let n = cursor - 1; n >= 0; n--) {
+            const candidate = items[n];
+            if (!candidate) break;
+            if (candidate.type === 'sub-action' && candidate.expandable) {
+              setCursor(n);
+              break;
+            }
+          }
+        }
+        setEditorPickerOpen(false);
+      } else if (expandedId) {
         setExpandedId(null);
       }
     } else if (e.key === 'Enter') {

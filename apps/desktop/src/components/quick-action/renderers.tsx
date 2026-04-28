@@ -1,4 +1,12 @@
-import { ArrowRight, ChevronLeft, Layers, Play, Square } from 'lucide-react';
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  Play,
+  Square,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
 import { categoryForTags } from '@/lib/categories';
@@ -181,17 +189,30 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
   }
 
   if (item.type === 'sub-action') {
+    // `nested` rows live under an expandable parent and need a deeper
+    // indent + a faint left rule so the parent/child relationship is
+    // obvious without forcing the eye to count whitespace.
+    const padLeft = item.nested ? 'pl-14' : 'pl-10';
     return (
       <div
         key={`sub-${item.serviceId}-${item.label}-${i}`}
         data-active={active ? '' : undefined}
         className={cn(
-          'flex cursor-pointer items-center gap-3 px-4 py-2 pl-10 transition',
+          'relative flex cursor-pointer items-center gap-3 px-4 py-2 transition',
+          padLeft,
           active ? 'bg-accent/10' : 'hover:bg-surface-muted/50',
         )}
         onClick={() => execute(item)}
         onMouseEnter={() => setCursor(i)}
       >
+        {item.nested && (
+          <span
+            aria-hidden
+            // Vertical guide line aligns with the parent's icon column
+            // (pl-10 = 40px → ~46px to land just left of the badge).
+            className="border-border/60 pointer-events-none absolute top-0 bottom-0 left-[46px] border-l"
+          />
+        )}
         <span className={cn('shrink-0', item.danger ? 'text-status-error/70' : 'text-fg-muted')}>
           {item.icon}
         </span>
@@ -203,6 +224,15 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
           </div>
           {item.subtitle && <div className="text-fg-dim truncate text-[9px]">{item.subtitle}</div>}
         </div>
+        {item.expandable && (
+          <span className="text-fg-dim shrink-0">
+            {item.expanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+          </span>
+        )}
       </div>
     );
   }

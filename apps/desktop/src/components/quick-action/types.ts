@@ -29,6 +29,28 @@ export type ListItem =
       subtitle?: string;
       icon: React.ReactNode;
       danger?: boolean;
+      /**
+       * Marks this row as a child of an inline-expandable parent (the
+       * "Open in IDE…" expansion). Renderer applies a deeper indent and
+       * a faint guide line so the parent–child relationship reads at a
+       * glance instead of forcing the user to count whitespace.
+       */
+      nested?: boolean;
+      /**
+       * Indicates the row toggles an inline expansion rather than
+       * committing an action. Renderer flips the chevron and the
+       * keyboard handler can wire `→` to "expand" if needed.
+       */
+      expandable?: boolean;
+      /** Current expansion state for `expandable` rows. */
+      expanded?: boolean;
+      /**
+       * Stable key used by the per-service usage tracker (`actionStats`)
+       * to rank rows in the "Frequent" section. Omitted on rows that
+       * shouldn't be tracked — e.g. expander parents like "Open in IDE"
+       * which only toggle UI state and never commit anything.
+       */
+      actionKey?: string;
       run: () => Promise<void>;
     }
   | { type: 'cmd-header' }

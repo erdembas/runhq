@@ -3787,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "runhq-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3811,7 +3811,7 @@ dependencies = [
 
 [[package]]
 name = "runhq-desktop"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",

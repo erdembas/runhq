@@ -4,24 +4,8 @@ import { Code2, FolderOpen } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
+import { editorBadgeLabel, visibleEditorsFor } from '@/lib/editorMeta';
 import type { CommandEntry } from '@/types';
-
-// Matches `dotnet` invoked as a standalone binary at the start of a command
-// or after a shell separator (`&&`, `||`, `;`, `|`). Deliberately loose on
-// the right-hand side so `dotnet run`, `dotnet watch`, `dotnet ef` etc. all
-// qualify, while avoiding false positives like `mydotnet-cli`.
-const DOTNET_CMD_RE = /(^|[\s;&|])dotnet(\s|$)/;
-const isDotnetProject = (cmds: CommandEntry[] | undefined) =>
-  !!cmds && cmds.some((c) => DOTNET_CMD_RE.test(c.cmd));
-
-// Editors that should only surface in the menu under specific runtime
-// contexts. Rider is a paid, .NET-centric IDE; showing it on a Node-only
-// service would be noise, and hiding it from real .NET services wastes the
-// detection we just did. Extend this map if we start shipping more
-// ecosystem-scoped editors (Android Studio for gradle projects, etc.).
-const RUNTIME_SCOPED_EDITORS: Record<string, (cmds: CommandEntry[] | undefined) => boolean> = {
-  rider: isDotnetProject,
-};
 
 // Detect the host OS once so we can label the reveal-folder row using the
 // platform-native vocabulary ("Finder" on macOS, "Explorer" on Windows,
@@ -52,18 +36,6 @@ interface Props {
   cmds?: CommandEntry[];
 }
 
-const EDITOR_ICONS: Record<string, string> = {
-  vscode: 'VS',
-  cursor: 'Cu',
-  windsurf: 'Ws',
-  zed: 'Zd',
-  sublime: 'St',
-  webstorm: 'WJ',
-  idea: 'IJ',
-  rider: 'Rd',
-  nvim: 'Nv',
-};
-
 export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
   const editors = useAppStore((s) => s.editors);
   const [open, setOpen] = useState(false);
@@ -76,14 +48,7 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
   // via `useMemo` so the placement calculation and the render loop see the
   // same list — otherwise the estimated-height math would drift from the
   // actually-rendered rows and the menu could flip in the wrong direction.
-  const visibleEditors = useMemo(
-    () =>
-      editors.filter((e) => {
-        const gate = RUNTIME_SCOPED_EDITORS[e.key];
-        return gate ? gate(cmds) : true;
-      }),
-    [editors, cmds],
-  );
+  const visibleEditors = useMemo(() => visibleEditorsFor(editors, cmds), [editors, cmds]);
 
   const computePosition = useCallback(() => {
     const el = containerRef.current;
@@ -184,7 +149,7 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
                     'bg-surface-muted text-fg-muted',
                   )}
                 >
-                  {EDITOR_ICONS[editor.key] ?? (editor.command[0] ?? '?').toUpperCase()}
+                  {editorBadgeLabel(editor)}
                 </span>
                 <span className="truncate font-medium">{editor.name}</span>
                 <span className="text-fg-dim ml-auto text-[10.5px]">{editor.command}</span>
