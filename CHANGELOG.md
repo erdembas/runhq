@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/erdembas/runhq/compare/v0.7.0...v0.8.0) (2026-04-28)
+
+
+### Features
+
+* **dashboard:** redesign hero with state-aware title and unified filter bar ([b265205](https://github.com/erdembas/runhq/commit/b265205f46f894eb59d40c829e275fdd8f2e6d88))
+* PATH recovery for GUI launches, conversation favorites + search, window tweaks ([50b03f6](https://github.com/erdembas/runhq/commit/50b03f6002af690bd8616257be15695b907aead9))
+
+
+### Bug Fixes
+
+* **shell_env:** gate canonical-dirs test to non-Windows ([1fc8a3f](https://github.com/erdembas/runhq/commit/1fc8a3fceda4df45c1181a4596c984d8d5b05da8))
+
 ## [0.7.0](https://github.com/erdembas/runhq/compare/v0.6.0...v0.7.0) (2026-04-28)
 
 
