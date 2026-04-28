@@ -595,8 +595,12 @@ pub fn run() {
             let global_shortcut = app.global_shortcut();
 
             let qa_shortcut_str = normalise_shortcut_string(&snapshot_shortcuts.quick_action);
+            // `app.global_shortcut()` already returns a `&GlobalShortcut<Wry>`,
+            // so the helper takes that reference directly — adding another
+            // `&` here would just chain `&&…` and trip Clippy's
+            // `needless_borrow` lint in release builds.
             register_global_shortcut(
-                &global_shortcut,
+                global_shortcut,
                 "quick_action",
                 &qa_shortcut_str,
                 |app| {
@@ -614,7 +618,7 @@ pub fn run() {
             // surface the conflict, but defence in depth is cheap.
             if !focus_shortcut_str.eq_ignore_ascii_case(&qa_shortcut_str) {
                 register_global_shortcut(
-                    &global_shortcut,
+                    global_shortcut,
                     "focus_main",
                     &focus_shortcut_str,
                     |app| {
