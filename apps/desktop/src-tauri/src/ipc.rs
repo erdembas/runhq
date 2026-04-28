@@ -1062,6 +1062,13 @@ pub struct AiProviderInput {
     /// own (typically English or whatever the user wrote in).
     #[serde(default)]
     pub response_language: Option<String>,
+    /// Per-provider language override for AI-generated commit
+    /// messages. Optional. Empty / `inherit` means "use
+    /// response_language"; `auto` opts the commit surface out of any
+    /// language directive even when the chat surface has one. See
+    /// `AiProvider::commit_language_directive`.
+    #[serde(default)]
+    pub commit_language: Option<String>,
     /// Per-provider hard ceiling on output tokens. `None` means "no
     /// client-side cap" — let the server decide. The form treats an
     /// empty input as `None`; a positive integer is forwarded as-is
@@ -1122,6 +1129,10 @@ pub fn upsert_ai_provider(
         default: input.default,
         response_language: input
             .response_language
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        commit_language: input
+            .commit_language
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
         // 0 from the form means "blank → no cap", same as `None`. Any

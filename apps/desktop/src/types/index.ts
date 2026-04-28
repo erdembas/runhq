@@ -343,6 +343,21 @@ export interface AiProvider {
    *  respond in. `null`/`undefined`/`auto` means "let the model
    *  decide". See `AI_LANGUAGE_OPTIONS` for the curated list. */
   response_language?: string | null;
+  /** Per-provider override for AI-generated commit messages. Kept
+   *  separate from {@link response_language} because the audiences
+   *  diverge: chat replies are read by the user (their native tongue
+   *  is fine), but commits enter the project history where the
+   *  team convention often demands English regardless of the
+   *  developer's UI preference.
+   *
+   *  Resolution:
+   *    - `null`/`undefined`/empty/`inherit` → fall back to
+   *      `response_language`
+   *    - `auto` → opt out of any language directive on commits
+   *      (the model decides; usually mirrors diff-comment language)
+   *    - any other code → forced directive on commit surface only
+   */
+  commit_language?: string | null;
   /** Hard ceiling on streamed output tokens for this provider, in
    *  tokens. `null`/`undefined` means "no client-side cap" — RunHQ
    *  sends no `max_tokens` and lets the server apply its own
@@ -369,6 +384,7 @@ export interface AiProviderInput {
   model: string;
   default: boolean;
   response_language?: string | null;
+  commit_language?: string | null;
   max_output_tokens?: number | null;
   context_window?: number | null;
 }

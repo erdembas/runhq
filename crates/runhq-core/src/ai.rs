@@ -75,6 +75,26 @@ pub struct AiProvider {
     /// alongside an English-leaning OpenAI account.
     #[serde(default)]
     pub response_language: Option<String>,
+    /// BCP-47-ish language code specifically for AI-generated commit
+    /// messages. Kept independent of [`response_language`] because the
+    /// two settings serve different audiences: chat replies are read
+    /// by the user themselves (their native tongue is fine), but
+    /// commit messages enter the project history where conventions
+    /// often demand English regardless of the developer's UI
+    /// preference. A user might want chat in Turkish while keeping
+    /// commits English-only — this field captures that split.
+    ///
+    /// Resolution rules:
+    ///   - `None` / empty / `inherit` → fall back to `response_language`.
+    ///   - `auto`                     → no language directive at all
+    ///                                  (the model decides; usually
+    ///                                  matches the diff's existing
+    ///                                  comment language).
+    ///   - any other code             → forced directive (overrides
+    ///                                  `response_language` for the
+    ///                                  commit surface only).
+    #[serde(default)]
+    pub commit_language: Option<String>,
     /// Hard ceiling on streamed output tokens for this provider, in
     /// tokens. `None` (default) means "no client-side cap" — we send
     /// no `max_tokens` field and let the server apply its own
@@ -117,6 +137,36 @@ impl AiProvider {
     pub fn language_directive(&self) -> Option<String> {
         let raw = self.response_language.as_deref()?.trim();
         if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+            return None;
+        }
+        Some(language_directive_for_code(raw))
+    }
+
+    /// Directive for the COMMIT surface specifically. Falls back to
+    /// the general response-language setting when `commit_language`
+    /// is unset or set to `inherit`, so users who don't care about
+    /// the distinction get the existing behaviour for free.
+    ///
+    /// Behaviour matrix:
+    ///
+    /// | `commit_language`       | result                                 |
+    /// |-------------------------|----------------------------------------|
+    /// | `None` / `""` / `inherit` | same as `language_directive()`       |
+    /// | `auto`                  | `None` (no directive — model decides)  |
+    /// | otherwise               | directive forced for that language     |
+    ///
+    /// `auto` is meaningful here even though it's a no-op directive:
+    /// it lets the user *opt out* of an English-leaning
+    /// `response_language` for commits while still letting chat
+    /// stay English. Without this carve-out, the "commits should
+    /// match diff comments, chat should be in my language" workflow
+    /// would have no way to express itself.
+    pub fn commit_language_directive(&self) -> Option<String> {
+        let raw = self.commit_language.as_deref().map(str::trim).unwrap_or("");
+        if raw.is_empty() || raw.eq_ignore_ascii_case("inherit") {
+            return self.language_directive();
+        }
+        if raw.eq_ignore_ascii_case("auto") {
             return None;
         }
         Some(language_directive_for_code(raw))
@@ -568,12 +618,12 @@ pub async fn generate_commit_message(
         ));
     }
     let mut messages = build_commit_prompt(diff, branch, recent_commits, user_hint);
-    // Honour the provider's preferred response language uniformly with
-    // the streaming surfaces. If the team's convention is English-only
-    // commits, the user picks English (or "Auto") in provider settings;
-    // if they prefer commits in their native tongue, that's their call,
-    // not ours.
-    if let Some(directive) = provider.language_directive() {
+    // Use the commit-specific language setting, which falls back to
+    // the general response language when unset. This lets a user
+    // keep chat in Turkish while writing commits in English (the
+    // common open-source convention) — or vice versa — without one
+    // setting hijacking the other.
+    if let Some(directive) = provider.commit_language_directive() {
         apply_language_to_vec(&mut messages, &directive);
     }
     let resp = chat_completion(
@@ -2334,6 +2384,7 @@ mod tests {
             model: "gpt-4o-mini".into(),
             default: false,
             response_language: None,
+            commit_language: None,
             max_output_tokens: None,
             context_window: None,
             created_at_ms: 0,
@@ -2658,6 +2709,7 @@ mod tests {
             model: "m".into(),
             default: false,
             response_language: lang.map(|s| s.to_string()),
+            commit_language: None,
             max_output_tokens: None,
             context_window: None,
             created_at_ms: 0,
@@ -2680,6 +2732,61 @@ mod tests {
     }
 
     #[test]
+    fn commit_language_directive_independent_of_response_language() {
+        let make = |response: Option<&str>, commit: Option<&str>| AiProvider {
+            id: "x".into(),
+            name: "x".into(),
+            kind: AiProviderKind::Openai,
+            base_url: "https://x".into(),
+            api_key: String::new(),
+            model: "m".into(),
+            default: false,
+            response_language: response.map(|s| s.to_string()),
+            commit_language: commit.map(|s| s.to_string()),
+            max_output_tokens: None,
+            context_window: None,
+            created_at_ms: 0,
+        };
+
+        // Default behaviour: no commit-specific override falls back to
+        // response_language.
+        assert!(make(Some("tr"), None)
+            .commit_language_directive()
+            .unwrap()
+            .contains("Türkçe"));
+        assert!(make(Some("tr"), Some(""))
+            .commit_language_directive()
+            .unwrap()
+            .contains("Türkçe"));
+        assert!(make(Some("tr"), Some("inherit"))
+            .commit_language_directive()
+            .unwrap()
+            .contains("Türkçe"));
+
+        // `auto` on commit explicitly opts out of the directive even
+        // when response_language is set — the team-English-commits
+        // workflow.
+        assert!(make(Some("tr"), Some("auto"))
+            .commit_language_directive()
+            .is_none());
+
+        // Explicit override wins over response_language.
+        assert!(make(Some("tr"), Some("en"))
+            .commit_language_directive()
+            .unwrap()
+            .contains("English"));
+
+        // No response_language and no commit_language → no directive.
+        assert!(make(None, None).commit_language_directive().is_none());
+
+        // No response_language but explicit commit_language → use it.
+        assert!(make(None, Some("de"))
+            .commit_language_directive()
+            .unwrap()
+            .contains("Deutsch"));
+    }
+
+    #[test]
     fn resolve_max_tokens_picks_smaller_or_only_set() {
         let make = |provider_cap: Option<u32>| AiProvider {
             id: "x".into(),
@@ -2690,6 +2797,7 @@ mod tests {
             model: "m".into(),
             default: false,
             response_language: None,
+            commit_language: None,
             max_output_tokens: provider_cap,
             context_window: None,
             created_at_ms: 0,

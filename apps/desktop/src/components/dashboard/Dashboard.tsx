@@ -1168,14 +1168,37 @@ export function Dashboard({ onScan }: Props) {
                 )}
               </div>
               {/*
-                Right cluster collapsed to a single primary CTA plus
-                an overflow menu. Discover projects / New stack /
-                Rescan deps / Analyze workspace all live in the
-                dropdown — they're each used at most once a day, so
-                surfacing them as full buttons stole prominence from
-                the daily-driver "+ New service" without earning it.
+                Right cluster: primary "+ New service" CTA plus a
+                promoted "Analyze" button (the AI workspace-report
+                trigger), plus an overflow menu for the lower-frequency
+                actions (Discover projects / New stack / Rescan deps).
+
+                "Analyze workspace" used to live inside the Actions
+                dropdown, but burying the only AI-driven, multi-project
+                diagnostic behind a two-click menu killed its
+                discoverability — most users never knew it existed.
+                Surfacing it as a Sparkles-prefixed ghost button keeps
+                the primary "+ New service" CTA visually dominant
+                (only it carries the accent fill) while making the
+                marquee AI feature one click away. The remaining
+                three actions stay in the dropdown because they're
+                each used at most once a day per workspace.
               */}
               <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  ref={workspaceReportTriggerRef}
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    if (services.length === 0) return;
+                    launchWorkspaceReport();
+                  }}
+                  disabled={services.length === 0}
+                  title="AI report across all projects"
+                >
+                  Analyze Workspace
+                </Button>
                 <Button
                   variant="primary"
                   size="sm"
@@ -1188,12 +1211,6 @@ export function Dashboard({ onScan }: Props) {
                   onDiscover={onScan}
                   onNewStack={() => openStackEditor(null)}
                   onRescan={() => void runScan()}
-                  onAnalyze={() => {
-                    if (services.length === 0) return;
-                    launchWorkspaceReport();
-                  }}
-                  analyzeButtonRef={workspaceReportTriggerRef}
-                  disableAnalyze={services.length === 0}
                   disableRescan={overviewScanning || !overview}
                   rescanLabel={
                     overviewScanning
@@ -1853,10 +1870,10 @@ function FilterChip({
 }
 
 /**
- * Overflow menu for the dashboard hero. Houses every workspace-level
- * action that isn't the daily-driver "+ New service" button — so the
- * primary CTA can sit alone in the prominent top-right slot without
- * three near-equal siblings stealing its weight.
+ * Overflow menu for the dashboard hero. Houses workspace-level
+ * actions that aren't either of the two promoted CTAs ("+ New
+ * service" and "Analyze") — so those stay visually dominant in the
+ * top-right slot without three near-equal siblings stealing weight.
  *
  * Why a hand-rolled menu (instead of pulling in @radix-ui/dropdown-menu
  * or similar): we already lean on the same click-outside + Escape
@@ -1864,29 +1881,17 @@ function FilterChip({
  * here keeps the bundle lean and matches the local idiom. If a fourth
  * surface needs the same dropdown, that's the right time to extract a
  * shared `DropdownMenu` primitive.
- *
- * `analyzeButtonRef` is plumbed through so the workspace-report
- * popover (which positions itself relative to its trigger) keeps
- * working — the popover anchors to the menu item's DOM node, not the
- * collapsed parent button. When the menu is closed the ref points at
- * `null`, which the popover hook tolerates as "no anchor yet".
  */
 function DashboardActionsMenu({
   onDiscover,
   onNewStack,
   onRescan,
-  onAnalyze,
-  analyzeButtonRef,
-  disableAnalyze,
   disableRescan,
   rescanLabel,
 }: {
   onDiscover: () => void;
   onNewStack: () => void;
   onRescan: () => void;
-  onAnalyze: () => void;
-  analyzeButtonRef: React.Ref<HTMLButtonElement>;
-  disableAnalyze: boolean;
   disableRescan: boolean;
   rescanLabel: string;
 }) {
@@ -1954,14 +1959,6 @@ function DashboardActionsMenu({
             hint="npm outdated · cargo audit"
             onClick={select(onRescan)}
             disabled={disableRescan}
-          />
-          <MenuItem
-            ref={analyzeButtonRef}
-            icon={<Sparkles className="h-3.5 w-3.5" />}
-            label="Analyze workspace"
-            hint="AI report across all projects"
-            onClick={select(onAnalyze)}
-            disabled={disableAnalyze}
           />
         </div>
       )}

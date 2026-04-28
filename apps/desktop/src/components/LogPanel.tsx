@@ -277,16 +277,29 @@ function badgeClass(name: string): string {
   return palette[Math.abs(h) % palette.length]!;
 }
 
-export function LogPanel() {
-  const selectedId = useAppStore((s) => s.selectedServiceId);
-  const selectedCmdName = useAppStore((s) => s.selectedCmdName);
-  const setSelectedCmd = useAppStore((s) => s.setSelectedCmd);
-  const service = useAppStore((s) =>
-    s.selectedServiceId ? (s.services.find((x) => x.id === s.selectedServiceId) ?? null) : null,
-  );
-  const status = useAppStore((s) =>
-    s.selectedServiceId ? s.statuses[s.selectedServiceId] : undefined,
-  );
+interface LogPanelProps {
+  /**
+   * The service this panel renders. Provided by the parent (the
+   * tabbed main-area host) instead of read from the store so that
+   * multiple LogPanel instances can coexist — one per open service
+   * tab — each with its own filter / follow / terminal / split
+   * state. Reading the active service from the store would make
+   * every instance render the same one and collapse the tab system
+   * into a single shared view.
+   */
+  serviceId: string;
+}
+
+export function LogPanel({ serviceId }: LogPanelProps) {
+  const selectedId = serviceId;
+  // Per-tab "active command" state. Lives locally so each open
+  // service tab remembers which sub-command the user was looking
+  // at — switching tabs and coming back keeps you on the same
+  // command without re-deriving from a global store value that
+  // would clobber sibling tabs.
+  const [selectedCmdName, setSelectedCmdName] = useState<string | null>(null);
+  const service = useAppStore((s) => s.services.find((x) => x.id === serviceId) ?? null);
+  const status = useAppStore((s) => s.statuses[serviceId]);
   const ports = useAppStore((s) => s.ports);
   const replaceLogs = useAppStore((s) => s.replaceLogs);
   const clearLogsLocal = useAppStore((s) => s.clearLogs);
@@ -635,7 +648,7 @@ export function LogPanel() {
                 <button
                   key={entry.name}
                   type="button"
-                  onClick={() => setSelectedCmd(entry.name)}
+                  onClick={() => setSelectedCmdName(entry.name)}
                   className={cn(
                     'rounded-app-sm group flex items-center gap-2 border px-2 py-1 text-left transition',
                     isActive

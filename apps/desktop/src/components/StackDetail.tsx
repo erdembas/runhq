@@ -23,8 +23,20 @@ import type { LogLine, ServiceDef, Status } from '@/types';
 
 type Tab = 'services' | 'logs';
 
-export function StackDetail() {
-  const stackId = useAppStore((s) => s.selectedStackId);
+interface StackDetailProps {
+  /**
+   * The stack this detail view renders. Passed in by the tabbed
+   * main-area host so multiple StackDetail instances can stay
+   * mounted (one per open stack tab) without colliding on a single
+   * `selectedStackId` from the store. Reading the id from the
+   * store would force every mounted instance to render the same
+   * stack — defeating the per-tab state preservation the tab
+   * system is designed for.
+   */
+  stackId: string;
+}
+
+export function StackDetail({ stackId }: StackDetailProps) {
   const stacks = useAppStore((s) => s.stacks);
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);

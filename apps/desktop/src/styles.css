@@ -328,6 +328,30 @@ button:disabled,
   }
 }
 
+/*
+ * Tab-strip scroll container.
+ *
+ * The main-area tab strip is horizontally scrollable when many
+ * tabs are open, but a native horizontal scrollbar pinned under a
+ * 36px-tall strip looks crude — it grabs visual weight away from
+ * the tabs themselves and the bar's own bottom border. We hide it
+ * outright; users get the same affordance via:
+ *   - mouse wheel (translated to horizontal in the React handler)
+ *   - trackpad swipe (still works because we only kill the
+ *     scrollbar chrome, not the scroll mechanism)
+ *   - clicking off-screen tabs (auto-scrollIntoView in the bar)
+ *   - the fade-mask overlays at either edge as a visual cue
+ *
+ * Firefox and Chromium need different incantations to hide the
+ * scrollbar without losing scrollability — both are listed below.
+ */
+.main-tabbar-scroll {
+  scrollbar-width: none;
+}
+.main-tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 ::selection {
   background: rgb(var(--accent) / 0.3);
   color: rgb(var(--fg));

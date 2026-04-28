@@ -37,6 +37,15 @@ interface FormState {
   model: string;
   default: boolean;
   response_language: string;
+  /** Per-provider commit-message language override. Sentinel value
+   *  `'inherit'` means "use response_language" — the form treats
+   *  this as the default so existing providers don't suddenly
+   *  acquire a separate commit policy. The picker also exposes
+   *  `'auto'` (no directive — model decides) so users can
+   *  explicitly opt commits out of an English-leaning chat
+   *  setting. Any other BCP-47 code forces that language on the
+   *  commit surface only. */
+  commit_language: string;
   /** Stored as a *string* (not a number) inside the form because an
    *  empty input is semantically meaningful — it means "no client-side
    *  cap, let the server decide" — and a numeric state with `0`/`NaN`
@@ -57,6 +66,7 @@ const EMPTY_FORM: FormState = {
   model: '',
   default: false,
   response_language: 'auto',
+  commit_language: 'inherit',
   max_output_tokens: '',
   context_window: '',
 };
@@ -118,6 +128,45 @@ function languageLabel(value: string | null | undefined): string {
 }
 
 /**
+ * Commit-language picker options. Identical to
+ * {@link LANGUAGE_OPTIONS} except the head is `[Inherit, Auto, …]`
+ * instead of just `[Auto, …]`.
+ *
+ * `Inherit` is the form-level default ("use whatever Response
+ * Language says"), and `Auto` is the meaningful escape hatch for
+ * users whose chat is set to a specific language but who still want
+ * commits in whatever the diff suggests (typically English on
+ * open-source projects). Without that distinction, picking
+ * `Auto` here would be indistinguishable from picking `Inherit`
+ * when Response Language is `Auto` — but it differs sharply when
+ * Response Language is anything else.
+ */
+const COMMIT_LANGUAGE_OPTIONS: { value: string; label: string; flag: string | null }[] = [
+  { value: 'inherit', label: 'Inherit (use response language)', flag: null },
+  ...LANGUAGE_OPTIONS,
+];
+
+function commitLanguageOption(value: string | null | undefined) {
+  const v = (value ?? 'inherit').trim().toLowerCase() || 'inherit';
+  return COMMIT_LANGUAGE_OPTIONS.find((o) => o.value === v);
+}
+
+function commitLanguageLabel(
+  value: string | null | undefined,
+  fallback: string | null | undefined,
+): string {
+  const opt = commitLanguageOption(value);
+  if (opt && opt.value === 'inherit') {
+    // Show the resolved language inline so the row reads as "the
+    // commit setting is doing X" instead of leaving the user
+    // hunting for what Inherit means in their case.
+    return `Inherit · ${languageLabel(fallback)}`;
+  }
+  if (!opt) return (value ?? 'inherit').trim().toLowerCase() || 'inherit';
+  return opt.flag ? `${opt.flag} ${opt.label}` : opt.label;
+}
+
+/**
  * Flag-augmented language picker.
  *
  * Replaces the native `<select>` so we can show a country flag
@@ -135,24 +184,36 @@ function languageLabel(value: string | null | undefined): string {
  *   - Active row gets the accent colour and a check mark.
  *   - Keyboard: ArrowDown/Up move focus, Enter commits.
  */
-function LanguagePicker({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+function LanguagePicker({
+  value,
+  onChange,
+  options = LANGUAGE_OPTIONS,
+  searchPlaceholder = 'Search languages…',
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  options?: { value: string; label: string; flag: string | null }[];
+  searchPlaceholder?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [focusIdx, setFocusIdx] = useState<number>(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  // `LANGUAGE_OPTIONS[0]` is `auto`, which always exists at the top
-  // of the constant list. The `!` here just placates the strict-
-  // optional inference; runtime can never see undefined.
-  const current = languageOption(value) ?? LANGUAGE_OPTIONS[0]!;
+  // The leading entry is always a sane default ('auto' for chat,
+  // 'inherit' for commit). The `!` here just placates the strict-
+  // optional inference; runtime can never see undefined since the
+  // caller always supplies a non-empty list.
+  const current = options.find((o) => o.value === value) ?? options[0]!;
 
   // Filtered list driven by the search box. Match across both the
   // human label ("Türkçe") and the BCP-47 code ("tr"); searches are
   // case-insensitive and accent-insensitive so "Turkce", "türkçe",
   // and "tr" all surface the same entry. We don't sort: keeping the
-  // original order preserves the curated "auto first, English next,
-  // user's likely picks clustered" intent baked into LANGUAGE_OPTIONS.
+  // original order preserves the curated "auto/inherit first,
+  // English next, user's likely picks clustered" intent baked into
+  // the options list.
   const normalize = (s: string) =>
     s
       .toLowerCase()
@@ -160,11 +221,9 @@ function LanguagePicker({ value, onChange }: { value: string; onChange: (next: s
       .replace(/[\u0300-\u036f]/g, '');
   const filtered = useMemo(() => {
     const q = normalize(query.trim());
-    if (!q) return LANGUAGE_OPTIONS;
-    return LANGUAGE_OPTIONS.filter(
-      (o) => normalize(o.label).includes(q) || normalize(o.value).includes(q),
-    );
-  }, [query]);
+    if (!q) return options;
+    return options.filter((o) => normalize(o.label).includes(q) || normalize(o.value).includes(q));
+  }, [query, options]);
 
   // Reset / clamp the focus index whenever the visible list changes.
   // Without this the user could be focused on row 5, type a query
@@ -235,7 +294,7 @@ function LanguagePicker({ value, onChange }: { value: string; onChange: (next: s
           setFocusIdx(
             Math.max(
               0,
-              LANGUAGE_OPTIONS.findIndex((o) => o.value === value),
+              options.findIndex((o) => o.value === value),
             ),
           );
           setOpen((o) => !o);
@@ -269,7 +328,7 @@ function LanguagePicker({ value, onChange }: { value: string; onChange: (next: s
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search languages…"
+              placeholder={searchPlaceholder}
               className={cn(
                 'bg-surface-muted/40 text-fg placeholder:text-fg-dim/70',
                 'border-border/40 focus:border-accent/40 focus:ring-accent/15',
@@ -359,6 +418,7 @@ export function AiSettings({ onClose }: AiSettingsProps) {
       model: p.model,
       default: p.default,
       response_language: p.response_language ?? 'auto',
+      commit_language: p.commit_language ?? 'inherit',
       max_output_tokens:
         p.max_output_tokens != null && p.max_output_tokens > 0 ? String(p.max_output_tokens) : '',
       context_window:
@@ -573,6 +633,23 @@ function ProviderRow({ provider, test, onTest, onEdit, onRemove, onSetDefault }:
           <span title="Response language" className="truncate">
             {languageLabel(provider.response_language)}
           </span>
+          {/*
+            Only surface the commit-message language as a separate
+            chip when the user explicitly chose to override it. The
+            common case (inherit) doesn't add new information — it's
+            equal to the response-language chip — and showing it
+            twice would dilute the signal that something *interesting*
+            is configured.
+          */}
+          {commitLanguageOption(provider.commit_language)?.value &&
+            commitLanguageOption(provider.commit_language)!.value !== 'inherit' && (
+              <>
+                <span>·</span>
+                <span title="Commit message language" className="truncate">
+                  ✎ {commitLanguageLabel(provider.commit_language, provider.response_language)}
+                </span>
+              </>
+            )}
           {provider.max_output_tokens != null && provider.max_output_tokens > 0 && (
             <>
               <span>·</span>
@@ -730,6 +807,7 @@ function ProviderForm({ state, onCancel, onSaved }: ProviderFormProps) {
         model: form.model.trim(),
         default: form.default,
         response_language: form.response_language || 'auto',
+        commit_language: form.commit_language || 'inherit',
         max_output_tokens: parsedMaxOutputTokens(),
         context_window: parsedContextWindow(),
       });
@@ -765,6 +843,7 @@ function ProviderForm({ state, onCancel, onSaved }: ProviderFormProps) {
         model: form.model.trim(),
         default: form.default,
         response_language: form.response_language || 'auto',
+        commit_language: form.commit_language || 'inherit',
         max_output_tokens: parsedMaxOutputTokens(),
         context_window: parsedContextWindow(),
       });
@@ -866,11 +945,22 @@ function ProviderForm({ state, onCancel, onSaved }: ProviderFormProps) {
 
       <Field
         label="Response Language"
-        hint="The language the model should reply in across all AI surfaces (chat, diff explainer, log triage, standup polish, project explainer). 'Auto' lets the model echo back whatever language you wrote in — usually the right default for chat. Pick a specific language if you want everything answered in it consistently."
+        hint="The language the model should reply in across the conversational AI surfaces (chat, diff explainer, log triage, standup polish, project explainer). 'Auto' lets the model echo back whatever language you wrote in — usually the right default for chat. Pick a specific language if you want everything answered in it consistently. Commit messages are configured separately below."
       >
         <LanguagePicker
           value={form.response_language || 'auto'}
           onChange={(next) => setForm({ ...form, response_language: next })}
+        />
+      </Field>
+
+      <Field
+        label="Commit Message Language"
+        hint="The language for AI-generated commit messages. Kept separate from Response Language because commits enter the project's git history — many teams keep chat in their native tongue but commits in English regardless. 'Inherit' uses whatever Response Language is set above (the default — pick this if you don't care about the distinction). 'Auto' opts out of any language directive on commits even when chat has one (lets the model match the language of your existing diff comments and code). Or pick a specific language to force it for commits only."
+      >
+        <LanguagePicker
+          value={form.commit_language || 'inherit'}
+          onChange={(next) => setForm({ ...form, commit_language: next })}
+          options={COMMIT_LANGUAGE_OPTIONS}
         />
       </Field>
 

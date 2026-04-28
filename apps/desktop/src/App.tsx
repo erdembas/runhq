@@ -9,6 +9,7 @@ import { Dashboard } from '@/components/dashboard';
 import { ServiceEditor } from '@/components/ServiceEditor';
 import { StackEditor } from '@/components/StackEditor';
 import { StackDetail } from '@/components/StackDetail';
+import { MainTabBar } from '@/components/MainTabBar';
 import { ScanDialog } from '@/components/ScanDialog';
 import { ShortcutSettings } from '@/components/ShortcutSettings';
 import { AiSettings } from '@/components/AiSettings';
@@ -22,7 +23,7 @@ import { WhatsNewModal } from '@/components/WhatsNewModal';
 import { ReleaseNotes } from '@/components/ReleaseNotes';
 import { DiffViewer } from '@/components/DiffViewer';
 import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
-import { useAppStore, logKey } from '@/store/useAppStore';
+import { useAppStore, logKey, mainTabKey } from '@/store/useAppStore';
 import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
 import { useContextMenu } from '@/lib/context-menu';
@@ -30,8 +31,8 @@ import { useUiZoomShortcuts } from '@/lib/ui-zoom';
 import { getLatestRelease, shouldAutoShow } from '@/lib/whatsnew';
 
 export default function App() {
-  const selectedServiceId = useAppStore((s) => s.selectedServiceId);
-  const selectedStackId = useAppStore((s) => s.selectedStackId);
+  const mainTabs = useAppStore((s) => s.mainTabs);
+  const activeMainTabKey = useAppStore((s) => s.activeMainTabKey);
   const setServices = useAppStore((s) => s.setServices);
   const setStatus = useAppStore((s) => s.setStatus);
   const appendLog = useAppStore((s) => s.appendLog);
@@ -598,12 +599,56 @@ export default function App() {
               wins back — keeping the precedence one-directional. */}
           {releaseNotesOpen ? (
             <ReleaseNotes />
-          ) : selectedServiceId != null ? (
-            <LogPanel />
-          ) : selectedStackId != null ? (
-            <StackDetail />
           ) : (
-            <Dashboard onScan={startScan} />
+            <>
+              <MainTabBar />
+              {/*
+                Per-tab state preservation strategy:
+                Every open tab stays mounted in the DOM at all
+                times; the inactive ones are hidden via
+                `display: none`. This is what lets a service tab
+                keep its terminal session alive, its log filter
+                input populated, its split-pane height intact, and
+                its scroll position pinned across tab switches.
+                Conditional rendering (`{active === 'foo' && ...}`)
+                would tear those down on every flip and we'd be
+                back to the non-tabbed UX with extra steps.
+                We collapse hidden tabs via `display: none` rather
+                than visibility/opacity tricks because (a) hidden
+                trees don't participate in tab order or
+                accessibility, exactly what we want for an
+                inactive tab, and (b) layout-affecting DOM
+                (TerminalPane sizing, virtualized log list
+                measurement) doesn't need to compete for
+                container width while invisible.
+              */}
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                {mainTabs.map((tab) => {
+                  const key = mainTabKey(tab);
+                  const isActive = key === activeMainTabKey;
+                  // `flex` is required (not `block`) because the
+                  // children expect a column flex context to fill
+                  // height. Hidden tabs collapse via `none` so they
+                  // don't take any layout slot at all.
+                  const style: React.CSSProperties = isActive
+                    ? { display: 'flex', flex: '1 1 auto', minHeight: 0 }
+                    : { display: 'none' };
+                  return (
+                    <div
+                      key={key}
+                      role="tabpanel"
+                      aria-hidden={!isActive}
+                      className="flex-col overflow-hidden"
+                      style={style}
+                    >
+                      {tab.kind === 'dashboard' && <Dashboard onScan={startScan} />}
+                      {tab.kind === 'service' && <LogPanel serviceId={tab.refId} />}
+                      {tab.kind === 'stack' && <StackDetail stackId={tab.refId} />}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </main>
         {/* VSCode-style right side: panel host (renders the active

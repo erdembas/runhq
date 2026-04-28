@@ -96,6 +96,34 @@ interface LogBuffer {
   lastSeq: number;
 }
 
+/**
+ * A tab in the main content area.
+ *
+ * Three kinds:
+ *   - `dashboard` — the workspace overview. Always present, never closable;
+ *     acts as the "home" tab the user can fall back to when every other
+ *     tab has been closed.
+ *   - `service`  — an individual service's log/terminal view. `refId` is
+ *     the service id.
+ *   - `stack`    — a stack detail view. `refId` is the stack id.
+ *
+ * Tabs are addressed by a stable composite key `${kind}:${refId}` so the
+ * tab strip can dedup and React can use it as a list key.
+ */
+export type MainTabKind = 'dashboard' | 'service' | 'stack';
+export interface MainTab {
+  kind: MainTabKind;
+  refId: string;
+}
+
+export const DASHBOARD_TAB: MainTab = { kind: 'dashboard', refId: 'dashboard' };
+
+export function mainTabKey(tab: MainTab): string {
+  return `${tab.kind}:${tab.refId}`;
+}
+
+export const DASHBOARD_TAB_KEY = mainTabKey(DASHBOARD_TAB);
+
 export type SidebarGroupBy = 'none' | 'category' | 'runtime' | 'status';
 export type DashboardGroupBy = 'none' | 'category' | 'runtime' | 'status';
 /**
@@ -146,6 +174,60 @@ interface AppStore {
   selectedStackId: string | null;
   appVersion: string | null;
   stateDir: string | null;
+
+  /**
+   * Open tabs in the main content area.
+   *
+   * Order matters — left-to-right in the tab strip. The dashboard is
+   * always present at index 0 and cannot be closed; service/stack
+   * tabs append on the right and can be closed individually. When a
+   * tab is closed and was the active one, the active tab snaps to its
+   * left neighbour (or to the dashboard if nothing else is open).
+   *
+   * State (terminal sessions, log filter inputs, scroll positions,
+   * etc.) is preserved per tab by keeping every tab mounted in the
+   * DOM and toggling visibility via `display: none`. This means
+   * switching back to a tab restores it exactly as the user left
+   * it — no remount, no re-fetch, no re-spawn of TerminalPane PTYs.
+   */
+  mainTabs: MainTab[];
+  activeMainTabKey: string;
+  /**
+   * Open a tab. If the tab already exists (matched by composite key),
+   * it's just activated; otherwise it's appended to the right and
+   * activated. For service / stack tabs this also keeps
+   * `selectedServiceId` / `selectedStackId` in sync so the sidebar
+   * highlight follows the active tab.
+   */
+  openMainTab: (tab: MainTab) => void;
+  closeMainTab: (key: string) => void;
+  setActiveMainTab: (key: string) => void;
+  /**
+   * Close every tab except `keepKey` (and the always-sticky
+   * dashboard). The kept tab becomes active so the user is never
+   * left looking at a now-closed tab. No-op if `keepKey` isn't in
+   * `mainTabs`.
+   */
+  closeOtherMainTabs: (keepKey: string) => void;
+  /**
+   * Close every tab strictly to the right of `key`. The anchor tab
+   * itself plus everything to its left stays open. If the active
+   * tab was in the closed range, active snaps back to the anchor.
+   */
+  closeMainTabsToRight: (key: string) => void;
+  /**
+   * Close every tab strictly to the left of `key`, except the
+   * dashboard which is always kept (it can't be closed). The
+   * anchor tab plus everything to its right stays. If the active
+   * tab was in the closed range, active snaps to the anchor.
+   */
+  closeMainTabsToLeft: (key: string) => void;
+  /**
+   * Close every tab except the dashboard, returning the user to
+   * the home view. Useful as a "reset workspace" gesture from the
+   * tab context menu.
+   */
+  closeAllMainTabs: () => void;
 
   // UI state.
   categoryFilter: string[];
@@ -741,6 +823,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   appVersion: null,
   stateDir: null,
 
+  mainTabs: [DASHBOARD_TAB],
+  activeMainTabKey: DASHBOARD_TAB_KEY,
+
   categoryFilter: initialSidebarPrefs.categoryFilter,
   runtimeFilter: initialSidebarPrefs.runtimeFilter,
   sidebarStatusFilter: initialSidebarPrefs.statusFilter,
@@ -783,10 +868,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
         stackSection: s.stackSection,
         collapsedSections: s.collapsedSections,
       });
+
+      // If a tab for this service is open, drop it. If it was the
+      // active tab, snap focus back to the dashboard so the user
+      // doesn't end up on a phantom tab.
+      const closedKey = mainTabKey({ kind: 'service', refId: id });
+      const nextTabs = s.mainTabs.filter((t) => mainTabKey(t) !== closedKey);
+      const tabsChanged = nextTabs.length !== s.mainTabs.length;
+      const nextActive =
+        tabsChanged && s.activeMainTabKey === closedKey ? DASHBOARD_TAB_KEY : s.activeMainTabKey;
+      const becameDashboard = nextActive === DASHBOARD_TAB_KEY && tabsChanged;
+
       return {
         services: s.services.filter((x) => x.id !== id),
-        selectedServiceId: s.selectedServiceId === id ? null : s.selectedServiceId,
+        selectedServiceId:
+          s.selectedServiceId === id || becameDashboard ? null : s.selectedServiceId,
+        selectedStackId: becameDashboard ? null : s.selectedStackId,
         serviceSection: restServiceSection,
+        mainTabs: tabsChanged ? nextTabs : s.mainTabs,
+        activeMainTabKey: nextActive,
       };
     }),
 
@@ -838,20 +938,212 @@ export const useAppStore = create<AppStore>((set, get) => ({
   // so without explicitly clearing it the user would click a service in
   // the sidebar and stay stuck on the archive page. Sidebar nav must
   // always win — that's the user's whole way out of Release Notes.
+  //
+  // setSelected(id) doubles as a tab-router: passing a service id
+  // either activates the existing tab for that service, or opens a
+  // new one. Passing `null` snaps back to the dashboard tab.
   setSelected: (id) =>
-    set({
-      selectedServiceId: id,
-      selectedCmdName: null,
-      selectedStackId: null,
-      releaseNotesOpen: false,
+    set((s) => {
+      if (id == null) {
+        return {
+          selectedServiceId: null,
+          selectedCmdName: null,
+          selectedStackId: null,
+          releaseNotesOpen: false,
+          activeMainTabKey: DASHBOARD_TAB_KEY,
+        };
+      }
+      const tab: MainTab = { kind: 'service', refId: id };
+      const key = mainTabKey(tab);
+      const exists = s.mainTabs.some((t) => mainTabKey(t) === key);
+      return {
+        selectedServiceId: id,
+        selectedCmdName: null,
+        selectedStackId: null,
+        releaseNotesOpen: false,
+        mainTabs: exists ? s.mainTabs : [...s.mainTabs, tab],
+        activeMainTabKey: key,
+      };
     }),
   setSelectedCmd: (cmdName) => set({ selectedCmdName: cmdName }),
   setSelectedStack: (id) =>
+    set((s) => {
+      if (id == null) {
+        return {
+          selectedStackId: null,
+          selectedServiceId: null,
+          selectedCmdName: null,
+          releaseNotesOpen: false,
+          activeMainTabKey: DASHBOARD_TAB_KEY,
+        };
+      }
+      const tab: MainTab = { kind: 'stack', refId: id };
+      const key = mainTabKey(tab);
+      const exists = s.mainTabs.some((t) => mainTabKey(t) === key);
+      return {
+        selectedStackId: id,
+        selectedServiceId: null,
+        selectedCmdName: null,
+        releaseNotesOpen: false,
+        mainTabs: exists ? s.mainTabs : [...s.mainTabs, tab],
+        activeMainTabKey: key,
+      };
+    }),
+
+  openMainTab: (tab) => {
+    const key = mainTabKey(tab);
+    if (tab.kind === 'service') {
+      get().setSelected(tab.refId);
+      return;
+    }
+    if (tab.kind === 'stack') {
+      get().setSelectedStack(tab.refId);
+      return;
+    }
     set({
-      selectedStackId: id,
+      activeMainTabKey: key,
       selectedServiceId: null,
+      selectedStackId: null,
       selectedCmdName: null,
-      releaseNotesOpen: false,
+    });
+  },
+  closeMainTab: (key) =>
+    set((s) => {
+      // Dashboard is sticky — closing it would leave the user with no
+      // home base. We silently no-op rather than throw so callers
+      // (e.g. middle-click on the dashboard tab) don't have to guard.
+      if (key === DASHBOARD_TAB_KEY) return s;
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx < 0) return s;
+      const next = s.mainTabs.filter((_, i) => i !== idx);
+      let activeKey = s.activeMainTabKey;
+      if (s.activeMainTabKey === key) {
+        // Snap to the tab that just shifted into the closed slot
+        // (next[idx]); fall back to the left neighbour and finally
+        // to the dashboard if nothing else is open. Mirrors the
+        // chat-tab close behaviour above and the user's mental
+        // model: closing tab N puts you on the new tab N (the one
+        // that filled the gap), or on the previous tab if N was the
+        // rightmost.
+        const fallback = next[idx] ?? next[idx - 1] ?? null;
+        activeKey = fallback ? mainTabKey(fallback) : DASHBOARD_TAB_KEY;
+      }
+      const activeTab = next.find((t) => mainTabKey(t) === activeKey);
+      const selectedServiceId = activeTab?.kind === 'service' ? activeTab.refId : null;
+      const selectedStackId = activeTab?.kind === 'stack' ? activeTab.refId : null;
+      return {
+        mainTabs: next,
+        activeMainTabKey: activeKey,
+        selectedServiceId,
+        selectedStackId,
+        selectedCmdName: null,
+      };
+    }),
+  setActiveMainTab: (key) =>
+    set((s) => {
+      const tab = s.mainTabs.find((t) => mainTabKey(t) === key);
+      if (!tab) return s;
+      return {
+        activeMainTabKey: key,
+        selectedServiceId: tab.kind === 'service' ? tab.refId : null,
+        selectedStackId: tab.kind === 'stack' ? tab.refId : null,
+        selectedCmdName: null,
+        releaseNotesOpen: false,
+      };
+    }),
+  closeOtherMainTabs: (keepKey) =>
+    set((s) => {
+      // The dashboard tab is sticky regardless of which tab the user
+      // anchored on — closing it would leave them with no home base.
+      // We keep both the anchor tab and the dashboard, in their
+      // original relative order.
+      const next = s.mainTabs.filter(
+        (t) => mainTabKey(t) === keepKey || mainTabKey(t) === DASHBOARD_TAB_KEY,
+      );
+      if (next.length === s.mainTabs.length) return s;
+      // Anchor becomes active so the user lands somewhere meaningful.
+      // If they right-clicked the dashboard itself, active stays on
+      // dashboard naturally because it's the only candidate.
+      const activeKey = next.some((t) => mainTabKey(t) === keepKey) ? keepKey : DASHBOARD_TAB_KEY;
+      const activeTab = next.find((t) => mainTabKey(t) === activeKey);
+      return {
+        mainTabs: next,
+        activeMainTabKey: activeKey,
+        selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
+        selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
+        selectedCmdName: null,
+      };
+    }),
+  closeMainTabsToRight: (key) =>
+    set((s) => {
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx < 0) return s;
+      // Already the rightmost tab — nothing to close.
+      if (idx === s.mainTabs.length - 1) return s;
+      const next = s.mainTabs.slice(0, idx + 1);
+      // If the active tab survived the cut, leave it where it is —
+      // closing tabs the user wasn't even looking at shouldn't
+      // disturb their place. Otherwise snap to the anchor so we
+      // don't leave them on a closed tab's empty slot.
+      const activeStillOpen = next.some((t) => mainTabKey(t) === s.activeMainTabKey);
+      const activeKey = activeStillOpen ? s.activeMainTabKey : key;
+      const activeTab = next.find((t) => mainTabKey(t) === activeKey);
+      return {
+        mainTabs: next,
+        activeMainTabKey: activeKey,
+        selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
+        selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
+        selectedCmdName: null,
+      };
+    }),
+  closeMainTabsToLeft: (key) =>
+    set((s) => {
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx < 0) return s;
+      // Anchor is already the leftmost tab — nothing to close.
+      // (In practice this means the dashboard, which is always at
+      // idx 0; the menu disables the option in that case but the
+      // store still guards.)
+      if (idx === 0) return s;
+      // Keep the dashboard pinned at index 0 plus everything from
+      // the anchor onward. The dashboard re-emerges left of the
+      // anchor automatically because it's the only survivor below
+      // `idx`. If somehow the dashboard wasn't there, we still
+      // append it at the front to satisfy the "always present"
+      // invariant.
+      const tail = s.mainTabs.slice(idx);
+      const next = tail.some((t) => mainTabKey(t) === DASHBOARD_TAB_KEY)
+        ? tail
+        : [DASHBOARD_TAB, ...tail];
+      const activeStillOpen = next.some((t) => mainTabKey(t) === s.activeMainTabKey);
+      const activeKey = activeStillOpen ? s.activeMainTabKey : key;
+      const activeTab = next.find((t) => mainTabKey(t) === activeKey);
+      return {
+        mainTabs: next,
+        activeMainTabKey: activeKey,
+        selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
+        selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
+        selectedCmdName: null,
+      };
+    }),
+  closeAllMainTabs: () =>
+    set((s) => {
+      // Already at home — no need to dirty the state and trigger
+      // subscribers.
+      if (
+        s.mainTabs.length === 1 &&
+        s.mainTabs[0] &&
+        mainTabKey(s.mainTabs[0]) === DASHBOARD_TAB_KEY
+      ) {
+        return s;
+      }
+      return {
+        mainTabs: [DASHBOARD_TAB],
+        activeMainTabKey: DASHBOARD_TAB_KEY,
+        selectedServiceId: null,
+        selectedStackId: null,
+        selectedCmdName: null,
+      };
     }),
   setAppMeta: (version, stateDir) => set({ appVersion: version, stateDir }),
 
@@ -939,9 +1231,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
         stackSection: restStackSection,
         collapsedSections: s.collapsedSections,
       });
+
+      const closedKey = mainTabKey({ kind: 'stack', refId: id });
+      const nextTabs = s.mainTabs.filter((t) => mainTabKey(t) !== closedKey);
+      const tabsChanged = nextTabs.length !== s.mainTabs.length;
+      const nextActive =
+        tabsChanged && s.activeMainTabKey === closedKey ? DASHBOARD_TAB_KEY : s.activeMainTabKey;
+      const becameDashboard = nextActive === DASHBOARD_TAB_KEY && tabsChanged;
+
       return {
         stacks: s.stacks.filter((x) => x.id !== id),
         stackSection: restStackSection,
+        mainTabs: tabsChanged ? nextTabs : s.mainTabs,
+        activeMainTabKey: nextActive,
+        selectedServiceId: becameDashboard ? null : s.selectedServiceId,
+        selectedStackId: s.selectedStackId === id || becameDashboard ? null : s.selectedStackId,
       };
     }),
   openStackEditor: (stack) => set({ editorStack: stack }),
@@ -1525,6 +1829,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       selectedServiceId: null,
       selectedCmdName: null,
       selectedStackId: null,
+      // Snap the tab strip back to the dashboard so when the user
+      // closes Release Notes they land somewhere sensible instead of
+      // a stale service tab they didn't ask to be on.
+      activeMainTabKey: DASHBOARD_TAB_KEY,
     }),
   closeReleaseNotes: () => set({ releaseNotesOpen: false }),
 
