@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Clock,
@@ -254,7 +254,35 @@ function CardAction({
   );
 }
 
-export function ServiceCard({
+/**
+ * The card's render is heavy: it pulls live status, resources, git
+ * state, ports, and an AI trigger out of the global store on every
+ * render. Without `memo` every keystroke in the dashboard search box
+ * re-walks all those store selectors for *every* card on the page,
+ * even cards whose props (the only inputs that actually changed for
+ * them) haven't moved. `memo` short-circuits the no-op renders, which
+ * is what makes a paste-replace ("frontend-v2" ➜ "belgehub") in the
+ * search box land in a single frame instead of stuttering.
+ *
+ * Default shallow-prop comparison is the right call here because all
+ * four props are stable references when nothing about that card has
+ * changed:
+ *   - `svc`            ← the canonical entry from the services array;
+ *                        Zustand keeps the same identity across
+ *                        unrelated state mutations.
+ *   - `draggable`      ← a static boolean per render site.
+ *   - `projectMeta`    ← `Map.get(svc.id)` from a memoised lookup map
+ *                        in Dashboard, so identity-stable when the
+ *                        underlying overview entry hasn't changed.
+ *   - `onOpenDetail`   ← wrapped in `useCallback` upstream; one
+ *                        identity for the whole Dashboard lifetime.
+ *
+ * Live status / resources / git / ports come from store subscriptions
+ * inside the card itself, so they bypass the prop-equality check on
+ * purpose — the card *should* re-render when its own data updates,
+ * just not when an unrelated card three rows down changes.
+ */
+export const ServiceCard = memo(function ServiceCard({
   svc,
   draggable: cardDraggable,
   projectMeta,
@@ -687,7 +715,7 @@ export function ServiceCard({
       )}
     </div>
   );
-}
+});
 
 /**
  * How many "attention" signals are firing on this project right now?

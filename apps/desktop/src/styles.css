@@ -549,6 +549,20 @@ button:disabled,
   box-shadow: none;
 }
 
+/* Dashboard service search — same composition pattern as the two
+ * search inputs above: a bare <input> nested inside a wrapper that
+ * draws its own border via `focus-within:`. Without this override
+ * the global `*:focus-visible` orange ring stacks an inner halo on
+ * top of the wrapper's outer border, producing the "border in a
+ * border" look. If a fourth surface ever needs the same treatment
+ * it's time to extract a shared `.bare-input` utility class. */
+.dashboard-search-input,
+.dashboard-search-input:focus,
+.dashboard-search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* -----------------------------------------------------------------------
  * Quick Action — critical layout anchors (Tailwind-agnostic).
  *

@@ -355,13 +355,83 @@ impl Supervisor {
             self.sink.emit_log(&svc.id, &entry.name, &line);
         }
 
-        let (program, args) = shell_command(&entry.cmd);
+        // Compose the full launch script: pre-command lines + main
+        // command, all in a SINGLE shell session. Earlier we ran the
+        // pre-command via a separate `Command::status()` call before
+        // spawning the main command — which meant `nvm use 14`,
+        // `unset NODE_OPTIONS`, `export FOO=bar`, `source .env` and
+        // friends mutated a subshell that died before main started,
+        // and their effects never reached main. The user's mental
+        // model is "I wrote setup steps, then the real command, in
+        // order, in one terminal" — so that's what we deliver.
+        //
+        // `set -e` makes any pre-command line that exits non-zero
+        // abort the whole script before main runs. Without it, a
+        // failing `nvm use 14` would silently fall through to
+        // `npm start`, which would then run with the wrong toolchain
+        // and produce a baffling stack trace far from the actual
+        // cause. With `set -e` the user sees the failing line's exit
+        // code surface directly via the supervisor's `[exited code N]`
+        // closer.
+        //
+        // `wrap_with_path_override` then prefixes a final `export
+        // PATH=…` so the user-configured PATH override wins against
+        // dotfile-sourced version managers (nvm, fnm, asdf…). Keeping
+        // the override outside the user's pre-command means even an
+        // empty pre-command still benefits from it.
+        let composed = compose_launch_script(svc.pre_command.as_deref(), &entry.cmd);
+        let user_cmd = wrap_with_path_override(&composed, svc.path_override.as_deref());
+        let (program, args) = shell_command(&user_cmd);
         let mut cmd = Command::new(program);
         cmd.args(args)
             .current_dir(&svc.cwd)
+            // We pipe stdin (and never write to it) instead of pointing it
+            // at /dev/null because a surprising number of dev servers
+            // exit cleanly the moment they see stdin EOF — most famously
+            // create-react-app / react-app-rewired, whose `start.js`
+            // does:
+            //
+            //     process.stdin.on('end', () => { devServer.close(); process.exit(); });
+            //     process.stdin.resume();
+            //
+            // With `Stdio::null()` Linux/macOS hand the child a fd
+            // pointed at /dev/null, `resume()` reads it, gets immediate
+            // EOF, fires `'end'`, and the dev server exits 0 the very
+            // instant after printing "Starting the development
+            // server…". RunHQ users see a phantom green "exited code 0"
+            // and assume their config is broken, when really we starved
+            // the child of an open stdin handle.
+            //
+            // `Stdio::piped()` gives the child a pipe whose writer end
+            // we keep alive for the full lifetime of the supervised run.
+            //
+            // SUBTLE: just configuring `Stdio::piped()` is NOT enough.
+            // Tokio's `Child::wait()` is documented to close the child's
+            // stdin handle before awaiting (deliberate deadlock-avoidance:
+            // a child blocked on stdin while the parent blocks on `wait()`
+            // would deadlock both). For us that "helpful" behaviour is a
+            // footgun — the closed pipe surfaces as EOF on the child side
+            // and CRA's `process.stdin.on('end', …)` listener fires
+            // `process.exit()` a heartbeat after "Starting the development
+            // server…". To dodge that, we `child.stdin.take()` immediately
+            // after spawn and park the writer end inside the supervise
+            // task (see `stdin_keepalive` below). With `child.stdin == None`
+            // by the time `wait()` runs, Tokio has nothing to close, and
+            // the writer end stays open for the full run.
+            //
+            // Reads on the child side block indefinitely, exactly like a
+            // real terminal that nobody's typing into. Tools that actually
+            // want interactive input still see "no TTY" and degrade
+            // gracefully; tools that just listen for stdin-end never get
+            // the false EOF.
+            //
+            // Pre-commands below stay on `Stdio::null()` deliberately:
+            // they're short-lived `status()` calls where we *want* EOF
+            // so anything reading stdin returns immediately instead of
+            // hanging RunHQ startup.
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .kill_on_drop(true);
 
         // Persuade CLIs that lose their TTY through `Stdio::piped()` to keep
@@ -387,50 +457,94 @@ impl Supervisor {
             }
         }
 
+        // One-line banner so users can confirm at a glance that their
+        // pre-command lines are being included in the launch script.
+        // We don't echo the full text (already shown in the editor and
+        // can be many lines long) — just a count, mirroring the old
+        // "succeeded (N lines)" format users were accustomed to.
+        // Failures no longer get a dedicated banner: if `set -e` aborts
+        // the script on a failing pre-command line, the supervisor's
+        // standard `[exited code N]` closer carries the signal, and
+        // the failing line's own stderr is right there in the log.
         if let Some(pre) = &svc.pre_command {
             let pre_trimmed = pre.trim();
             if !pre_trimmed.is_empty() {
-                let (pre_prog, pre_args) = shell_command(pre_trimmed);
-                let pre_status = Command::new(&pre_prog)
-                    .args(&pre_args)
+                let line_count = pre_trimmed.lines().filter(|l| !l.trim().is_empty()).count();
+                let summary = if line_count <= 1 {
+                    pre_trimmed.to_string()
+                } else {
+                    format!("({line_count} lines)")
+                };
+                let line = self.logs.push(
+                    &log_key,
+                    Stream::System,
+                    format!("ℹ pre-command attached: {summary}"),
+                    run_id.clone(),
+                );
+                self.sink.emit_log(&svc.id, &entry.name, &line);
+            }
+        }
+
+        // Resolved-environment diagnostic. Only fires when the user has
+        // configured a `path_override`, because that's the case where
+        // "which interpreter am I actually going to find on PATH?" is a
+        // first-class debugging question. Quietly skipped otherwise so
+        // ordinary services don't pay an extra ~30ms for noise nobody
+        // asked for.
+        //
+        // Why this banner exists: PATH overrides are *layered* on top of
+        // the user's login shell init, which on macOS routinely runs
+        // `path_helper`, `nvm`, `fnm`, `asdf`, `pyenv`, and assorted
+        // dotfile snippets that all rewrite PATH from scratch. Even
+        // when the override is correctly wrapped via `export PATH=…;
+        // <cmd>`, a missing/non-executable binary inside the override
+        // directory will silently fall through to whatever the next
+        // PATH entry resolves to — and the user will see "but I set
+        // node 14!" with no obvious explanation. Logging the actually-
+        // resolved PATH head + `command -v node` makes the gap visible
+        // the first time a service is started.
+        //
+        // The probe runs the same wrap_with_path_override that the
+        // main command does, so it observes precisely the PATH the
+        // child process will see, not a parent-process approximation.
+        if let Some(path_extra) = &svc.path_override {
+            if !path_extra.trim().is_empty() {
+                // ${PATH%%:*} = first PATH entry. Plain POSIX, works
+                // in zsh/bash/dash. `command -v` is more portable than
+                // `which` (it's a shell builtin and always available).
+                // We probe `node` specifically because it's the most
+                // common reason users reach for path_override; if the
+                // service uses a different runtime it'll still show
+                // PATH head, which is enough to diagnose 99% of
+                // override misses.
+                let probe_script = "printf 'PATH head=%s\\n' \"${PATH%%:*}\"; \
+                    if command -v node >/dev/null 2>&1; then \
+                        printf 'node=%s (%s)\\n' \"$(command -v node)\" \"$(node --version 2>/dev/null || echo unknown)\"; \
+                    fi";
+                let probe_wrapped =
+                    wrap_with_path_override(probe_script, svc.path_override.as_deref());
+                let (probe_prog, probe_args) = shell_command(&probe_wrapped);
+                let mut probe_cmd = Command::new(&probe_prog);
+                probe_cmd
+                    .args(&probe_args)
                     .current_dir(&svc.cwd)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .stdin(Stdio::null())
-                    .status()
-                    .await;
-                match pre_status {
-                    Ok(s) if s.success() => {
+                    .stdin(Stdio::null());
+                let current = std::env::var("PATH").unwrap_or_default();
+                probe_cmd.env("PATH", format!("{}:{}", path_extra.trim(), current));
+                if let Ok(out) = probe_cmd.output().await {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    for raw in stdout.lines() {
+                        let trimmed = raw.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
                         let line = self.logs.push(
                             &log_key,
                             Stream::System,
-                            format!("✓ pre-command succeeded: {pre_trimmed}"),
+                            format!("ℹ env: {trimmed}"),
                             run_id.clone(),
                         );
                         self.sink.emit_log(&svc.id, &entry.name, &line);
-                    }
-                    Ok(s) => {
-                        let code = s.code().unwrap_or(-1);
-                        let msg = format!("✗ pre-command exited with code {code}: {pre_trimmed}");
-                        let line = self
-                            .logs
-                            .push(&log_key, Stream::System, msg, run_id.clone());
-                        self.sink.emit_log(&svc.id, &entry.name, &line);
-                        return Err(AppError::Other(format!(
-                            "pre-command failed for '{}'",
-                            entry.name
-                        )));
-                    }
-                    Err(e) => {
-                        let msg = format!("✗ pre-command failed: {pre_trimmed} — {e}");
-                        let line = self
-                            .logs
-                            .push(&log_key, Stream::System, msg, run_id.clone());
-                        self.sink.emit_log(&svc.id, &entry.name, &line);
-                        return Err(AppError::Other(format!(
-                            "pre-command failed for '{}'",
-                            entry.name
-                        )));
                     }
                 }
             }
@@ -463,6 +577,32 @@ impl Supervisor {
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        // Detach the stdin pipe-writer from `Child` BEFORE we hand the child
+        // off to `supervise` / `child.wait()`. Tokio documents that
+        // `Child::wait()` "will close the stdin handle to the child process,
+        // if any" before awaiting — a deliberate deadlock-avoidance measure
+        // that's exactly the wrong default for us. The whole reason we used
+        // `Stdio::piped()` (see the long comment above where stdio is
+        // configured) was to keep the writer end open so dev servers like
+        // create-react-app / react-app-rewired don't see stdin EOF and
+        // self-terminate via:
+        //
+        //     process.stdin.on('end', () => { devServer.close(); process.exit(); });
+        //
+        // If we leave `child.stdin` populated, Tokio drops it the instant
+        // `wait()` is called, the child reads EOF on its stdin, fires the
+        // `end` listener, and exits 0 a heartbeat after printing "Starting
+        // the development server…". The user sees a phantom green exit
+        // and our config tab gets blamed.
+        //
+        // Taking the handle out *here* and parking it in the supervise task
+        // (`_stdin_keepalive` below) means: (a) `child.wait()` finds
+        // `stdin: None` and has nothing to close, (b) the OS-level pipe
+        // writer stays open for the full lifetime of the supervised run,
+        // and (c) it gets dropped naturally — and only — when the child
+        // has already exited and the task is unwinding, which is too late
+        // to matter.
+        let stdin_keepalive = child.stdin.take();
 
         if let Some(out) = stdout {
             spawn_line_reader(
@@ -507,6 +647,13 @@ impl Supervisor {
         let grace = Duration::from_millis(svc.grace_ms);
 
         let task = tokio::spawn(async move {
+            // Hold the stdin pipe writer here for the lifetime of the
+            // supervised run. See the comment at the `child.stdin.take()`
+            // call site for why this is load-bearing. The leading
+            // underscore silences "unused" without disabling drop —
+            // dropping the binding only happens after `supervise` returns,
+            // i.e. after the child has already exited.
+            let _stdin_keepalive = stdin_keepalive;
             let outcome = supervise(&mut child, stop_rx, grace).await;
             let (status, err_msg) = match outcome.kind {
                 Outcome::Exited | Outcome::Killed => (Status::Exited, None),
@@ -812,5 +959,187 @@ fn shell_command(cmd: &str) -> (String, Vec<String>) {
     } else {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
         (shell, vec!["-lc".into(), cmd.to_string()])
+    }
+}
+
+/// Prefix a user command with `export PATH='<override>':"$PATH"` so the
+/// override wins against version managers (nvm, fnm, asdf…) that prepend
+/// their own toolchain to `$PATH` from `.zshrc` / `.bashrc` during the
+/// login-shell init that runs before the user's command.
+///
+/// We deliberately do NOT use `exec` to chain into the user's command:
+/// `entry.cmd` is a free-form shell string and frequently contains `&&`,
+/// `||`, `;`, pipes, or backgrounded jobs (`pnpm dev && tail -f log` is the
+/// example called out in `process.rs` design docs). `exec` only accepts a
+/// single program followed by args, so wrapping it that way would silently
+/// break those forms. Plain `;` separation keeps the existing subshell
+/// model intact.
+///
+/// Single-quoting the override path makes spaces, `$`, `"`, and other
+/// metacharacters inert. Embedded single quotes are escaped via the
+/// classic `'\''` close-escape-open pattern so a path like
+/// `/Users/me/'weird'/bin` still produces a syntactically valid script.
+///
+/// On Windows we leave the command untouched: `cmd.exe` doesn't read
+/// dotfiles in the same way, the env-level `cmd.env("PATH", …)` we already
+/// set is sufficient, and `cmd /C` doesn't have a clean equivalent of
+/// POSIX `export … ;` semantics worth bending the abstraction for.
+/// Compose the user's pre-command lines and main command into a single
+/// shell script that runs in ONE subshell. Lines from `pre_command`
+/// run first, then the main command, all sharing the same env — so
+/// `nvm use 14`, `unset NODE_OPTIONS`, `source .env`, `export FOO=bar`
+/// in pre-command actually reach the main command.
+///
+/// `set -e` is the safety net: any non-zero exit from a pre-command
+/// line aborts the script before main runs. This matches the user's
+/// mental model — if `nvm use 14` failed, you don't want `npm start`
+/// to silently run on the wrong toolchain. Without `set -e`, pre-
+/// command failures would fall through and surface as confusing,
+/// far-from-cause errors in main's output.
+///
+/// We deliberately do NOT use `exec` to launch the main command at the
+/// end of the script. `exec` only accepts a single program + args and
+/// would silently break compound forms like `pnpm dev && tail -f log`,
+/// `cmd1 || cmd2`, pipes, or backgrounded jobs — all of which RunHQ
+/// design docs explicitly support. Plain trailing-line execution keeps
+/// the existing free-form shell semantics intact.
+///
+/// When the user has no pre-command (or it's all whitespace) we return
+/// the main command verbatim — no `set -e` prelude — so the empty case
+/// stays bit-identical to the pre-feature behaviour and we don't
+/// mysteriously start aborting on errors users were used to ignoring.
+fn compose_launch_script(pre_command: Option<&str>, main_cmd: &str) -> String {
+    let pre = pre_command.map(str::trim).filter(|s| !s.is_empty());
+    match pre {
+        Some(pre) => format!("set -e\n{pre}\nset +e\n{main_cmd}"),
+        None => main_cmd.to_string(),
+    }
+}
+
+fn wrap_with_path_override(cmd: &str, path_override: Option<&str>) -> String {
+    if cfg!(windows) {
+        return cmd.to_string();
+    }
+    match path_override {
+        Some(extra) => {
+            let trimmed = extra.trim();
+            if trimmed.is_empty() {
+                cmd.to_string()
+            } else {
+                let escaped = trimmed.replace('\'', "'\\''");
+                format!("export PATH='{escaped}':\"$PATH\"; {cmd}")
+            }
+        }
+        None => cmd.to_string(),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_no_override_passes_command_through() {
+        assert_eq!(wrap_with_path_override("npm start", None), "npm start");
+    }
+
+    #[test]
+    fn wrap_empty_override_passes_command_through() {
+        assert_eq!(wrap_with_path_override("npm start", Some("")), "npm start");
+        assert_eq!(
+            wrap_with_path_override("npm start", Some("   ")),
+            "npm start"
+        );
+    }
+
+    #[test]
+    fn wrap_simple_override_prepends_export() {
+        let out = wrap_with_path_override(
+            "react-app-rewired start",
+            Some("/Users/me/node-v14.21.3/bin"),
+        );
+        assert_eq!(
+            out,
+            "export PATH='/Users/me/node-v14.21.3/bin':\"$PATH\"; react-app-rewired start"
+        );
+    }
+
+    #[test]
+    fn wrap_preserves_shell_compound_operators() {
+        // Free-form user commands routinely chain with `&&`, `||`, `;`,
+        // pipes, and backgrounded jobs. Wrapping must keep them intact.
+        let out = wrap_with_path_override("pnpm dev && tail -f foo.log", Some("/opt/node/bin"));
+        assert!(out.ends_with("pnpm dev && tail -f foo.log"));
+        assert!(out.starts_with("export PATH='/opt/node/bin':\"$PATH\";"));
+    }
+
+    #[test]
+    fn wrap_escapes_embedded_single_quotes_in_path() {
+        // Pathological but legal: a directory name with a literal `'`.
+        // Must produce a script that any POSIX shell parses cleanly.
+        let out = wrap_with_path_override("node -v", Some("/Users/me/'weird'/bin"));
+        // Classic close-escape-open trick: `'…'\''…'`.
+        assert_eq!(
+            out,
+            "export PATH='/Users/me/'\\''weird'\\''/bin':\"$PATH\"; node -v"
+        );
+    }
+
+    #[test]
+    fn wrap_trims_surrounding_whitespace_in_override() {
+        let out = wrap_with_path_override("ls", Some("  /opt/bin  "));
+        assert_eq!(out, "export PATH='/opt/bin':\"$PATH\"; ls");
+    }
+
+    // -------- compose_launch_script --------
+
+    #[test]
+    fn compose_no_pre_returns_main_unchanged() {
+        // Empty/whitespace/None pre-commands all leave the main command
+        // bit-identical to the legacy behaviour. This is load-bearing —
+        // existing services without a pre-command must not start
+        // hitting `set -e` semantics they didn't ask for.
+        assert_eq!(compose_launch_script(None, "npm start"), "npm start");
+        assert_eq!(compose_launch_script(Some(""), "npm start"), "npm start");
+        assert_eq!(
+            compose_launch_script(Some("   \n  "), "npm start"),
+            "npm start"
+        );
+    }
+
+    #[test]
+    fn compose_pre_runs_in_same_session_with_errexit_around_setup() {
+        // The whole point of this fix: the user's pre-command lines and
+        // their main command live in ONE shell script. `set -e` brackets
+        // only the pre-command region — main runs with errexit OFF so
+        // its own internal compound shell semantics (&&, ||, pipes,
+        // background jobs) keep working unchanged.
+        let out = compose_launch_script(Some("nvm use 14\nunset NODE_OPTIONS"), "npm start");
+        assert_eq!(
+            out,
+            "set -e\nnvm use 14\nunset NODE_OPTIONS\nset +e\nnpm start"
+        );
+    }
+
+    #[test]
+    fn compose_preserves_main_command_compound_operators() {
+        // The composed script must not break `&&`/`||`/`;`/pipes in
+        // either the pre-command or main. They flow through verbatim.
+        let out = compose_launch_script(
+            Some("export FOO=bar\nsource .env"),
+            "pnpm dev && tail -f foo.log",
+        );
+        assert!(out.starts_with("set -e\nexport FOO=bar\nsource .env\nset +e\n"));
+        assert!(out.ends_with("pnpm dev && tail -f foo.log"));
+    }
+
+    #[test]
+    fn compose_trims_pre_block_but_keeps_internal_blank_lines() {
+        // Leading/trailing whitespace in the pre-command field is just
+        // textarea slop — strip it. But don't touch internal blank
+        // lines (a user might use them for visual grouping in long
+        // setup scripts; shell ignores blank lines anyway).
+        let out = compose_launch_script(Some("\n\nexport A=1\n\nexport B=2\n\n"), "main");
+        assert_eq!(out, "set -e\nexport A=1\n\nexport B=2\nset +e\nmain");
     }
 }

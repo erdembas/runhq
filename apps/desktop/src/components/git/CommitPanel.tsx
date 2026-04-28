@@ -31,8 +31,8 @@ import { DiffPane, type DiffViewMode } from '@/components/git/DiffPane';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FileContextMenu, type FileContextMenuEntry } from '@/components/ui/FileContextMenu';
-import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
-import type { DiffSummary, GitStatus, ServiceId } from '@/types';
+import { ModelChooserPopover } from '@/components/ai/ModelChooserPopover';
+import type { AiProvider, DiffSummary, GitStatus, ServiceId } from '@/types';
 
 interface CommitPanelProps {
   serviceId: ServiceId;
@@ -393,120 +393,113 @@ export function CommitPanel({
     }
   }, [serviceId, message, amend, canCommit, onAfterMutation, reload]);
 
-  // AI commit-message generator. Phase-5 of the AI Chat Hub plan
-  // routes this through the right-side chat panel: we fetch the
-  // staged diff + recent commits, hand them to `openAiChat` with the
-  // `use_as_commit` action hook, and let the assistant stream into a
-  // persistent conversation. The user picks the model in the panel,
-  // can iterate ("make it imperative"), and clicks the action button
-  // to fill the textarea — see the `runhq:ai-action:use-as-commit`
-  // listener below.
+  // -----------------------------------------------------------------
+  // AI commit-message generator (direct fill).
+  // -----------------------------------------------------------------
   //
-  // We deliberately keep `generating` state for the brief window
-  // between click and chat-panel arrival so the button shows a
-  // spinner — opening the panel is fast but fetching the staged
-  // diff can take a beat on big stages.
-  // Live refs for state values that the lazy `buildPayload` reads
-  // — captures freshest values at click-time without re-binding the
-  // hook on every keystroke.
-  const messageHintRef = useRef(message);
-  messageHintRef.current = message;
-  const stagedCountRef = useRef(stagedEntriesAll.length);
-  stagedCountRef.current = stagedEntriesAll.length;
+  // Click flow:
+  //   • 0 providers configured → show an inline error pointing to
+  //     AI Settings. We deliberately don't open Settings on click
+  //     because the user may have wanted to type manually — error
+  //     surface gives them the choice.
+  //   • 1 provider configured → fire `aiGenerateCommitMessage`
+  //     immediately with that provider, no extra clicks.
+  //   • 2+ providers → anchor a `ModelChooserPopover` under the
+  //     Sparkles button. On selection we generate against the picked
+  //     provider, in the same in-place flow.
+  //
+  // Generation itself is non-streaming on purpose: commit messages
+  // are short, the user wants the *final* text in the textarea and
+  // streaming a partial subject in/out would feel jittery for what
+  // is usually a 0.5–2s round-trip. The streaming surfaces (chat,
+  // explain) stay reserved for prose.
+  //
+  // The current textarea content (if any) is forwarded to the model
+  // as a `hint` so the user can iterate — type "make it imperative"
+  // or "scope: api" first, click Sparkles, the regenerate respects
+  // the steer instead of starting from scratch.
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
+  const [providers, setProviders] = useState<AiProvider[] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const {
-    triggerRef: generateTriggerRef,
-    onClick: generateMessage,
-    popover: generatePopover,
-  } = useAiSurfaceTrigger<HTMLButtonElement>({
-    buildPayload: async () => {
-      if (stagedCountRef.current === 0) {
-        setError('Stage some changes first — there is nothing to summarise.');
-        return null;
-      }
+  // Lazy provider fetch — first click pays the SQLite round-trip
+  // (a few ms locally), subsequent clicks reuse the cache while a
+  // background refresh keeps newly-added providers visible without
+  // a panel reload.
+  const fetchProviders = useCallback(async (): Promise<AiProvider[]> => {
+    try {
+      const list = await ipc.listAiProviders();
+      setProviders(list);
+      return list;
+    } catch {
+      // IPC failure → treat as "no providers". Keeps the click
+      // path deterministic; the user sees the configure-first
+      // error instead of a hung popover.
+      setProviders([]);
+      return [];
+    }
+  }, []);
+
+  const runGenerate = useCallback(
+    async (provider: AiProvider) => {
+      setPickerOpen(false);
       setGenerating(true);
       setError(null);
       try {
-        const ctx = await ipc.aiCommitChatContext({ service_id: serviceId });
-        const hint = messageHintRef.current.trim() || null;
-        const recentBlock =
-          ctx.recent_subjects.length > 0
-            ? `Recent commit subjects on this branch (newest first):\n${ctx.recent_subjects
-                .map((s) => `- ${s}`)
-                .join('\n')}`
-            : 'No recent commits available.';
-        const branchPart = ctx.branch ? `Branch: \`${ctx.branch}\`` : 'Branch: (detached HEAD)';
-        const hintPart = hint ? `User hint: "${hint}"` : 'No additional hint from the user.';
-        const contextSystemMessage = [
-          'User is asking the AI to draft a git commit message in RunHQ. Read the staged diff and write a concise Conventional-Commits-style message: a single subject line of <=72 chars (imperative, no trailing period), then an optional blank line and a wrap-72 body if context is needed. Reference real symbols from the diff. Never wrap the answer in code fences. The first character of your reply must be the start of the commit message.',
-          '',
-          branchPart,
-          hintPart,
-          '',
-          recentBlock,
-          '',
-          'Staged diff:',
-          '```diff',
-          ctx.diff || '[no staged diff]',
-          '```',
-        ].join('\n');
-
-        const summary = ctx.diff_truncated
-          ? '(staged diff truncated for the model)'
-          : `${stagedCountRef.current} staged file${stagedCountRef.current === 1 ? '' : 's'}`;
-
-        return {
-          origin: 'commit',
-          title: ctx.branch ? `Commit · ${ctx.branch}` : 'Commit message',
-          context: {
-            kind: 'commit',
-            service_id: serviceId,
-            branch: ctx.branch,
-            summary,
-          },
-          draftPrompt: hint
-            ? `Write a commit message. Hint: ${hint}`
-            : 'Write a commit message for the staged changes.',
-          contextSystemMessage,
-          actionHook: { kind: 'use_as_commit', service_id: serviceId },
-        };
+        const hint = message.trim() || null;
+        const result = await ipc.aiGenerateCommitMessage({
+          service_id: serviceId,
+          provider_id: provider.id,
+          hint,
+        });
+        const text = result.message.trim();
+        setMessage(text);
+        setGenerationMeta({
+          provider: result.provider_name,
+          model: result.model ?? null,
+        });
+        // Defer focus so React commits the textarea value first —
+        // setting selection on the previous render's value would
+        // land the cursor in the wrong spot for long messages.
+        window.setTimeout(() => {
+          const ta = messageRef.current;
+          if (ta) {
+            ta.focus();
+            ta.setSelectionRange(text.length, text.length);
+          }
+        }, 0);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-        return null;
       } finally {
         setGenerating(false);
       }
     },
-  });
+    [serviceId, message],
+  );
 
-  /**
-   * Listen for the action-hook dispatch from the chat panel. The
-   * panel fires a `runhq:ai-action:use-as-commit` event when the
-   * user clicks the "Use as commit message" button under an
-   * assistant turn. We filter on `service_id` so a multi-window
-   * future doesn't cross-pollinate (and so a parallel commit panel
-   * for a different service ignores us).
-   */
-  useEffect(() => {
-    const onUseAsCommit = (e: Event) => {
-      const ce = e as CustomEvent<{ service_id: string; content: string }>;
-      const detail = ce.detail;
-      if (!detail || detail.service_id !== serviceId) return;
-      const trimmed = detail.content.trim();
-      if (!trimmed) return;
-      setMessage(trimmed);
-      setGenerationMeta({ provider: 'AI Chat', model: null });
-      window.setTimeout(() => {
-        const ta = messageRef.current;
-        if (ta) {
-          ta.focus();
-          ta.setSelectionRange(trimmed.length, trimmed.length);
-        }
-      }, 0);
-    };
-    window.addEventListener('runhq:ai-action:use-as-commit', onUseAsCommit);
-    return () => window.removeEventListener('runhq:ai-action:use-as-commit', onUseAsCommit);
-  }, [serviceId]);
+  const generateMessage = useCallback(async () => {
+    if (generating) return;
+    if (stagedEntriesAll.length === 0) {
+      setError('Stage some changes first — there is nothing to summarise.');
+      return;
+    }
+    const list = providers ?? (await fetchProviders());
+    if (list.length === 0) {
+      setError(
+        'No AI providers configured. Open Settings → AI to add one before generating commit messages.',
+      );
+      return;
+    }
+    if (list.length === 1) {
+      void runGenerate(list[0]!);
+      return;
+    }
+    // Multi-provider: open picker. Refresh the list in the
+    // background so a model added moments before this click still
+    // shows up without dismiss-and-retry friction.
+    void fetchProviders();
+    setPickerOpen(true);
+  }, [generating, stagedEntriesAll.length, providers, fetchProviders, runGenerate]);
 
   const pushNow = useCallback(async () => {
     setPushing(true);
@@ -556,40 +549,56 @@ export function CommitPanel({
               placeholder={
                 amend ? 'Amend previous commit message…' : 'Summary (first line) + optional body'
               }
-              className="border-border bg-surface text-fg placeholder:text-fg/30 focus:border-accent/60 focus:ring-accent/20 w-full resize-y rounded border px-2 py-1.5 pr-8 font-mono text-[12px] leading-snug outline-none focus:ring-2"
+              className="border-border bg-surface text-fg placeholder:text-fg/30 focus:border-accent/60 focus:ring-accent/20 w-full resize-y rounded border px-2 py-1.5 pr-16 font-mono text-[12px] leading-snug outline-none focus:ring-2"
             />
-            {/* AI generate trigger — overlaid on the textarea's top-right
-                corner. The pr-8 above keeps long lines from sliding under
-                it. Title doubles as the regenerate hint when the textarea
-                already has content (the value is forwarded as a "hint"
-                to the model). */}
+            {/* AI generate trigger — overlaid on the textarea's
+                top-right corner. The pr-8 reservation on the
+                textarea above keeps long lines from sliding under
+                it. We keep this button always-clickable (not
+                `disabled` when no staged changes) so the click
+                still does something useful: it surfaces an inline
+                error pointing the user at "Stage some changes
+                first" instead of failing silently. That avoids the
+                discoverability trap where a 30%-opacity disabled
+                Sparkles looks like decoration. */}
             <button
-              ref={generateTriggerRef}
+              ref={generateButtonRef}
               type="button"
-              onClick={() => generateMessage()}
-              disabled={generating || stagedEntriesAll.length === 0}
+              onClick={() => void generateMessage()}
+              disabled={generating}
               className={cn(
-                'absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded transition',
+                'absolute top-1.5 right-1.5 flex h-6 items-center gap-1 rounded px-1.5 text-[10px] font-semibold transition',
                 generating
                   ? 'text-accent bg-accent/15'
-                  : 'text-fg/40 hover:text-accent hover:bg-accent/10',
-                'disabled:cursor-not-allowed disabled:opacity-30',
+                  : 'text-accent/70 hover:text-accent hover:bg-accent/15',
+                'disabled:cursor-wait',
               )}
               title={
-                stagedEntriesAll.length === 0
-                  ? 'Stage changes to generate a commit message'
-                  : message.trim()
-                    ? 'Regenerate using current text as a hint'
-                    : 'Generate commit message with AI'
+                generating
+                  ? 'Generating…'
+                  : stagedEntriesAll.length === 0
+                    ? 'Stage changes, then generate a commit message with AI'
+                    : message.trim()
+                      ? 'Regenerate using the current text as a hint'
+                      : 'Generate commit message with AI'
               }
+              aria-label="Generate commit message with AI"
             >
               {generating ? (
                 <RefreshCw size={11} className="animate-spin" />
               ) : (
                 <Sparkles size={11} />
               )}
+              <span className="tracking-wide uppercase">{generating ? 'Generating' : 'AI'}</span>
             </button>
-            {generatePopover}
+            {pickerOpen && providers && providers.length > 1 && (
+              <ModelChooserPopover
+                anchorRef={generateButtonRef}
+                providers={providers}
+                onSelect={(p) => void runGenerate(p)}
+                onDismiss={() => setPickerOpen(false)}
+              />
+            )}
           </div>
           {generationMeta && !generating && (
             <div className="text-fg/40 flex items-center gap-1 text-[10px]">

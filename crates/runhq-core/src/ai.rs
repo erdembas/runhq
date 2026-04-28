@@ -491,17 +491,40 @@ pub fn build_commit_prompt(
     user_hint: Option<&str>,
 ) -> Vec<ChatMessage> {
     // The system message is the heart of the feature: it pins
-    // Conventional Commits style, gives a length budget, and tells the
-    // model to ONLY return the message (no fences, no explanation) so
-    // the result drops straight into the textarea.
+    // Conventional Commits style, gives a length budget, and — critically
+    // for reasoning models — tells the model to wrap the FINAL message in
+    // explicit sentinel tags. Earlier versions of this prompt asked the
+    // model to "output only the commit message" which works for
+    // instruction-tuned chat models but fails spectacularly for reasoning
+    // models (DeepSeek-R1, GLM-4.x, Qwen-QwQ, OpenAI o-series): they
+    // ignore "no reasoning" instructions and dump pages of numbered
+    // analysis ("1. Analyze the request… 2. Determine the prefix…
+    // 3. Draft the first line…") straight into `delta.content`. The
+    // user then sees that monologue in their commit textarea.
+    //
+    // Sentinel tags fix this at the contract level: we don't ask the
+    // model to suppress reasoning, we just ask it to MARK where the
+    // final answer is. Reasoning model habits stay intact (they get to
+    // think aloud), the post-processor extracts only what's between the
+    // tags, and `strip_message_artifacts` falls back to the legacy
+    // heuristics if the model forgets the tags entirely.
     let system = "You are an expert software engineer that writes excellent git commit messages. \
-                  Output ONLY the commit message itself — no quotes, no code fences, no explanation, no reasoning. \
-                  Make the first line imperative, 50 characters or fewer, with no trailing period. \
-                  Use a Conventional Commits prefix when one fits (feat, fix, chore, docs, refactor, test, perf, build, ci, style). \
-                  If the change set spans several unrelated areas, pick the dominant one. \
-                  When there is enough context for a meaningful body, add a blank line and a short body explaining the WHY, wrapped at 72 characters and at most four lines. \
-                  Never invent issue numbers, co-authors, or files that aren't in the diff. \
-                  Match the tone and prefix style of the recent commits when they look intentional.";
+                  \n\nOUTPUT CONTRACT (read carefully):\n\
+                  - Wrap your FINAL commit message between <commit> and </commit> tags.\n\
+                  - The text BETWEEN those tags is what will be inserted into the user's textarea verbatim — no further processing.\n\
+                  - You may think, plan, or list options BEFORE the opening <commit> tag; everything outside the tags is ignored.\n\
+                  - Inside the tags, output the message ONLY — no quotes, no code fences, no preamble, no commentary.\n\
+                  \n\nMESSAGE STYLE:\n\
+                  - First line imperative, 50 characters or fewer, with no trailing period.\n\
+                  - Use a Conventional Commits prefix when one fits (feat, fix, chore, docs, refactor, test, perf, build, ci, style).\n\
+                  - If the change set spans several unrelated areas, pick the dominant one.\n\
+                  - When there is enough context for a meaningful body, add a blank line and a short body explaining the WHY, wrapped at 72 characters and at most four lines.\n\
+                  - Never invent issue numbers, co-authors, or files that aren't in the diff.\n\
+                  - Match the tone and prefix style of the recent commits when they look intentional.\n\
+                  \n\nEXAMPLE (illustrative; do NOT copy this content):\n\
+                  <commit>feat(auth): add OAuth login flow\n\n\
+                  Wires the new identity provider into the existing session\n\
+                  bootstrapper so existing users keep their tokens.</commit>";
 
     let mut user = String::new();
     if let Some(b) = branch {
@@ -2119,8 +2142,50 @@ pub fn build_explain_project_prompt(facts_block: &str) -> Vec<ChatMessage> {
 /// "Here's the commit message:" preamble despite the system prompt
 /// telling them not to. We strip the most common offenders so the
 /// textarea never inherits junk.
+/// Extract the final commit message from the model's raw output.
+///
+/// Two layers of defence, in this order:
+///
+/// 1. **Sentinel tags** (`<commit>...</commit>`). Our system prompt
+///    tells the model to wrap the final message in these tags. When
+///    the model complies, this branch wins immediately and everything
+///    outside is dropped — including pages of reasoning monologue
+///    that GLM-4.x / DeepSeek-R1 / QwQ / o-series like to emit. We
+///    accept the LAST `<commit>...</commit>` block in the output, on
+///    the off chance a reasoning model "drafts" inside placeholder
+///    tags before settling on its final answer.
+///
+/// 2. **Legacy heuristics** (no tags found). Fall back to stripping
+///    `<think>...</think>` chain-of-thought blocks, "Here's the
+///    commit message:" preambles, and code fences. This keeps the
+///    feature working with non-reasoning models that don't honour
+///    the tag contract — a small instruction-tuned local model might
+///    just emit the bare message — and with reasoning models that
+///    forget to close the tag.
+///
+/// Implemented without a regex dependency: `find` + `rfind` on byte
+/// offsets is plenty for these short, predictable patterns. The
+/// alternative — pulling in `regex` for two patterns — would bloat
+/// the runhq-core crate's dep graph for no expressivity gain.
 fn strip_message_artifacts(raw: &str) -> String {
-    let mut s = raw.trim().to_string();
+    // Layer 1: sentinel-tag extraction. The model was prompted to
+    // wrap its final answer in `<commit>…</commit>`, so when we see
+    // the closing tag we trust the contract: take the last block
+    // (handles "draft 1 / draft 2 / final" patterns) and ignore
+    // everything else, no matter how long the preamble.
+    if let Some(extracted) = extract_last_commit_tag(raw) {
+        return extracted.trim().to_string();
+    }
+
+    // Layer 2: defensive cleanup for outputs without sentinel tags.
+    // This branch handles two failure modes simultaneously:
+    //   (a) the model didn't follow the tag contract (older models,
+    //       small local models) but at least kept the output clean;
+    //   (b) the model emitted `<think>…</think>` reasoning ahead of
+    //       a bare answer (Qwen QwQ, R1 distills behind proxies that
+    //       strip explicit reasoning channels and pass `<think>` tags
+    //       through plain `content`).
+    let mut s = strip_think_blocks(raw.trim());
 
     // Iterate twice: a model can wrap the answer as
     //     "Here's the commit message:\n```\n…\n```"
@@ -2158,6 +2223,72 @@ fn strip_message_artifacts(raw: &str) -> String {
         }
     }
     s.trim().to_string()
+}
+
+/// Return the contents of the LAST `<commit>...</commit>` block in
+/// `raw`, or `None` if there isn't a complete one. Case-insensitive on
+/// the tag itself; preserves the inner text byte-for-byte.
+///
+/// Why "last" instead of "first": reasoning models routinely produce
+/// drafts inside placeholder tags before committing to a final answer
+/// ("Draft 1: <commit>X</commit>... actually let me reconsider...
+/// <commit>Y</commit>"). Taking the last hit means we get the model's
+/// considered answer rather than its first guess.
+fn extract_last_commit_tag(raw: &str) -> Option<&str> {
+    // Manual case-insensitive search via lowercase-mirror lookup. We
+    // don't lowercase the WHOLE string then slice — that would diverge
+    // byte indices for non-ASCII content (the message body itself can
+    // contain Turkish/CJK/diacritics), and we need the original bytes
+    // back for the slice. Instead lowercase only enough to find tag
+    // positions, then slice the original.
+    let lowered = raw.to_ascii_lowercase();
+    let close_idx = lowered.rfind("</commit>")?;
+    // Find the OPENING tag that pairs with this closer — the last
+    // `<commit>` strictly before `close_idx`. `rfind` over a slice
+    // of `lowered` gives us the right offset directly (slices are
+    // ASCII for these tag names so byte indices are stable).
+    let prefix = &lowered[..close_idx];
+    let open_idx = prefix.rfind("<commit>")?;
+    let content_start = open_idx + "<commit>".len();
+    Some(&raw[content_start..close_idx])
+}
+
+/// Remove every `<think>...</think>` block from the input. Multiline,
+/// non-greedy, case-insensitive on the tag.
+///
+/// Reasoning models distributed via OpenAI-compatible APIs sometimes
+/// emit their chain-of-thought inline as `<think>…</think>` instead of
+/// (or in addition to) a separate `reasoning_content` channel. If the
+/// model also forgot to wrap its final answer in `<commit>` tags, that
+/// `<think>` block lands in our textarea — exactly the bug this
+/// helper exists to prevent.
+///
+/// We loop because nothing structurally forbids two siblings: a model
+/// could produce `<think>plan</think>here's the answer<think>second
+/// thoughts</think>final`. One pass per block. A 32-iteration cap
+/// guards against pathological infinite loops if either tag ever
+/// matches itself (it can't, given the literal contents — but defence
+/// in depth is cheaper than diagnosing a runaway worker).
+fn strip_think_blocks(input: &str) -> String {
+    let mut out = input.to_string();
+    for _ in 0..32 {
+        let lower = out.to_ascii_lowercase();
+        let Some(open) = lower.find("<think>") else {
+            break;
+        };
+        let after_open = open + "<think>".len();
+        let Some(rel_close) = lower[after_open..].find("</think>") else {
+            // Open tag with no matching close: drop everything from
+            // the opener onwards. The model started thinking and
+            // never finished — better to lose the tail than to surface
+            // a half-monologue in the textarea.
+            out.truncate(open);
+            break;
+        };
+        let close = after_open + rel_close + "</think>".len();
+        out.replace_range(open..close, "");
+    }
+    out
 }
 
 #[cfg(test)]
@@ -2216,6 +2347,106 @@ mod tests {
         let cleaned = strip_message_artifacts(raw);
         assert!(cleaned.starts_with("feat(auth): add OAuth login"));
         assert!(!cleaned.contains("```"));
+    }
+
+    #[test]
+    fn strip_extracts_commit_tag_when_present() {
+        // Happy path: model honours the sentinel tag contract. We
+        // ignore EVERYTHING outside the tags, including any preamble
+        // or trailing commentary that violates "output only the
+        // commit message".
+        let raw = "Sure! Here's a draft.\n\n<commit>feat: add favorite toggle</commit>\n\nLet me know if you want changes.";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat: add favorite toggle");
+    }
+
+    #[test]
+    fn strip_extracts_last_commit_tag_when_drafting() {
+        // Reasoning models often "draft" inside placeholder tags
+        // before committing. We MUST take the last one — the earlier
+        // ones are abandoned drafts, not final answers.
+        let raw = "<commit>draft 1: too long</commit>\nactually shorter:\n<commit>fix: trim leading whitespace</commit>";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "fix: trim leading whitespace");
+    }
+
+    #[test]
+    fn strip_extracts_multiline_commit_body() {
+        // Body lines (and their leading whitespace) flow through verbatim.
+        let raw = "<commit>feat(api): add pagination cursor\n\nReplaces the offset-based scheme so deletes mid-scroll\nno longer skip rows.</commit>";
+        let cleaned = strip_message_artifacts(raw);
+        assert!(cleaned.starts_with("feat(api): add pagination cursor"));
+        assert!(cleaned.contains("Replaces the offset-based scheme"));
+        assert!(cleaned.ends_with("skip rows."));
+    }
+
+    #[test]
+    fn strip_glm_style_reasoning_leak_via_tags() {
+        // Real-world GLM-4.7-Flash output: pages of numbered
+        // chain-of-thought analysis that violate the "no reasoning"
+        // instruction. With sentinel tags in the system prompt the
+        // model still rambles, but at least wraps the final answer.
+        let raw = "1. **Analyze the Request:**\n   * **Output:** ONLY the commit message itself.\n\
+            2. **Analyze the Staged Diff:** Adds a favorite feature.\n\
+            3. **Determine the Prefix:** feat.\n\
+            4. **Draft:** Favori özelliklerini ekle.\n\n\
+            <commit>feat: ürünlere favori durumu ekle</commit>";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat: ürünlere favori durumu ekle");
+    }
+
+    #[test]
+    fn strip_falls_back_to_legacy_when_tags_absent() {
+        // Older / smaller models may ignore the tag contract entirely
+        // but still emit a clean, bare message. Layer-2 heuristics
+        // must keep working for them.
+        let raw = "feat: add cache invalidation";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat: add cache invalidation");
+    }
+
+    #[test]
+    fn strip_removes_think_blocks_when_no_commit_tags() {
+        // Qwen-QwQ / R1 distill served behind a stripped-reasoning
+        // proxy: chain-of-thought leaks into `delta.content` as
+        // `<think>…</think>`, the answer follows in plain text, and
+        // there are no sentinel commit tags. The legacy fallback
+        // must scrub the think block before returning.
+        let raw = "<think>Let me analyze the diff...\nThis adds a new endpoint.</think>\nfeat(api): add /healthz endpoint";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat(api): add /healthz endpoint");
+        assert!(!cleaned.contains("<think>"));
+        assert!(!cleaned.contains("Let me analyze"));
+    }
+
+    #[test]
+    fn strip_drops_unclosed_think_tail() {
+        // Defensive: model started thinking and got cut off (max_tokens,
+        // network blip, etc). Better to lose the tail than surface a
+        // half-thought in the textarea. Empty string is OK here — the
+        // UI's "stage changes, then generate" guard handles the
+        // empty-result case downstream.
+        let raw = "<think>I should consider three angles...";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn strip_handles_multiple_think_blocks() {
+        let raw = "<think>plan</think>feat: foo<think>second thoughts</think>";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat: foo");
+    }
+
+    #[test]
+    fn strip_preserves_non_ascii_inside_commit_tags() {
+        // Turkish, Japanese, and other multi-byte content inside the
+        // commit tags must come through byte-for-byte. The extractor
+        // walks ASCII tag positions only — never lowercases the whole
+        // body — to avoid breaking char boundaries.
+        let raw = "<commit>feat: kullanıcı şifresini sıfırla — 部分対応</commit>";
+        let cleaned = strip_message_artifacts(raw);
+        assert_eq!(cleaned, "feat: kullanıcı şifresini sıfırla — 部分対応");
     }
 
     #[test]

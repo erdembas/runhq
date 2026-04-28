@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react';
+import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -21,6 +21,29 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   ),
 );
 Input.displayName = 'Input';
+
+interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  mono?: boolean;
+}
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ mono, className, rows = 4, ...rest }, ref) => (
+    <textarea
+      ref={ref}
+      rows={rows}
+      className={cn(
+        'border-border bg-surface-raised text-fg rounded-app-sm w-full border px-2.5 py-1.5 text-[12px]',
+        'placeholder:text-fg-dim',
+        'focus:border-accent transition focus:outline-none',
+        'resize-y leading-snug',
+        mono && 'font-mono',
+        className,
+      )}
+      {...rest}
+    />
+  ),
+);
+Textarea.displayName = 'Textarea';
 
 interface FieldProps {
   label: React.ReactNode;

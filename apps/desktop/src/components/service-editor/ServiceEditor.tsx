@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
-import { Field, Input } from '@/components/ui/Input';
+import { Field, Input, Textarea } from '@/components/ui/Input';
 import { Tabs, type Tab } from '@/components/ui/Tabs';
 import { IconButton } from '@/components/ui/IconButton';
 import { Switch } from '@/components/ui/Switch';
@@ -467,14 +467,15 @@ export function ServiceEditor({ service, onClose }: Props) {
             </Field>
             <Field
               label="Pre-command"
-              hint="Shell command executed before each start. Fails the start if it exits non-zero."
+              hint="Shell setup that runs before the main command — in the SAME shell session, so env vars (export, source, nvm use, unset) carry into the command. One line per step. Any line exiting non-zero aborts the start (set -e)."
               className="md:col-span-2"
             >
-              <div className="flex items-center gap-1.5">
-                <Terminal className="text-fg-dim h-3.5 w-3.5 shrink-0" />
-                <Input
+              <div className="flex items-start gap-1.5">
+                <Terminal className="text-fg-dim mt-1.5 h-3.5 w-3.5 shrink-0" />
+                <Textarea
                   mono
-                  placeholder="source .env || nvm use 22"
+                  rows={4}
+                  placeholder={'source .env\nnvm use 14\nunset NODE_OPTIONS'}
                   value={preCommand}
                   onChange={(e) => setPreCommand(e.target.value)}
                   className="flex-1"

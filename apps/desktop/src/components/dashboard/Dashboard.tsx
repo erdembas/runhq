@@ -1,4 +1,13 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import {
   ArrowDownWideNarrow,
   ChevronDown,
@@ -15,10 +24,12 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   ShieldAlert,
   Sparkles,
   Square,
   Trash2,
+  X,
   Zap,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -58,6 +69,70 @@ interface Props {
  * If either surface moves, both should agree on the new value.
  */
 const STALE_SCAN_THRESHOLD_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Match a service against a free-text search query.
+ *
+ * Plain case-insensitive substring across every field a user might
+ * plausibly type into the search box. Deliberately *not* fuzzy: with
+ * a workspace measured in tens of services (the ~11 case shown in
+ * the dashboard hero is typical), a substring match is precise,
+ * predictable, and never produces the "why is THIS card matching?"
+ * surprise that token-permuted fuzzy ranking creates. If a user's
+ * roster ever crosses ~200 services we'd revisit this with a real
+ * tokenizer — until then YAGNI.
+ *
+ * The function returns a numeric *score* rather than a boolean so the
+ * caller can break ties between projects that match equally well on
+ * different axes. Higher = stronger match. Zero = no match. The score
+ * is only used for tie-breaking inside the existing comparator chain;
+ * primary sort still respects the user's chosen `sortBy` axis so
+ * search doesn't silently override "Last activity" / "Risk" / etc.
+ *
+ * Field weights (rationale):
+ *   - name (10): the user almost always remembers the project's name
+ *     first. A name match is the highest-confidence signal.
+ *   - tags (5): tags are user-curated category/runtime/team labels.
+ *     Stronger than command/path because a tag match implies "the
+ *     user *meant* this category", not just incidental string overlap.
+ *   - port (4): typing a port number ("3000") is a common reflex when
+ *     hunting "which service is on that port?".
+ *   - command (3): scripts often share words ("dev", "start") so this
+ *     is noisier than name/tag, but still useful for "find the one
+ *     that runs `react-app-rewired`".
+ *   - cwd path (2): substring-matches a folder. Covers "I know it
+ *     lives under ~/work/team-x" use case, but lots of services share
+ *     parent dirs so the signal is weak.
+ *
+ * Multiple-field hits compound — a query that hits both name and tag
+ * sums both weights — so a project named "frontend-v2" tagged
+ * "frontend" beats one merely tagged "frontend" when the user types
+ * "frontend".
+ */
+function searchScore(svc: ServiceDef, needle: string): number {
+  if (!needle) return 0;
+  const q = needle.toLowerCase();
+  let score = 0;
+  if (svc.name.toLowerCase().includes(q)) score += 10;
+  for (const t of svc.tags) {
+    if (t.toLowerCase().includes(q)) {
+      score += 5;
+      // One tag hit is enough; multiple matching tags would inflate
+      // weight beyond intent (a project tagged "node" "node-18" "node-lts"
+      // shouldn't dominate over one tagged "node" alone).
+      break;
+    }
+  }
+  if (svc.port != null && String(svc.port).includes(q)) score += 4;
+  for (const c of svc.cmds) {
+    if (c.cmd.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)) {
+      score += 3;
+      break;
+    }
+  }
+  if (svc.cwd.toLowerCase().includes(q)) score += 2;
+  return score;
+}
 
 type DashGroup = {
   key: string;
@@ -280,6 +355,47 @@ export function Dashboard({ onScan }: Props) {
   type AttentionFilter = 'all' | 'stale' | 'risk' | 'outdated';
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all');
+
+  // The search query Dashboard actually filters by. This is the
+  // *committed* query — only changes once the user pauses typing
+  // (see DashboardSearchBar's debounce below). Keeping the live
+  // keystroke state in a child component is what makes typing feel
+  // instant: each character no longer re-renders the entire dashboard
+  // tree (header, filter chips, group sections, 11 service cards),
+  // just the search bar's own input element.
+  //
+  // Persistence is intentionally NOT attempted here — search is a
+  // transient act, not a saved view. If users want a sticky slice
+  // they reach for tags + section grouping above. A half-typed query
+  // restored on the next launch ("oh, where are my cards?") is more
+  // confusing than helpful.
+  const [committedQuery, setCommittedQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const effectiveQuery = committedQuery;
+
+  // `/` to focus, `Esc` to clear+blur — modeled on GitHub/Linear.
+  // We bind on `document` (not the input itself) so the shortcut works
+  // regardless of focus, but we *don't* hijack the keystroke when the
+  // user is already typing into another input/textarea/contenteditable
+  // (e.g. a service editor field, the AI chat box). That guard is
+  // what separates a polished dashboard shortcut from one that
+  // sabotages the rest of the app.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Detail drawer lives at the dashboard level so flipping between
   // different cards' deps/audit chips just swaps the drawer contents
@@ -558,6 +674,20 @@ export function Dashboard({ onScan }: Props) {
     [attentionFilter, projectMetaById],
   );
 
+  // Search is *deliberately* excluded from `eligibleServices`. The
+  // services that survive git/attention filters define the dashboard's
+  // mount roster — change that set and React mounts/unmounts cards.
+  // Each mount runs ~10 Zustand subscriptions, an AI hook, and SVG
+  // sparkline setup, so a search that flips two cards in/out of the
+  // result set was costing two unmounts plus two mounts on every
+  // keystroke that crossed a match boundary. With ~11 services that
+  // alone is enough to make typing visibly lag.
+  //
+  // Instead we keep the mount roster stable across search and apply
+  // search as a *visibility* filter at render time (see `searchHits`
+  // below). Cards that don't match the query stay mounted but are
+  // hidden via `display: none` on a wrapper element. The DOM keeps a
+  // few extra hidden nodes; the user gets sub-frame typing latency.
   const eligibleServices = useMemo(() => {
     const stackServiceIds = new Set(stacks.flatMap((st) => st.service_ids));
     return services.filter(
@@ -565,6 +695,38 @@ export function Dashboard({ onScan }: Props) {
         !stackServiceIds.has(svc.id) && gitFilterFn(svc, git[svc.id]) && attentionFilterFn(svc),
     );
   }, [services, stacks, gitFilterFn, git, attentionFilterFn]);
+
+  // Set of service IDs that match the active search query. `null`
+  // when the box is empty, so render-side checks short-circuit to "no
+  // hidden cards" without paying for a Set lookup. Computed across
+  // the *full* roster (including stacked services), so the same hits
+  // map drives both the standalone group sections and the stack
+  // sections — a search hit lights up its card whether it lives in a
+  // stack or not.
+  const searchHits = useMemo<ReadonlySet<string> | null>(() => {
+    if (effectiveQuery === '') return null;
+    const hits = new Set<string>();
+    for (const svc of services) {
+      if (searchScore(svc, effectiveQuery) > 0) hits.add(svc.id);
+    }
+    return hits;
+  }, [services, effectiveQuery]);
+
+  // Total count of services that survive *every* filter (search + git +
+  // attention), regardless of whether they live in a stack. Drives the
+  // "no matches" empty state and the result count next to the search
+  // input.
+  const totalMatchedCount = useMemo(() => {
+    if (effectiveQuery === '' && gitFilter === 'all' && attentionFilter === 'all') {
+      return services.length;
+    }
+    return services.filter(
+      (svc) =>
+        gitFilterFn(svc, git[svc.id]) &&
+        attentionFilterFn(svc) &&
+        (effectiveQuery === '' || searchScore(svc, effectiveQuery) > 0),
+    ).length;
+  }, [services, effectiveQuery, gitFilter, attentionFilter, gitFilterFn, attentionFilterFn, git]);
 
   /**
    * Build a comparator for the current sort axis.
@@ -581,43 +743,71 @@ export function Dashboard({ onScan }: Props) {
    */
   const comparator = useMemo(() => {
     const byName = (a: ServiceDef, b: ServiceDef) => a.name.localeCompare(b.name);
+    // When a search is active, primary sort is search relevance — the
+    // user's clearly hunting a specific project, so respecting their
+    // chosen `sortBy` axis would bury the best match below noise.
+    // Fall back to the regular axis on ties (equal scores) so the
+    // ordering remains predictable inside a relevance bucket. With no
+    // active query this branch is a no-op and we go straight to the
+    // user's chosen axis. We use `effectiveQuery` (not the raw input)
+    // so the comparator stays consistent with the filtered set —
+    // when the user clears the box, the relevance bucket disappears
+    // synchronously and we fall straight back to their chosen axis
+    // instead of "phantom-relevance" sorting on a stale query.
+    const bySearch =
+      effectiveQuery !== ''
+        ? (a: ServiceDef, b: ServiceDef) => {
+            const sa = searchScore(a, effectiveQuery);
+            const sb = searchScore(b, effectiveQuery);
+            if (sb !== sa) return sb - sa;
+            return 0;
+          }
+        : null;
+    const withSearch =
+      (axis: (a: ServiceDef, b: ServiceDef) => number) => (a: ServiceDef, b: ServiceDef) => {
+        if (bySearch) {
+          const r = bySearch(a, b);
+          if (r !== 0) return r;
+        }
+        return axis(a, b);
+      };
     switch (sortBy) {
       case 'name':
-        return byName;
+        return withSearch(byName);
       case 'activity':
-        return (a: ServiceDef, b: ServiceDef) => {
+        return withSearch((a: ServiceDef, b: ServiceDef) => {
           const ma = projectMetaById.get(a.id)?.last_activity;
           const mb = projectMetaById.get(b.id)?.last_activity;
           const ta = ma ? new Date(ma).getTime() : 0;
           const tb = mb ? new Date(mb).getTime() : 0;
           if (tb !== ta) return tb - ta;
           return byName(a, b);
-        };
+        });
       case 'risk':
-        return (a: ServiceDef, b: ServiceDef) => {
+        return withSearch((a: ServiceDef, b: ServiceDef) => {
           const ra = riskScore(projectMetaById.get(a.id));
           const rb = riskScore(projectMetaById.get(b.id));
           if (rb !== ra) return rb - ra;
           return byName(a, b);
-        };
+        });
       case 'memory':
-        return (a: ServiceDef, b: ServiceDef) => {
+        return withSearch((a: ServiceDef, b: ServiceDef) => {
           const ma = runningServiceIds.has(a.id) ? (resources[a.id]?.memory_bytes ?? 0) : -1;
           const mb = runningServiceIds.has(b.id) ? (resources[b.id]?.memory_bytes ?? 0) : -1;
           if (mb !== ma) return mb - ma;
           return byName(a, b);
-        };
+        });
       case 'cpu':
-        return (a: ServiceDef, b: ServiceDef) => {
+        return withSearch((a: ServiceDef, b: ServiceDef) => {
           const ca = runningServiceIds.has(a.id) ? (resources[a.id]?.cpu_percent ?? 0) : -1;
           const cb = runningServiceIds.has(b.id) ? (resources[b.id]?.cpu_percent ?? 0) : -1;
           if (cb !== ca) return cb - ca;
           return byName(a, b);
-        };
+        });
       default:
-        return byName;
+        return withSearch(byName);
     }
-  }, [sortBy, projectMetaById, runningServiceIds, resources]);
+  }, [sortBy, projectMetaById, runningServiceIds, resources, effectiveQuery]);
 
   // Sorted copy of the ungrouped roster (used only when
   // `groupBy === 'none'` and there are no section buckets). Grouped
@@ -1079,6 +1269,8 @@ export function Dashboard({ onScan }: Props) {
               dashed placeholders that never resolve to a value.
             */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <DashboardSearchBar inputRef={searchInputRef} onCommit={setCommittedQuery} />
+
               {attentionStats &&
                 attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
                   <FilterChipGroup ariaLabel="Attention filters">
@@ -1256,14 +1448,29 @@ export function Dashboard({ onScan }: Props) {
                   (svc): svc is ServiceDef =>
                     !!svc && gitFilterFn(svc, git[svc.id]) && attentionFilterFn(svc),
                 );
-              const runningCount = stackServices.filter(
+              // For chrome (header count, running-count, hidden-when-empty)
+              // we want the *visible* slice — search-hidden cards are still
+              // mounted (so typing stays cheap) but shouldn't inflate the
+              // section's chip counters or keep an otherwise-empty stack
+              // visible during an active search.
+              const visibleStackServices = searchHits
+                ? stackServices.filter((svc) => searchHits.has(svc.id))
+                : stackServices;
+              const runningCount = visibleStackServices.filter(
                 (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
               ).length;
               const anyRunning = runningCount > 0;
+              const sectionHidden = searchHits !== null && visibleStackServices.length === 0;
               return (
                 <section
                   key={stack.id}
                   className="group/section"
+                  // Keep the section (and every ServiceCard inside it)
+                  // mounted across search transitions; collapse it via
+                  // CSS instead. Toggling `display` is a paint-only op,
+                  // unlike conditionally rendering — which would
+                  // unmount/remount every card on each keystroke.
+                  style={sectionHidden ? { display: 'none' } : undefined}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
@@ -1281,7 +1488,7 @@ export function Dashboard({ onScan }: Props) {
                     icon={<Layers className="h-3.5 w-3.5" />}
                     label={stack.name}
                     tone="accent"
-                    count={stackServices.length}
+                    count={visibleStackServices.length}
                     runningCount={runningCount}
                     onClick={() => setSelectedStack(stack.id)}
                     actions={
@@ -1332,60 +1539,142 @@ export function Dashboard({ onScan }: Props) {
                     }
                   />
                   <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
-                    {stackServices.map((svc) => (
-                      <ServiceCard
-                        key={svc.id}
-                        svc={svc}
-                        projectMeta={projectMetaById.get(svc.id) ?? null}
-                        onOpenDetail={openDetail}
-                      />
-                    ))}
+                    {stackServices.map((svc) => {
+                      const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                      return (
+                        <CardSearchSlot key={svc.id} hidden={cardHidden}>
+                          <ServiceCard
+                            svc={svc}
+                            projectMeta={projectMetaById.get(svc.id) ?? null}
+                            onOpenDetail={openDetail}
+                          />
+                        </CardSearchSlot>
+                      );
+                    })}
                   </div>
                 </section>
               );
             })}
 
+            {/*
+              Empty state when filters/search produce nothing. Bound to
+              `effectiveQuery` (not raw `trimmedQuery`) so its display
+              stays consistent with `totalMatchedCount` and the cards
+              below — otherwise the banner could flash "No matches for
+              X" while the cards still show the previous query's results
+              for one frame. Clearing the box collapses `effectiveQuery`
+              to '' synchronously so this banner disappears in the same
+              tick the user hits Esc / clicks the ✕.
+            */}
+            {totalMatchedCount === 0 &&
+              (effectiveQuery !== '' || gitFilter !== 'all' || attentionFilter !== 'all') && (
+                <div className="border-border/60 bg-surface-raised/40 rounded-app flex flex-col items-center gap-2 border border-dashed px-6 py-10 text-center">
+                  <Search className="text-fg-dim/70 h-5 w-5" />
+                  <p className="text-fg text-[13px] font-medium">
+                    {effectiveQuery !== '' ? (
+                      <>
+                        No matches for{' '}
+                        <span className="text-accent font-mono">"{effectiveQuery}"</span>
+                      </>
+                    ) : (
+                      'No projects match the current filters'
+                    )}
+                  </p>
+                  <p className="text-fg-dim text-[11.5px]">
+                    {effectiveQuery !== ''
+                      ? 'Search covers names, tags, ports, commands, and paths.'
+                      : 'Try clearing one or more filters above.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommittedQuery('');
+                      // Also clear the input element directly — the
+                      // search bar owns its own live state, so a parent
+                      // setState alone won't empty the visible textbox.
+                      // Dispatching an `input` event keeps the bar's
+                      // controlled state in sync via its onChange path.
+                      const el = searchInputRef.current;
+                      if (el) {
+                        const setter = Object.getOwnPropertyDescriptor(
+                          window.HTMLInputElement.prototype,
+                          'value',
+                        )?.set;
+                        setter?.call(el, '');
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      setGitFilter('all');
+                      setAttentionFilter('all');
+                    }}
+                    className="text-accent hover:text-accent/80 mt-1 text-[11.5px] font-semibold transition"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+
             {groups.length > 0
               ? groups.map((group) => {
-                  const runningInGroup = group.services.filter(
+                  // Same trick as the stack section: derive header
+                  // counters from the *visible* slice so the chips
+                  // reflect what the user can actually see, while
+                  // every card in the group stays mounted (search
+                  // visibility is a CSS toggle, not a remount).
+                  const visibleGroupServices = searchHits
+                    ? group.services.filter((svc) => searchHits.has(svc.id))
+                    : group.services;
+                  const runningInGroup = visibleGroupServices.filter(
                     (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
                   ).length;
+                  const sectionHidden = searchHits !== null && visibleGroupServices.length === 0;
                   return (
-                    <section key={group.key} className="group/section">
+                    <section
+                      key={group.key}
+                      className="group/section"
+                      style={sectionHidden ? { display: 'none' } : undefined}
+                    >
                       <SectionHeader
                         dotClass={group.dotClass}
                         dotStyle={group.dotStyle}
                         label={group.label}
                         labelClass={group.labelClass}
                         labelStyle={group.labelStyle}
-                        count={group.services.length}
+                        count={visibleGroupServices.length}
                         runningCount={runningInGroup}
                       />
                       <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
-                        {group.services.map((svc) => (
-                          <ServiceCard
-                            key={svc.id}
-                            svc={svc}
-                            draggable
-                            projectMeta={projectMetaById.get(svc.id) ?? null}
-                            onOpenDetail={openDetail}
-                          />
-                        ))}
+                        {group.services.map((svc) => {
+                          const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                          return (
+                            <CardSearchSlot key={svc.id} hidden={cardHidden}>
+                              <ServiceCard
+                                svc={svc}
+                                draggable
+                                projectMeta={projectMetaById.get(svc.id) ?? null}
+                                onOpenDetail={openDetail}
+                              />
+                            </CardSearchSlot>
+                          );
+                        })}
                       </div>
                     </section>
                   );
                 })
               : sortedEligibleServices.length > 0 && (
                   <div className="grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
-                    {sortedEligibleServices.map((svc) => (
-                      <ServiceCard
-                        key={svc.id}
-                        svc={svc}
-                        draggable
-                        projectMeta={projectMetaById.get(svc.id) ?? null}
-                        onOpenDetail={openDetail}
-                      />
-                    ))}
+                    {sortedEligibleServices.map((svc) => {
+                      const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                      return (
+                        <CardSearchSlot key={svc.id} hidden={cardHidden}>
+                          <ServiceCard
+                            svc={svc}
+                            draggable
+                            projectMeta={projectMetaById.get(svc.id) ?? null}
+                            onOpenDetail={openDetail}
+                          />
+                        </CardSearchSlot>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1708,5 +1997,176 @@ const MenuItem = forwardRef<
       <span className="shrink-0 font-medium">{label}</span>
       {hint && <span className="text-fg-dim ml-auto truncate pl-2 text-[10.5px]">{hint}</span>}
     </button>
+  );
+});
+
+/**
+ * Wrapper that shows or hides a ServiceCard via CSS only.
+ *
+ * Critical that this is `display: contents` (not, say, a div with
+ * `display: block`) when visible — the parent grid container relies
+ * on the card being a *direct* grid item to size it. A wrapper that
+ * participates in layout would collapse every card to a single column
+ * regardless of the grid template. With `contents`, the wrapper has
+ * no box of its own; the ServiceCard stays the grid item.
+ *
+ * On hide, `display: none` removes the entire subtree from layout
+ * AND from accessibility/tab order — exactly what we want for a
+ * filtered-out card. The card stays mounted (so its Zustand
+ * subscriptions, AI hooks, and SVG sparklines don't tear down and
+ * re-set up on every keystroke), but is invisible and inert.
+ *
+ * Memoized so toggling sibling cards doesn't churn this one.
+ */
+const CardSearchSlot = memo(function CardSearchSlot({
+  hidden,
+  children,
+}: {
+  hidden: boolean;
+  children: React.ReactNode;
+}) {
+  return <div style={hidden ? CARD_SLOT_HIDDEN : CARD_SLOT_VISIBLE}>{children}</div>;
+});
+const CARD_SLOT_HIDDEN: React.CSSProperties = { display: 'none' };
+const CARD_SLOT_VISIBLE: React.CSSProperties = { display: 'contents' };
+
+/**
+ * Search box, isolated from Dashboard's render tree.
+ *
+ * Two-layer setup:
+ *
+ *   1. Local `text` state owns the live keystroke. The bar's own
+ *      input element is the only thing that re-renders per keystroke
+ *      — Dashboard's enormous subtree (header, hero, attention
+ *      banners, filter chips, group sections, every ServiceCard) is
+ *      *never* re-rendered just to repaint the textbox.
+ *
+ *   2. `onCommit` propagates the query up to Dashboard inside a
+ *      `useTransition` boundary. That marks Dashboard's resulting
+ *      re-render as non-urgent: React keeps the textbox responsive
+ *      (urgent updates always preempt transitions) and folds rapid
+ *      keystrokes into a single committed value. Note this is NOT a
+ *      debounce — there's no setTimeout, no wall-clock delay. The
+ *      commit happens as fast as React can schedule it given the
+ *      input thread's pressure. On a quiet main thread it's
+ *      effectively synchronous; under typing burst it back-pressures
+ *      naturally.
+ *
+ * Why no debounce: with the dashboard's mount roster decoupled from
+ * search (cards stay mounted, search toggles `display`), the cost of
+ * a search update is just a Set rebuild + a comparator pass + a
+ * style toggle on each card wrapper. That's microseconds for a
+ * realistic roster, well below any debounce window worth waiting
+ * for. Adding a debounce now would only add perceived latency.
+ *
+ * Cards that don't match the active query render `display: none`
+ * inside `CardSearchSlot`, so the DOM stays steady and only the
+ * wrapper styles change between renders.
+ */
+const DashboardSearchBar = memo(function DashboardSearchBar({
+  inputRef,
+  onCommit,
+}: {
+  inputRef: React.MutableRefObject<HTMLInputElement | null>;
+  onCommit: (q: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const [, startTransition] = useTransition();
+  const trimmedQuery = text.trim();
+
+  // Stable ref to the latest `onCommit` so the commit handler doesn't
+  // re-bind whenever the parent passes a fresh closure (defensive —
+  // setState identity is already stable, but useEffect deps love
+  // pretending otherwise).
+  const onCommitRef = useRef(onCommit);
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  const handleChange = useCallback(
+    (next: string) => {
+      // Urgent: keep the textbox in sync with the keystroke. Skipping
+      // setState here would make the input feel laggy regardless of
+      // how fast the rest of the pipeline runs.
+      setText(next);
+      // Non-urgent: propagate to Dashboard inside a transition. React
+      // is free to delay this re-render if more keystrokes arrive
+      // first, and the textbox stays responsive throughout.
+      startTransition(() => {
+        onCommitRef.current(next.trim());
+      });
+    },
+    [startTransition],
+  );
+
+  const clear = useCallback(() => {
+    setText('');
+    startTransition(() => {
+      onCommitRef.current('');
+    });
+    inputRef.current?.focus();
+  }, [inputRef, startTransition]);
+
+  return (
+    <div
+      className={cn(
+        'border-border bg-surface-raised rounded-app-sm group relative flex h-7 items-center gap-1.5 border px-2.5 transition',
+        'focus-within:border-fg-dim/45',
+        trimmedQuery !== '' && 'border-fg-dim/35',
+      )}
+    >
+      <Search
+        className={cn(
+          'h-3 w-3 shrink-0 transition',
+          trimmedQuery === '' ? 'text-fg-dim' : 'text-fg-muted',
+        )}
+      />
+      <input
+        ref={(el) => {
+          inputRef.current = el;
+        }}
+        type="text"
+        value={text}
+        onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            if (text) {
+              handleChange('');
+            } else {
+              e.currentTarget.blur();
+            }
+          }
+        }}
+        placeholder="Search projects"
+        aria-label="Search projects"
+        // The global `*:focus-visible` rule in styles.css paints an
+        // orange accent ring on every focusable element. That ring
+        // would stack inside the wrapper's `focus-within:` border and
+        // read as a "border within a border".
+        // `.dashboard-search-input` (defined alongside
+        // `.qa-search-input` / `.history-search-input` in styles.css)
+        // overrides the universal rule on specificity; the Tailwind
+        // `outline-none` is kept as a belt-and-braces fallback for
+        // non-`focus-visible` focus states.
+        className="dashboard-search-input placeholder:text-fg-dim/70 text-fg w-44 border-none bg-transparent text-[12px] outline-none"
+        spellCheck={false}
+        autoComplete="off"
+      />
+      {trimmedQuery !== '' ? (
+        <button
+          type="button"
+          onClick={clear}
+          title="Clear search (Esc)"
+          aria-label="Clear search"
+          className="text-fg-dim hover:text-fg -mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition hover:bg-white/10"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      ) : (
+        <Kbd className="border-border/60 text-fg-dim/80 bg-surface-overlay/60 h-4 px-1 text-[9.5px]">
+          /
+        </Kbd>
+      )}
+    </div>
   );
 });
