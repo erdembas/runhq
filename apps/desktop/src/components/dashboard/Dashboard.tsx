@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownWideNarrow,
+  ChevronDown,
   Clock,
   Cpu,
   FolderSearch,
@@ -126,13 +127,108 @@ function scanFreshnessLabel(at: number, now: number): string {
   return `Scanned ${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 5) return 'Still up';
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+/**
+ * Tone vocabulary shared between the hero headline, the ambient
+ * backdrop gradient, and (eventually) the OS dock badge. Matches the
+ * semantic palette in `tailwind.config` so any consumer can derive
+ * the right colour tokens by switching on this enum alone.
+ */
+type WorkspaceTone = 'critical' | 'warning' | 'running' | 'idle';
+
+interface HeroState {
+  /**
+   * Numeric "lead" displayed in tabular numerals when defined. Kept
+   * separate from `label` so the count can render in the tone colour
+   * while the rest of the headline stays neutral.
+   */
+  count?: number;
+  /** Plain-text body that follows the count (e.g. "services running"). */
+  label: string;
+  tone: WorkspaceTone;
 }
+
+/**
+ * Pick the single most important state to feature in the dashboard
+ * hero. Strict priority order — never compose ("3 running, 2 failing"
+ * crowds the eye and dilutes severity). The user can always read the
+ * full breakdown in the chips and offender band below.
+ *
+ * Ordering rationale:
+ *   1. failures   → ship-tonight signal, takes precedence even if other
+ *                   services are happily running.
+ *   2. critical CVE → security debt, beats "outdated" because patching
+ *                     a critical CVE is non-deferrable.
+ *   3. running    → positive state worth surfacing when there's no
+ *                   active fire, gives a sense of "things are alive".
+ *   4. outdated   → maintenance debt, deferrable but accumulating.
+ *   5. idle fallback.
+ */
+function deriveHeroState(
+  stats: { running: number; failed: number; starting: number },
+  attention: { cveCritical: number; outdated: number } | null,
+): HeroState {
+  if (stats.failed > 0) {
+    return {
+      count: stats.failed,
+      label: stats.failed === 1 ? 'service needs attention' : 'services need attention',
+      tone: 'critical',
+    };
+  }
+  if (attention && attention.cveCritical > 0) {
+    return {
+      count: attention.cveCritical,
+      label: attention.cveCritical === 1 ? 'critical CVE' : 'critical CVEs',
+      tone: 'critical',
+    };
+  }
+  if (stats.running > 0) {
+    return {
+      count: stats.running,
+      label: stats.running === 1 ? 'service running' : 'services running',
+      tone: 'running',
+    };
+  }
+  if (attention && attention.outdated > 0) {
+    return {
+      count: attention.outdated,
+      label: attention.outdated === 1 ? 'project outdated' : 'projects outdated',
+      tone: 'warning',
+    };
+  }
+  return { label: 'Workspace idle', tone: 'idle' };
+}
+
+/**
+ * Tailwind class fragments for each tone. Centralised here so the
+ * count colour, the ambient backdrop, and the small status dot all
+ * stay in lock-step — change the palette in one place.
+ */
+const TONE_CLASSES: Record<WorkspaceTone, { count: string; dot: string; backdrop: string | null }> =
+  {
+    critical: {
+      count: 'text-status-error',
+      dot: 'bg-status-error shadow-[0_0_8px_rgb(var(--status-error)/0.55)]',
+      backdrop: 'rgb(var(--status-error) / 0.07)',
+    },
+    warning: {
+      count: 'text-tone-warning-fg',
+      dot: 'bg-tone-warning shadow-[0_0_8px_rgb(var(--tone-warning)/0.5)]',
+      backdrop: 'rgb(var(--tone-warning) / 0.07)',
+    },
+    running: {
+      count: 'text-status-running',
+      dot: 'bg-status-running shadow-[0_0_8px_rgb(var(--status-running)/0.55)]',
+      backdrop: 'rgb(var(--accent) / 0.08)',
+    },
+    idle: {
+      count: 'text-fg-muted',
+      dot: 'bg-fg-dim/70',
+      // Idle deliberately renders no backdrop — the cleanest possible
+      // surface signals "nothing demands your attention right now"
+      // better than any subtle gradient could.
+      backdrop: null,
+    },
+  };
 
 export function Dashboard({ onScan }: Props) {
   const services = useAppStore((s) => s.services);
@@ -693,7 +789,8 @@ export function Dashboard({ onScan }: Props) {
     );
   }
 
-  const hasRunning = stats.running > 0;
+  const heroState = deriveHeroState(stats, attentionStats);
+  const heroTone = TONE_CLASSES[heroState.tone];
 
   return (
     <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
@@ -708,114 +805,187 @@ export function Dashboard({ onScan }: Props) {
       */}
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="relative flex-1 overflow-y-auto">
-          {hasRunning && (
+          {/*
+            Ambient backdrop reflects the workspace's current tone —
+            green when projects are running, amber on accumulating
+            outdated debt, red on failures or critical CVEs, no
+            gradient at all on idle. Previously we always rendered an
+            accent-orange glow regardless of state, which read as
+            "everything is fine" even when the chips below screamed
+            otherwise. State-derived colour eliminates that mismatch.
+          */}
+          {heroTone.backdrop && (
             <div
               aria-hidden
               className="pointer-events-none absolute inset-x-0 top-0 h-[340px]"
               style={{
-                background:
-                  'radial-gradient(900px 340px at 50% -20%, rgb(var(--accent) / 0.09), transparent 70%)',
+                background: `radial-gradient(900px 340px at 50% -20%, ${heroTone.backdrop}, transparent 70%)`,
               }}
             />
           )}
 
           <div className="@container/main relative mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8">
-            <header className="flex flex-col gap-5 @3xl/main:flex-row @3xl/main:items-end @3xl/main:justify-between">
-              <div>
-                <div className="text-fg-dim mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-[0.22em] uppercase">
-                  <span className="from-accent to-accent-hover border-accent/40 inline-flex h-5 w-5 items-center justify-center rounded-md border bg-gradient-to-br text-white shadow-[0_2px_8px_-2px_rgb(var(--accent)/0.6)]">
-                    <Zap className="h-3 w-3" />
+            {/*
+              Hero block — three reading layers:
+                1. Identity strip (status dot + "Workspace · N services
+                   · vX.Y" + optional "Last scan Nm ago" with inline
+                   Rescan link). Subdued; this is metadata, not a
+                   headline.
+                2. Dynamic title surfacing the single most-pressing
+                   state via `deriveHeroState`. Strict priority order
+                   means the user always sees one signal, not a
+                   composite "3 running, 2 failing, 1 outdated"
+                   tableau that dilutes everything.
+                3. Right-aligned action cluster collapsed to one
+                   primary ("New service") + one overflow menu —
+                   replaces the previous three-button row that gave
+                   create/grow/scan/analyze CTAs equal weight.
+            */}
+            <header className="flex flex-col gap-5 @3xl/main:flex-row @3xl/main:items-start @3xl/main:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="text-fg-dim mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className={cn('h-2 w-2 rounded-full', heroTone.dot)} />
+                    <span className="text-fg-muted font-semibold tracking-[0.14em] uppercase">
+                      Workspace
+                    </span>
                   </span>
-                  <span className="text-fg">RunHQ</span>
+                  <span className="text-fg-dim/40">·</span>
+                  <span>
+                    <span className="tabular-nums">{total}</span> service{total === 1 ? '' : 's'}
+                  </span>
                   {appVersion && (
-                    <span className="text-fg-dim normal-case opacity-70">v{appVersion}</span>
-                  )}
-                  <span className="text-fg-dim mx-1 opacity-30">·</span>
-                  <span className="text-fg-dim tracking-normal normal-case opacity-70">
-                    {greeting()}
-                  </span>
-                </div>
-                <h1 className="text-fg text-[28px] leading-tight font-semibold tracking-tight">
-                  {hasRunning ? (
                     <>
-                      <span className="text-status-running tabular-nums">{stats.running}</span>
-                      <span className="text-fg">
-                        {' '}
-                        service{stats.running > 1 ? 's' : ''} running
+                      <span className="text-fg-dim/40">·</span>
+                      <span className="text-fg-dim/80">v{appVersion}</span>
+                    </>
+                  )}
+                  {lastScanAt != null && !overviewScanning && (
+                    <>
+                      <span className="text-fg-dim/40">·</span>
+                      <span
+                        title={`Dependency scan completed ${new Date(lastScanAt).toLocaleString()}`}
+                      >
+                        {scanFreshnessLabel(lastScanAt, now).replace('Scanned ', 'Last scan ')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void runScan()}
+                        disabled={overviewScanning}
+                        className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition disabled:opacity-50"
+                        title="Re-run npm outdated / cargo audit across all projects"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Rescan
+                      </button>
+                    </>
+                  )}
+                  {overviewScanning && (
+                    <>
+                      <span className="text-fg-dim/40">·</span>
+                      <span className="text-fg-muted inline-flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Scanning…
                       </span>
                     </>
-                  ) : stats.failed > 0 ? (
+                  )}
+                  {!overviewScanning &&
+                    lastScanAt == null &&
+                    overview &&
+                    !overview.has_dependency_scan && (
+                      <>
+                        <span className="text-fg-dim/40">·</span>
+                        <button
+                          type="button"
+                          onClick={() => void runScan()}
+                          className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition"
+                          title="Run npm outdated / cargo audit across all projects"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          Run first scan
+                        </button>
+                      </>
+                    )}
+                  {staleScanServiceIds.length > 0 && !overviewScanning && (
                     <>
-                      <span className="text-status-error tabular-nums">{stats.failed}</span>
-                      <span className="text-fg"> needs attention</span>
+                      <span className="text-fg-dim/40">·</span>
+                      <button
+                        type="button"
+                        onClick={() => void runStaleRescan()}
+                        className="border-tone-warning/30 bg-tone-warning-bg/25 text-tone-warning-fg hover:bg-tone-warning-bg/45 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition"
+                        title={`${staleScanServiceIds.length} project${
+                          staleScanServiceIds.length === 1 ? '' : 's'
+                        } not scanned in 7+ days — click to rescan only the stale ones`}
+                      >
+                        <span className="bg-tone-warning/70 inline-block h-1.5 w-1.5 rounded-full" />
+                        {staleScanServiceIds.length} stale
+                      </button>
+                    </>
+                  )}
+                </div>
+                <h1 className="text-fg text-[32px] leading-[1.1] font-semibold tracking-tight">
+                  {heroState.count != null ? (
+                    <>
+                      <span className={cn('tabular-nums', heroTone.count)}>{heroState.count}</span>
+                      <span className="text-fg"> {heroState.label}</span>
                     </>
                   ) : (
-                    <span className="text-fg">All quiet</span>
+                    <span className={cn(heroTone.count)}>{heroState.label}</span>
                   )}
                 </h1>
-                <p className="text-fg-muted mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px]">
-                  <span className="tabular-nums">{total}</span> configured
-                  <span className="text-fg-dim">·</span>
-                  <span className="tabular-nums">{ports.length}</span> listening ports
-                  {stats.running > 0 && totals.mem > 0 && (
-                    <>
-                      <span className="text-fg-dim">·</span>
+                {(stats.running > 0 || stats.starting > 0 || ports.length > 0) && (
+                  <p className="text-fg-muted mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
+                    {stats.running > 0 && totals.mem > 0 && (
+                      <>
+                        <span
+                          className="inline-flex items-center gap-1 tabular-nums"
+                          title={`Aggregate memory across ${stats.running} running project${stats.running > 1 ? 's' : ''}`}
+                        >
+                          <MemoryStick className="text-fg-dim h-3 w-3" />
+                          {formatBytes(totals.mem)}
+                        </span>
+                        <span className="text-fg-dim/50">·</span>
+                        <span
+                          className="inline-flex items-center gap-1 tabular-nums"
+                          title={`Aggregate CPU across ${stats.running} running project${stats.running > 1 ? 's' : ''}`}
+                        >
+                          <Cpu className="text-fg-dim h-3 w-3" />
+                          {formatPercent(totals.cpu)}
+                        </span>
+                        {(stats.starting > 0 || ports.length > 0) && (
+                          <span className="text-fg-dim/50">·</span>
+                        )}
+                      </>
+                    )}
+                    {stats.starting > 0 && (
+                      <>
+                        <span className="text-status-starting inline-flex items-center gap-1 tabular-nums">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          {stats.starting} starting
+                        </span>
+                        {ports.length > 0 && <span className="text-fg-dim/50">·</span>}
+                      </>
+                    )}
+                    {ports.length > 0 && (
                       <span
-                        className="inline-flex items-center gap-1 tabular-nums"
-                        title={`Aggregate memory across ${stats.running} running project${stats.running > 1 ? 's' : ''}`}
+                        className="tabular-nums"
+                        title={`${ports.length} listening port${ports.length === 1 ? '' : 's'}`}
                       >
-                        <MemoryStick className="text-fg-dim h-3 w-3" />
-                        {formatBytes(totals.mem)}
+                        {ports.length} port{ports.length === 1 ? '' : 's'}
                       </span>
-                      <span className="text-fg-dim">·</span>
-                      <span
-                        className="inline-flex items-center gap-1 tabular-nums"
-                        title={`Aggregate CPU across ${stats.running} running project${stats.running > 1 ? 's' : ''}`}
-                      >
-                        <Cpu className="text-fg-dim h-3 w-3" />
-                        {formatPercent(totals.cpu)}
-                      </span>
-                    </>
-                  )}
-                  {stats.starting > 0 && (
-                    <>
-                      <span className="text-fg-dim">·</span>
-                      <span className="text-status-starting inline-flex items-center gap-1 tabular-nums">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        {stats.starting} starting
-                      </span>
-                    </>
-                  )}
-                </p>
+                    )}
+                  </p>
+                )}
               </div>
               {/*
-                Header right cluster keeps "create / grow" actions
-                only — Discover projects, New stack, New service.
-                The dependency-scan + workspace-AI cluster (Rescan
-                deps · stale pill · Analyze workspace) lives in its
-                own "Workspace health" strip below this header so
-                the page reads as: greeting → health → roster,
-                instead of the previous "wall of buttons" mix where
-                a freshness label sat between two unrelated CTAs.
+                Right cluster collapsed to a single primary CTA plus
+                an overflow menu. Discover projects / New stack /
+                Rescan deps / Analyze workspace all live in the
+                dropdown — they're each used at most once a day, so
+                surfacing them as full buttons stole prominence from
+                the daily-driver "+ New service" without earning it.
               */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<FolderSearch className="h-4 w-4" />}
-                  onClick={onScan}
-                  title="Walk known parent folders looking for new project directories on disk (filesystem discovery — does not run dependency audits)"
-                >
-                  Discover projects
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<Layers className="h-4 w-4" />}
-                  onClick={() => openStackEditor(null)}
-                >
-                  New stack
-                </Button>
+              <div className="flex shrink-0 items-center gap-2">
                 <Button
                   variant="primary"
                   size="sm"
@@ -824,6 +994,26 @@ export function Dashboard({ onScan }: Props) {
                 >
                   New service
                 </Button>
+                <DashboardActionsMenu
+                  onDiscover={onScan}
+                  onNewStack={() => openStackEditor(null)}
+                  onRescan={() => void runScan()}
+                  onAnalyze={() => {
+                    if (services.length === 0) return;
+                    launchWorkspaceReport();
+                  }}
+                  analyzeButtonRef={workspaceReportTriggerRef}
+                  disableAnalyze={services.length === 0}
+                  disableRescan={overviewScanning || !overview}
+                  rescanLabel={
+                    overviewScanning
+                      ? 'Scanning…'
+                      : overview?.has_dependency_scan
+                        ? 'Rescan deps'
+                        : 'Scan deps'
+                  }
+                />
+                {workspaceReportPopover}
               </div>
             </header>
 
@@ -839,203 +1029,6 @@ export function Dashboard({ onScan }: Props) {
             zeros on a calm day, pushing the real work (project cards)
             below the fold.
           */}
-
-            {/*
-              Workspace health strip — pulls scan freshness, the
-              "rescan deps" CTA, the stale-only pill, and the AI
-              workspace report into one cohesive cluster. Sits
-              above the offender band so the reading order is:
-              "here's the data freshness + actions that update it"
-              → "here's what those actions surfaced". Both buttons
-              use the same secondary chrome as the header CTAs so
-              the eye doesn't see one outline-y and one filled.
-              Renders only when the roster is non-empty (we already
-              short-circuit to the empty state above when total ===
-              0); during cold-start the skeleton covers this gap.
-            */}
-            {/*
-              Workspace health bar — `justify-between` distributes
-              its four siblings across the row so the eye reads four
-              distinct chambers rather than one left-cluster + one
-              right-cluster. The clusters are: (1) status (label +
-              scan freshness + optional rescan-stale pill), (2)
-              attention chips with persistent tone tint (no label —
-              the colour itself is the label), (3) rescan-deps CTA,
-              (4) analyse-workspace CTA. On narrow widths the row
-              wraps gracefully via `flex-wrap`.
-            */}
-            <section
-              aria-label="Workspace health actions"
-              className="glass flex min-h-11 flex-wrap items-center justify-between gap-x-5 gap-y-2 px-4 py-2"
-            >
-              <div className="text-fg-dim flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="inline-flex items-center gap-1.5 font-semibold tracking-[0.12em] uppercase">
-                  <ShieldAlert className="text-fg-dim h-3.5 w-3.5" />
-                  Workspace
-                </span>
-                {lastScanAt != null && !overviewScanning ? (
-                  <>
-                    <span className="text-fg-dim/50">·</span>
-                    <span
-                      className="tabular-nums"
-                      title={`Dependency scan completed ${new Date(lastScanAt).toLocaleString()}`}
-                    >
-                      {scanFreshnessLabel(lastScanAt, now)}
-                    </span>
-                  </>
-                ) : !overviewScanning && overview && !overview.has_dependency_scan ? (
-                  <>
-                    <span className="text-fg-dim/50">·</span>
-                    <span className="text-fg-dim">
-                      No scan yet — run one to surface CVEs and outdated bumps
-                    </span>
-                  </>
-                ) : null}
-                {staleScanServiceIds.length > 0 && !overviewScanning && (
-                  <button
-                    type="button"
-                    onClick={() => void runStaleRescan()}
-                    className="border-tone-warning/30 bg-tone-warning-bg/25 text-tone-warning-fg hover:bg-tone-warning-bg/45 hover:text-tone-warning ml-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold tabular-nums transition"
-                    title={`${staleScanServiceIds.length} project${
-                      staleScanServiceIds.length === 1 ? '' : 's'
-                    } not scanned in 7+ days — click to rescan only the stale ones (skips the cache lookups for the rest)`}
-                  >
-                    <span className="bg-tone-warning/70 inline-block h-1.5 w-1.5 rounded-full" />
-                    {staleScanServiceIds.length} stale
-                  </button>
-                )}
-              </div>
-
-              {/*
-                Attention chips — persistent tone tint even when
-                inactive so the eye lands on them as alerts, not as
-                grey filter chips. Tones come from the shared
-                semantic palette so they read on both themes:
-                  • Stale → neutral (no severity, just "unwatched")
-                  • Risk  → critical (CVEs are ship-tonight signals)
-                  • Outdated → warning (deferrable but accumulating)
-                Click toggles the dashboard filter; active state
-                deepens the tone, label changes to the lighter shade.
-                Wrapped in its own flex container with no label —
-                the colour does the labelling.
-              */}
-              {attentionStats &&
-                attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    {attentionStats.stale > 0 && (
-                      <AttentionChip
-                        active={attentionFilter === 'stale'}
-                        onClick={() => setAttentionFilter((a) => (a === 'stale' ? 'all' : 'stale'))}
-                        tone="neutral"
-                        icon={<Clock className="h-3 w-3" />}
-                        label="Stale"
-                        count={attentionStats.stale}
-                        title={`${attentionStats.stale} project${
-                          attentionStats.stale === 1 ? '' : 's'
-                        } with no recent activity — click to filter`}
-                      />
-                    )}
-                    {attentionStats.risk > 0 && (
-                      <AttentionChip
-                        active={attentionFilter === 'risk'}
-                        onClick={() => setAttentionFilter((a) => (a === 'risk' ? 'all' : 'risk'))}
-                        tone="critical"
-                        icon={<ShieldAlert className="h-3 w-3" />}
-                        label="Risk"
-                        count={attentionStats.risk}
-                        title={`${attentionStats.risk} project${
-                          attentionStats.risk === 1 ? '' : 's'
-                        } with critical or high CVEs — click to filter`}
-                      />
-                    )}
-                    {attentionStats.outdated > 0 && (
-                      <AttentionChip
-                        active={attentionFilter === 'outdated'}
-                        onClick={() =>
-                          setAttentionFilter((a) => (a === 'outdated' ? 'all' : 'outdated'))
-                        }
-                        tone="warning"
-                        icon={<Package className="h-3 w-3" />}
-                        label="Outdated"
-                        count={attentionStats.outdated}
-                        title={`${attentionStats.outdated} project${
-                          attentionStats.outdated === 1 ? '' : 's'
-                        } with outdated dependencies — click to filter`}
-                      />
-                    )}
-                  </div>
-                )}
-
-              {/*
-                Segmented "act on the workspace" control — Rescan
-                deps and Analyze workspace share one continuous
-                pill with no gap or visible divider between halves;
-                hover state alone signals which half the cursor is
-                on. The right button keeps its left border (so the
-                two halves are separated by a single hairline that
-                belongs to the right button itself, not a dedicated
-                spacer). Wrapping in `inline-flex` keeps them glued
-                even when the workspace bar wraps to a new row.
-              */}
-              <div className="inline-flex shrink-0 items-stretch">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={
-                    overviewScanning ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : overview?.has_dependency_scan ? (
-                      <RefreshCw className="h-4 w-4" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )
-                  }
-                  onClick={() => void runScan()}
-                  disabled={overviewScanning || !overview}
-                  className={cn(
-                    'rounded-r-none border-r-0',
-                    // Pulse the scan button when data is >30 minutes old
-                    // so the user gets a gentle nudge to rescan before
-                    // making decisions off stale numbers.
-                    lastScanAt != null &&
-                      !overviewScanning &&
-                      now - lastScanAt > 30 * 60_000 &&
-                      'text-tone-warning-fg',
-                  )}
-                  title={
-                    overview?.has_dependency_scan
-                      ? 'Re-run npm outdated / cargo audit across all projects'
-                      : 'Run npm outdated / cargo audit across all projects'
-                  }
-                >
-                  {overviewScanning
-                    ? 'Scanning…'
-                    : overview?.has_dependency_scan
-                      ? 'Rescan deps'
-                      : 'Scan deps'}
-                </Button>
-                <Button
-                  ref={workspaceReportTriggerRef}
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<Sparkles className="h-4 w-4" />}
-                  onClick={() => {
-                    if (services.length === 0) return;
-                    launchWorkspaceReport();
-                  }}
-                  disabled={services.length === 0}
-                  className="rounded-l-none"
-                  title={
-                    services.length === 0
-                      ? 'Add some services first'
-                      : 'Generate an AI report across all projects, statuses, and CVEs'
-                  }
-                >
-                  Analyze workspace
-                </Button>
-              </div>
-              {workspaceReportPopover}
-            </section>
 
             {overview && overview.projects.length > 0 && (
               <WorstOffenders projects={overview.projects} onOpenDetail={openDetail} limit={5} />
@@ -1058,66 +1051,176 @@ export function Dashboard({ onScan }: Props) {
             )}
 
             {/*
-            Card controls bar — sits immediately above the roster and
-            owns every control that rearranges or filters it.
-            Reading order (left → right): organize (Group / Sort), then
-            filter (Git, Attention). Group/Sort are always present so
-            the user has a stable mental model; Git/Attention pills
-            only appear when there's data to filter on, otherwise
-            they'd be noise.
-          */}
-            {/*
-            Flat filter row — no glass frames around the clusters
-            so the controls sit directly on the page background.
-            Git filters live on the left, Organize (Group/Sort)
-            sticks to the far right via `ml-auto` even when the
-            row wraps. Attention chips moved up into the Workspace
-            health bar above. The row collapses gracefully when
-            git data is empty — Organize remains alone on the
-            right.
-          */}
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              Unified FilterBar — single horizontal row of pill chips
+              spanning all filterable axes (Attention + Git). Each
+              group leads with an explicit "All N" reset pill so the
+              user always has an unambiguous "show everything" target
+              instead of having to click the active pill again to
+              deactivate. Groups are visually separated by a thin
+              vertical divider; on narrow widths the row wraps but
+              groups stay together via `flex` siblings.
+
+              Why merge attention + git into one row: previously they
+              were two parallel surfaces (attention as chunky chips
+              near the hero, git as flat pills above the roster) doing
+              the same job — slicing the project list — using two
+              different visual languages. Linear/Notion-style modern
+              dashboards expose ALL filter axes in one cohesive bar
+              so the user's mental model is "I'm filtering" rather
+              than "I'm using the X widget".
+
+              The hero's title still surfaces the most-pressing state
+              ("2 critical CVEs") so severity remains visible without
+              the chunky chip row at the top.
+
+              `attentionStats` is null until the first overview poll
+              lands; in that window the attention group hides
+              entirely (no chrome, no count) rather than rendering
+              dashed placeholders that never resolve to a value.
+            */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {attentionStats &&
+                attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
+                  <FilterChipGroup ariaLabel="Attention filters">
+                    <FilterChip
+                      active={attentionFilter === 'all'}
+                      onClick={() => setAttentionFilter('all')}
+                      tone="muted"
+                      label="All"
+                      count={total}
+                      title="Show projects regardless of attention bucket"
+                    />
+                    {attentionStats.stale > 0 && (
+                      <FilterChip
+                        active={attentionFilter === 'stale'}
+                        onClick={() => setAttentionFilter((a) => (a === 'stale' ? 'all' : 'stale'))}
+                        tone="neutral"
+                        icon={<Clock className="h-3 w-3" />}
+                        label="Stale"
+                        count={attentionStats.stale}
+                        title={`${attentionStats.stale} project${
+                          attentionStats.stale === 1 ? '' : 's'
+                        } with no recent activity`}
+                      />
+                    )}
+                    {attentionStats.risk > 0 && (
+                      <FilterChip
+                        active={attentionFilter === 'risk'}
+                        onClick={() => setAttentionFilter((a) => (a === 'risk' ? 'all' : 'risk'))}
+                        tone="critical"
+                        icon={<ShieldAlert className="h-3 w-3" />}
+                        label="Risk"
+                        count={attentionStats.risk}
+                        title={`${attentionStats.risk} project${
+                          attentionStats.risk === 1 ? '' : 's'
+                        } with critical or high CVEs`}
+                      />
+                    )}
+                    {attentionStats.outdated > 0 && (
+                      <FilterChip
+                        active={attentionFilter === 'outdated'}
+                        onClick={() =>
+                          setAttentionFilter((a) => (a === 'outdated' ? 'all' : 'outdated'))
+                        }
+                        tone="warning"
+                        icon={<Package className="h-3 w-3" />}
+                        label="Outdated"
+                        count={attentionStats.outdated}
+                        title={`${attentionStats.outdated} project${
+                          attentionStats.outdated === 1 ? '' : 's'
+                        } with outdated dependencies`}
+                      />
+                    )}
+                  </FilterChipGroup>
+                )}
+
               {gitStats.dirty + gitStats.clean > 0 && (
-                <FilterGroup label="Git" icon={<GitBranch className="text-fg-dim h-3.5 w-3.5" />}>
-                  <FilterPill
-                    active={gitFilter === 'all'}
-                    onClick={() => setGitFilter('all')}
-                    label="All"
-                    count={gitStats.dirty + gitStats.clean}
-                  />
-                  <FilterPill
-                    active={gitFilter === 'dirty'}
-                    onClick={() => setGitFilter('dirty')}
-                    label="Dirty"
-                    count={gitStats.dirty}
-                    tone="dirty"
-                  />
-                  <FilterPill
-                    active={gitFilter === 'clean'}
-                    onClick={() => setGitFilter('clean')}
-                    label="Clean"
-                    count={gitStats.clean}
-                    tone="clean"
-                  />
-                  <FilterPill
-                    active={gitFilter === 'ahead'}
-                    onClick={() => setGitFilter('ahead')}
-                    label="Ahead"
-                    count={gitStats.ahead}
-                  />
-                  <FilterPill
-                    active={gitFilter === 'behind'}
-                    onClick={() => setGitFilter('behind')}
-                    label="Behind"
-                    count={gitStats.behind}
-                  />
-                  <FilterPill
-                    active={gitFilter === 'no-upstream'}
-                    onClick={() => setGitFilter('no-upstream')}
-                    label="No upstream"
-                    count={gitStats.noUpstream}
-                  />
-                </FilterGroup>
+                <>
+                  {attentionStats &&
+                    attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
+                      <span
+                        aria-hidden
+                        className="bg-border/70 mx-1 hidden h-5 w-px self-center sm:inline-block"
+                      />
+                    )}
+                  <FilterChipGroup ariaLabel="Git filters">
+                    <FilterChip
+                      active={gitFilter === 'all'}
+                      onClick={() => setGitFilter('all')}
+                      tone="muted"
+                      icon={<GitBranch className="h-3 w-3" />}
+                      label="All"
+                      count={gitStats.dirty + gitStats.clean}
+                      title="Show projects regardless of git state"
+                    />
+                    {gitStats.dirty > 0 && (
+                      <FilterChip
+                        active={gitFilter === 'dirty'}
+                        onClick={() => setGitFilter((a) => (a === 'dirty' ? 'all' : 'dirty'))}
+                        tone="warning"
+                        label="Dirty"
+                        count={gitStats.dirty}
+                        title="Projects with uncommitted changes"
+                      />
+                    )}
+                    {gitStats.clean > 0 && (
+                      <FilterChip
+                        active={gitFilter === 'clean'}
+                        onClick={() => setGitFilter((a) => (a === 'clean' ? 'all' : 'clean'))}
+                        tone="success"
+                        label="Clean"
+                        count={gitStats.clean}
+                        title="Projects with no uncommitted changes"
+                      />
+                    )}
+                    {gitStats.ahead > 0 && (
+                      <FilterChip
+                        active={gitFilter === 'ahead'}
+                        onClick={() => setGitFilter((a) => (a === 'ahead' ? 'all' : 'ahead'))}
+                        tone="muted"
+                        label="Ahead"
+                        count={gitStats.ahead}
+                        title="Projects with unpushed commits"
+                      />
+                    )}
+                    {gitStats.behind > 0 && (
+                      <FilterChip
+                        active={gitFilter === 'behind'}
+                        onClick={() => setGitFilter((a) => (a === 'behind' ? 'all' : 'behind'))}
+                        tone="muted"
+                        label="Behind"
+                        count={gitStats.behind}
+                        title="Projects whose remote has new commits"
+                      />
+                    )}
+                    {gitStats.noUpstream > 0 && (
+                      <FilterChip
+                        active={gitFilter === 'no-upstream'}
+                        onClick={() =>
+                          setGitFilter((a) => (a === 'no-upstream' ? 'all' : 'no-upstream'))
+                        }
+                        tone="muted"
+                        label="No upstream"
+                        count={gitStats.noUpstream}
+                        title="Projects without a tracking branch"
+                      />
+                    )}
+                  </FilterChipGroup>
+                </>
+              )}
+
+              {(gitFilter !== 'all' || attentionFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGitFilter('all');
+                    setAttentionFilter('all');
+                  }}
+                  className="text-fg-dim hover:text-accent inline-flex items-center gap-1 text-[11px] transition"
+                  title="Reset every filter"
+                >
+                  Clear filters
+                </button>
               )}
 
               <div className="ml-auto flex items-center gap-2">
@@ -1342,43 +1445,82 @@ export function Dashboard({ onScan }: Props) {
  * instead of a flat stream where the eye can't tell where one group
  * ends and the next begins.
  */
-function FilterGroup({
-  label,
-  icon,
+/**
+ * Wraps a logical filter group (Attention, Git, …) into a single
+ * inline cluster. We deliberately avoid a per-group label/header now
+ * that filters share one row — the visual divider between groups
+ * carries enough delineation, and a row of "ATTENTION:" "GIT:"
+ * mini-titles would compete with the chip labels themselves for
+ * visual real estate.
+ */
+function FilterChipGroup({
+  ariaLabel,
   children,
 }: {
-  label?: string;
-  icon?: React.ReactNode;
+  ariaLabel: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      {(icon || label) && (
-        <div className="flex items-center gap-1.5">
-          {icon}
-          {label && (
-            <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-              {label}
-            </span>
-          )}
-        </div>
-      )}
-      <div className="flex items-center gap-1">{children}</div>
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={ariaLabel}>
+      {children}
     </div>
   );
 }
 
 /**
- * Workspace-bar attention chip — variant of FilterPill that always
- * carries its tone tint (border + bg) so the eye treats it as an
- * alert badge, not a grey filter pill. Stale uses neutral tones
- * (the project is just unwatched, no severity), Risk uses critical
- * (CVEs are ship-tonight), Outdated uses warning (deferrable but
- * accumulates). Active state deepens the tone; inactive still keeps
- * a tinted background so the cluster reads as "X projects in this
- * health bucket" at a glance.
+ * Unified filter pill used by every group on the dashboard's roster
+ * filter row. Designed to read at three states unambiguously:
+ *
+ *   - inactive idle  → grey chrome, dim text, count visible
+ *   - inactive hover → subtle lift toward the tone colour
+ *   - active         → tone-tinted background + text, no extra
+ *                      indicator dots needed
+ *
+ * `tone` semantics:
+ *   - `muted`     → neutral state pill ("All", Ahead/Behind/etc) —
+ *                   no severity, just an axis label
+ *   - `neutral`   → "unwatched" bucket (Stale) — flat grey accent
+ *   - `success`   → positive state (git Clean) — green
+ *   - `warning`   → deferrable debt (Outdated, git Dirty) — amber
+ *   - `critical`  → ship-tonight signal (Risk / CVE) — red
+ *
+ * Active styling carries enough contrast on its own that we no
+ * longer need the persistent tone tint the previous `AttentionChip`
+ * used: a row of always-tinted chips read as "alerts everywhere"
+ * instead of "active filter here". With unification, only the
+ * actively-selected chip wears its tone, mirroring Linear/Notion.
  */
-function AttentionChip({
+type FilterChipTone = 'muted' | 'neutral' | 'success' | 'warning' | 'critical';
+
+const FILTER_CHIP_TONES: Record<FilterChipTone, { active: string; idleHover: string }> = {
+  muted: {
+    active: 'border-fg-dim/40 bg-fg-dim/20 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.10)_inset]',
+    idleHover: 'hover:border-fg-dim/30 hover:bg-fg-dim/10 hover:text-fg/85',
+  },
+  neutral: {
+    active: 'border-fg-dim/40 bg-fg-dim/20 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.10)_inset]',
+    idleHover: 'hover:border-fg-dim/30 hover:bg-fg-dim/10 hover:text-fg/85',
+  },
+  success: {
+    active:
+      'border-status-running/40 bg-status-running/18 text-status-running shadow-[0_0_0_1px_rgb(var(--status-running)/0.25)_inset]',
+    idleHover:
+      'hover:border-status-running/25 hover:bg-status-running/10 hover:text-status-running',
+  },
+  warning: {
+    active:
+      'border-tone-warning/45 bg-tone-warning/22 text-tone-warning-fg shadow-[0_0_0_1px_rgb(var(--tone-warning)/0.30)_inset]',
+    idleHover: 'hover:border-tone-warning/30 hover:bg-tone-warning/12 hover:text-tone-warning-fg',
+  },
+  critical: {
+    active:
+      'border-tone-critical/45 bg-tone-critical/22 text-tone-critical-fg shadow-[0_0_0_1px_rgb(var(--tone-critical)/0.30)_inset]',
+    idleHover:
+      'hover:border-tone-critical/30 hover:bg-tone-critical/12 hover:text-tone-critical-fg',
+  },
+};
+
+function FilterChip({
   active,
   onClick,
   tone,
@@ -1389,33 +1531,13 @@ function AttentionChip({
 }: {
   active: boolean;
   onClick: () => void;
-  tone: 'neutral' | 'critical' | 'warning';
-  icon: React.ReactNode;
+  tone: FilterChipTone;
+  icon?: React.ReactNode;
   label: string;
   count: number;
   title?: string;
 }) {
-  const palette =
-    tone === 'critical'
-      ? {
-          idle: 'border-tone-critical/30 bg-tone-critical/12 text-tone-critical-fg hover:bg-tone-critical/20',
-          active:
-            'border-tone-critical/55 bg-tone-critical/28 text-tone-critical-fg shadow-[0_0_0_1px_rgb(var(--tone-critical)/0.35)_inset]',
-          dot: 'bg-tone-critical/80',
-        }
-      : tone === 'warning'
-        ? {
-            idle: 'border-tone-warning/30 bg-tone-warning/12 text-tone-warning-fg hover:bg-tone-warning/20',
-            active:
-              'border-tone-warning/55 bg-tone-warning/28 text-tone-warning-fg shadow-[0_0_0_1px_rgb(var(--tone-warning)/0.35)_inset]',
-            dot: 'bg-tone-warning/80',
-          }
-        : {
-            idle: 'border-fg-dim/25 bg-fg-dim/10 text-fg-dim hover:bg-fg-dim/15 hover:text-fg/85',
-            active:
-              'border-fg-dim/45 bg-fg-dim/22 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.15)_inset]',
-            dot: 'bg-fg-dim/70',
-          };
+  const palette = FILTER_CHIP_TONES[tone];
   return (
     <button
       type="button"
@@ -1424,60 +1546,167 @@ function AttentionChip({
       aria-pressed={active}
       className={cn(
         'inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold tabular-nums transition',
-        active ? palette.active : palette.idle,
+        active ? palette.active : cn('text-fg-dim border-transparent', palette.idleHover),
       )}
     >
-      <span aria-hidden className={cn('inline-block h-1.5 w-1.5 rounded-full', palette.dot)} />
-      {icon}
+      {icon && <span className={cn(active ? '' : 'text-fg-dim/80')}>{icon}</span>}
       <span>{label}</span>
-      <span className="rounded-sm bg-black/15 px-1 text-[10px] tabular-nums dark:bg-white/10">
+      <span
+        className={cn(
+          'rounded-sm px-1 text-[10px] tabular-nums',
+          active ? 'bg-black/15 dark:bg-white/15' : 'bg-fg-dim/15 text-fg-dim',
+        )}
+      >
         {count}
       </span>
     </button>
   );
 }
 
-function FilterPill({
-  active,
-  onClick,
-  label,
-  count,
-  tone,
-  icon,
+/**
+ * Overflow menu for the dashboard hero. Houses every workspace-level
+ * action that isn't the daily-driver "+ New service" button — so the
+ * primary CTA can sit alone in the prominent top-right slot without
+ * three near-equal siblings stealing its weight.
+ *
+ * Why a hand-rolled menu (instead of pulling in @radix-ui/dropdown-menu
+ * or similar): we already lean on the same click-outside + Escape
+ * pattern in `ThemeMenu`/`SectionMenus`/`HistoryDrawer`; adopting it
+ * here keeps the bundle lean and matches the local idiom. If a fourth
+ * surface needs the same dropdown, that's the right time to extract a
+ * shared `DropdownMenu` primitive.
+ *
+ * `analyzeButtonRef` is plumbed through so the workspace-report
+ * popover (which positions itself relative to its trigger) keeps
+ * working — the popover anchors to the menu item's DOM node, not the
+ * collapsed parent button. When the menu is closed the ref points at
+ * `null`, which the popover hook tolerates as "no anchor yet".
+ */
+function DashboardActionsMenu({
+  onDiscover,
+  onNewStack,
+  onRescan,
+  onAnalyze,
+  analyzeButtonRef,
+  disableAnalyze,
+  disableRescan,
+  rescanLabel,
 }: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  count: number;
-  tone?: 'dirty' | 'clean' | 'risk' | 'outdated';
-  icon?: React.ReactNode;
+  onDiscover: () => void;
+  onNewStack: () => void;
+  onRescan: () => void;
+  onAnalyze: () => void;
+  analyzeButtonRef: React.Ref<HTMLButtonElement>;
+  disableAnalyze: boolean;
+  disableRescan: boolean;
+  rescanLabel: string;
 }) {
-  // Map filter "tones" onto our semantic palette so the active-pill colour
-  // stays legible on both themes. `dirty`/`clean` reuse the global running/
-  // starting status colours (already theme-aware) since they describe state,
-  // not severity. `risk` is critical, `outdated` is a (deferrable) warning.
-  const activeTone =
-    tone === 'dirty'
-      ? 'bg-status-starting/20 text-status-starting'
-      : tone === 'clean'
-        ? 'bg-status-running/20 text-status-running'
-        : tone === 'risk'
-          ? 'bg-tone-critical/15 text-tone-critical-fg'
-          : tone === 'outdated'
-            ? 'bg-tone-warning/15 text-tone-warning-fg'
-            : 'bg-accent/15 text-accent';
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as HTMLElement)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const close = () => setOpen(false);
+  const select = (fn: () => void) => () => {
+    fn();
+    close();
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-app-sm inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold transition',
-        active ? activeTone : 'text-fg-dim hover:text-fg hover:bg-surface-muted/60',
+    <div ref={wrapRef} className="relative">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More workspace actions"
+        rightIcon={
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
+        }
+      >
+        Actions
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="border-border bg-surface-raised rounded-app animate-fade-in absolute right-0 z-50 mt-1.5 w-[320px] overflow-hidden border py-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+        >
+          <MenuItem
+            icon={<FolderSearch className="h-3.5 w-3.5" />}
+            label="Discover projects"
+            hint="Walk parent folders"
+            onClick={select(onDiscover)}
+          />
+          <MenuItem
+            icon={<Layers className="h-3.5 w-3.5" />}
+            label="New stack"
+            hint="Group services"
+            onClick={select(onNewStack)}
+          />
+          <div className="border-border/60 my-1 border-t" aria-hidden />
+          <MenuItem
+            icon={<RefreshCw className="h-3.5 w-3.5" />}
+            label={rescanLabel}
+            hint="npm outdated · cargo audit"
+            onClick={select(onRescan)}
+            disabled={disableRescan}
+          />
+          <MenuItem
+            ref={analyzeButtonRef}
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            label="Analyze workspace"
+            hint="AI report across all projects"
+            onClick={select(onAnalyze)}
+            disabled={disableAnalyze}
+          />
+        </div>
       )}
-    >
-      {icon}
-      {label}
-      <span className="tabular-nums">{count}</span>
-    </button>
+    </div>
   );
 }
+
+const MenuItem = forwardRef<
+  HTMLButtonElement,
+  {
+    icon: React.ReactNode;
+    label: string;
+    hint?: string;
+    onClick: () => void;
+    disabled?: boolean;
+  }
+>(function MenuItem({ icon, label, hint, onClick, disabled }, ref) {
+  return (
+    <button
+      ref={ref}
+      role="menuitem"
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] whitespace-nowrap transition',
+        disabled
+          ? 'text-fg-dim/50 cursor-not-allowed'
+          : 'text-fg-muted hover:bg-surface-overlay hover:text-fg',
+      )}
+    >
+      <span className={cn('shrink-0', disabled ? 'text-fg-dim/50' : 'text-fg-dim')}>{icon}</span>
+      <span className="shrink-0 font-medium">{label}</span>
+      {hint && <span className="text-fg-dim ml-auto truncate pl-2 text-[10.5px]">{hint}</span>}
+    </button>
+  );
+});
