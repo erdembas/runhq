@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/erdembas/runhq/compare/v0.6.0...v0.7.0) (2026-04-28)
+
+
+### Features
+
+* persisted dep scans, multi-tab AI streams, dashboard health bar ([699aa07](https://github.com/erdembas/runhq/commit/699aa07e3b3cac7e9de5bbf73fa4bcd34d872956))
+
+
+### Bug Fixes
+
+* **clippy:** drop needless return + use div_ceil ([d69379e](https://github.com/erdembas/runhq/commit/d69379e7c0c9370eb2238fde42936859c39a2e08))
+
 ## [Unreleased]
 
 _No unreleased changes._
