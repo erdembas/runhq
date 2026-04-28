@@ -98,6 +98,15 @@ export interface AppInfo {
 
 export interface Shortcuts {
   quick_action: string;
+  /**
+   * Global shortcut that brings the main RunHQ window to the
+   * foreground from anywhere on the OS — even when the app is
+   * hidden in the menu-bar / tray, minimised, or sitting behind a
+   * fullscreen editor. Companion to `quick_action`: the palette
+   * shortcut opens the floating command bar, this one promotes the
+   * main window so the user can resume their full workflow.
+   */
+  focus_main: string;
 }
 
 export interface Prefs {

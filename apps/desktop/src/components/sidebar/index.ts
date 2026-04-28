@@ -3,7 +3,7 @@ export { CreateActionsFooter } from './CreateActionsFooter';
 export { SectionBlock } from './SectionBlock';
 export { UnassignedBlock } from './UnassignedBlock';
 export { SectionBody, FlatItems } from './SectionBody';
-export type { BodyProps } from './SectionBody';
+export type { BodyProps, SidebarItem } from './SectionBody';
 export { StackRow } from './StackRow';
 export { ServiceRow } from './ServiceRow';
 export {
@@ -11,6 +11,7 @@ export {
   endDrag,
   readDrag,
   getActiveDrag,
+  itemKey,
   DND_MIME,
   UNASSIGNED,
   COLLAPSED_W,

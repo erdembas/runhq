@@ -34,12 +34,13 @@
  *   └──────────┴────────────────────────────────────────────┘
  *
  * Asset / fallback contract: same as `WhatsNewModal` — `media.src` is
- * a base path; we append `-{light|dark}.webp` when `themeAware`.
- * Missing files render a tinted gradient + Lucide icon so the page
- * never shows an empty rectangle, even before screenshots are
- * captured.
+ * a base path; the extension is `.webp` for images (default) or
+ * `.webm` for `media.kind: 'video'`, and we append `-{light|dark}`
+ * before it when `themeAware`. Missing files render a tinted gradient
+ * + Lucide icon so the page never shows an empty rectangle, even
+ * before screenshots are captured.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowLeft, ArrowRight, History, Sparkles, X, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
@@ -165,12 +166,16 @@ function HighlightVisual({
   highlight: Highlight;
   themeSuffix: string;
   /**
-   * When provided, the rendered image becomes click-to-zoom. Fallback tiles
-   * (no real screenshot) skip this — there's nothing meaningful to enlarge.
-   * Parent owns lightbox state so a single overlay survives between
-   * highlights and the keyboard handler doesn't multiply across instances.
+   * When provided, the rendered media becomes click-to-zoom. Fallback
+   * tiles (no real asset) skip this — there's nothing meaningful to
+   * enlarge. Parent owns lightbox state so a single overlay survives
+   * between highlights and the keyboard handler doesn't multiply
+   * across instances. The `kind` argument lets the parent render the
+   * correct lightbox DOM (an `<img>` for screenshots, a `<video>` —
+   * with `controls`, so users can pause/scrub at full size — for
+   * motion clips).
    */
-  onZoom?: (src: string, alt: string) => void;
+  onZoom?: (media: { src: string; alt: string; kind: 'image' | 'video' }) => void;
 }) {
   const { media, fallback } = highlight;
   const [errored, setErrored] = useState(false);
@@ -182,11 +187,17 @@ function HighlightVisual({
     setErrored(false);
   }, [media.src, themeSuffix]);
 
+  const isVideo = media.kind === 'video';
+
   const resolvedSrc = useMemo(() => {
     if (!media.src) return null;
-    if (media.themeAware) return `${media.src}-${themeSuffix}.webp`;
-    return `${media.src}.webp`;
-  }, [media.src, media.themeAware, themeSuffix]);
+    // Extension is derived from `media.kind` — see WhatsNewModal /
+    // `HighlightMedia` doc for the long form. Default (`image`) keeps
+    // every pre-0.9.0 entry shipping `.webp` without a registry diff.
+    const ext = isVideo ? 'webm' : 'webp';
+    if (media.themeAware) return `${media.src}-${themeSuffix}.${ext}`;
+    return `${media.src}.${ext}`;
+  }, [media.src, media.themeAware, themeSuffix, isVideo]);
 
   // Image-less highlight: render *no visual at all* so the section reads
   // as a content block (bullets / copy live inline below the title) and
@@ -194,8 +205,17 @@ function HighlightVisual({
   // render so this early return is safe.
   if (resolvedSrc == null) return null;
 
-  const showImage = !errored;
-  const canZoom = showImage && onZoom != null;
+  const showMedia = !errored;
+  // Click-to-zoom now applies to both images and videos. The 16:9 slot
+  // shrinks app chrome (terminal text, sidebar labels) below readable
+  // size on the release-notes page; offering a fullscreen "look closer"
+  // affordance is the same value-add for a looping clip as for a
+  // static screenshot. The fullscreen video also gains `controls` so
+  // viewers can pause / scrub when they want to study a frame.
+  const canZoom = showMedia && onZoom != null;
+  const handleZoom = canZoom
+    ? () => onZoom({ src: resolvedSrc, alt: media.alt, kind: isVideo ? 'video' : 'image' })
+    : undefined;
 
   return (
     <div
@@ -204,29 +224,50 @@ function HighlightVisual({
         ASPECT_CLASS[media.aspectRatio],
       )}
     >
-      {showImage ? (
+      {showMedia ? (
         canZoom ? (
           <button
             type="button"
-            onClick={() => onZoom(resolvedSrc, media.alt)}
+            onClick={handleZoom}
             // `cursor-zoom-in` is the OS-level affordance for "this opens a
             // bigger view" — works in WKWebView (macOS Tauri) and Chromium
-            // (Windows/Linux) without extra wiring.
+            // (Windows/Linux) without extra wiring. Wrapping a `<video>`
+            // inside a `<button>` is valid HTML; the inner element doesn't
+            // get its own controls (we never pass `controls` here), so the
+            // only interaction left for the user is the button click,
+            // which is exactly what we want.
             className="group relative block h-full w-full cursor-zoom-in overflow-hidden focus-visible:outline-none"
             aria-label={`${media.alt} — click to enlarge`}
           >
-            <img
-              key={resolvedSrc}
-              src={resolvedSrc}
-              alt={media.alt}
-              loading="lazy"
-              decoding="async"
-              onError={() => setErrored(true)}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
-            />
+            {isVideo ? (
+              <video
+                key={resolvedSrc}
+                src={resolvedSrc}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                aria-label={media.alt}
+                onError={() => setErrored(true)}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+              />
+            ) : (
+              <img
+                key={resolvedSrc}
+                src={resolvedSrc}
+                alt={media.alt}
+                loading="lazy"
+                decoding="async"
+                onError={() => setErrored(true)}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+              />
+            )}
             {/* Hover affordance — a soft vignette + ZoomIn chip in the
                 top-right corner. Telegraphs "click me" without being a
-                billboard during normal browse. */}
+                billboard during normal browse. Same chrome regardless of
+                kind so the zoom interaction reads as one consistent
+                feature rather than two flavours. */}
             <span
               aria-hidden
               className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -238,6 +279,19 @@ function HighlightVisual({
               <ZoomIn className="h-3 w-3" /> Click to enlarge
             </span>
           </button>
+        ) : isVideo ? (
+          <video
+            key={resolvedSrc}
+            src={resolvedSrc}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-label={media.alt}
+            onError={() => setErrored(true)}
+            className="h-full w-full object-cover"
+          />
         ) : (
           <img
             key={resolvedSrc}
@@ -317,19 +371,55 @@ function InlineBulletGrid({ fallback }: { fallback: HighlightFallback }) {
 }
 
 /**
- * Full-screen zoom view for release-note hero shots. Lives in its own
+ * Full-screen zoom view for release-note media. Lives in its own
  * component because it owns its own keyboard handler + portal-style
  * fixed positioning; nesting that into `HighlightVisual` would multiply
  * the listener across every visible highlight on the page.
  *
- * Behaviour:
+ * Handles two media kinds with the same shell, but with **kind-specific
+ * sizing** because their default scaling rules disagree:
+ *
+ *   • `kind: 'image'` — `<img>` capped at 94vh / 96vw via `max-*`
+ *     classes (`object-contain` semantics). Static screenshots have
+ *     a known intrinsic size; a 2× DPR `.webp` rarely needs more
+ *     room, and we want tiny captures to stay at native size rather
+ *     than blow up into a soft, upscaled mess.
+ *
+ *   • `kind: 'video'` — wrapped in an `aspect-video` container at
+ *     `w-[96vw] max-h-[94vh]` and the `<video>` itself stretched via
+ *     `h-full w-full object-contain`. This is a deliberate departure
+ *     from the image path: a `<video>` element without explicit
+ *     dimensions falls back to its intrinsic size (1280×720 for our
+ *     0.9.0 clips), so plain `max-*` classes would let the lightbox
+ *     render as a small ~67vw box on a 1920px display — the exact
+ *     opposite of "zoom in". Forcing the wrapper to a viewport-relative
+ *     16:9 rectangle and letting the video fill it pushes the clip up
+ *     to ~94vw × 94vh on widescreen and keeps it perfectly aspect-fit
+ *     on tall / narrow viewports too. `controls` lights up only at
+ *     the zoomed level so the inline tile stays decorative motion;
+ *     pause / scrub becomes a "study mode" affordance unique to the
+ *     lightbox.
+ *
+ * Common behaviour:
  *   • Backdrop click closes (matches GitHub / Linear / Stripe lightboxes)
  *   • `Escape` closes (and stops propagation so the parent page's own
  *     Escape-handler doesn't also pop the Release Notes view)
- *   • Image is `object-contain` capped at 95vw / 95vh so a 2x DPR webp
- *     never overflows; tiny screenshots stay at native size, not blown up
+ *   • Click on the media itself doesn't bubble to backdrop — only
+ *     clicks on the dim area dismiss. For video this is critical:
+ *     hitting Play/Pause inside `controls` would otherwise also close
+ *     the lightbox.
  */
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+function MediaLightbox({
+  src,
+  alt,
+  kind,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  kind: 'image' | 'video';
+  onClose: () => void;
+}) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -342,30 +432,58 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
+  const stopBackdrop = (e: MouseEvent) => e.stopPropagation();
+  // Padding around the lightbox inner content. `p-3` (instead of the
+  // previous `p-6`) trims the dead band between the X button and the
+  // media so the zoomed clip / screenshot reads as edge-to-edge while
+  // the close affordance still has 12px of negative space around it.
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={alt}
       onClick={onClose}
-      className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+      className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-3 backdrop-blur-sm"
     >
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close image preview"
+        aria-label={kind === 'video' ? 'Close video preview' : 'Close image preview'}
         className="absolute top-4 right-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-white/20 focus-visible:bg-white/20 focus-visible:outline-none"
       >
         <X className="h-4 w-4" />
       </button>
-      <img
-        src={src}
-        alt={alt}
-        // Stop propagation so clicking the image itself doesn't bubble to
-        // the backdrop close handler — only clicks on the dim area dismiss.
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[92vh] max-w-[95vw] rounded-lg shadow-[0_20px_60px_-12px_rgb(0_0_0/0.6)]"
-      />
+      {kind === 'video' ? (
+        // Aspect-locked wrapper drives the size: width = 96vw,
+        // height auto-derived to 16:9, then `max-h-[94vh]` clamps on
+        // tall viewports (browser shrinks width back to maintain
+        // aspect, ratio-aware behaviour widely supported since 2021).
+        // `bg-black` paints any letterbox bands solid black instead of
+        // the inherited surface tint, so the result reads as
+        // "cinematic preview" rather than "broken chrome".
+        <div
+          onClick={stopBackdrop}
+          className="relative aspect-video max-h-[94vh] w-[96vw] overflow-hidden rounded-lg bg-black shadow-[0_20px_60px_-12px_rgb(0_0_0/0.6)]"
+        >
+          <video
+            src={src}
+            aria-label={alt}
+            autoPlay
+            muted
+            loop
+            playsInline
+            controls
+            className="h-full w-full object-contain"
+          />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          onClick={stopBackdrop}
+          className="max-h-[94vh] max-w-[96vw] rounded-lg shadow-[0_20px_60px_-12px_rgb(0_0_0/0.6)]"
+        />
+      )}
     </div>
   );
 }
@@ -589,9 +707,18 @@ function ReleaseDetail({
 
   // Single lightbox owned at the detail level — switching releases on the
   // left rail naturally tears it down and rebuilds, so we never carry an
-  // open zoom from one release into another by accident.
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
-  const openZoom = useCallback((src: string, alt: string) => setLightbox({ src, alt }), []);
+  // open zoom from one release into another by accident. `kind` is part
+  // of the state so the lightbox renders the right element (and `<video>`
+  // re-mounts cleanly between consecutive zooms of different clips).
+  const [lightbox, setLightbox] = useState<{
+    src: string;
+    alt: string;
+    kind: 'image' | 'video';
+  } | null>(null);
+  const openZoom = useCallback(
+    (m: { src: string; alt: string; kind: 'image' | 'video' }) => setLightbox(m),
+    [],
+  );
   const closeZoom = useCallback(() => setLightbox(null), []);
 
   return (
@@ -670,7 +797,14 @@ function ReleaseDetail({
           </span>
         </footer>
       </article>
-      {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={closeZoom} />}
+      {lightbox && (
+        <MediaLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          kind={lightbox.kind}
+          onClose={closeZoom}
+        />
+      )}
     </>
   );
 }

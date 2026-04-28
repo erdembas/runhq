@@ -5,6 +5,420 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0](https://github.com/erdembas/runhq/compare/v0.8.0...v0.9.0) (2026-04-29)
+
+This release is the **IDE-parity cockpit** chapter — RunHQ stops
+behaving like a single-page tool that swaps Dashboard / LogPanel /
+StackDetail in and out of one slot, and starts behaving like an
+editor: every project lives in its own tab, tabs preserve their
+internal state across switches, the AI commit generator drops
+straight into your textarea instead of round-tripping through the
+chat hub, and a long list of smaller surfaces (search, drag-to-
+reorder, fullscreen terminal, per-provider commit-language) round
+out the "feels like Cursor / VSCode" story.
+
+Two flagship pieces land together:
+
+1. **Tabbed main view with state preservation** — a Cursor-style
+   tab strip pinned above the content area, all tabs mounted in
+   parallel via `display: none` so terminal sessions, log filters,
+   split-pane heights, scroll positions, and AI conversation drafts
+   survive every tab switch. Pinning, drag-to-reorder, and a
+   VSCode-parity right-click menu (Pin / Unpin · Move Left / Right ·
+   Close · Close Others · Close to the Right · Close to the Left ·
+   Close All) round out the IDE feel; bulk-close gestures never
+   touch what's pinned.
+2. **AI Commit Message generator — direct-fill, with sentinel-tag
+   reasoning-model defence** — replaces the previous chat-routed
+   flow. One click on the Sparkles button: zero providers → inline
+   error · one → instant generation · two-or-more → an in-place
+   `ModelChooserPopover`. The new prompt contract wraps the answer
+   in `<commit>…</commit>` tags so reasoning-heavy models (DeepSeek-
+   R1, GLM-4.x, Qwen-QwQ, OpenAI o-series) stop dumping their
+   "1. Analyze the request… 2. Determine the prefix…" monologue
+   into the textarea — we extract only what's between the tags,
+   with a `<think>…</think>`-stripping fallback for models that
+   forget the contract entirely.
+
+Plus four supporting upgrades: a per-provider Commit Message
+language override (independent from Response language, so chat in
+Türkçe + commits in English finally has a home), fullscreen
+terminal, a keyboard-first dashboard search box (`/` to focus),
+and an edge-aware sidebar drag-to-reorder gesture with persisted
+per-bucket order.
+
+### Tabbed Main View
+
+A persistent tab strip above the content area replaces the
+mutually-exclusive Dashboard / LogPanel / StackDetail switcher.
+Every open service / stack lives in its own tab; the dashboard
+sits at the leftmost slot as a permanent home tab that can never
+be closed. The bar is hidden when only the dashboard is open and
+auto-surfaces as soon as a second tab opens — no row of dead UI
+when there's nothing to navigate.
+
+- **shell:** state-preserving tab host. Every `MainTab` stays
+  mounted in the DOM at all times; the inactive ones collapse via
+  `display: none` rather than visibility/opacity tricks. This is
+  what lets a service tab keep its terminal session alive, log
+  filter input populated, split-pane height intact, and scroll
+  position pinned across tab switches. Conditional rendering
+  (`{active === 'foo' && ...}`) would tear those down on every
+  flip — back to the non-tabbed UX with extra steps. `display:
+  none` (vs `visibility: hidden`) is intentional so hidden trees
+  don't participate in tab order or accessibility, and so layout-
+  affecting machinery (TerminalPane sizing, virtualized log list
+  measurement) doesn't compete for container width while invisible.
+- **shell:** `[Dashboard, ...pinned, ...unpinned]` invariant
+  enforced by every store action (`openMainTab`, `toggleMainTabPin`,
+  `reorderMainTabs`, `moveMainTabLeft/Right`, `closeMainTab`,
+  bulk-close family). New unpinned tabs always land in the unpinned
+  zone; pinning a tab moves it to the end of the pinned zone (Chrome
+  parity); unpinning sends it to the start of the unpinned zone.
+- **shell:** Chrome-parity pinning. `pinnedMainTabKeys` persists to
+  `localStorage` under `runhq.mainTabs.pinned.v1`. Tabs themselves
+  are session-scoped, so reload behaviour is: the pinned-key list
+  survives, and when a previously pinned service is re-opened from
+  the sidebar it snaps back into the pinned zone automatically.
+  Pinning is therefore "remembered" without us resurrecting tabs
+  nobody asked for. The dashboard tab can never be pinned (it's
+  already sticky in a stronger sense); pin requests for it silently
+  no-op so callers don't have to guard.
+- **shell:** drag-to-reorder via `@dnd-kit/core` + `@dnd-kit/sortable`.
+  PointerSensor uses a 5px activation distance so a plain click on
+  a tab still routes to `setActiveMainTab` — drag only kicks in once
+  the cursor moves past the press point. KeyboardSensor gives
+  parity for users navigating via Tab+Space (a11y). A 4-line
+  inline `restrictToHorizontalAxis` modifier locks vertical drift
+  (the most reported "drag feels weird" symptom) without pulling
+  in `@dnd-kit/modifiers`. Cross-zone drops (pinned ↔ unpinned)
+  are silently rejected — pinning is an explicit gesture, not a
+  side-effect of drag — and the dashboard renders outside the
+  SortableContext so it's structurally non-droppable.
+- **shell:** VSCode-parity right-click context menu with bulk-close
+  affordances and pin/move entries: Pin / Unpin Tab · Move Left ·
+  Move Right · Close · Close Others · Close to the Right · Close to
+  the Left · Close All. Move Left / Right disable themselves when
+  the anchor is already at the edge of its zone (no no-op clicks);
+  Close Others / Right / Left / All explicitly preserve pinned
+  tabs — that's the whole point of pinning, and Chrome / Firefox
+  do the same.
+- **shell:** middle-click closes a tab (mouse button 1, ignoring
+  Shift/Ctrl combinators); ⌘W / Ctrl-W closes the active tab. Both
+  paths route through `closeMainTab` so the same "drop pin if
+  present, fall back to dashboard if active was closed" cleanup
+  fires regardless of trigger.
+- **shell:** the bar has soft fade masks at its edges that only
+  paint when content actually overflows in that direction, plus
+  `<` / `>` paddle buttons that scroll a viewport-width worth of
+  tabs at a time. Wheel events on the strip are translated from
+  vertical to horizontal so trackpad scroll just works without a
+  modifier.
+
+### AI Commit Message Generator
+
+The Generate Commit Message button on the Commit panel no longer
+opens the right-rail chat hub — it now writes the answer straight
+into the textarea. Chat is great for back-and-forth ("explain
+this CVE"); commits are short, the user wants the *final* text
+in place, and a streaming subject feels jittery for what is
+usually a 0.5–2s round trip. Streaming surfaces (chat, log
+triage, diff explain) are unchanged.
+
+- **ai:** in-place flow with provider-count-aware UX. 0 providers
+  → inline error pointing to AI Settings (we deliberately don't
+  open Settings on click — the user might have wanted to type
+  manually, the error gives them the choice). 1 provider →
+  `aiGenerateCommitMessage` fires immediately, no extra clicks.
+  2-or-more → a `ModelChooserPopover` anchored under the Sparkles
+  button so you pick the right model in place. Provider list is
+  cached after first fetch with a background refresh on every
+  click so a model added moments before still shows up without
+  dismiss-and-retry friction.
+- **ai:** hint forwarding. Whatever you've typed in the textarea
+  before clicking Sparkles is passed to the model as a steer —
+  type "scope: api" or "make it imperative" first, click Sparkles,
+  the regenerate respects the steer instead of starting from
+  scratch.
+- **ai:** **`<commit>…</commit>` sentinel-tag prompt contract**
+  (`build_commit_prompt` in `runhq-core::ai`). Earlier versions
+  of this prompt asked the model to "output only the commit
+  message" which works for instruction-tuned chat models but
+  fails spectacularly for reasoning models (DeepSeek-R1, GLM-4.x,
+  Qwen-QwQ, OpenAI o-series): they ignore "no reasoning"
+  instructions and dump pages of numbered analysis ("1. Analyze
+  the request… 2. Determine the prefix… 3. Draft the first
+  line…") straight into `delta.content`. The user then sees that
+  monologue in their commit textarea. Sentinel tags fix this at
+  the contract level — we don't ask the model to suppress
+  reasoning, we ask it to MARK where the final answer is.
+  Reasoning model habits stay intact (they get to think aloud),
+  the post-processor extracts only what's between the tags, and
+  `strip_message_artifacts` falls back to legacy heuristics if
+  the model forgets the tags entirely.
+- **ai:** `extract_last_commit_tag` takes the LAST
+  `<commit>…</commit>` block in the output (handles the
+  draft-1 / draft-2 / final pattern reasoning models love); case-
+  insensitive on the tag, byte-for-byte preserving on the inner
+  content (including non-ASCII).
+- **ai:** `strip_think_blocks` defensive cleanup for models that
+  emit chain-of-thought as inline `<think>…</think>` instead of (or
+  in addition to) a separate `reasoning_content` channel — common
+  on reasoning model distills exposed via OpenAI-compatible
+  proxies that strip the explicit channel and pass `<think>` tags
+  through plain `content`. Loops with a 32-iteration cap as
+  defence-in-depth against pathological self-matching tag
+  patterns; truncates from the open tag onward when the matching
+  closer is missing (better to lose the tail than surface a
+  half-monologue).
+- **ai:** regression tests cover sentinel-tag extraction, last-
+  block preference (multi-draft), `<think>` stripping when no
+  sentinel is present, and the legacy "Here's the commit
+  message:" / code-fence-wrap stripping path.
+
+### Per-Provider Commit Message Language
+
+A second language picker on every AI provider, decoupled from
+the existing `response_language`. Solves a real workflow we kept
+hearing: "I want chat in Türkçe but my open-source project's
+commits should stay English". Or, equivalently, "Chat in English
+when I'm pairing with a colleague but commits should stay in
+Japanese to match the rest of our history".
+
+- **ai-settings:** `commit_language` field on `AiProvider`. Three
+  meaningful values: **`inherit`** (the form-level default — fall
+  back to `response_language`, so existing providers don't suddenly
+  acquire a separate commit policy), **`auto`** (no directive at
+  all — the model decides, typically matching the diff's existing
+  comment language), or any specific BCP-47 code (forced directive
+  for the commit surface only). `auto` is meaningful even though
+  it's a no-op directive: it lets users *opt out* of an English-
+  leaning `response_language` for commits while still letting chat
+  stay English. Without this carve-out, the "commits should match
+  diff comments, chat should be in my language" workflow would
+  have no way to express itself.
+- **ai-settings:** `LanguagePicker` reused for the commit picker
+  with a leading "Inherit (use response language)" entry that
+  resolves the inherited choice inline (`Inherit · Türkçe`) so
+  the row reads as "the commit setting is doing X" instead of
+  leaving the user hunting for what Inherit means in their case.
+- **ai-settings:** provider-row metadata chip surfaces the commit-
+  language only when the user *explicitly* chose to override it.
+  The common case (Inherit) doesn't add new information — it
+  equals the response-language chip — and showing it twice would
+  dilute the signal that something *interesting* is configured.
+  Override chips render as `✎ <Flag> <Language>`.
+- **ai (core):** `AiProvider::commit_language_directive()` mirrors
+  `language_directive()` with the new fallback rules; covered by a
+  matrix test (`commit_language_directive_independent_of_response_language`)
+  spanning every meaningful combination.
+
+### Fullscreen Terminal
+
+The embedded terminal in the LogPanel can now expand to fill the
+entire content area, collapsing the log list and the horizontal
+splitter. Addresses the "I'm running a long migration and I want
+to actually see the output" use case where the default 55/45 split
+felt cramped.
+
+- **logs:** Maximize / Restore toggle in the LogPanel toolbar,
+  rendered immediately next to the Terminal button so the two
+  terminal-related affordances are grouped (open ↔ size) instead
+  of scattered across the row. Only renders when the terminal is
+  open — there's nothing to maximize otherwise, and showing a
+  disabled control would just add visual clutter.
+- **logs:** Esc restores the split view from fullscreen. Listener
+  is attached only while maximized so the keyboard surface stays
+  honest — Esc has lots of meanings across the app (close
+  popovers, dismiss dialogs) and we don't want to claim it
+  unconditionally. Capture phase isn't necessary since nothing
+  earlier in the tree consumes Esc when this mode is on.
+- **logs:** state is per-tab (each open service remembers its own
+  preference, kept as local component state alongside
+  `selectedCmdName`) and auto-resets when the terminal panel itself
+  is closed — re-opening should land in the familiar split layout,
+  not silently re-enter fullscreen.
+
+### Dashboard Search
+
+A keyboard-first free-text search box at the top of the
+dashboard. Designed for workspaces measured in dozens (and
+beyond) of services where visual scanning stops working.
+
+- **dashboard:** `/` to focus, Esc to clear-and-blur. Modeled on
+  GitHub / Linear / Sentry. The shortcut binds on `document` so it
+  works regardless of focus, but is suppressed when the user is
+  already typing into another input / textarea / select /
+  contenteditable. That guard is what separates a polished
+  dashboard shortcut from one that sabotages the rest of the app.
+- **dashboard:** score-weighted match across the fields a user
+  would actually type. Field weights, with rationale: name (10) —
+  the user almost always remembers the project's name first ·
+  tags (5) — user-curated category labels carry intent · port (4)
+  — typing "3000" is a common reflex when hunting "which service
+  is on that port?" · command (3) — noisier (lots of services
+  share `dev` / `start`) but useful · cwd path (2) — folder hits
+  cover the "I know it lives under ~/work/team-x" case but lots
+  of services share parent dirs, so the signal is weak. Multiple-
+  field hits compound, so a project named "frontend-v2" tagged
+  "frontend" beats one merely tagged "frontend" when you type
+  "frontend".
+- **dashboard:** **visibility filtering, not mount filtering**.
+  Search is *deliberately* excluded from the eligibility filter
+  that defines the dashboard's mount roster. Each service card runs
+  ~10 Zustand subscriptions, an AI hook, and SVG sparkline setup
+  on mount, so a search that flips two cards in/out of the roster
+  was costing two unmounts plus two mounts on every keystroke that
+  crossed a match boundary. With ~11 services that alone made
+  typing visibly lag. The search now applies as a *visibility*
+  filter at render time — non-matching cards stay mounted but
+  collapse via `display: none`. A few extra hidden DOM nodes; sub-
+  frame typing latency.
+- **dashboard:** debounced commit. Live keystrokes stay inside the
+  search bar component (so the dashboard hero, filter chips, group
+  sections, and 11 service cards don't re-render per character);
+  the `committedQuery` only updates after the user pauses typing.
+- **dashboard:** `ServiceCard` is now `memo`-wrapped so unrelated
+  state churn (search input changes, hover events) doesn't bubble
+  through to per-card render passes.
+
+### Sidebar Drag-to-Reorder
+
+Sections in the sidebar grew real per-row drag-to-reorder
+instead of "drop anywhere in the bucket → append at the end".
+Closes the long-standing "I want this row two slots up, not at
+the bottom" feature request.
+
+- **sidebar:** edge-aware drop indicator. Each row owns its drop
+  logic — hovering the **top half** previews "insert before this
+  row", hovering the **bottom half** previews "insert after". The
+  indicator is an absolutely-positioned 2 px line that fades in/out
+  via CSS opacity, so the highlight glides between row boundaries
+  instead of snapping. Injecting separate drop strips between
+  rows (the previous sketch) made the indicator pop in / out as
+  the cursor crossed zone boundaries — the "feels like a forced
+  drag" bug.
+- **sidebar:** stacks and services interleave inside one ordered
+  list per section. The previous "stacks first, then services"
+  rendering was a UI lie — the user couldn't, e.g., put a
+  Postgres standalone service between two app stacks even though
+  conceptually it belonged there.
+- **sidebar:** persistent per-bucket order. `sectionItemOrder` is
+  a `Record<SectionId, string[]>` keyed by `service:<id>` /
+  `stack:<id>` and persisted to `localStorage` as part of the
+  section snapshot. Items absent from the hint fall through to
+  alphabetical order at the end of the bucket — keeps freshly-
+  added services from disappearing when their key hasn't been
+  recorded yet.
+- **sidebar:** `moveSidebarItem(kind, id, targetSectionId,
+  beforeKey)` is the single store action for "atomic move +
+  reorder", so cross-section drags can't race against the legacy
+  `assignServiceToSection` / `assignStackToSection` paths. Section
+  deletion now migrates the deleted bucket's ordered items into
+  Unassigned (preserving relative order) instead of orphaning
+  them.
+
+### Global Shortcuts
+
+A second OS-wide shortcut joins the existing Quick Action palette
+binding so users can summon RunHQ in two complementary ways: open
+the floating command palette, or bring the main window itself to
+the foreground. Both are rebindable from Settings → Keyboard
+Shortcuts.
+
+- **shortcuts:** new `focus_main` global shortcut, default
+  `Cmd/Ctrl+Shift+L`. Press it from anywhere on the OS — even with
+  RunHQ hidden in the menu bar / tray, minimised, or sitting behind
+  a fullscreen editor — and the main window comes to the
+  foreground. Picks up the existing `focus_main_window()` IPC path
+  on press, so macOS-specific lifecycle quirks (Regular activation
+  reassertion, app-show before window-show, double `set_focus` for
+  windows landing behind the frontmost app) are handled identically
+  to the tray-click and `runhq:show` event entry points.
+- **shortcuts:** `Shortcuts.focus_main` field on the prefs blob,
+  serde-defaulted to `CmdOrCtrl+Shift+L` so existing configs gain
+  the binding without a manual migration. Companion to
+  `Shortcuts.quick_action`; both are rebindable independently —
+  different muscle memory, different gestures.
+- **shortcuts:** Settings → Keyboard Shortcuts now lists both
+  bindings with a per-row recorder (press the chord to capture).
+  Modifier-required validation (`Cmd/Ctrl` mandatory) prevents
+  unbindable single-letter chords.
+- **shortcuts:** **conflict guard.** If both bindings collide on
+  the same chord (after `CmdOrCtrl` / `Cmd` / `Command`
+  normalisation), the Save button disables and each conflicting
+  row paints a `border-danger` ring with an inline "same binding
+  as another shortcut" note. Tauri's global-shortcut plugin
+  silently overwrites a previous handler when a chord is
+  re-registered, so without the UI guard the user could lose the
+  palette without ever knowing why; defending in depth, the Rust
+  side also skips the second registration when the two strings
+  match.
+- **shortcuts:** `register_global_shortcut` helper in the Tauri
+  shell so both bindings share one source of truth for the
+  press-edge debounce, error logging (`tracing::warn!` carries the
+  binding name and the offending shortcut string), and the
+  legacy-prefix rewrite (`Cmd+…` → `CmdOrCtrl+…`).
+
+### Quality of Life
+
+- **dashboard:** hero redesign with state-aware title and a unified
+  filter bar. The previous header ran two separate rows of
+  controls (organize / git / attention) at slightly different
+  heights and tones, so the eye couldn't lock onto any one
+  chamber. The new bar collapses into a single horizontal row
+  with explicit dividers and a state-aware H1 ("11 projects · 4
+  running · 2 need attention") that summarises the filtered set
+  rather than just naming the dashboard.
+- **dashboard:** `WorstOffenders` band and the resource heatmap
+  now hide themselves entirely when the active filter set produces
+  no matches — instead of rendering empty bands that read as
+  "broken".
+- **quick-action:** inline expandable editor rows. Selecting an
+  editor used to dump you into a separate detail screen; the new
+  row expands in place to show "Open in [editor]" / "Reveal in
+  Finder" / "Copy path" entries directly under the editor's name.
+  Backed by a new `actionStats` module that tracks recent picks
+  per editor so the most-used editor floats to the top.
+- **editors:** `EditorDropdown` consumes a new `editorMeta` helper
+  set so visibility logic ("which editors are installed?")
+  collapses from a 30-line ad-hoc filter into one call. No user-
+  visible behaviour change beyond a slightly snappier first-paint.
+- **layout:** `display: none`-based tab visibility means cold-
+  starting RunHQ with three previously-pinned tabs no longer
+  forces three sequential mounts of LogPanel; mount happens
+  lazily only when the user actually navigates to a tab the
+  first time, then stays mounted forever within that session.
+
+### Bug Fixes
+
+- **commit-panel:** generation no longer leaks reasoning monologue
+  into the textarea on DeepSeek-R1 / GLM-4.x / Qwen-QwQ / OpenAI
+  o-series. Root cause + fix documented in "AI Commit Message
+  Generator → `<commit>` sentinel-tag prompt contract" above.
+- **dashboard:** typing into the search box (or any future input
+  living above the dashboard grid) no longer re-runs the per-card
+  effect chain on every keystroke. Cards stay mounted; visibility
+  toggles at render time.
+- **sidebar:** `display: none`-collapsed inactive tabs no longer
+  steal layout width from the active tab when the sidebar is
+  resized. `flex: 1 1 auto; min-height: 0` on the active panel
+  + explicit `display: none` on inactive panels keeps the column
+  flex context clean.
+- **whatsnew:** the modal can now be re-summoned for a previously-
+  seen release without first incrementing the version — useful
+  for the team manually verifying the 0.9.0 highlights before
+  cutting a tag.
+
+### Removed
+
+- **commit-panel:** the chat-routed AI commit-message flow
+  (`useAiSurfaceTrigger`-based) and its associated
+  `runhq:ai-action:use-as-commit` event listener. Superseded by
+  the in-place generator. The standup and CVE / log-triage / diff-
+  explain surfaces still route through the chat hub — chat is
+  the right shape for those, but not for "give me one line".
+
 ## [0.8.0](https://github.com/erdembas/runhq/compare/v0.7.0...v0.8.0) (2026-04-28)
 
 

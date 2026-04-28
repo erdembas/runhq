@@ -193,6 +193,23 @@ interface AppStore {
   mainTabs: MainTab[];
   activeMainTabKey: string;
   /**
+   * Pinned tab keys, addressed via {@link mainTabKey}. Pinned tabs sit
+   * immediately after the dashboard (which itself is never pinned —
+   * it's already sticky) and before any unpinned tab; the bar enforces
+   * `[Dashboard, ...pinned (in pin order), ...unpinned (in user order)]`
+   * as a hard invariant via {@link toggleMainTabPin} / drag handlers.
+   *
+   * Persisted to localStorage so the pin state survives reloads even
+   * though the underlying tabs are session-scoped — when the user
+   * re-opens a previously pinned service from the sidebar, the new
+   * tab snaps back into the pinned zone automatically.
+   *
+   * Bulk-close affordances ("Close Others", "Close to the Right /
+   * Left", "Close All") never touch pinned tabs — that's the whole
+   * point of pinning.
+   */
+  pinnedMainTabKeys: string[];
+  /**
    * Open a tab. If the tab already exists (matched by composite key),
    * it's just activated; otherwise it's appended to the right and
    * activated. For service / stack tabs this also keeps
@@ -202,6 +219,32 @@ interface AppStore {
   openMainTab: (tab: MainTab) => void;
   closeMainTab: (key: string) => void;
   setActiveMainTab: (key: string) => void;
+  /**
+   * Toggle the pinned state for a tab. Pinning a tab moves it to the
+   * end of the pinned zone (immediately after the last pinned tab,
+   * or immediately after the dashboard if no tab is pinned yet).
+   * Unpinning moves it to the start of the unpinned zone (right
+   * after the last pinned tab). The dashboard tab can never be
+   * pinned — pin requests for it silently no-op.
+   */
+  toggleMainTabPin: (key: string) => void;
+  /**
+   * Drag-reorder handler. Re-slots `activeKey` to the position of
+   * `overKey` (insert-before semantics; pass `null` for end).
+   * Reorder is only allowed within the same zone (pinned ↔ pinned
+   * or unpinned ↔ unpinned); cross-zone drops are rejected to keep
+   * the pin/unpin boundary explicit. Use {@link toggleMainTabPin}
+   * to flip a tab's zone.
+   */
+  reorderMainTabs: (activeKey: string, overKey: string | null) => void;
+  /**
+   * Move a tab one slot left within its zone. No-op when the tab is
+   * already the leftmost in its zone (first pinned tab, or first
+   * unpinned tab right after the pin boundary). Symmetric to
+   * {@link moveMainTabRight}.
+   */
+  moveMainTabLeft: (key: string) => void;
+  moveMainTabRight: (key: string) => void;
   /**
    * Close every tab except `keepKey` (and the always-sticky
    * dashboard). The kept tab becomes active so the user is never
@@ -262,6 +305,20 @@ interface AppStore {
   serviceSection: Record<ServiceId, SectionId>;
   stackSection: Record<string, SectionId>;
   collapsedSections: Record<SectionId, boolean>;
+  /**
+   * Per-bucket ordered list of sidebar items (services + stacks
+   * interleaved) keyed by `service:<id>` or `stack:<id>`. The bucket
+   * key is either a {@link SectionId} or the magic `__unassigned__`
+   * sentinel.
+   *
+   * Items absent from the hint fall through to alphabetical order at
+   * the end of the bucket — keeps freshly-added services from
+   * disappearing when their key hasn't been recorded yet.
+   *
+   * Persisted in localStorage alongside the rest of the section
+   * snapshot so a custom order survives reloads.
+   */
+  sectionItemOrder: Record<SectionId, string[]>;
 
   setServices: (services: ServiceDef[]) => void;
   upsertService: (svc: ServiceDef) => void;
@@ -304,6 +361,19 @@ interface AppStore {
   /** Assign a service to a section, or pass `null` to move it to Unassigned. */
   assignServiceToSection: (serviceId: ServiceId, sectionId: SectionId | null) => void;
   assignStackToSection: (stackId: string, sectionId: SectionId | null) => void;
+  /**
+   * Atomically move a sidebar item (service or stack) into the given
+   * bucket and slot it directly before `beforeKey` (or to the end if
+   * `beforeKey` is null). Pass `targetSectionId: null` to drop into
+   * Unassigned. Used by the in-section drag-to-reorder gesture so
+   * "move + reorder" can't race against each other.
+   */
+  moveSidebarItem: (
+    kind: 'service' | 'stack',
+    id: string,
+    targetSectionId: SectionId | null,
+    beforeKey: string | null,
+  ) => void;
 
   timelineOpen: boolean;
   openTimeline: () => void;
@@ -650,15 +720,78 @@ const initialDashboardPrefs = loadDashboardPrefs();
 
 const SECTIONS_KEY = 'runhq.sections.v1';
 
+/**
+ * Bucket key used by {@link sectionItemOrder} to address the
+ * "Unassigned" pseudo-section. Mirrors the constant in
+ * `components/sidebar/dnd.ts` — duplicated to keep the store free of
+ * sidebar imports.
+ */
+const UNASSIGNED_BUCKET: SectionId = '__unassigned__';
+
+function bucketOf(sectionId: SectionId | null | undefined): SectionId {
+  return sectionId ?? UNASSIGNED_BUCKET;
+}
+
+function itemOrderKey(kind: 'service' | 'stack', id: string): string {
+  return `${kind}:${id}`;
+}
+
+/**
+ * Strip an item key from every bucket. Returns a new map only if a
+ * bucket actually changed so unchanged callers don't flush identity
+ * unnecessarily.
+ */
+function dropItemKey(order: Record<SectionId, string[]>, key: string): Record<SectionId, string[]> {
+  let changed = false;
+  const next: Record<SectionId, string[]> = {};
+  for (const [bucket, list] of Object.entries(order)) {
+    const filtered = list.filter((k) => k !== key);
+    if (filtered.length !== list.length) changed = true;
+    next[bucket] = filtered;
+  }
+  return changed ? next : order;
+}
+
+/**
+ * Insert `key` into `bucket` directly before `beforeKey` (or at the
+ * end when `beforeKey` is null/missing). Always strips the key from
+ * every bucket first so a single call covers both "reorder within
+ * bucket" and "move across buckets".
+ */
+function placeItemKey(
+  order: Record<SectionId, string[]>,
+  bucket: SectionId,
+  key: string,
+  beforeKey: string | null,
+): Record<SectionId, string[]> {
+  const cleaned = dropItemKey(order, key);
+  const list = cleaned[bucket] ? [...cleaned[bucket]] : [];
+  if (beforeKey == null) {
+    list.push(key);
+  } else {
+    const idx = list.indexOf(beforeKey);
+    if (idx < 0) list.push(key);
+    else list.splice(idx, 0, key);
+  }
+  return { ...cleaned, [bucket]: list };
+}
+
 interface SectionsSnapshot {
   sections: Section[];
   serviceSection: Record<ServiceId, SectionId>;
   stackSection: Record<string, SectionId>;
   collapsedSections: Record<SectionId, boolean>;
+  sectionItemOrder: Record<SectionId, string[]>;
 }
 
 function emptySections(): SectionsSnapshot {
-  return { sections: [], serviceSection: {}, stackSection: {}, collapsedSections: {} };
+  return {
+    sections: [],
+    serviceSection: {},
+    stackSection: {},
+    collapsedSections: {},
+    sectionItemOrder: {},
+  };
 }
 
 function loadSections(): SectionsSnapshot {
@@ -692,6 +825,17 @@ function loadSections(): SectionsSnapshot {
         parsed.collapsedSections && typeof parsed.collapsedSections === 'object'
           ? (parsed.collapsedSections as Record<SectionId, boolean>)
           : {},
+      sectionItemOrder: (() => {
+        const raw = parsed.sectionItemOrder;
+        if (!raw || typeof raw !== 'object') return {};
+        const out: Record<SectionId, string[]> = {};
+        for (const [bucket, list] of Object.entries(raw as Record<string, unknown>)) {
+          if (Array.isArray(list)) {
+            out[bucket] = list.filter((k): k is string => typeof k === 'string');
+          }
+        }
+        return out;
+      })(),
     };
   } catch {
     return emptySections();
@@ -732,6 +876,93 @@ function saveDiffShowUnchanged(v: boolean): void {
 }
 
 const initialDiffShowUnchanged = loadDiffShowUnchanged();
+
+// ─── Pinned main-tab persistence ────────────────────────────────────
+// Only the *set* of pinned keys is persisted, not the tabs
+// themselves. Tabs are session-scoped (open on demand), so reload
+// behaviour is: the pinned-key list survives, and when a previously
+// pinned service tab gets re-opened (sidebar click, dashboard tile),
+// it snaps back into the pinned zone automatically. Pinning is
+// therefore "remembered" across sessions without us needing to
+// resurrect tabs nobody asked for.
+const PINNED_TABS_KEY = 'runhq.mainTabs.pinned.v1';
+
+function loadPinnedTabs(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(PINNED_TABS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      // Defensively reject the dashboard key (it could only end up
+      // here via a corrupted prefs blob from a future build) so the
+      // invariant "dashboard is never pinned" holds even on
+      // malformed input.
+      (k): k is string => typeof k === 'string' && k !== DASHBOARD_TAB_KEY,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function savePinnedTabs(keys: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PINNED_TABS_KEY, JSON.stringify(keys));
+  } catch {
+    // non-fatal (same policy as the other prefs blobs above)
+  }
+}
+
+const initialPinnedTabs = loadPinnedTabs();
+
+/**
+ * Index of the first non-dashboard, non-pinned tab in `tabs`. Equal
+ * to `tabs.length` when every tab is either the dashboard or
+ * pinned (i.e. no unpinned zone exists yet). Used as the insertion
+ * point for newly-opened unpinned tabs and as the "boundary" the
+ * drag/move operations clamp against.
+ */
+function pinBoundaryIndex(tabs: MainTab[], pinned: ReadonlySet<string>): number {
+  for (let i = 0; i < tabs.length; i++) {
+    const tab = tabs[i];
+    if (!tab) continue;
+    const key = mainTabKey(tab);
+    if (key === DASHBOARD_TAB_KEY) continue;
+    if (!pinned.has(key)) return i;
+  }
+  return tabs.length;
+}
+
+/**
+ * Append a freshly-opened tab into `tabs` while preserving the
+ * `[Dashboard, ...pinned, ...unpinned]` invariant. If `tab`'s key is
+ * already in the pinned set (because the user pinned it in a previous
+ * session), we slot it at the end of the pinned zone; otherwise it
+ * goes to the rightmost unpinned slot. Existing tabs are never
+ * disturbed — only the freshly inserted one is positioned.
+ */
+function insertTabRespectingPin(
+  tabs: MainTab[],
+  tab: MainTab,
+  pinned: ReadonlySet<string>,
+): MainTab[] {
+  const key = mainTabKey(tab);
+  if (pinned.has(key)) {
+    const boundary = pinBoundaryIndex(tabs, pinned);
+    return [...tabs.slice(0, boundary), tab, ...tabs.slice(boundary)];
+  }
+  return [...tabs, tab];
+}
+
+/**
+ * `true` if `key` belongs to the pinned zone (dashboard counts as
+ * its own zone — it never participates in pin / move / drag).
+ */
+function isPinnedKey(key: string, pinned: ReadonlySet<string>): boolean {
+  return key !== DASHBOARD_TAB_KEY && pinned.has(key);
+}
 
 function genSectionId(): SectionId {
   const g = globalThis as { crypto?: { randomUUID?: () => string } };
@@ -825,6 +1056,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   mainTabs: [DASHBOARD_TAB],
   activeMainTabKey: DASHBOARD_TAB_KEY,
+  pinnedMainTabKeys: initialPinnedTabs,
 
   categoryFilter: initialSidebarPrefs.categoryFilter,
   runtimeFilter: initialSidebarPrefs.runtimeFilter,
@@ -841,6 +1073,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   serviceSection: initialSections.serviceSection,
   stackSection: initialSections.stackSection,
   collapsedSections: initialSections.collapsedSections,
+  sectionItemOrder: initialSections.sectionItemOrder,
 
   // Flips `servicesLoaded` on first call. Mirrors the natural
   // "I just received the roster from Rust" semantic regardless of
@@ -862,11 +1095,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       const { [id]: _omit, ...restServiceSection } = s.serviceSection;
       void _omit;
+      const nextOrder = dropItemKey(s.sectionItemOrder, itemOrderKey('service', id));
       saveSections({
         sections: s.sections,
         serviceSection: restServiceSection,
         stackSection: s.stackSection,
         collapsedSections: s.collapsedSections,
+        sectionItemOrder: nextOrder,
       });
 
       // If a tab for this service is open, drop it. If it was the
@@ -879,14 +1114,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
         tabsChanged && s.activeMainTabKey === closedKey ? DASHBOARD_TAB_KEY : s.activeMainTabKey;
       const becameDashboard = nextActive === DASHBOARD_TAB_KEY && tabsChanged;
 
+      // Drop any lingering pin for the deleted service so it
+      // doesn't haunt the persisted prefs forever (and so a future
+      // service that happens to reuse this id — admittedly rare —
+      // doesn't auto-pin itself unexpectedly).
+      const pinnedHadKey = s.pinnedMainTabKeys.includes(closedKey);
+      const nextPinned = pinnedHadKey
+        ? s.pinnedMainTabKeys.filter((k) => k !== closedKey)
+        : s.pinnedMainTabKeys;
+      if (pinnedHadKey) savePinnedTabs(nextPinned);
+
       return {
         services: s.services.filter((x) => x.id !== id),
         selectedServiceId:
           s.selectedServiceId === id || becameDashboard ? null : s.selectedServiceId,
         selectedStackId: becameDashboard ? null : s.selectedStackId,
         serviceSection: restServiceSection,
+        sectionItemOrder: nextOrder,
         mainTabs: tabsChanged ? nextTabs : s.mainTabs,
         activeMainTabKey: nextActive,
+        pinnedMainTabKeys: nextPinned,
       };
     }),
 
@@ -961,7 +1208,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedCmdName: null,
         selectedStackId: null,
         releaseNotesOpen: false,
-        mainTabs: exists ? s.mainTabs : [...s.mainTabs, tab],
+        mainTabs: exists
+          ? s.mainTabs
+          : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
         activeMainTabKey: key,
       };
     }),
@@ -985,7 +1234,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: null,
         selectedCmdName: null,
         releaseNotesOpen: false,
-        mainTabs: exists ? s.mainTabs : [...s.mainTabs, tab],
+        mainTabs: exists
+          ? s.mainTabs
+          : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
         activeMainTabKey: key,
       };
     }),
@@ -1055,11 +1306,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       // The dashboard tab is sticky regardless of which tab the user
       // anchored on — closing it would leave them with no home base.
-      // We keep both the anchor tab and the dashboard, in their
-      // original relative order.
-      const next = s.mainTabs.filter(
-        (t) => mainTabKey(t) === keepKey || mainTabKey(t) === DASHBOARD_TAB_KEY,
-      );
+      // We also preserve pinned tabs (Chrome / Firefox parity:
+      // bulk-close gestures never touch what the user explicitly
+      // pinned).
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const next = s.mainTabs.filter((t) => {
+        const k = mainTabKey(t);
+        return k === keepKey || k === DASHBOARD_TAB_KEY || pinnedSet.has(k);
+      });
       if (next.length === s.mainTabs.length) return s;
       // Anchor becomes active so the user lands somewhere meaningful.
       // If they right-clicked the dashboard itself, active stays on
@@ -1080,7 +1334,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (idx < 0) return s;
       // Already the rightmost tab — nothing to close.
       if (idx === s.mainTabs.length - 1) return s;
-      const next = s.mainTabs.slice(0, idx + 1);
+      // Keep everything up to (and including) the anchor, plus any
+      // pinned tab that lived to the right of it. With the
+      // [Dashboard, ...pinned, ...unpinned] invariant the right-of-
+      // anchor pinned tabs only exist when the anchor itself is
+      // pinned (or dashboard); preserving them here matches the
+      // user's "pinning protects from bulk-close" expectation.
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const head = s.mainTabs.slice(0, idx + 1);
+      const tail = s.mainTabs.slice(idx + 1).filter((t) => pinnedSet.has(mainTabKey(t)));
+      const next = [...head, ...tail];
       // If the active tab survived the cut, leave it where it is —
       // closing tabs the user wasn't even looking at shouldn't
       // disturb their place. Otherwise snap to the anchor so we
@@ -1106,15 +1369,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // store still guards.)
       if (idx === 0) return s;
       // Keep the dashboard pinned at index 0 plus everything from
-      // the anchor onward. The dashboard re-emerges left of the
-      // anchor automatically because it's the only survivor below
-      // `idx`. If somehow the dashboard wasn't there, we still
-      // append it at the front to satisfy the "always present"
-      // invariant.
+      // the anchor onward, AND every user-pinned tab to the left
+      // of the anchor (preserving its original relative order).
+      // The dashboard re-emerges left of the anchor automatically
+      // because it's the only survivor below `idx` once pinned
+      // tabs are folded back in. If somehow the dashboard wasn't
+      // there, we still append it at the front to satisfy the
+      // "always present" invariant.
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const headPinned = s.mainTabs.slice(0, idx).filter((t) => pinnedSet.has(mainTabKey(t)));
       const tail = s.mainTabs.slice(idx);
       const next = tail.some((t) => mainTabKey(t) === DASHBOARD_TAB_KEY)
-        ? tail
-        : [DASHBOARD_TAB, ...tail];
+        ? [...headPinned, ...tail]
+        : [DASHBOARD_TAB, ...headPinned, ...tail];
       const activeStillOpen = next.some((t) => mainTabKey(t) === s.activeMainTabKey);
       const activeKey = activeStillOpen ? s.activeMainTabKey : key;
       const activeTab = next.find((t) => mainTabKey(t) === activeKey);
@@ -1128,22 +1395,166 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }),
   closeAllMainTabs: () =>
     set((s) => {
-      // Already at home — no need to dirty the state and trigger
-      // subscribers.
-      if (
-        s.mainTabs.length === 1 &&
-        s.mainTabs[0] &&
-        mainTabKey(s.mainTabs[0]) === DASHBOARD_TAB_KEY
-      ) {
-        return s;
-      }
+      // Pinned tabs survive a "Close All" — that's the whole point
+      // of pinning. Build the kept list as `[Dashboard, ...pinned]`
+      // (in their existing relative order so the user's manual
+      // arrangement isn't shuffled).
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const kept = s.mainTabs.filter(
+        (t) => mainTabKey(t) === DASHBOARD_TAB_KEY || pinnedSet.has(mainTabKey(t)),
+      );
+      const next = kept.some((t) => mainTabKey(t) === DASHBOARD_TAB_KEY)
+        ? kept
+        : [DASHBOARD_TAB, ...kept];
+      // Already at the kept set — no need to dirty state.
+      if (next.length === s.mainTabs.length) return s;
+      const activeStillOpen = next.some((t) => mainTabKey(t) === s.activeMainTabKey);
+      const activeKey = activeStillOpen ? s.activeMainTabKey : DASHBOARD_TAB_KEY;
+      const activeTab = next.find((t) => mainTabKey(t) === activeKey);
       return {
-        mainTabs: [DASHBOARD_TAB],
-        activeMainTabKey: DASHBOARD_TAB_KEY,
-        selectedServiceId: null,
-        selectedStackId: null,
+        mainTabs: next,
+        activeMainTabKey: activeKey,
+        selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
+        selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
         selectedCmdName: null,
       };
+    }),
+  toggleMainTabPin: (key) =>
+    set((s) => {
+      // Dashboard is its own zone — already sticky in a stronger
+      // sense than pinning. Silently no-op so callers (context-menu
+      // entries, keyboard shortcuts) don't have to guard.
+      if (key === DASHBOARD_TAB_KEY) return s;
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx < 0) return s;
+      const tab = s.mainTabs[idx];
+      if (!tab) return s;
+      const isPinned = s.pinnedMainTabKeys.includes(key);
+      // Build the post-pin tab list so the visual `[Dashboard,
+      // ...pinned, ...unpinned]` invariant holds without us having
+      // to do a second pass: yank the tab out, then re-insert at
+      // the new zone's tail. Tail (rather than head) keeps the
+      // most-recently-pinned tab next to the unpinned zone, which
+      // matches Chrome's "newest pin lands rightmost in the pinned
+      // strip" behaviour.
+      const withoutTab = [...s.mainTabs.slice(0, idx), ...s.mainTabs.slice(idx + 1)];
+      const nextPinned = isPinned
+        ? s.pinnedMainTabKeys.filter((k) => k !== key)
+        : [...s.pinnedMainTabKeys, key];
+      const pinnedSetAfter = new Set(nextPinned);
+      // For the tab-less array, `pinBoundaryIndex` returns the slot
+      // right after the existing pinned tabs in either direction:
+      //   • Pinning  → existing pinned tabs stay where they are; the
+      //                newly pinned tab lands at boundary (= right
+      //                edge of pinned zone, just before unpinned).
+      //   • Unpinning→ remaining pinned tabs are the same ones
+      //                minus this key; boundary points to the start
+      //                of unpinned zone, which is exactly where the
+      //                freshly unpinned tab should appear.
+      const insertAt = pinBoundaryIndex(withoutTab, pinnedSetAfter);
+      const nextTabs = [...withoutTab.slice(0, insertAt), tab, ...withoutTab.slice(insertAt)];
+      savePinnedTabs(nextPinned);
+      return {
+        mainTabs: nextTabs,
+        pinnedMainTabKeys: nextPinned,
+      };
+    }),
+  reorderMainTabs: (activeKey, overKey) =>
+    set((s) => {
+      // Dashboard is anchored at index 0 — it's never a drag source
+      // or drop target. The bar enforces this by rendering it
+      // outside the SortableContext, but we double-guard here so
+      // the store stays defensive against a stray programmatic
+      // call.
+      if (activeKey === DASHBOARD_TAB_KEY) return s;
+      if (activeKey === overKey) return s;
+      const fromIdx = s.mainTabs.findIndex((t) => mainTabKey(t) === activeKey);
+      if (fromIdx < 0) return s;
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const activeIsPinned = isPinnedKey(activeKey, pinnedSet);
+      // Refuse cross-zone drops. Pinning is an explicit gesture
+      // (right-click → Pin, or click the pin badge) — silently
+      // moving a tab across the boundary on drag would surprise
+      // users who'd expect "drag to reorder" not "drag to repin".
+      // Falling through to no-op leaves the dragged tab back where
+      // it started, which dnd-kit handles gracefully.
+      if (overKey != null) {
+        if (overKey === DASHBOARD_TAB_KEY) return s;
+        const overIsPinned = isPinnedKey(overKey, pinnedSet);
+        if (activeIsPinned !== overIsPinned) return s;
+      }
+      const tab = s.mainTabs[fromIdx];
+      if (!tab) return s;
+      const withoutTab = [...s.mainTabs.slice(0, fromIdx), ...s.mainTabs.slice(fromIdx + 1)];
+      let insertAt: number;
+      if (overKey == null) {
+        // No drop target → land at the end of the active tab's
+        // zone. Pinned tabs end at `pinBoundaryIndex`; unpinned
+        // tabs end at the array end.
+        insertAt = activeIsPinned ? pinBoundaryIndex(withoutTab, pinnedSet) : withoutTab.length;
+      } else {
+        const overIdx = withoutTab.findIndex((t) => mainTabKey(t) === overKey);
+        if (overIdx < 0) return s;
+        insertAt = overIdx;
+      }
+      const nextTabs = [...withoutTab.slice(0, insertAt), tab, ...withoutTab.slice(insertAt)];
+      // Identity short-circuit: if the resulting array equals the
+      // source, skip the set() so subscribers / SortableContext
+      // animations don't restart for a no-op drop.
+      let identical = nextTabs.length === s.mainTabs.length;
+      if (identical) {
+        for (let i = 0; i < nextTabs.length; i++) {
+          if (mainTabKey(nextTabs[i]!) !== mainTabKey(s.mainTabs[i]!)) {
+            identical = false;
+            break;
+          }
+        }
+      }
+      if (identical) return s;
+      return { mainTabs: nextTabs };
+    }),
+  moveMainTabLeft: (key) =>
+    set((s) => {
+      if (key === DASHBOARD_TAB_KEY) return s;
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx <= 0) return s;
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const isPinned = isPinnedKey(key, pinnedSet);
+      const prev = s.mainTabs[idx - 1];
+      if (!prev) return s;
+      const prevKey = mainTabKey(prev);
+      // Dashboard at idx 0 falls under this guard automatically:
+      // it's not in the pinned set, and any non-dashboard tab that
+      // would swap with it is necessarily either pinned or
+      // unpinned, so the zone check fails and we no-op.
+      if (prevKey === DASHBOARD_TAB_KEY) return s;
+      const prevIsPinned = isPinnedKey(prevKey, pinnedSet);
+      // Don't let "move left" pop a tab across a zone boundary —
+      // that would silently flip pin state, which the user can do
+      // explicitly via the Pin/Unpin entry.
+      if (prevIsPinned !== isPinned) return s;
+      const nextTabs = [...s.mainTabs];
+      nextTabs[idx - 1] = nextTabs[idx]!;
+      nextTabs[idx] = prev;
+      return { mainTabs: nextTabs };
+    }),
+  moveMainTabRight: (key) =>
+    set((s) => {
+      if (key === DASHBOARD_TAB_KEY) return s;
+      const idx = s.mainTabs.findIndex((t) => mainTabKey(t) === key);
+      if (idx < 0 || idx >= s.mainTabs.length - 1) return s;
+      const pinnedSet = new Set(s.pinnedMainTabKeys);
+      const isPinned = isPinnedKey(key, pinnedSet);
+      const next = s.mainTabs[idx + 1];
+      if (!next) return s;
+      const nextKey = mainTabKey(next);
+      const nextIsPinned = isPinnedKey(nextKey, pinnedSet);
+      // Same zone-boundary guard as `moveMainTabLeft`.
+      if (nextIsPinned !== isPinned) return s;
+      const nextTabs = [...s.mainTabs];
+      nextTabs[idx + 1] = nextTabs[idx]!;
+      nextTabs[idx] = next;
+      return { mainTabs: nextTabs };
     }),
   setAppMeta: (version, stateDir) => set({ appVersion: version, stateDir }),
 
@@ -1225,11 +1636,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       const { [id]: _omit, ...restStackSection } = s.stackSection;
       void _omit;
+      const nextOrder = dropItemKey(s.sectionItemOrder, itemOrderKey('stack', id));
       saveSections({
         sections: s.sections,
         serviceSection: s.serviceSection,
         stackSection: restStackSection,
         collapsedSections: s.collapsedSections,
+        sectionItemOrder: nextOrder,
       });
 
       const closedKey = mainTabKey({ kind: 'stack', refId: id });
@@ -1239,13 +1652,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
         tabsChanged && s.activeMainTabKey === closedKey ? DASHBOARD_TAB_KEY : s.activeMainTabKey;
       const becameDashboard = nextActive === DASHBOARD_TAB_KEY && tabsChanged;
 
+      const pinnedHadKey = s.pinnedMainTabKeys.includes(closedKey);
+      const nextPinned = pinnedHadKey
+        ? s.pinnedMainTabKeys.filter((k) => k !== closedKey)
+        : s.pinnedMainTabKeys;
+      if (pinnedHadKey) savePinnedTabs(nextPinned);
+
       return {
         stacks: s.stacks.filter((x) => x.id !== id),
         stackSection: restStackSection,
+        sectionItemOrder: nextOrder,
         mainTabs: tabsChanged ? nextTabs : s.mainTabs,
         activeMainTabKey: nextActive,
         selectedServiceId: becameDashboard ? null : s.selectedServiceId,
         selectedStackId: s.selectedStackId === id || becameDashboard ? null : s.selectedStackId,
+        pinnedMainTabKeys: nextPinned,
       };
     }),
   openStackEditor: (stack) => set({ editorStack: stack }),
@@ -1263,6 +1684,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       serviceSection: s.serviceSection,
       stackSection: s.stackSection,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: s.sectionItemOrder,
     });
     return id;
   },
@@ -1277,6 +1699,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       serviceSection: s.serviceSection,
       stackSection: s.stackSection,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: s.sectionItemOrder,
     });
   },
   recolorSection: (id, color) => {
@@ -1288,6 +1711,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       serviceSection: s.serviceSection,
       stackSection: s.stackSection,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: s.sectionItemOrder,
     });
   },
   deleteSection: (id) => {
@@ -1304,17 +1728,39 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
     const { [id]: _c, ...nextCollapsed } = s.collapsedSections;
     void _c;
+    // Migrate the deleted section's ordered items into Unassigned so
+    // the user's manual ordering survives a section deletion. Items
+    // that already have an explicit slot in Unassigned win — we just
+    // append the orphans to the end.
+    const orphan = s.sectionItemOrder[id] ?? [];
+    const { [id]: _orderOmit, ...restOrder } = s.sectionItemOrder;
+    void _orderOmit;
+    let nextItemOrder: Record<SectionId, string[]> = restOrder;
+    if (orphan.length > 0) {
+      const existing = nextItemOrder[UNASSIGNED_BUCKET] ?? [];
+      const seen = new Set(existing);
+      const merged = [...existing];
+      for (const k of orphan) {
+        if (!seen.has(k)) {
+          merged.push(k);
+          seen.add(k);
+        }
+      }
+      nextItemOrder = { ...nextItemOrder, [UNASSIGNED_BUCKET]: merged };
+    }
     set({
       sections: nextSections,
       serviceSection: nextServiceSection,
       stackSection: nextStackSection,
       collapsedSections: nextCollapsed,
+      sectionItemOrder: nextItemOrder,
     });
     saveSections({
       sections: nextSections,
       serviceSection: nextServiceSection,
       stackSection: nextStackSection,
       collapsedSections: nextCollapsed,
+      sectionItemOrder: nextItemOrder,
     });
   },
   reorderSections: (ids) => {
@@ -1336,6 +1782,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       serviceSection: s.serviceSection,
       stackSection: s.stackSection,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: s.sectionItemOrder,
     });
   },
   toggleSectionCollapsed: (id) => {
@@ -1350,6 +1797,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       serviceSection: s.serviceSection,
       stackSection: s.stackSection,
       collapsedSections: nextCollapsed,
+      sectionItemOrder: s.sectionItemOrder,
     });
   },
   assignServiceToSection: (serviceId, sectionId) => {
@@ -1360,12 +1808,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } else {
       next[serviceId] = sectionId;
     }
-    set({ serviceSection: next });
+    // Re-slot the item key in the order map: drop from the previous
+    // bucket and append to the new one (if not already pinned there).
+    // The "drag-to-reorder" path uses `moveSidebarItem` directly with
+    // a precise insertion point; this entry point is the legacy
+    // "move into section" gesture (overflow menu, section-header
+    // drop) that simply parks the item at the end of the bucket.
+    const bucket = bucketOf(sectionId);
+    const key = itemOrderKey('service', serviceId);
+    const cleaned = dropItemKey(s.sectionItemOrder, key);
+    const list = cleaned[bucket] ?? [];
+    const nextOrder: Record<SectionId, string[]> = {
+      ...cleaned,
+      [bucket]: list.includes(key) ? list : [...list, key],
+    };
+    set({ serviceSection: next, sectionItemOrder: nextOrder });
     saveSections({
       sections: s.sections,
       serviceSection: next,
       stackSection: s.stackSection,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: nextOrder,
     });
   },
   assignStackToSection: (stackId, sectionId) => {
@@ -1376,12 +1839,56 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } else {
       next[stackId] = sectionId;
     }
-    set({ stackSection: next });
+    const bucket = bucketOf(sectionId);
+    const key = itemOrderKey('stack', stackId);
+    const cleaned = dropItemKey(s.sectionItemOrder, key);
+    const list = cleaned[bucket] ?? [];
+    const nextOrder: Record<SectionId, string[]> = {
+      ...cleaned,
+      [bucket]: list.includes(key) ? list : [...list, key],
+    };
+    set({ stackSection: next, sectionItemOrder: nextOrder });
     saveSections({
       sections: s.sections,
       serviceSection: s.serviceSection,
       stackSection: next,
       collapsedSections: s.collapsedSections,
+      sectionItemOrder: nextOrder,
+    });
+  },
+  moveSidebarItem: (kind, id, targetSectionId, beforeKey) => {
+    const s = get();
+    const bucket = bucketOf(targetSectionId);
+    const key = itemOrderKey(kind, id);
+    // Re-place the key at the desired slot. `placeItemKey` handles
+    // both the same-bucket reorder ("drop a service two rows up
+    // inside its section") and the cross-bucket move ("drag from
+    // Unassigned into the Backend section, slot above row N").
+    const nextOrder = placeItemKey(s.sectionItemOrder, bucket, key, beforeKey);
+
+    // Sync the section-assignment maps so the row also re-buckets.
+    let nextServiceSection = s.serviceSection;
+    let nextStackSection = s.stackSection;
+    if (kind === 'service') {
+      nextServiceSection = { ...s.serviceSection };
+      if (targetSectionId == null) delete nextServiceSection[id];
+      else nextServiceSection[id] = targetSectionId;
+    } else {
+      nextStackSection = { ...s.stackSection };
+      if (targetSectionId == null) delete nextStackSection[id];
+      else nextStackSection[id] = targetSectionId;
+    }
+    set({
+      sectionItemOrder: nextOrder,
+      serviceSection: nextServiceSection,
+      stackSection: nextStackSection,
+    });
+    saveSections({
+      sections: s.sections,
+      serviceSection: nextServiceSection,
+      stackSection: nextStackSection,
+      collapsedSections: s.collapsedSections,
+      sectionItemOrder: nextOrder,
     });
   },
 

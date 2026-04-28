@@ -85,14 +85,11 @@ pub struct AiProvider {
     /// commits English-only — this field captures that split.
     ///
     /// Resolution rules:
-    ///   - `None` / empty / `inherit` → fall back to `response_language`.
-    ///   - `auto`                     → no language directive at all
-    ///                                  (the model decides; usually
-    ///                                  matches the diff's existing
-    ///                                  comment language).
-    ///   - any other code             → forced directive (overrides
-    ///                                  `response_language` for the
-    ///                                  commit surface only).
+    /// - `None` / empty / `inherit` → fall back to `response_language`.
+    /// - `auto` → no language directive at all (the model decides;
+    ///   usually matches the diff's existing comment language).
+    /// - any other code → forced directive (overrides
+    ///   `response_language` for the commit surface only).
     #[serde(default)]
     pub commit_language: Option<String>,
     /// Hard ceiling on streamed output tokens for this provider, in

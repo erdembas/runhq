@@ -7,6 +7,8 @@ import {
   FolderOpen,
   Globe,
   GripHorizontal,
+  Maximize2,
+  Minimize2,
   Network,
   Pencil,
   Play,
@@ -315,6 +317,13 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   // events against wall-clock time.
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  // When `true`, the terminal expands to fill the entire content area
+  // (logs list and splitter both collapse). Kept as local component
+  // state — like `selectedCmdName` — so each service tab remembers
+  // its own maximize preference independently. Auto-resets when the
+  // terminal itself is closed: re-opening should land in the
+  // familiar split layout, not silently re-enter fullscreen.
+  const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [openPopover, setOpenPopover] = useState<PopoverKey | null>(null);
   const [splitY, setSplitY] = useState(() => Math.round(window.innerHeight * 0.55));
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -338,6 +347,32 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Closing the terminal panel must also drop the maximize flag so a
+  // future re-open lands in the regular split view. Otherwise the
+  // user clicks "Terminal" expecting to *see* logs again and gets a
+  // stale fullscreen state staring back at them.
+  useEffect(() => {
+    if (!showTerminal && terminalMaximized) setTerminalMaximized(false);
+  }, [showTerminal, terminalMaximized]);
+
+  // Esc restores the split view from fullscreen. We attach the
+  // listener only while maximized to keep keyboard surface area
+  // honest — Esc has lots of meanings across this app (close
+  // popovers, dismiss dialogs) and we don't want to claim it
+  // unconditionally. Capture phase isn't necessary since nothing
+  // earlier in the tree consumes Esc when this mode is on.
+  useEffect(() => {
+    if (!terminalMaximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setTerminalMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [terminalMaximized]);
 
   const activeCmd = useMemo(() => {
     if (!service) return null;
@@ -622,6 +657,37 @@ export function LogPanel({ serviceId }: LogPanelProps) {
             >
               {showTerminal ? 'Close' : 'Terminal'}
             </Button>
+            {/*
+              Fullscreen toggle for the terminal pane. Only renders
+              when the terminal is open — there's nothing to maximize
+              otherwise, and showing a disabled control would just
+              add visual clutter to the toolbar. Keeping it adjacent
+              to the Terminal button groups the two terminal-related
+              affordances together (open ↔ size) instead of scattering
+              them across the row.
+            */}
+            {showTerminal && (
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={
+                  terminalMaximized ? (
+                    <Minimize2 className="h-3 w-3" />
+                  ) : (
+                    <Maximize2 className="h-3 w-3" />
+                  )
+                }
+                className={terminalMaximized ? 'border-accent/50 text-accent bg-accent/10' : ''}
+                onClick={() => setTerminalMaximized((v) => !v)}
+                title={
+                  terminalMaximized
+                    ? 'Restore split view (Esc)'
+                    : 'Expand terminal to fill the panel'
+                }
+              >
+                {terminalMaximized ? 'Restore' : 'Expand'}
+              </Button>
+            )}
 
             <PopoverChip
               icon={<Network className="h-3 w-3" />}
@@ -762,8 +828,16 @@ export function LogPanel({ serviceId }: LogPanelProps) {
         </div>
         <div
           ref={parentRef}
-          className="log-line flex-1 overflow-auto px-4 pb-2 text-[12.5px] leading-[22px]"
-          style={showTerminal ? { height: splitY, flex: 'none' } : undefined}
+          className={cn(
+            'log-line flex-1 overflow-auto px-4 pb-2 text-[12.5px] leading-[22px]',
+            // `display: none` on the log list (rather than just collapsing
+            // its height to 0) preserves scroll position and virtualizer
+            // measurements across maximize/restore cycles. A height-0
+            // pane would force the virtualizer to recompute on every
+            // toggle and the user would lose their scroll spot.
+            terminalMaximized && 'hidden',
+          )}
+          style={showTerminal && !terminalMaximized ? { height: splitY, flex: 'none' } : undefined}
           onClick={handleLogClick}
         >
           {filtered.length === 0 ? (
@@ -863,13 +937,63 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 
         {showTerminal && (
           <>
+            {/*
+              Hide the resize splitter while maximized — there's
+              nothing on the other side to resize against, so a
+              draggable handle would just be confusing dead UI. We
+              still keep it mounted via `hidden` so its pointer
+              capture refs stay stable; not strictly required
+              today, but cheaper than re-creating handlers on
+              every maximize toggle.
+            */}
             <div
               onPointerDown={onDragStart}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}
-              className="border-border/60 bg-surface-muted/60 group hover:bg-accent/10 relative flex h-5 shrink-0 cursor-row-resize items-center justify-center border-y transition-colors"
+              className={cn(
+                'border-border/60 bg-surface-muted/60 group hover:bg-accent/10 relative flex h-5 shrink-0 cursor-row-resize items-center justify-center border-y transition-colors',
+                terminalMaximized && 'hidden',
+              )}
             >
               <GripHorizontal className="text-fg-dim group-hover:text-accent h-3 w-3" />
+              {/*
+                In-handle Expand affordance.
+
+                Why here: the splitter is exactly where the user's
+                eye lands when they want "more terminal, less log" —
+                a fullscreen button on the same line is a natural
+                escalation of that intent. Putting the control IN the
+                handle (right-anchored) instead of next to it keeps
+                the row a single visual unit at h-5.
+
+                Why `stopPropagation` on pointer down: the parent owns
+                the drag-to-resize gesture (`onPointerDown` →
+                `setPointerCapture`). Without stopping the event the
+                act of clicking the button would also start a drag,
+                and the user would feel the panel jump while their
+                fullscreen click "succeeded but did weird things".
+                Stopping the bubble keeps the two interactions
+                cleanly separated.
+              */}
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTerminalMaximized(true);
+                }}
+                title="Expand terminal to fill the panel"
+                aria-label="Expand terminal to fill the panel"
+                className={cn(
+                  'absolute top-1/2 right-1.5 -translate-y-1/2',
+                  'flex h-4 items-center gap-1 rounded px-1.5',
+                  'text-fg-dim hover:bg-accent/15 hover:text-accent',
+                  'cursor-pointer text-[10px] font-medium transition-colors',
+                )}
+              >
+                <Maximize2 className="h-2.5 w-2.5" />
+                <span>Expand</span>
+              </button>
             </div>
             <div className="bg-surface-muted min-h-0 flex-1">
               <TerminalPane id={selectedId} cwd={service.cwd} />

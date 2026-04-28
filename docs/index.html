@@ -43,7 +43,7 @@
          cached the stale copy. Changing the URL forces every edge + every
          browser to treat this as a net-new resource and re-fetch. Bump
          this token whenever docs/style.css is materially changed. -->
-    <link rel="stylesheet" href="style.css?v=0.7.0" />
+    <link rel="stylesheet" href="style.css?v=0.9.0" />
   </head>
   <body>
     <div class="page-bg" aria-hidden="true">
@@ -573,10 +573,120 @@
             </ul>
           </article>
 
-          <!-- 05 — Dependency Hygiene (0.7.0) -->
-          <article class="cockpit-card">
+          <!-- 05 — IDE-parity shell (0.9.0) -->
+          <article class="cockpit-card cockpit-card-accent">
             <div class="cockpit-card-head">
               <span class="cockpit-num">05</span>
+              <h3 class="cockpit-card-title">IDE-parity shell — tabs, pins, fullscreen terminal</h3>
+              <span class="cockpit-flag">New · 0.9.0</span>
+            </div>
+            <p class="cockpit-card-desc">
+              The mutually-exclusive Dashboard / LogPanel / StackDetail switcher is gone. Every
+              project lives in its own tab in a Cursor-style strip pinned above the content area,
+              and tabs stay mounted via <code>display: none</code> so terminal sessions, log
+              filters, split-pane heights, scroll positions and AI conversation drafts survive every
+              switch. Pinning + drag-to-reorder (axis-locked, zone-aware) + a VSCode-parity
+              right-click menu (Pin · Move Left / Right · Close · Close Others / Right / Left / All)
+              round out the IDE feel — and bulk-close gestures never touch what you've pinned. The
+              LogPanel toolbar grew an Expand button so the embedded terminal can fill the entire
+              content area when you need it (Esc restores), and the dashboard finally has a
+              <code>/</code>-to-focus search box that ranks across name, tags, port, command, and
+              cwd.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-grid">
+              <div class="cpv-row">
+                <span class="cpv-name">📌 acme-api</span>
+                <span class="cpv-pill cpv-pill-clean">pinned</span>
+                <span class="cpv-meta">terminal kept warm</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">📌 acme-web</span>
+                <span class="cpv-pill cpv-pill-clean">pinned</span>
+                <span class="cpv-meta">log filter intact</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">internal-cli</span>
+                <span class="cpv-pill cpv-pill-out">drag</span>
+                <span class="cpv-meta">→ slot 4</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">design-system</span>
+                <span class="cpv-pill cpv-pill-cve">⌘W</span>
+                <span class="cpv-meta">close active tab</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>State-preserving tab host</li>
+              <li>Chrome-parity pinning</li>
+              <li>Drag-to-reorder</li>
+              <li>Middle-click close</li>
+              <li>Move Left / Right · Close All</li>
+              <li>Fullscreen terminal (Esc)</li>
+              <li>Dashboard / search</li>
+              <li>Sidebar drag-to-reorder</li>
+            </ul>
+          </article>
+
+          <!-- 06 — AI Commit Generator (0.9.0) -->
+          <article class="cockpit-card">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">06</span>
+              <h3 class="cockpit-card-title">AI Commit Generator</h3>
+              <span class="cockpit-flag">New · 0.9.0</span>
+            </div>
+            <p class="cockpit-card-desc">
+              The Sparkles button on the Commit panel writes the message
+              <em>directly into your textarea</em> instead of bouncing through the chat hub. One
+              provider configured → instant generation; two-or-more → a small model-chooser popover
+              anchored under the button. Whatever you've already typed forwards as a hint, so
+              "scope: api" or "make it imperative" steers the regenerate. The new prompt contract
+              wraps the answer in <code>&lt;commit&gt;…&lt;/commit&gt;</code> sentinel tags so
+              reasoning-heavy models (DeepSeek-R1, GLM-4.x, Qwen-QwQ, OpenAI o-series) stop dumping
+              their "1. Analyze the request… 2. Determine the prefix…" monologue into your textarea
+              — we extract only what's between the tags, with a <code>&lt;think&gt;</code>-stripping
+              fallback for older models. Plus a per-provider
+              <strong>Commit Message language</strong>
+              override, independent from Response language, so chat in Türkçe + commits in English
+              finally has a home.
+            </p>
+            <div class="cockpit-card-preview cockpit-pv-grid">
+              <div class="cpv-row">
+                <span class="cpv-name">Sparkles click</span>
+                <span class="cpv-pill cpv-pill-clean">1 provider</span>
+                <span class="cpv-meta">→ instant fill</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">Sparkles click</span>
+                <span class="cpv-pill cpv-pill-out">2+ providers</span>
+                <span class="cpv-meta">→ chooser popover</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">&lt;commit&gt; tags</span>
+                <span class="cpv-pill cpv-pill-cve">R1 / GLM / QwQ</span>
+                <span class="cpv-meta">no leaked reasoning</span>
+              </div>
+              <div class="cpv-row">
+                <span class="cpv-name">Commit lang</span>
+                <span class="cpv-pill cpv-pill-clean">TR · EN</span>
+                <span class="cpv-meta">chat ≠ commit</span>
+              </div>
+            </div>
+            <ul class="cockpit-chips">
+              <li>Direct textarea fill</li>
+              <li>Single-click for 1 provider</li>
+              <li>Model chooser for 2+</li>
+              <li>Hint forwarding</li>
+              <li>&lt;commit&gt; sentinel tags</li>
+              <li>&lt;think&gt; stripping fallback</li>
+              <li>Per-provider commit language</li>
+              <li>Inherit / Auto / explicit BCP-47</li>
+            </ul>
+          </article>
+
+          <!-- 07 — Dependency Hygiene (0.7.0) -->
+          <article class="cockpit-card">
+            <div class="cockpit-card-head">
+              <span class="cockpit-num">07</span>
               <h3 class="cockpit-card-title">Dependency Hygiene</h3>
               <span class="cockpit-flag">New · 0.7.0</span>
             </div>
@@ -633,7 +743,9 @@
           >
           · <a href="https://github.com/erdembas/runhq/issues/37">#37</a> ·
           <a href="https://github.com/erdembas/runhq/issues/34">#34</a>) — all shipped, all local,
-          all yours.
+          all yours. 0.9.0 adds the IDE-parity tab shell, in-place AI commit generator, and a long
+          tail of workflow polish — see the
+          <a href="https://github.com/erdembas/runhq/blob/main/CHANGELOG.md#090">full changelog</a>.
         </p>
       </section>
 
@@ -712,6 +824,43 @@
               <li>Works when hidden</li>
               <li>Re-focuses the app</li>
               <li>No polling</li>
+            </ul>
+          </article>
+
+          <article class="palette-card">
+            <div class="palette-card-head">
+              <span class="palette-num">03</span>
+              <h3 class="palette-card-title">Show RunHQ window</h3>
+              <span class="palette-flag">Global · 0.9.0</span>
+            </div>
+            <div class="palette-shortcut">
+              <span class="kbd-combo">
+                <kbd class="kbd-big">⌘</kbd>
+                <span class="kbd-plus">+</span>
+                <kbd class="kbd-big">⇧</kbd>
+                <span class="kbd-plus">+</span>
+                <kbd class="kbd-big">L</kbd>
+              </span>
+              <span class="kbd-alt">
+                <kbd class="inline-kbd">Ctrl</kbd>
+                <span class="kbd-plus-dim">+</span>
+                <kbd class="inline-kbd">Shift</kbd>
+                <span class="kbd-plus-dim">+</span>
+                <kbd class="inline-kbd">L</kbd>
+                <span class="kbd-alt-label">on Linux / Windows</span>
+              </span>
+            </div>
+            <p class="palette-card-desc">
+              Different from the palette: this chord promotes the <em>main RunHQ window</em>
+              itself, not a transient overlay. Hidden in the menu bar, minimised, or sitting behind
+              a fullscreen editor — one keypress and you're back at your dashboard, terminals warm,
+              scroll positions intact.
+            </p>
+            <ul class="palette-chips">
+              <li>System-wide</li>
+              <li>Unhides from tray</li>
+              <li>Unminimises</li>
+              <li>Re-bindable</li>
             </ul>
           </article>
         </div>
@@ -959,7 +1108,7 @@
           <div class="feat-group">
             <div class="feat-head">
               <span class="feat-num">10</span>
-              <h3>AI assistant <small style="opacity: 0.6">(0.7.0)</small></h3>
+              <h3>AI assistant <small style="opacity: 0.6">(0.7.0 · 0.9.0)</small></h3>
             </div>
             <ul class="feat-badges">
               <li>OpenAI-compatible</li>
@@ -970,16 +1119,46 @@
               <li>Per-turn model picker</li>
               <li>Token meter (tiktoken-rs)</li>
               <li>Language picker w/ flags</li>
+              <li>Per-provider commit language</li>
               <li>Project · Why?</li>
               <li>Log triage</li>
               <li>Diff explain</li>
-              <li>Commit messages</li>
+              <li>In-place commit generator</li>
+              <li>&lt;commit&gt; sentinel-tag prompt</li>
+              <li>&lt;think&gt; stripping fallback</li>
               <li>Standup polish</li>
               <li>Workspace report</li>
               <li>Per-CVE deep analysis</li>
               <li>Action hooks</li>
               <li>Reasoning pill</li>
               <li>Auto-continue</li>
+            </ul>
+          </div>
+
+          <div class="feat-group">
+            <div class="feat-head">
+              <span class="feat-num">11</span>
+              <h3>Workflow ergonomics <small style="opacity: 0.6">(0.9.0)</small></h3>
+            </div>
+            <ul class="feat-badges">
+              <li>Tabbed main view</li>
+              <li>State-preserving switches</li>
+              <li>Chrome-parity pinning</li>
+              <li>Drag-to-reorder tabs</li>
+              <li>Middle-click close</li>
+              <li>⌘W on active tab</li>
+              <li>Move Left / Right</li>
+              <li>Close Others / Right / Left / All</li>
+              <li>Pinned-aware bulk close</li>
+              <li>Fullscreen terminal</li>
+              <li>Esc restores split</li>
+              <li>Dashboard / search</li>
+              <li>Score-ranked match</li>
+              <li>Sidebar drag-to-reorder</li>
+              <li>Edge-aware drop indicator</li>
+              <li>Per-bucket persistent order</li>
+              <li>Inline editor row expand</li>
+              <li>Action stats / recents</li>
             </ul>
           </div>
         </div>

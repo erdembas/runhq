@@ -83,12 +83,26 @@ pub struct StackDef {
 pub struct Shortcuts {
     #[serde(default = "default_quick_action")]
     pub quick_action: String,
+    /// Global shortcut that brings the main RunHQ window to the
+    /// foreground from anywhere on the OS — even when the app is
+    /// hidden in the menu-bar / system-tray, minimised, or sitting
+    /// behind a fullscreen editor.
+    ///
+    /// Distinct from `quick_action`: that one opens the floating
+    /// command palette (a quick "do something then disappear"
+    /// surface), this one promotes the actual main window so the
+    /// user can resume their full workflow without clicking the dock
+    /// / tray icon. Both shortcuts coexist; the user can bind either
+    /// or both to whatever they like.
+    #[serde(default = "default_focus_main")]
+    pub focus_main: String,
 }
 
 impl Default for Shortcuts {
     fn default() -> Self {
         Self {
             quick_action: default_quick_action(),
+            focus_main: default_focus_main(),
         }
     }
 }
@@ -101,6 +115,26 @@ fn default_quick_action() -> String {
     // as the Super/Windows key, which is both wrong and conflicts with
     // OS-level bindings on Windows 10+.
     "CmdOrCtrl+Shift+K".into()
+}
+
+fn default_focus_main() -> String {
+    // Cmd/Ctrl+Shift+L was picked deliberately:
+    //
+    //   • L is adjacent to K on QWERTY (the palette shortcut) so the two
+    //     are easy to learn together — "K opens the palette, L raises the
+    //     window itself".
+    //   • L is not claimed by Win10/11 the way `Win+Shift+K` is by the
+    //     OS-level snipping pass-through, so Linux and Windows users
+    //     don't immediately collide with the OS.
+    //   • macOS Cmd+Shift+L is unbound at the OS level (apps may claim it
+    //     internally — Cursor uses it for "select all occurrences", for
+    //     example — but a registered global shortcut wins regardless of
+    //     the frontmost app, which is the whole point of a system-wide
+    //     "summon RunHQ" key).
+    //
+    // Stored in the platform-agnostic `CmdOrCtrl` form for the same
+    // reason as `quick_action` above.
+    "CmdOrCtrl+Shift+L".into()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

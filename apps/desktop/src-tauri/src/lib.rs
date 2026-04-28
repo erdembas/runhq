@@ -314,6 +314,52 @@ fn focus_main_window(app: tauri::AppHandle) {
     }
 }
 
+/// Rewrite legacy bare `Cmd+…` shortcut strings to the platform-aware
+/// `CmdOrCtrl+…` form Tauri's global-shortcut parser expects. See the
+/// "Global Shortcuts" section in `setup()` for the full rationale —
+/// pulled out here so both shortcut registrations share one source of
+/// truth instead of duplicating the rewrite inline.
+fn normalise_shortcut_string(raw: &str) -> String {
+    if let Some(rest) = raw.strip_prefix("Cmd+") {
+        format!("CmdOrCtrl+{rest}")
+    } else {
+        raw.to_string()
+    }
+}
+
+/// Parse a normalised shortcut string and bind it to a press handler.
+/// The handler runs only on `ShortcutState::Pressed` so a user holding
+/// the chord doesn't fire the action repeatedly while the keys
+/// debounce (the global-shortcut plugin emits both Pressed and
+/// Released events; we only care about the leading edge).
+///
+/// Failures are logged with the binding `name` so a bad config row is
+/// debuggable from the logs without us needing to surface a UI toast
+/// for what is almost always a typo in a hand-edited prefs file.
+fn register_global_shortcut<F>(
+    global_shortcut: &tauri_plugin_global_shortcut::GlobalShortcut<tauri::Wry>,
+    name: &'static str,
+    shortcut_str: &str,
+    handler: F,
+) where
+    F: Fn(&tauri::AppHandle) + Send + Sync + 'static,
+{
+    match shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+        Ok(shortcut) => {
+            if let Err(e) = global_shortcut.on_shortcut(shortcut, move |app, _shortcut, event| {
+                if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                    handler(app);
+                }
+            }) {
+                tracing::warn!("failed to register global shortcut '{name}' ({shortcut_str}): {e}");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("invalid shortcut string for '{name}' ({shortcut_str}): {e}");
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = fmt()
@@ -526,7 +572,7 @@ pub fn run() {
                 }
             });
 
-            // ---- Global Shortcut ----
+            // ---- Global Shortcuts ----
             //
             // Before v0.2.1 the stored default was a literal `Cmd+Shift+K`.
             // Tauri's global-shortcut parser maps bare `Cmd` to SUPER, which
@@ -537,26 +583,48 @@ pub fn run() {
             // resolves it to the platform-native modifier (Cmd on macOS,
             // Ctrl elsewhere) without forcing a migration write on the
             // user's config file.
-            let raw_shortcut = store.snapshot().prefs.shortcuts.quick_action.clone();
-            let shortcut_str = if let Some(rest) = raw_shortcut.strip_prefix("Cmd+") {
-                format!("CmdOrCtrl+{rest}")
-            } else {
-                raw_shortcut
-            };
+            //
+            // Two shortcuts are registered side by side, both honouring the
+            // legacy-prefix rewrite via `normalise_shortcut_string`:
+            //   • Quick Action  → opens the floating command palette
+            //   • Focus Main    → promotes the main window to the front
+            // They're decoupled in user prefs so users can rebind either
+            // (or both) without dragging the other along — different
+            // gestures for different muscle memory.
+            let snapshot_shortcuts = store.snapshot().prefs.shortcuts.clone();
             let global_shortcut = app.global_shortcut();
 
-            if let Ok(shortcut) = shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-                if let Err(e) =
-                    global_shortcut.on_shortcut(shortcut, move |app, _shortcut, event| {
-                        if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                            toggle_quick_action(app);
-                        }
-                    })
-                {
-                    tracing::warn!("failed to register global shortcut: {e}");
-                }
+            let qa_shortcut_str = normalise_shortcut_string(&snapshot_shortcuts.quick_action);
+            register_global_shortcut(
+                &global_shortcut,
+                "quick_action",
+                &qa_shortcut_str,
+                |app| {
+                    toggle_quick_action(app);
+                },
+            );
+
+            let focus_shortcut_str = normalise_shortcut_string(&snapshot_shortcuts.focus_main);
+            // Defensive: if a user (or a corrupted config) ends up with
+            // both shortcuts pointing to the same chord, registering the
+            // second one would just clobber the first silently — Tauri's
+            // global-shortcut plugin overwrites the previous handler
+            // without warning. Skip the duplicate to keep the palette
+            // working; the Settings UI also flags equal bindings to
+            // surface the conflict, but defence in depth is cheap.
+            if !focus_shortcut_str.eq_ignore_ascii_case(&qa_shortcut_str) {
+                register_global_shortcut(
+                    &global_shortcut,
+                    "focus_main",
+                    &focus_shortcut_str,
+                    |app| {
+                        focus_main_window(app.clone());
+                    },
+                );
             } else {
-                tracing::warn!("invalid shortcut string: {shortcut_str}");
+                tracing::warn!(
+                    "focus_main shortcut equals quick_action ({qa_shortcut_str}); skipping focus_main registration to avoid clobbering palette binding"
+                );
             }
 
             // ---- Main window close → hide instead of quit ----

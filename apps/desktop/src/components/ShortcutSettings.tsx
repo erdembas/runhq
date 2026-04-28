@@ -15,15 +15,19 @@ import type { Prefs, Shortcuts } from '@/types';
 // Windows/Linux. The UI then displays the platform-appropriate label.
 const DEFAULT_SHORTCUTS: Shortcuts = {
   quick_action: 'CmdOrCtrl+Shift+K',
+  focus_main: 'CmdOrCtrl+Shift+L',
 };
 
 const SHORTCUT_LABELS: Record<keyof Shortcuts, string> = {
   quick_action: 'Quick Action Bar',
+  focus_main: 'Show RunHQ window',
 };
 
 const SHORTCUT_DESCRIPTIONS: Record<keyof Shortcuts, string> = {
   quick_action:
     'Open the Spotlight-like search bar from anywhere. The app window will be brought to front if hidden.',
+  focus_main:
+    'Bring the main RunHQ window to the foreground from anywhere — works even when RunHQ is hidden in the menu bar / tray, minimised, or sitting behind a fullscreen editor.',
 };
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -66,9 +70,16 @@ interface ShortcutRowProps {
   value: string;
   onChange: (id: keyof Shortcuts, value: string) => void;
   onReset: (id: keyof Shortcuts) => void;
+  /**
+   * `true` when this row's binding collides with another row's binding
+   * after normalisation. Rendered as a soft danger ring + inline note
+   * so users can resolve the duplicate without hunting through the
+   * Rust logs for the silent-skip warning.
+   */
+  conflict?: boolean;
 }
 
-function ShortcutRow({ id, value, onChange, onReset }: ShortcutRowProps) {
+function ShortcutRow({ id, value, onChange, onReset, conflict }: ShortcutRowProps) {
   const [recording, setRecording] = useState(false);
   const inputRef = useRef<HTMLButtonElement>(null);
 
@@ -102,6 +113,11 @@ function ShortcutRow({ id, value, onChange, onReset }: ShortcutRowProps) {
       <div className="min-w-0">
         <div className="text-fg text-[12px] font-medium">{SHORTCUT_LABELS[id]}</div>
         <div className="text-fg-dim text-[10px]">{SHORTCUT_DESCRIPTIONS[id]}</div>
+        {conflict && (
+          <div className="text-danger mt-1 text-[10px]">
+            Same binding as another shortcut — pick a different chord so both can fire.
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <button
@@ -112,6 +128,7 @@ function ShortcutRow({ id, value, onChange, onReset }: ShortcutRowProps) {
           className={cn(
             'border-border bg-surface-muted hover:border-border-strong rounded-app-sm min-w-[140px] border px-3 py-1.5 text-left transition',
             recording && 'border-accent ring-accent/30 ring-2',
+            !recording && conflict && 'border-danger ring-danger/30 ring-2',
           )}
         >
           {recording ? (
@@ -225,7 +242,39 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
     setShortcuts(DEFAULT_SHORTCUTS);
   };
 
+  /**
+   * Set of shortcut ids that share their (normalised) chord with at
+   * least one other binding. Two rows with the same chord would have
+   * the second `on_shortcut` registration silently clobber the first
+   * inside Tauri's global-shortcut plugin — surfacing the conflict
+   * here lets the user fix it before save instead of finding out via
+   * "huh, my palette doesn't open anymore".
+   *
+   * Comparison is on the *normalised* string so `Cmd+Shift+L` and
+   * `CmdOrCtrl+Shift+L` count as the same chord even though they're
+   * stored differently.
+   */
+  const conflictingIds = useMemo<ReadonlySet<keyof Shortcuts>>(() => {
+    const counts = new Map<string, Array<keyof Shortcuts>>();
+    for (const id of Object.keys(DEFAULT_SHORTCUTS) as Array<keyof Shortcuts>) {
+      const normalised = normalizeShortcut(shortcuts[id] ?? DEFAULT_SHORTCUTS[id]).toLowerCase();
+      const list = counts.get(normalised);
+      if (list) list.push(id);
+      else counts.set(normalised, [id]);
+    }
+    const out = new Set<keyof Shortcuts>();
+    for (const list of counts.values()) {
+      if (list.length > 1) {
+        for (const id of list) out.add(id);
+      }
+    }
+    return out;
+  }, [shortcuts]);
+
+  const hasConflict = conflictingIds.size > 0;
+
   const handleSave = async () => {
+    if (hasConflict) return;
     setSaving(true);
     try {
       const updated = await ipc.updatePrefs({
@@ -253,6 +302,7 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
             value={normalizeShortcut(shortcuts[id] ?? DEFAULT_SHORTCUTS[id])}
             onChange={handleChange}
             onReset={handleReset}
+            conflict={conflictingIds.has(id)}
           />
         ))}
       </div>
@@ -264,14 +314,14 @@ export function ShortcutSettings({ onClose, onReplayTour }: ShortcutSettingsProp
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={saving || hasConflict}>
             {saving ? 'Saving…' : 'Save & Apply'}
           </Button>
         </div>
       </div>
       <p className="text-fg-dim mt-3 text-[10px]">
-        Changes to the Quick Action shortcut take effect after restarting the app. A modifier key
-        (Cmd/Ctrl) is required for all shortcuts.
+        Changes to global shortcuts take effect after restarting the app. A modifier key (Cmd/Ctrl)
+        is required for all shortcuts.
       </p>
 
       {/*

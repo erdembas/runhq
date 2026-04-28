@@ -14,11 +14,14 @@
  *   • Wider container (max-w-2xl) because each highlight gets a 16:9
  *     media slot at the top — at the tour's max-w-lg the image would
  *     letterbox awkwardly.
- *   • Theme-aware image swap. `media.themeAware: true` + `media.src`
+ *   • Theme-aware media swap. `media.themeAware: true` + `media.src`
  *     of `/whatsnew/0.6.0/dashboard` resolves to
- *     `/whatsnew/0.6.0/dashboard-{light|dark}.webp` so screenshots
- *     match the running theme without a runtime tint hack.
- *   • Image-load fallback chain: declared `src` → theme-flipped
+ *     `/whatsnew/0.6.0/dashboard-{light|dark}.{webp|webm}` so
+ *     screenshots match the running theme without a runtime tint hack.
+ *     Extension is driven by `media.kind`: omit it (or set `'image'`)
+ *     for static `.webp`, set `'video'` for a looping decorative
+ *     `.webm` clip — see the `HighlightMedia` doc for details.
+ *   • Media-load fallback chain: declared `src` → theme-flipped
  *     sibling → in-component gradient + icon. This means the modal
  *     can ship before any screenshot is captured (ship-now vs.
  *     wait-for-assets) without an empty rectangle anywhere.
@@ -196,24 +199,32 @@ function HighlightVisual({
     setErrored(false);
   }, [media.src, themeSuffix]);
 
+  const isVideo = media.kind === 'video';
+
   const resolvedSrc = useMemo(() => {
     if (!media.src) return null;
-    // `media.src` is the *base* path (no extension). We always append
-    // `.webp` because that's the format we publish — Tauri's bundled
-    // webview supports it on every platform we ship to. If a future
-    // release wants a different format, the schema can grow an
-    // explicit `format` field; for now keeping it implicit avoids
-    // every release entry repeating `format: 'webp'`.
-    if (media.themeAware) return `${media.src}-${themeSuffix}.webp`;
-    return `${media.src}.webp`;
-  }, [media.src, media.themeAware, themeSuffix]);
+    // `media.src` is the *base* path (no extension). The extension is
+    // derived from `media.kind` so the data registry stays declarative
+    // and individual entries don't repeat the format string:
+    //   • `kind: 'image'` (default) → `.webp`. Matches every release
+    //     authored before 0.9.0, so omitting `kind` keeps existing
+    //     entries working unchanged.
+    //   • `kind: 'video'`           → `.webm` (VP9 / Opus). Used for
+    //     highlights where motion tells the story; the element below
+    //     swaps to `<video>` accordingly.
+    // Theme-aware variants append `-light` / `-dark` before the
+    // extension regardless of kind.
+    const ext = isVideo ? 'webm' : 'webp';
+    if (media.themeAware) return `${media.src}-${themeSuffix}.${ext}`;
+    return `${media.src}.${ext}`;
+  }, [media.src, media.themeAware, themeSuffix, isVideo]);
 
   // Image-less highlight: don't render a visual slot at all. The modal's
   // copy section will surface bullets / blurb inline so the slide reads
   // as a content card, not a screenshot with a missing image.
   if (resolvedSrc == null) return null;
 
-  const showImage = !errored;
+  const showMedia = !errored;
 
   return (
     <div
@@ -222,16 +233,38 @@ function HighlightVisual({
         ASPECT_CLASS[media.aspectRatio],
       )}
     >
-      {showImage ? (
-        <img
-          key={resolvedSrc /* force re-render so onError clears between slides */}
-          src={resolvedSrc}
-          alt={media.alt}
-          loading="eager"
-          decoding="async"
-          onError={() => setErrored(true)}
-          className="h-full w-full object-cover"
-        />
+      {showMedia ? (
+        isVideo ? (
+          // Decorative motion clip — no controls, no audio, autoplay on
+          // mount, loop forever. `muted` is a hard requirement for
+          // autoplay across every browser engine we ship into; `playsInline`
+          // keeps WKWebView (macOS) from hijacking it into a fullscreen
+          // player on first paint. `preload="metadata"` lets the engine
+          // size the slot without pulling the full payload before the
+          // user actually sees the slide.
+          <video
+            key={resolvedSrc}
+            src={resolvedSrc}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-label={media.alt}
+            onError={() => setErrored(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <img
+            key={resolvedSrc /* force re-render so onError clears between slides */}
+            src={resolvedSrc}
+            alt={media.alt}
+            loading="eager"
+            decoding="async"
+            onError={() => setErrored(true)}
+            className="h-full w-full object-cover"
+          />
+        )
       ) : (
         <div
           aria-label={media.alt || fallback.caption}

@@ -7,9 +7,14 @@
  */
 import { release_0_6_0 } from './data/0.6.0';
 import { release_0_7_0 } from './data/0.7.0';
+import { release_0_9_0 } from './data/0.9.0';
 import type { WhatsNewRelease } from './types';
 
-export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [release_0_7_0, release_0_6_0];
+export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
+  release_0_9_0,
+  release_0_7_0,
+  release_0_6_0,
+];
 
 export function getLatestRelease(): WhatsNewRelease | null {
   return WHATS_NEW_RELEASES[0] ?? null;

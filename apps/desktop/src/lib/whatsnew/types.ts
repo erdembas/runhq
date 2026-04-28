@@ -92,6 +92,29 @@ export interface HighlightMedia {
    * the image is still loading or has fallen back, to avoid CLS.
    */
   aspectRatio: '16/9' | '4/3' | '1/1';
+  /**
+   * Asset kind. Drives both file-extension resolution and the DOM
+   * element used to render the slot.
+   *
+   *   • `'image'` (default) — `${src}.webp` rendered as `<img>`. This
+   *     matches how every release prior to 0.9.0 was authored, so
+   *     omitting the field keeps existing entries working unchanged.
+   *
+   *   • `'video'` — `${src}.webm` rendered as `<video autoplay muted
+   *     loop playsinline>`. Use for highlights where motion tells the
+   *     story (drag-to-reorder, search-as-you-type, terminal zoom).
+   *     Encoded as VP9 / Opus and capped well under the WebP-equivalent
+   *     bundle budget; see `apps/desktop/public/whatsnew/0.9.0/README.md`
+   *     for the capture + encode commands.
+   *
+   * Theme-aware variants follow the same naming as images — when
+   * `themeAware` is true the modal appends `-light` / `-dark` before
+   * the extension, so `<slug>-light.webm` + `<slug>-dark.webm`.
+   *
+   * Lightbox / click-to-zoom is image-only by design — videos already
+   * play in place, and there's nothing meaningful to enlarge.
+   */
+  kind?: 'image' | 'video';
 }
 
 export type HighlightCta =

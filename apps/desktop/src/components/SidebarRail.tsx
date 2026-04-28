@@ -17,6 +17,7 @@ import {
   SectionBody,
   FlatItems,
   ServiceRow,
+  itemKey,
   UNASSIGNED,
   COLLAPSED_W,
   MIN_W,
@@ -24,7 +25,7 @@ import {
   DEFAULT_W,
   getActiveDrag,
 } from './sidebar';
-import type { ServiceGroup } from './sidebar';
+import type { ServiceGroup, SidebarItem } from './sidebar';
 
 export function SidebarRail() {
   const services = useAppStore((s) => s.services);
@@ -47,6 +48,7 @@ export function SidebarRail() {
   const serviceSection = useAppStore((s) => s.serviceSection);
   const stackSection = useAppStore((s) => s.stackSection);
   const collapsedSections = useAppStore((s) => s.collapsedSections);
+  const sectionItemOrder = useAppStore((s) => s.sectionItemOrder);
   const toggleSectionCollapsed = useAppStore((s) => s.toggleSectionCollapsed);
 
   const [pinned, setPinned] = useState(true);
@@ -145,32 +147,90 @@ export function SidebarRail() {
     serviceIdsInAnyStack,
   ]);
 
-  const servicesBySection = useMemo(() => {
-    const map = new Map<SectionId, typeof services>();
+  /**
+   * Per-bucket ordered list of sidebar items (services + stacks
+   * interleaved). The bucket key is either a real section id or
+   * {@link UNASSIGNED} for the catch-all pseudo-section.
+   *
+   * Ordering rules:
+   *   1. Items present in `sectionItemOrder[bucket]` keep that order.
+   *   2. Items absent from the hint (freshly added, never dragged)
+   *      are appended in alphabetical order — keeps brand-new
+   *      services from "disappearing" off the bottom while still
+   *      letting the user override later via drag.
+   *
+   * We rebuild on every change to filteredServices / stacks / order
+   * map; the cost is linear in roster size which is fine for the
+   * sidebar's typical 5-50 row range.
+   */
+  const itemsBySection = useMemo(() => {
     const validIds = new Set(sections.map((s) => s.id));
-    for (const svc of filteredServices) {
-      const assigned = serviceSection[svc.id];
-      const key = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
-      const bucket = map.get(key);
-      if (bucket) bucket.push(svc);
-      else map.set(key, [svc]);
-    }
-    for (const list of map.values()) list.sort((a, b) => a.name.localeCompare(b.name));
-    return map;
-  }, [filteredServices, serviceSection, sections]);
-
-  const stacksBySection = useMemo(() => {
-    const map = new Map<SectionId, typeof stacks>();
-    const validIds = new Set(sections.map((s) => s.id));
+    const buckets = new Map<SectionId, SidebarItem[]>();
+    const push = (bucket: SectionId, item: SidebarItem) => {
+      const list = buckets.get(bucket);
+      if (list) list.push(item);
+      else buckets.set(bucket, [item]);
+    };
     for (const stack of stacks) {
       const assigned = stackSection[stack.id];
-      const key = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
-      const bucket = map.get(key);
-      if (bucket) bucket.push(stack);
-      else map.set(key, [stack]);
+      const bucket = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
+      push(bucket, { kind: 'stack', ref: stack });
     }
-    return map;
-  }, [stacks, stackSection, sections]);
+    for (const svc of filteredServices) {
+      const assigned = serviceSection[svc.id];
+      const bucket = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
+      push(bucket, { kind: 'service', ref: svc });
+    }
+    // Apply per-bucket order hint, with alphabetical fallback for
+    // anything missing from it.
+    for (const [bucket, list] of buckets) {
+      const hint = sectionItemOrder[bucket] ?? [];
+      if (hint.length === 0) {
+        list.sort((a, b) => a.ref.name.localeCompare(b.ref.name));
+        continue;
+      }
+      const indexFor = new Map<string, number>();
+      hint.forEach((k, i) => indexFor.set(k, i));
+      list.sort((a, b) => {
+        const ka = itemKey(a.kind, a.ref.id);
+        const kb = itemKey(b.kind, b.ref.id);
+        const ia = indexFor.get(ka);
+        const ib = indexFor.get(kb);
+        // Both slotted: hint order wins.
+        if (ia != null && ib != null) return ia - ib;
+        // One slotted, one not: slotted item goes first so the
+        // user's curated order isn't disturbed by new arrivals.
+        if (ia != null) return -1;
+        if (ib != null) return 1;
+        // Neither slotted: alphabetical.
+        return a.ref.name.localeCompare(b.ref.name);
+      });
+    }
+    return buckets;
+  }, [filteredServices, stacks, serviceSection, stackSection, sections, sectionItemOrder]);
+
+  const totalsBySection = useMemo(() => {
+    const out = new Map<SectionId, { running: number; total: number }>();
+    for (const [bucket, list] of itemsBySection) {
+      let running = 0;
+      let total = 0;
+      for (const item of list) {
+        if (item.kind === 'stack') {
+          total += item.ref.service_ids.length;
+          running += item.ref.service_ids.filter((sid) => {
+            const st: Status = statuses[sid]?.status ?? 'stopped';
+            return st === 'running' || st === 'starting';
+          }).length;
+        } else {
+          total += 1;
+          const st: Status = statuses[item.ref.id]?.status ?? 'stopped';
+          if (st === 'running' || st === 'starting') running += 1;
+        }
+      }
+      out.set(bucket, { running, total });
+    }
+    return out;
+  }, [itemsBySection, statuses]);
 
   const flatGroups = useMemo<ServiceGroup[]>(() => {
     if (groupBy === 'none') return [];
@@ -440,8 +500,8 @@ export function SidebarRail() {
           <>
             {!hasSections ? (
               <FlatItems
-                stacks={stacks}
-                services={[...filteredServices].sort((a, b) => a.name.localeCompare(b.name))}
+                items={itemsBySection.get(UNASSIGNED) ?? []}
+                bucketId={UNASSIGNED}
                 statuses={statuses}
                 selectedServiceId={selectedServiceId}
                 selectedStackId={selectedStackId}
@@ -483,38 +543,21 @@ export function SidebarRail() {
             ) : (
               <>
                 {sections.map((sec) => {
-                  const secStacks = stacksBySection.get(sec.id) ?? [];
-                  const secServices = servicesBySection.get(sec.id) ?? [];
+                  const secItems = itemsBySection.get(sec.id) ?? [];
                   const isCollapsed = !!collapsedSections[sec.id];
-                  const runningIn =
-                    secStacks.reduce(
-                      (acc, st) =>
-                        acc +
-                        st.service_ids.filter((sid) => {
-                          const s: Status = statuses[sid]?.status ?? 'stopped';
-                          return s === 'running' || s === 'starting';
-                        }).length,
-                      0,
-                    ) +
-                    secServices.filter(
-                      (svc) =>
-                        (statuses[svc.id]?.status ?? 'stopped') === 'running' ||
-                        (statuses[svc.id]?.status ?? 'stopped') === 'starting',
-                    ).length;
-                  const totalIn =
-                    secStacks.reduce((a, st) => a + st.service_ids.length, 0) + secServices.length;
+                  const totals = totalsBySection.get(sec.id) ?? { running: 0, total: 0 };
                   return (
                     <SectionBlock
                       key={sec.id}
                       section={sec}
                       collapsed={isCollapsed}
                       onToggle={() => toggleSectionCollapsed(sec.id)}
-                      running={runningIn}
-                      total={totalIn}
+                      running={totals.running}
+                      total={totals.total}
                     >
                       <SectionBody
-                        stacks={secStacks}
-                        services={secServices}
+                        items={secItems}
+                        bucketId={sec.id}
                         statuses={statuses}
                         selectedServiceId={selectedServiceId}
                         selectedStackId={selectedStackId}
@@ -550,47 +593,54 @@ export function SidebarRail() {
                   );
                 })}
 
-                <UnassignedBlock
-                  collapsed={!!collapsedSections[UNASSIGNED]}
-                  onToggle={() => toggleSectionCollapsed(UNASSIGNED)}
-                  stacksCount={(stacksBySection.get(UNASSIGNED) ?? []).length}
-                  servicesCount={(servicesBySection.get(UNASSIGNED) ?? []).length}
-                >
-                  <SectionBody
-                    stacks={stacksBySection.get(UNASSIGNED) ?? []}
-                    services={servicesBySection.get(UNASSIGNED) ?? []}
-                    statuses={statuses}
-                    selectedServiceId={selectedServiceId}
-                    selectedStackId={selectedStackId}
-                    serviceSection={serviceSection}
-                    stackSection={stackSection}
-                    onSelectService={setSelected}
-                    onSelectStack={setSelectedStack}
-                    onEditService={openEditor}
-                    onDeleteService={(svc) => {
-                      setPendingConfirm({
-                        message: `Delete "${svc.name}"?`,
-                        onConfirm: async () => {
-                          setPendingConfirm(null);
-                          await ipc.stopService(svc.id).catch(() => undefined);
-                          await ipc.removeService(svc.id);
-                          removeServiceLocal(svc.id);
-                        },
-                      });
-                    }}
-                    onEditStack={openStackEditor}
-                    onDeleteStack={(stack) => {
-                      setPendingConfirm({
-                        message: `Delete stack "${stack.name}"?`,
-                        onConfirm: async () => {
-                          setPendingConfirm(null);
-                          await ipc.removeStack(stack.id);
-                          removeStackLocal(stack.id);
-                        },
-                      });
-                    }}
-                  />
-                </UnassignedBlock>
+                {(() => {
+                  const items = itemsBySection.get(UNASSIGNED) ?? [];
+                  const stacksCount = items.filter((i) => i.kind === 'stack').length;
+                  const servicesCount = items.length - stacksCount;
+                  return (
+                    <UnassignedBlock
+                      collapsed={!!collapsedSections[UNASSIGNED]}
+                      onToggle={() => toggleSectionCollapsed(UNASSIGNED)}
+                      stacksCount={stacksCount}
+                      servicesCount={servicesCount}
+                    >
+                      <SectionBody
+                        items={items}
+                        bucketId={UNASSIGNED}
+                        statuses={statuses}
+                        selectedServiceId={selectedServiceId}
+                        selectedStackId={selectedStackId}
+                        serviceSection={serviceSection}
+                        stackSection={stackSection}
+                        onSelectService={setSelected}
+                        onSelectStack={setSelectedStack}
+                        onEditService={openEditor}
+                        onDeleteService={(svc) => {
+                          setPendingConfirm({
+                            message: `Delete "${svc.name}"?`,
+                            onConfirm: async () => {
+                              setPendingConfirm(null);
+                              await ipc.stopService(svc.id).catch(() => undefined);
+                              await ipc.removeService(svc.id);
+                              removeServiceLocal(svc.id);
+                            },
+                          });
+                        }}
+                        onEditStack={openStackEditor}
+                        onDeleteStack={(stack) => {
+                          setPendingConfirm({
+                            message: `Delete stack "${stack.name}"?`,
+                            onConfirm: async () => {
+                              setPendingConfirm(null);
+                              await ipc.removeStack(stack.id);
+                              removeStackLocal(stack.id);
+                            },
+                          });
+                        }}
+                      />
+                    </UnassignedBlock>
+                  );
+                })()}
               </>
             )}
           </>
