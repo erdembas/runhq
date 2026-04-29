@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RunHQ — Orchestrate your entire dev portfolio</title>
+    <title>RunHQ — Every project on your disk. One cockpit.</title>
     <meta
       name="description"
-      content="Run, monitor, and orchestrate every project on your machine — stacks, processes, ports, CVEs, git, AI. Cross-project orchestration for the polyglot developer. 100% local, &lt; 100 MB RAM."
+      content="The orchestration cockpit for your local dev portfolio. RunHQ discovers every project on disk, runs whole stacks with one click, and uses AI to surface what needs you across all of them. Native, local, &lt; 100 MB RAM."
     />
-    <meta property="og:title" content="RunHQ — Orchestrate your entire dev portfolio" />
+    <meta property="og:title" content="RunHQ — Every project on your disk. One cockpit." />
     <meta
       property="og:description"
-      content="Run, monitor, and orchestrate every project on your machine. Start stacks, kill port conflicts, triage CVEs, and ship clean code across your entire portfolio. Native, local, offline."
+      content="Discover, orchestrate, and heal every project on your machine. Stacks, ports, CVEs, git, AI — all cross-project. Native, local, no account."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://runhq.dev" />
@@ -20,13 +20,13 @@
     <meta property="og:image:height" content="512" />
     <meta property="og:image:alt" content="RunHQ app icon" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="RunHQ — Orchestrate your entire dev portfolio" />
+    <meta name="twitter:title" content="RunHQ — Every project on your disk. One cockpit." />
     <meta
       name="twitter:description"
-      content="Run, monitor, and orchestrate every project on your machine. Start stacks, kill port conflicts, triage CVEs, and ship clean code across your entire portfolio. Native, local, offline."
+      content="Discover, orchestrate, and heal every project on your machine. Stacks, ports, CVEs, git, AI — all cross-project. Native, local, no account."
     />
     <meta name="twitter:image" content="https://runhq.dev/icon.png" />
-    <meta name="theme-color" content="#0c0c0c" />
+    <meta name="theme-color" content="#0b0b0b" />
     <link rel="canonical" href="https://runhq.dev" />
     <link rel="icon" type="image/png" sizes="512x512" href="icon.png" />
     <link rel="apple-touch-icon" href="icon.png" />
@@ -37,19 +37,13 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <!-- Cache-bust query string: the previous deploy baked a 1-year
-         `immutable` Cache-Control header on /style.css (see docs/_headers
-         history), which stranded users on whichever Cloudflare edge had
-         cached the stale copy. Changing the URL forces every edge + every
-         browser to treat this as a net-new resource and re-fetch. Bump
-         this token whenever docs/style.css is materially changed. -->
-    <link rel="stylesheet" href="style.css?v=0.9.0" />
+    <!-- Bump the cache-bust token whenever style.css is materially changed.
+         Cloudflare's `immutable` Cache-Control on the previous deploy used
+         to strand visitors on stale CSS. -->
+    <link rel="stylesheet" href="style.css?v=0.10.0" />
   </head>
   <body>
-    <div class="page-bg" aria-hidden="true">
-      <div class="page-bg-grid"></div>
-      <div class="page-bg-glow"></div>
-    </div>
+    <div class="page-bg" aria-hidden="true"></div>
 
     <header class="nav">
       <div class="nav-inner">
@@ -58,15 +52,14 @@
           <span>RunHQ</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
-          <a href="#platform">Platform</a>
-          <a href="#cockpit">Cockpit</a>
-          <a href="#palette">Shortcuts</a>
-          <a href="#features">Features</a>
+          <a href="#loop">The loop</a>
+          <a href="#why">Why</a>
+          <a href="#box">In the box</a>
           <a href="#install">Install</a>
           <a href="https://github.com/erdembas/runhq">GitHub</a>
         </nav>
         <div class="nav-actions">
-          <a href="#install" class="nav-cta"> Get RunHQ </a>
+          <a href="#install" class="nav-cta">Get RunHQ</a>
         </div>
       </div>
     </header>
@@ -74,1308 +67,643 @@
     <main>
       <!-- ============ HERO ============ -->
       <section class="hero">
-        <div class="hero-inner">
-          <div class="hero-tagline">Orchestrate your entire dev portfolio</div>
-          <h1 class="hero-title">
-            Run, monitor, and
-            <span class="tw-wrap">
-              <span class="tw-text" aria-live="polite"></span
-              ><span class="tw-cursor" aria-hidden="true"></span>
-            </span>
-            <br />
-            every project on your machine.
-          </h1>
-          <p class="hero-lead">
-            <strong>Dozens of projects. One surface.</strong> RunHQ runs every repo on your disk,
-            catches CVEs before they ship, keeps your portfolio healthy, and fixes offenders in two
-            clicks. Start stacks, kill port conflicts, supervise processes — and let an AI assistant
-            that <strong>reasons across all your projects together</strong> triage, explain, and
-            commit — local model or cloud, your call. No containers, no cloud lock-in, no account.
-          </p>
+        <div class="wrap">
+          <div class="hero-grid">
+            <div class="hero-copy">
+              <span class="hero-tag">
+                <span class="hero-tag-dot"></span>
+                v0.9.0 · IDE-parity cockpit
+              </span>
+              <h1 class="hero-title">
+                Every project on your disk.<br />
+                <em>One cockpit.</em>
+              </h1>
+              <p class="hero-lead">
+                Your <code>~/code</code> has 30 repos. Half are dormant client work, two pay the
+                bills, one has a CVE you can't remember which.
+                <strong>RunHQ orchestrates the whole portfolio</strong> — discovers every project,
+                runs stacks with one click, and an AI that reasons across all of them tells you what
+                needs you this week.
+              </p>
+              <div class="hero-ctas">
+                <a href="#install" class="btn btn-primary">Get RunHQ — free</a>
+                <a href="#loop" class="btn btn-text">
+                  See it in action
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M5 12h14M13 6l6 6-6 6"
+                    />
+                  </svg>
+                </a>
+              </div>
+              <div class="hero-meta">
+                <span>Native · Tauri + Rust</span>
+                <span>&lt; 100 MB RAM</span>
+                <span>10 runtimes</span>
+                <span>MIT</span>
+                <span>Zero telemetry</span>
+              </div>
 
-          <div class="hero-ctas">
-            <a href="#install" class="btn btn-primary"> Get RunHQ </a>
-            <a href="#features" class="btn btn-text">
-              See features
-              <svg
-                viewBox="0 0 24 24"
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
+              <a
+                class="maas"
+                href="https://mersel.io/iletisim?utm_source=runhq&amp;utm_medium=hero&amp;utm_campaign=maas_credit"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Built with GLM on Huawei Cloud MaaS — learn more at mersel.io"
               >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6" />
-              </svg>
-            </a>
-          </div>
-
-          <ul class="hero-chips">
-            <li>10 runtimes</li>
-            <li>Cross-project orchestration</li>
-            <li>&lt;100 MB RAM</li>
-            <li>macOS · Linux · Windows</li>
-            <li>MIT · open source</li>
-          </ul>
-
-          <a
-            class="hero-maas"
-            href="https://mersel.io/iletisim?utm_source=runhq&amp;utm_medium=hero&amp;utm_campaign=maas_credit"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Built with GLM on Huawei Cloud MaaS — learn more at mersel.io"
-          >
-            <svg
-              class="hero-maas-icon"
-              viewBox="0 0 24 24"
-              width="13"
-              height="13"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
-              <path d="M19 14l.9 2.1 2.1.9-2.1.9L19 20l-.9-2.1-2.1-.9 2.1-.9L19 14z" />
-            </svg>
-            <span class="hero-maas-text">
-              Built with <strong>GLM</strong> on <strong>Huawei Cloud MaaS</strong>
-            </span>
-            <span class="hero-maas-sep" aria-hidden="true">·</span>
-            <span class="hero-maas-more">Learn more</span>
-            <svg
-              class="hero-maas-arrow"
-              viewBox="0 0 24 24"
-              width="11"
-              height="11"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </a>
-        </div>
-
-        <!-- Real app screenshot. Keeps its own macOS chrome + shadow, so the
-             outer wrapper only adds a subtle frame glow (see style.css). -->
-        <div class="hero-window-shell reveal">
-          <a
-            id="heroVideoLink"
-            class="hero-window hero-window--shot"
-            href="dashboard.png"
-            aria-label="Open full-size dashboard screenshot"
-          >
-            <video
-              id="heroVideoPreview"
-              src="RunHQ-web-version-final.mp4"
-              width="1590"
-              height="1080"
-              muted
-              playsinline
-              autoplay
-            ></video>
-            <div class="video-overlay-gradient"></div>
-            <div class="video-play-overlay">
-              <svg
-                viewBox="0 0 24 24"
-                width="24"
-                height="24"
-                fill="currentColor"
-                style="margin-left: 2px"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="11"
+                  height="11"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
+                </svg>
+                Built with <b>GLM</b> on <b>Huawei Cloud MaaS</b>
+                <span class="maas-sep" aria-hidden="true">·</span>
+                <span class="maas-more">Learn more</span>
+                <svg
+                  class="maas-arrow"
+                  viewBox="0 0 24 24"
+                  width="11"
+                  height="11"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14M13 6l6 6-6 6" />
+                </svg>
+              </a>
             </div>
-            <div id="heroVideoText" class="video-text-cinematic">
-              <div class="vtc-kicker">RunHQ Cockpit</div>
-              <div class="vtc-title" id="vtcTitle">Every project, one cockpit</div>
-              <div class="vtc-desc" id="vtcDesc">
-                Indexed, scanned, and one click away — across your whole machine.
+
+            <!-- ----- Live cockpit (tıklanabilir mock) ----- -->
+            <div class="hero-stage">
+              <div class="lc" id="heroLc" data-lc>
+                <div class="lc-chrome">
+                  <span class="lc-dot r"></span>
+                  <span class="lc-dot y"></span>
+                  <span class="lc-dot g"></span>
+                  <span class="lc-chrome-title"
+                    ><b>RunHQ</b> · <span data-lc-cwd>~/code</span></span
+                  >
+                  <span class="lc-chrome-pill">
+                    <span class="lc-chrome-pill-dot"></span>
+                    <span data-lc-status>Workspace healthy</span>
+                  </span>
+                </div>
+                <div class="lc-body">
+                  <aside class="lc-rail" data-lc-rail></aside>
+                  <div class="lc-main">
+                    <div class="lc-headline">
+                      <h4 data-lc-h>Workspace</h4>
+                      <span class="lc-state" data-lc-state></span>
+                      <div class="lc-actions">
+                        <button class="lc-btn" data-lc-action="kill" type="button" hidden>
+                          <span class="lc-btn-dot" style="background: var(--rose)"></span>
+                          Kill :5432
+                        </button>
+                        <button class="lc-btn is-primary" data-lc-action="ai" type="button">
+                          <span class="lc-btn-dot" style="background: var(--accent)"></span>
+                          Analyze workspace
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="lc-hero-card">
+                      <div class="lc-hero-card-line">
+                        <strong data-lc-hero-h>4 / 6 services running</strong>
+                        <span style="color: var(--text-muted)">·</span>
+                        <span data-lc-hero-sub>acme-platform stack</span>
+                      </div>
+                      <div class="lc-hero-card-chips" data-lc-hero-chips></div>
+                    </div>
+
+                    <div class="lc-list" data-lc-list></div>
+
+                    <div class="lc-ai" data-lc-ai>
+                      <div class="lc-ai-head">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="11"
+                          height="11"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"
+                          />
+                        </svg>
+                        <span><b>Cross-project analysis</b> · local model</span>
+                      </div>
+                      <div class="lc-ai-body" data-lc-ai-body>
+                        Click <strong>Analyze workspace</strong> to see what needs you this week.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </a>
+          </div>
         </div>
       </section>
 
-      <!-- ============ WORKS WITH STRIP ============ -->
+      <!-- ============ STACK STRIP ============ -->
       <section class="strip" aria-label="Supported runtimes">
-        <div class="strip-label">Works with your stack</div>
-        <div class="strip-track">
-          <div class="strip-inner">
-            <span class="rt">Node.js</span>
-            <span class="rt">Go</span>
-            <span class="rt">.NET</span>
-            <span class="rt">Python</span>
-            <span class="rt">Java</span>
-            <span class="rt">Rust</span>
-            <span class="rt">Ruby</span>
-            <span class="rt">PHP</span>
-            <span class="rt">Docker Compose</span>
-            <span class="rt" aria-hidden="true">Node.js</span>
-            <span class="rt" aria-hidden="true">Go</span>
-            <span class="rt" aria-hidden="true">.NET</span>
-            <span class="rt" aria-hidden="true">Python</span>
-            <span class="rt" aria-hidden="true">Java</span>
-            <span class="rt" aria-hidden="true">Rust</span>
-            <span class="rt" aria-hidden="true">Ruby</span>
-            <span class="rt" aria-hidden="true">PHP</span>
-            <span class="rt" aria-hidden="true">Docker Compose</span>
+        <div class="strip-inner">
+          <div class="strip-label">Auto-discovers</div>
+          <div class="strip-track">
+            <span>Node.js</span>
+            <span>Bun</span>
+            <span>Deno</span>
+            <span>Go</span>
+            <span>Rust</span>
+            <span>.NET</span>
+            <span>Python</span>
+            <span>Java · Maven</span>
+            <span>Java · Gradle</span>
+            <span>Ruby</span>
+            <span>PHP</span>
+            <span>Docker Compose</span>
           </div>
         </div>
       </section>
 
-      <!-- ============ PLATFORM — 4 SURFACES ============ -->
-      <section id="platform" class="platform">
-        <div class="section-head reveal">
-          <span class="kicker">Platform</span>
-          <h2 class="section-title">Four surfaces. One app.</h2>
-        </div>
+      <!-- ============ THE LOOP ============ -->
+      <section id="loop" class="loop">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="kicker">The loop</span>
+            <h2 class="section-title">RunHQ runs on a 3-step loop your IDE can't.</h2>
+            <p class="section-sub">
+              Foreman supervises one repo. Your IDE knows recents. Docker shows containers. RunHQ is
+              the only thing that closes the loop across <em>every project on your disk</em>.
+            </p>
+          </div>
 
-        <div class="planes reveal">
-          <article class="plane">
-            <div class="plane-head">
-              <span class="plane-num">01</span>
-              <h3 class="plane-title">Observe</h3>
-            </div>
-            <div class="plane-preview pv-logs">
-              <div class="pv-log">
-                <span class="pv-t">12:04</span><span class="pv-s pv-s-e">web</span>Ready ·
-                <span class="pv-ok">localhost:3000</span>
-              </div>
-              <div class="pv-log">
-                <span class="pv-t">12:04</span><span class="pv-s pv-s-b">api</span>GET /orders
-                <span class="pv-ok">200</span> · 42ms
-              </div>
-              <div class="pv-log is-hl">
-                <span class="pv-t">12:05</span><span class="pv-s pv-s-r">api</span
-                ><span class="pv-w">warn</span> slow query 312ms
-              </div>
-              <div class="pv-log">
-                <span class="pv-t">12:05</span><span class="pv-s pv-s-e">web</span>HMR ·
-                OrderList.tsx
-              </div>
-            </div>
-          </article>
+          <div class="loop-tabs reveal" role="tablist">
+            <button class="loop-tab is-active" role="tab" data-loop-tab="discover">
+              <span class="loop-tab-num">01</span>
+              <span>Discover</span>
+            </button>
+            <button class="loop-tab" role="tab" data-loop-tab="orchestrate">
+              <span class="loop-tab-num">02</span>
+              <span>Orchestrate</span>
+            </button>
+            <button class="loop-tab" role="tab" data-loop-tab="heal">
+              <span class="loop-tab-num">03</span>
+              <span>Heal</span>
+            </button>
+          </div>
 
-          <article class="plane">
-            <div class="plane-head">
-              <span class="plane-num">02</span>
-              <h3 class="plane-title">Run</h3>
+          <div class="loop-grid reveal">
+            <div class="loop-copy">
+              <h3 data-loop-h>One scan, every repo.</h3>
+              <p data-loop-p>
+                RunHQ walks your dev folders, infers each project's runtime and start commands from
+                manifest files, and persists the registry. Cold start paints from a SQLite cache —
+                no 30-second "loading…" before you see your own machine.
+              </p>
+              <ul data-loop-list>
+                <li>
+                  <strong>10 runtimes</strong> · Node, Bun, Deno, Go, Rust, .NET, Python, Java,
+                  Ruby, PHP, Docker
+                </li>
+                <li>
+                  <strong>Manifest-aware</strong> · package.json, go.mod, Cargo.toml,
+                  pyproject.toml, compose.yaml…
+                </li>
+                <li>
+                  <strong>Persisted</strong> · ~/.runhq/config.json — diffable, version-controllable
+                </li>
+              </ul>
+              <div class="loop-replay">
+                <button class="loop-replay-btn" type="button" data-loop-replay>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="11"
+                    height="11"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    aria-hidden="true"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M3 12a9 9 0 1 0 3-6.7L3 8"
+                    />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5" />
+                  </svg>
+                  Replay demo
+                </button>
+                <span>Auto-plays once when in view.</span>
+              </div>
             </div>
-            <div class="plane-preview pv-run">
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">web</span
-                ><code class="pv-cmd">pnpm dev</code><span class="pv-port">:3000</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">api</span
-                ><code class="pv-cmd">go run ./cmd/api</code><span class="pv-port">:8080</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">worker</span
-                ><code class="pv-cmd">dotnet run</code><span class="pv-port">—</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-warn"></span><span class="pv-name">postgres</span
-                ><code class="pv-cmd">docker compose up db</code><span class="pv-port">:5432</span>
-              </div>
-            </div>
-          </article>
 
-          <article class="plane">
-            <div class="plane-head">
-              <span class="plane-num">03</span>
-              <h3 class="plane-title">Discover</h3>
+            <div class="loop-stage" data-loop-stage>
+              <div class="lc" data-lc>
+                <div class="lc-chrome">
+                  <span class="lc-dot r"></span>
+                  <span class="lc-dot y"></span>
+                  <span class="lc-dot g"></span>
+                  <span class="lc-chrome-title"
+                    ><b>RunHQ</b> · <span data-lc-cwd>~/code</span></span
+                  >
+                  <span class="lc-chrome-pill">
+                    <span class="lc-chrome-pill-dot"></span>
+                    <span data-lc-status>Scanning…</span>
+                  </span>
+                </div>
+                <div class="lc-body">
+                  <aside class="lc-rail" data-lc-rail></aside>
+                  <div class="lc-main">
+                    <div class="lc-headline">
+                      <h4 data-lc-h>Discovery</h4>
+                      <span class="lc-state" data-lc-state></span>
+                    </div>
+                    <div class="lc-hero-card">
+                      <div class="lc-hero-card-line">
+                        <strong data-lc-hero-h>Walking ~/code</strong>
+                        <span style="color: var(--text-muted)">·</span>
+                        <span data-lc-hero-sub>parsing manifests…</span>
+                      </div>
+                      <div class="lc-hero-card-chips" data-lc-hero-chips></div>
+                    </div>
+                    <div class="lc-list" data-lc-list></div>
+                    <div class="lc-logs" data-lc-logs></div>
+                    <div class="lc-ai" data-lc-ai>
+                      <div class="lc-ai-head">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="11"
+                          height="11"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"
+                          />
+                        </svg>
+                        <span><b>Cross-project analysis</b> · local model</span>
+                      </div>
+                      <div class="lc-ai-body" data-lc-ai-body></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="plane-preview pv-scan">
-              <div class="pv-scan-row">
-                <span class="dc-ico">node</span><code class="pv-cmd">pnpm dev</code
-                ><span class="pv-meta">package.json</span>
-              </div>
-              <div class="pv-scan-row">
-                <span class="dc-ico">go</span><code class="pv-cmd">go run ./cmd/api</code
-                ><span class="pv-meta">go.mod</span>
-              </div>
-              <div class="pv-scan-row">
-                <span class="dc-ico">py</span><code class="pv-cmd">uv run train.py</code
-                ><span class="pv-meta">pyproject.toml</span>
-              </div>
-              <div class="pv-scan-row">
-                <span class="dc-ico">dk</span><code class="pv-cmd">docker compose up</code
-                ><span class="pv-meta">compose.yaml</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="plane">
-            <div class="plane-head">
-              <span class="plane-num">04</span>
-              <h3 class="plane-title">Orchestrate</h3>
-            </div>
-            <div class="plane-preview pv-stack">
-              <div class="pv-stack-head">
-                <span class="pv-stack-name">acme-platform</span>
-                <span class="pv-stack-count">4 / 6 running</span>
-                <span class="pv-stack-play">▶ Play all</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">postgres</span
-                ><code class="pv-cmd">docker compose up db</code><span class="pv-port">:5432</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">redis</span
-                ><code class="pv-cmd">redis-server</code><span class="pv-port">:6379</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">api</span
-                ><code class="pv-cmd">go run ./cmd/api</code><span class="pv-port">:8080</span>
-              </div>
-              <div class="pv-svc">
-                <span class="svc-dot is-running"></span><span class="pv-name">web</span
-                ><code class="pv-cmd">pnpm dev</code><span class="pv-port">:3000</span>
-              </div>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <!-- ============ PERSONA STRIP ============ -->
-      <section class="persona" aria-label="Who RunHQ is for">
-        <div class="persona-inner reveal">
-          <span class="persona-line">
-            <span class="persona-ico">◆</span> Solo devs juggling a dozen client repos.
-          </span>
-          <span class="persona-line">
-            <span class="persona-ico">◆</span> Platform teams with polyglot monorepos.
-          </span>
-          <span class="persona-line">
-            <span class="persona-ico">◆</span> Anyone whose <code>~/code</code> has more repos than
-            they can name.
-          </span>
+          </div>
         </div>
       </section>
 
-      <!-- ============ COCKPIT — flagship cross-project surfaces ============ -->
-      <section id="cockpit" class="cockpit">
-        <div class="section-head reveal">
-          <span class="kicker">Project command center</span>
-          <h2 class="section-title">One window that knows every repo on disk.</h2>
-          <p class="section-sub">
-            RunHQ stops at the service boundary in most tools. Here it goes further — a bird's-eye
-            view across every project, a full Source Control window, a timeline that replays your
-            day automatically, and an AI assistant that plugs into every surface — local model or
-            cloud, your call.
-          </p>
+      <!-- ============ WHY DIFFERENT ============ -->
+      <section id="why" class="why">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="kicker">Why RunHQ</span>
+            <h2 class="section-title">Other tools see one repo. RunHQ sees the portfolio.</h2>
+          </div>
+
+          <div class="why-grid reveal">
+            <div class="why-card">
+              <div class="why-card-num">01 · The status quo</div>
+              <h3>Tool per repo.</h3>
+              <p>
+                Foreman runs one Procfile. Your IDE remembers recents. Docker Desktop shows
+                containers. Each tool stops at the service boundary — the portfolio lives in your
+                head.
+              </p>
+              <div class="why-viz viz-single">
+                <div class="viz-single-dot"></div>
+              </div>
+            </div>
+
+            <div class="why-card">
+              <div class="why-card-num">02 · RunHQ</div>
+              <h3>One window, every repo.</h3>
+              <p>
+                Persistent registry of every project on disk with health, CVEs, git state, ports,
+                processes — all cross-project. Hover the grid: red is CVEs, amber is stale, emerald
+                is running, ember is needs-attention.
+              </p>
+              <div class="why-viz viz-grid" id="vizGrid"></div>
+            </div>
+
+            <div class="why-card">
+              <div class="why-card-num">03 · The AI difference</div>
+              <h3>Reasons across all of them.</h3>
+              <p>
+                Per-project AI exists everywhere. RunHQ's AI is the only one that takes the whole
+                portfolio as context — local model or cloud, your call.
+              </p>
+              <div class="why-viz viz-ai">
+                <div class="viz-ai-q">&gt; which projects need me this week?</div>
+                <div class="viz-ai-a">
+                  <b>3</b> repos haven't moved in 90d. <b>acme-api</b> has a critical CVE in axios.
+                  <b>internal-cli</b> is 12 packages outdated.<span class="lc-ai-cursor"></span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-
-        <div class="cockpit-grid reveal">
-          <!-- 01 — Cross-Project Dashboard -->
-          <article class="cockpit-card">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">01</span>
-              <h3 class="cockpit-card-title">Cross-Project Dashboard</h3>
-              <span class="cockpit-flag">Shipped</span>
-            </div>
-            <p class="cockpit-card-desc">
-              Every project's git state, resource usage, staleness, outdated dependencies and CVEs
-              in one screen. Filter by status, runtime, or tag — sort by what matters today.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-grid">
-              <div class="cpv-row">
-                <span class="cpv-name">acme-web</span>
-                <span class="cpv-pill cpv-pill-dirty">3 dirty</span>
-                <span class="cpv-pill cpv-pill-ahead">↑2</span>
-                <span class="cpv-meta">312&nbsp;MB · 4%</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">acme-api</span>
-                <span class="cpv-pill cpv-pill-clean">clean</span>
-                <span class="cpv-pill cpv-pill-cve">2 CVE</span>
-                <span class="cpv-meta">486&nbsp;MB · 11%</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">internal-cli</span>
-                <span class="cpv-pill cpv-pill-stale">stale 47d</span>
-                <span class="cpv-pill cpv-pill-out">8↑</span>
-                <span class="cpv-meta">—</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">design-system</span>
-                <span class="cpv-pill cpv-pill-dirty">1 dirty</span>
-                <span class="cpv-pill cpv-pill-behind">↓4</span>
-                <span class="cpv-meta">128&nbsp;MB · 1%</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>Git status matrix</li>
-              <li>Resource heatmap</li>
-              <li>Outdated deps</li>
-              <li>npm / cargo audit</li>
-              <li>Stale tracker</li>
-              <li>Triage drawer</li>
-              <li>Bulk copy-as-script</li>
-            </ul>
-          </article>
-
-          <!-- 02 — Git Diff Viewer / Source Control -->
-          <article class="cockpit-card cockpit-card-accent">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">02</span>
-              <h3 class="cockpit-card-title">Git Diff Viewer</h3>
-              <span class="cockpit-flag">Shipped</span>
-            </div>
-            <p class="cockpit-card-desc">
-              A full Source Control window — Monaco-powered diff, staging, commit, history, branches
-              and graph — built for VSCode parity. Stop bouncing out to an editor just to read a
-              diff or write a commit message.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-diff">
-              <div class="cpv-diff-head">
-                <span class="cpv-diff-file">src/order.ts</span>
-                <span class="cpv-diff-stat cpv-add">+12</span>
-                <span class="cpv-diff-stat cpv-rem">−4</span>
-                <span class="cpv-diff-letter">M</span>
-              </div>
-              <div class="cpv-diff-line cpv-diff-ctx">
-                <span class="cpv-ln">42</span><span class="cpv-code">function total(items) {</span>
-              </div>
-              <div class="cpv-diff-line cpv-diff-rem">
-                <span class="cpv-ln">−</span
-                ><span class="cpv-code"> return items.reduce((a,b) =&gt; a+b.price, 0);</span>
-              </div>
-              <div class="cpv-diff-line cpv-diff-add">
-                <span class="cpv-ln">+</span
-                ><span class="cpv-code">
-                  return items.reduce((a,b) =&gt; a + b.price * b.qty, 0);</span
-                >
-              </div>
-              <div class="cpv-diff-line cpv-diff-ctx">
-                <span class="cpv-ln">44</span><span class="cpv-code">}</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>Side-by-side &amp; inline</li>
-              <li>Syntax highlight</li>
-              <li>Stage / unstage</li>
-              <li>Commit · Push</li>
-              <li>Branch compare</li>
-              <li>History &amp; graph</li>
-              <li>Cross-project dirty view</li>
-            </ul>
-          </article>
-
-          <!-- 03 — Activity Timeline -->
-          <article class="cockpit-card">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">03</span>
-              <h3 class="cockpit-card-title">Activity Timeline</h3>
-              <span class="cockpit-flag">Shipped</span>
-            </div>
-            <p class="cockpit-card-desc">
-              A chronological feed of everything that happened across every project — service
-              starts, commits, pushes, errors, file changes. SQLite-backed, survives restarts,
-              exports a one-click standup.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-timeline">
-              <div class="cpv-tl-row">
-                <span class="cpv-tl-time">09:14</span>
-                <span class="cpv-tl-dot cpv-tl-commit"></span>
-                <span class="cpv-tl-text"
-                  ><strong>commit</strong> · acme-api · <em>fix: pagination off-by-one</em></span
-                >
-              </div>
-              <div class="cpv-tl-row">
-                <span class="cpv-tl-time">09:32</span>
-                <span class="cpv-tl-dot cpv-tl-start"></span>
-                <span class="cpv-tl-text"
-                  ><strong>service started</strong> · acme-web · <em>pnpm dev :3000</em></span
-                >
-              </div>
-              <div class="cpv-tl-row">
-                <span class="cpv-tl-time">10:48</span>
-                <span class="cpv-tl-dot cpv-tl-error"></span>
-                <span class="cpv-tl-text"
-                  ><strong>error</strong> · acme-api · <em>ECONNREFUSED 127.0.0.1:5432</em></span
-                >
-              </div>
-              <div class="cpv-tl-row">
-                <span class="cpv-tl-time">11:05</span>
-                <span class="cpv-tl-dot cpv-tl-push"></span>
-                <span class="cpv-tl-text"
-                  ><strong>push</strong> · acme-api · <em>main → origin (3 commits)</em></span
-                >
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>SQLite persistence</li>
-              <li>Daily &amp; weekly rollups</li>
-              <li>Standup export</li>
-              <li>Auto-records lifecycle</li>
-              <li>Project / type filters</li>
-              <li>Node-graph drawer</li>
-            </ul>
-          </article>
-
-          <!-- 04 — AI Assistant (0.7.0) -->
-          <article class="cockpit-card cockpit-card-accent">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">04</span>
-              <h3 class="cockpit-card-title">AI Assistant — local or cloud</h3>
-              <span class="cockpit-flag">New · 0.7.0</span>
-            </div>
-            <p class="cockpit-card-desc">
-              A right-rail chat hub backed by any OpenAI-compatible endpoint. Point it at the cloud
-              (OpenAI, Azure, Together, OpenRouter, Groq, DeepSeek) or a local model server (Ollama,
-              LM Studio, vLLM, llama.cpp). Project · Why?, log triage, diff explain, commit
-              messages, standup polish, workspace report and per-CVE deep analysis all flow through
-              the same multi-tab chat with persistent SQLite history. Nothing about your code, diffs
-              or logs ever leaves your machine when you target a local endpoint.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-grid">
-              <div class="cpv-row">
-                <span class="cpv-name">Project · Why?</span>
-                <span class="cpv-pill cpv-pill-cve">acme-api</span>
-                <span class="cpv-meta">→ chat tab 1</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">Log triage</span>
-                <span class="cpv-pill cpv-pill-out">ECONNREFUSED</span>
-                <span class="cpv-meta">→ chat tab 2</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">Per-CVE analysis</span>
-                <span class="cpv-pill cpv-pill-cve">GHSA-xxxx</span>
-                <span class="cpv-meta">→ chat tab 3</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">Commit message</span>
-                <span class="cpv-pill cpv-pill-clean">staged diff</span>
-                <span class="cpv-meta">→ Use as msg</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>BYO endpoint</li>
-              <li>Local OR cloud</li>
-              <li>5-tab strip</li>
-              <li>Persistent history</li>
-              <li>Per-turn model picker</li>
-              <li>Token meter</li>
-              <li>Per-CVE deep dive</li>
-              <li>Workspace report</li>
-              <li>Action hooks</li>
-            </ul>
-          </article>
-
-          <!-- 05 — IDE-parity shell (0.9.0) -->
-          <article class="cockpit-card cockpit-card-accent">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">05</span>
-              <h3 class="cockpit-card-title">IDE-parity shell — tabs, pins, fullscreen terminal</h3>
-              <span class="cockpit-flag">New · 0.9.0</span>
-            </div>
-            <p class="cockpit-card-desc">
-              The mutually-exclusive Dashboard / LogPanel / StackDetail switcher is gone. Every
-              project lives in its own tab in a Cursor-style strip pinned above the content area,
-              and tabs stay mounted via <code>display: none</code> so terminal sessions, log
-              filters, split-pane heights, scroll positions and AI conversation drafts survive every
-              switch. Pinning + drag-to-reorder (axis-locked, zone-aware) + a VSCode-parity
-              right-click menu (Pin · Move Left / Right · Close · Close Others / Right / Left / All)
-              round out the IDE feel — and bulk-close gestures never touch what you've pinned. The
-              LogPanel toolbar grew an Expand button so the embedded terminal can fill the entire
-              content area when you need it (Esc restores), and the dashboard finally has a
-              <code>/</code>-to-focus search box that ranks across name, tags, port, command, and
-              cwd.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-grid">
-              <div class="cpv-row">
-                <span class="cpv-name">📌 acme-api</span>
-                <span class="cpv-pill cpv-pill-clean">pinned</span>
-                <span class="cpv-meta">terminal kept warm</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">📌 acme-web</span>
-                <span class="cpv-pill cpv-pill-clean">pinned</span>
-                <span class="cpv-meta">log filter intact</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">internal-cli</span>
-                <span class="cpv-pill cpv-pill-out">drag</span>
-                <span class="cpv-meta">→ slot 4</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">design-system</span>
-                <span class="cpv-pill cpv-pill-cve">⌘W</span>
-                <span class="cpv-meta">close active tab</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>State-preserving tab host</li>
-              <li>Chrome-parity pinning</li>
-              <li>Drag-to-reorder</li>
-              <li>Middle-click close</li>
-              <li>Move Left / Right · Close All</li>
-              <li>Fullscreen terminal (Esc)</li>
-              <li>Dashboard / search</li>
-              <li>Sidebar drag-to-reorder</li>
-            </ul>
-          </article>
-
-          <!-- 06 — AI Commit Generator (0.9.0) -->
-          <article class="cockpit-card">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">06</span>
-              <h3 class="cockpit-card-title">AI Commit Generator</h3>
-              <span class="cockpit-flag">New · 0.9.0</span>
-            </div>
-            <p class="cockpit-card-desc">
-              The Sparkles button on the Commit panel writes the message
-              <em>directly into your textarea</em> instead of bouncing through the chat hub. One
-              provider configured → instant generation; two-or-more → a small model-chooser popover
-              anchored under the button. Whatever you've already typed forwards as a hint, so
-              "scope: api" or "make it imperative" steers the regenerate. The new prompt contract
-              wraps the answer in <code>&lt;commit&gt;…&lt;/commit&gt;</code> sentinel tags so
-              reasoning-heavy models (DeepSeek-R1, GLM-4.x, Qwen-QwQ, OpenAI o-series) stop dumping
-              their "1. Analyze the request… 2. Determine the prefix…" monologue into your textarea
-              — we extract only what's between the tags, with a <code>&lt;think&gt;</code>-stripping
-              fallback for older models. Plus a per-provider
-              <strong>Commit Message language</strong>
-              override, independent from Response language, so chat in Türkçe + commits in English
-              finally has a home.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-grid">
-              <div class="cpv-row">
-                <span class="cpv-name">Sparkles click</span>
-                <span class="cpv-pill cpv-pill-clean">1 provider</span>
-                <span class="cpv-meta">→ instant fill</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">Sparkles click</span>
-                <span class="cpv-pill cpv-pill-out">2+ providers</span>
-                <span class="cpv-meta">→ chooser popover</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">&lt;commit&gt; tags</span>
-                <span class="cpv-pill cpv-pill-cve">R1 / GLM / QwQ</span>
-                <span class="cpv-meta">no leaked reasoning</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">Commit lang</span>
-                <span class="cpv-pill cpv-pill-clean">TR · EN</span>
-                <span class="cpv-meta">chat ≠ commit</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>Direct textarea fill</li>
-              <li>Single-click for 1 provider</li>
-              <li>Model chooser for 2+</li>
-              <li>Hint forwarding</li>
-              <li>&lt;commit&gt; sentinel tags</li>
-              <li>&lt;think&gt; stripping fallback</li>
-              <li>Per-provider commit language</li>
-              <li>Inherit / Auto / explicit BCP-47</li>
-            </ul>
-          </article>
-
-          <!-- 07 — Dependency Hygiene (0.7.0) -->
-          <article class="cockpit-card">
-            <div class="cockpit-card-head">
-              <span class="cockpit-num">07</span>
-              <h3 class="cockpit-card-title">Dependency Hygiene</h3>
-              <span class="cockpit-flag">New · 0.7.0</span>
-            </div>
-            <p class="cockpit-card-desc">
-              Every <code>npm outdated</code> / <code>cargo audit</code> / <code>pip audit</code>
-              run is persisted to a local SQLite store, so the dashboard paints chips instantly on
-              cold start. Per-card freshness chip ("3h ago"), one-click rescan for a single project,
-              delta badges showing what changed since the last scan, and a small amber
-              <em>"N stale"</em> pill next to "Rescan deps" that sequentially sweeps just the
-              projects past the 7-day window when clicked.
-            </p>
-            <div class="cockpit-card-preview cockpit-pv-grid">
-              <div class="cpv-row">
-                <span class="cpv-name">acme-web</span>
-                <span class="cpv-pill cpv-pill-out">8↑</span>
-                <span class="cpv-pill cpv-pill-clean">3h ago</span>
-                <span class="cpv-meta">+2 since last</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">acme-api</span>
-                <span class="cpv-pill cpv-pill-cve">2 CVE</span>
-                <span class="cpv-pill cpv-pill-stale">9d ago</span>
-                <span class="cpv-meta">rescan rec.</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">internal-cli</span>
-                <span class="cpv-pill cpv-pill-out">1↑</span>
-                <span class="cpv-pill cpv-pill-clean">12m ago</span>
-                <span class="cpv-meta">−1 since last</span>
-              </div>
-              <div class="cpv-row">
-                <span class="cpv-name">design-system</span>
-                <span class="cpv-pill cpv-pill-clean">clean</span>
-                <span class="cpv-pill cpv-pill-clean">2h ago</span>
-                <span class="cpv-meta">no change</span>
-              </div>
-            </div>
-            <ul class="cockpit-chips">
-              <li>Persistent scan cache</li>
-              <li>Per-card freshness</li>
-              <li>Per-project rescan</li>
-              <li>Delta badges</li>
-              <li>"N stale" pill</li>
-              <li>Cold-start hydration</li>
-              <li>Reset cache</li>
-            </ul>
-          </article>
-        </div>
-
-        <p class="cockpit-note reveal">
-          Closes ROADMAP §1, §5 and the Activity Timeline issue (<a
-            href="https://github.com/erdembas/runhq/issues/32"
-            >#32</a
-          >
-          · <a href="https://github.com/erdembas/runhq/issues/37">#37</a> ·
-          <a href="https://github.com/erdembas/runhq/issues/34">#34</a>) — all shipped, all local,
-          all yours. 0.9.0 adds the IDE-parity tab shell, in-place AI commit generator, and a long
-          tail of workflow polish — see the
-          <a href="https://github.com/erdembas/runhq/blob/main/CHANGELOG.md#090">full changelog</a>.
-        </p>
       </section>
 
-      <!-- ============ COMMAND PALETTE / SHORTCUTS ============ -->
-      <section id="palette" class="palette">
-        <div class="section-head reveal">
-          <span class="kicker">Keyboard-first</span>
-          <h2 class="section-title">Summon RunHQ from anywhere.</h2>
-          <p class="section-sub">
-            A command palette that follows your fingers. Open it inside the app, or pull it up from
-            any other window — no context switch, no mouse.
-          </p>
-        </div>
-
-        <div class="palette-grid reveal">
-          <article class="palette-card">
-            <div class="palette-card-head">
-              <span class="palette-num">01</span>
-              <h3 class="palette-card-title">Inside RunHQ</h3>
-            </div>
-            <div class="palette-shortcut">
-              <span class="kbd-combo">
-                <kbd class="kbd-big">⌘</kbd>
-                <span class="kbd-plus">+</span>
-                <kbd class="kbd-big">K</kbd>
-              </span>
-              <span class="kbd-alt">
-                <kbd class="inline-kbd">Ctrl</kbd>
-                <span class="kbd-plus-dim">+</span>
-                <kbd class="inline-kbd">K</kbd>
-                <span class="kbd-alt-label">on Linux / Windows</span>
-              </span>
-            </div>
-            <p class="palette-card-desc">
-              Jump between stacks, services and commands without reaching for the sidebar.
-              Fuzzy-search everything you've defined — then start, stop, restart or open logs with
-              one keystroke.
+      <!-- ============ IN THE BOX ============ -->
+      <section id="box" class="box">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="kicker">In the box</span>
+            <h2 class="section-title">A complete dev cockpit. No bolt-ons.</h2>
+            <p class="section-sub">
+              Four surfaces, one app. Everything below ships today — no cloud, no account, no
+              telemetry, MIT.
             </p>
-            <ul class="palette-chips">
-              <li>Fuzzy search</li>
-              <li>Start / stop</li>
-              <li>Jump to logs</li>
-              <li>Toggle theme</li>
-            </ul>
-          </article>
-
-          <article class="palette-card is-accent">
-            <div class="palette-card-head">
-              <span class="palette-num">02</span>
-              <h3 class="palette-card-title">Anywhere on your machine</h3>
-              <span class="palette-flag">Global</span>
-            </div>
-            <div class="palette-shortcut">
-              <span class="kbd-combo">
-                <kbd class="kbd-big">⌘</kbd>
-                <span class="kbd-plus">+</span>
-                <kbd class="kbd-big">⇧</kbd>
-                <span class="kbd-plus">+</span>
-                <kbd class="kbd-big">K</kbd>
-              </span>
-              <span class="kbd-alt">
-                <kbd class="inline-kbd">Ctrl</kbd>
-                <span class="kbd-plus-dim">+</span>
-                <kbd class="inline-kbd">Shift</kbd>
-                <span class="kbd-plus-dim">+</span>
-                <kbd class="inline-kbd">K</kbd>
-                <span class="kbd-alt-label">on Linux / Windows</span>
-              </span>
-            </div>
-            <p class="palette-card-desc">
-              From your editor, browser or terminal — one chord brings the palette to the front even
-              when RunHQ is hidden in the menu bar. Kill a runaway worker without breaking flow.
-            </p>
-            <ul class="palette-chips">
-              <li>System-wide</li>
-              <li>Works when hidden</li>
-              <li>Re-focuses the app</li>
-              <li>No polling</li>
-            </ul>
-          </article>
-
-          <article class="palette-card">
-            <div class="palette-card-head">
-              <span class="palette-num">03</span>
-              <h3 class="palette-card-title">Show RunHQ window</h3>
-              <span class="palette-flag">Global · 0.9.0</span>
-            </div>
-            <div class="palette-shortcut">
-              <span class="kbd-combo">
-                <kbd class="kbd-big">⌘</kbd>
-                <span class="kbd-plus">+</span>
-                <kbd class="kbd-big">⇧</kbd>
-                <span class="kbd-plus">+</span>
-                <kbd class="kbd-big">L</kbd>
-              </span>
-              <span class="kbd-alt">
-                <kbd class="inline-kbd">Ctrl</kbd>
-                <span class="kbd-plus-dim">+</span>
-                <kbd class="inline-kbd">Shift</kbd>
-                <span class="kbd-plus-dim">+</span>
-                <kbd class="inline-kbd">L</kbd>
-                <span class="kbd-alt-label">on Linux / Windows</span>
-              </span>
-            </div>
-            <p class="palette-card-desc">
-              Different from the palette: this chord promotes the <em>main RunHQ window</em>
-              itself, not a transient overlay. Hidden in the menu bar, minimised, or sitting behind
-              a fullscreen editor — one keypress and you're back at your dashboard, terminals warm,
-              scroll positions intact.
-            </p>
-            <ul class="palette-chips">
-              <li>System-wide</li>
-              <li>Unhides from tray</li>
-              <li>Unminimises</li>
-              <li>Re-bindable</li>
-            </ul>
-          </article>
-        </div>
-
-        <div class="palette-demo reveal">
-          <div class="palette-demo-chrome">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
-              <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
-            </svg>
-            <span class="palette-demo-query">Search services, commands, actions…</span>
-            <span class="palette-demo-filter">filter</span>
-          </div>
-          <div class="palette-demo-filters">
-            <span class="palette-demo-chip">All</span>
-            <span class="palette-demo-chip is-active">Running</span>
-            <span class="palette-demo-chip">Stopped</span>
-            <span class="palette-demo-chip">Frontend</span>
-            <span class="palette-demo-chip">Backend</span>
-            <span class="palette-demo-chip">Database</span>
-            <span class="palette-demo-chip">Worker</span>
-          </div>
-          <div class="palette-demo-section">Stacks</div>
-          <div class="palette-demo-row is-active">
-            <span class="pd-ico">◆</span>
-            <span class="pd-name">acme-platform</span>
-            <span class="pd-meta">6 services · <span class="pd-run">4 running</span></span>
-            <span class="pd-kbd">↵</span>
-          </div>
-          <div class="palette-demo-section">Services</div>
-          <div class="palette-demo-row">
-            <span class="pd-dot is-running"></span>
-            <span class="pd-name">web</span>
-            <span class="pd-tag">NODE</span>
-            <span class="pd-meta">:3000 · pnpm dev</span>
-            <span class="pd-kbd">→</span>
-          </div>
-          <div class="palette-demo-row">
-            <span class="pd-dot is-warn"></span>
-            <span class="pd-name">api</span>
-            <span class="pd-tag">GO</span>
-            <span class="pd-meta">:8080 · go run ./cmd/api</span>
-            <span class="pd-kbd">→</span>
-          </div>
-          <div class="palette-demo-foot">
-            <span><kbd class="inline-kbd">↑↓</kbd> navigate</span>
-            <span><kbd class="inline-kbd">→</kbd> details</span>
-            <span><kbd class="inline-kbd">⇥</kbd> category</span>
-            <span><kbd class="inline-kbd">esc</kbd> close</span>
-            <span class="palette-demo-foot-brand">RunHQ</span>
-          </div>
-        </div>
-
-        <p class="palette-note reveal">
-          Every shortcut is re-bindable from
-          <strong>Settings → Shortcuts</strong> — pick whatever your muscle memory already owns.
-        </p>
-      </section>
-
-      <!-- ============ FEATURES — grouped badges ============ -->
-      <section id="features" class="feats">
-        <div class="section-head reveal">
-          <span class="kicker">Everything in one window</span>
-          <h2 class="section-title">Every feature, at a glance.</h2>
-          <p class="section-sub">
-            Every badge below is shipping today — no cloud, no account, no telemetry.
-          </p>
-        </div>
-
-        <div class="feats-grid reveal">
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">01</span>
-              <h3>Logs</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Ring buffer · 10k/svc</li>
-              <li>Virtualized list</li>
-              <li>stdout + stderr</li>
-              <li>Live filter</li>
-              <li>Follow tail</li>
-              <li>ANSI color</li>
-              <li>Copy line</li>
-              <li>Jump to match</li>
-            </ul>
           </div>
 
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">02</span>
-              <h3>Processes</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>SIGTERM → SIGKILL</li>
-              <li>Configurable grace</li>
-              <li>Per-service env</li>
-              <li>One-click restart</li>
-              <li>Keyboard-first</li>
-              <li>Command palette</li>
-              <li>Quick actions</li>
-              <li>Zero orphans</li>
-            </ul>
-          </div>
+          <div class="box-grid reveal">
+            <article class="box-card">
+              <div class="box-card-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 12l4 4L19 6" />
+                </svg>
+              </div>
+              <h3>Run</h3>
+              <p class="box-card-sub">
+                Process supervisor, port watchdog, embedded PTY, 8 IDEs one-click — the day-to-day.
+              </p>
+              <ul>
+                <li>SIGTERM → grace → SIGKILL</li>
+                <li>Multi-command per service</li>
+                <li>Port watchdog</li>
+                <li>One-click kill port</li>
+                <li>Embedded xterm.js</li>
+                <li>Open in 8 IDEs</li>
+                <li>⌘K palette</li>
+                <li>⌘⇧K global hotkey</li>
+              </ul>
+              <div class="box-card-foot">Survives editor crashes. Zero orphan processes.</div>
+            </article>
 
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">03</span>
-              <h3>Discovery</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>package.json</li>
-              <li>go.mod</li>
-              <li>Cargo.toml</li>
-              <li>pyproject.toml</li>
-              <li>.csproj</li>
-              <li>pom.xml</li>
-              <li>build.gradle</li>
-              <li>Gemfile</li>
-              <li>composer.json</li>
-              <li>compose.yaml</li>
-              <li>Port watchdog</li>
-              <li>Zombie kill</li>
-              <li>Confirm before run</li>
-              <li>Never writes to repo</li>
-            </ul>
-          </div>
+            <article class="box-card">
+              <div class="box-card-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3 12l3-3 3 3 3-6 3 6 3-3 3 3"
+                  />
+                </svg>
+              </div>
+              <h3>Observe</h3>
+              <p class="box-card-sub">
+                Unified log stream across every running service, plus a timeline that replays your
+                day.
+              </p>
+              <ul>
+                <li>Ring buffer · 10k/svc</li>
+                <li>Virtualized list</li>
+                <li>ANSI color · live filter</li>
+                <li>Activity timeline</li>
+                <li>Daily / weekly rollups</li>
+                <li>Standup export</li>
+                <li>Right-click → AI triage</li>
+                <li>SQLite persistence</li>
+              </ul>
+              <div class="box-card-foot">Search, jump, copy lines. Tail from anywhere.</div>
+            </article>
 
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">04</span>
-              <h3>Projects &amp; stacks</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Unlimited stacks</li>
-              <li>Unlimited services</li>
-              <li>Recent projects</li>
-              <li>Favorites</li>
-              <li>Quick switcher</li>
-              <li>Drag to reorder</li>
-              <li>Global search</li>
-              <li>Per-project cwd</li>
-            </ul>
-          </div>
+            <article class="box-card">
+              <div class="box-card-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M12 2l3 6 6 1-4.5 4.5 1 6.5L12 17l-5.5 3 1-6.5L3 9l6-1z"
+                  />
+                </svg>
+              </div>
+              <h3>Heal</h3>
+              <p class="box-card-sub">
+                Cross-portfolio health: CVEs, outdated, stale scans, dirty git — persisted, paints
+                instant.
+              </p>
+              <ul>
+                <li>npm · cargo · pip audit</li>
+                <li>Persistent scan cache</li>
+                <li>Per-card freshness</li>
+                <li>Per-project rescan</li>
+                <li>Scan delta badges</li>
+                <li>"N stale" pill</li>
+                <li>Worst-offenders panel</li>
+                <li>Triage drawer</li>
+              </ul>
+              <div class="box-card-foot">Cold start paints chips in &lt; 100 ms from SQLite.</div>
+            </article>
 
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">05</span>
-              <h3>Under the hood</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Rust core</li>
-              <li>Tauri shell</li>
-              <li>Single binary</li>
-              <li>&lt;100 MB idle RAM</li>
-              <li>No Electron</li>
-              <li>No Node runtime</li>
-              <li>No telemetry</li>
-              <li>MIT license</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">06</span>
-              <h3>Platforms</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>macOS 12+</li>
-              <li>Apple Silicon</li>
-              <li>Intel Macs</li>
-              <li>Ubuntu 22.04+</li>
-              <li>Debian</li>
-              <li>Fedora</li>
-              <li>Arch</li>
-              <li>Windows 10+</li>
-              <li>x86_64</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">07</span>
-              <h3>Cross-project view</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Git status matrix</li>
-              <li>Resource heatmap</li>
-              <li>Last-activity tracker</li>
-              <li>Outdated deps</li>
-              <li>npm audit</li>
-              <li>cargo audit</li>
-              <li>pip audit</li>
-              <li>Persistent scan cache</li>
-              <li>Per-card freshness</li>
-              <li>Per-project rescan</li>
-              <li>Scan delta badges</li>
-              <li>"N stale" pill</li>
-              <li>Discover projects</li>
-              <li>Worst-offenders panel</li>
-              <li>Triage drawer</li>
-              <li>Bulk copy-as-script</li>
-              <li>Filter · sort · group</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">08</span>
-              <h3>Source control</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Monaco diff</li>
-              <li>Side-by-side</li>
-              <li>Inline diff</li>
-              <li>Stage · unstage</li>
-              <li>Commit · push</li>
-              <li>Amend</li>
-              <li>Branch compare</li>
-              <li>History &amp; graph</li>
-              <li>Discard with confirm</li>
-              <li>Material file icons</li>
-              <li>Search files &amp; commits</li>
-              <li>Cross-project dirty view</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">09</span>
-              <h3>Activity timeline</h3>
-            </div>
-            <ul class="feat-badges">
-              <li>SQLite persistence</li>
-              <li>Cross-project feed</li>
-              <li>Service lifecycle</li>
-              <li>Git events</li>
-              <li>Error capture</li>
-              <li>Daily summary</li>
-              <li>Weekly summary</li>
-              <li>Standup export</li>
-              <li>Project filter</li>
-              <li>Node-graph drawer</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">10</span>
-              <h3>AI assistant <small style="opacity: 0.6">(0.7.0 · 0.9.0)</small></h3>
-            </div>
-            <ul class="feat-badges">
-              <li>OpenAI-compatible</li>
-              <li>Local (Ollama, LM Studio, vLLM)</li>
-              <li>Cloud (OpenAI, Azure, OpenRouter, Groq)</li>
-              <li>Multi-tab chat (5 max)</li>
-              <li>Persistent SQLite history</li>
-              <li>Per-turn model picker</li>
-              <li>Token meter (tiktoken-rs)</li>
-              <li>Language picker w/ flags</li>
-              <li>Per-provider commit language</li>
-              <li>Project · Why?</li>
-              <li>Log triage</li>
-              <li>Diff explain</li>
-              <li>In-place commit generator</li>
-              <li>&lt;commit&gt; sentinel-tag prompt</li>
-              <li>&lt;think&gt; stripping fallback</li>
-              <li>Standup polish</li>
-              <li>Workspace report</li>
-              <li>Per-CVE deep analysis</li>
-              <li>Action hooks</li>
-              <li>Reasoning pill</li>
-              <li>Auto-continue</li>
-            </ul>
-          </div>
-
-          <div class="feat-group">
-            <div class="feat-head">
-              <span class="feat-num">11</span>
-              <h3>Workflow ergonomics <small style="opacity: 0.6">(0.9.0)</small></h3>
-            </div>
-            <ul class="feat-badges">
-              <li>Tabbed main view</li>
-              <li>State-preserving switches</li>
-              <li>Chrome-parity pinning</li>
-              <li>Drag-to-reorder tabs</li>
-              <li>Middle-click close</li>
-              <li>⌘W on active tab</li>
-              <li>Move Left / Right</li>
-              <li>Close Others / Right / Left / All</li>
-              <li>Pinned-aware bulk close</li>
-              <li>Fullscreen terminal</li>
-              <li>Esc restores split</li>
-              <li>Dashboard / search</li>
-              <li>Score-ranked match</li>
-              <li>Sidebar drag-to-reorder</li>
-              <li>Edge-aware drop indicator</li>
-              <li>Per-bucket persistent order</li>
-              <li>Inline editor row expand</li>
-              <li>Action stats / recents</li>
-            </ul>
+            <article class="box-card">
+              <div class="box-card-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+                  />
+                </svg>
+              </div>
+              <h3>Think</h3>
+              <p class="box-card-sub">
+                BYO OpenAI-compatible endpoint. Local (Ollama, LM Studio, vLLM) or cloud — same hub.
+              </p>
+              <ul>
+                <li>Project · Why?</li>
+                <li>Workspace report</li>
+                <li>Per-CVE deep-dive</li>
+                <li>In-place commit gen</li>
+                <li>Diff explain</li>
+                <li>Log triage</li>
+                <li>5-tab chat · SQLite</li>
+                <li>tiktoken-rs token meter</li>
+              </ul>
+              <div class="box-card-foot">
+                Point it at a local model — code, diffs, logs never leave the machine.
+              </div>
+            </article>
           </div>
         </div>
       </section>
 
       <!-- ============ INSTALL ============ -->
       <section id="install" class="install">
-        <div class="section-head reveal">
-          <span class="kicker">Install</span>
-          <h2 class="section-title">Get it running.</h2>
-        </div>
-
-        <div class="install-grid">
-          <div class="install-card install-card-primary reveal">
-            <div class="install-card-head">
-              <span class="install-card-tag">Recommended</span>
-              <h3 class="install-card-title">Download a release</h3>
-              <p class="install-card-desc">
-                Prebuilt binaries for macOS, Linux and Windows are published on every tagged
-                release. No toolchain required — download, install, run.
-              </p>
-            </div>
-
-            <ul class="release-list">
-              <li class="release-row">
-                <span class="release-os">macOS</span>
-                <span class="release-ext"><code>.dmg</code></span>
-                <span class="release-note">Apple Silicon + Intel</span>
-              </li>
-              <li class="release-row">
-                <span class="release-os">Linux</span>
-                <span class="release-ext"><code>.AppImage</code> · <code>.deb</code></span>
-                <span class="release-note">x86_64</span>
-              </li>
-              <li class="release-row">
-                <span class="release-os">Windows</span>
-                <span class="release-ext"><code>.msi</code> · <code>.exe</code></span>
-                <span class="release-note">x86_64</span>
-              </li>
-            </ul>
-
-            <a href="https://github.com/erdembas/runhq/releases/latest" class="install-card-cta">
-              <span>Download latest release</span>
-              <svg
-                viewBox="0 0 24 24"
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6" />
-              </svg>
-            </a>
-
-            <div class="install-card-foot">
-              Releases are built automatically on every tag push via GitHub Actions — always in sync
-              with <code>main</code>.<br /><br />
-              <strong>macOS first launch:</strong> if you see <em>"RunHQ is damaged"</em>, run
-              <code>xattr -cr /Applications/RunHQ.app</code> once. RunHQ isn't Apple-notarized yet
-              (coming soon); Homebrew installs skip this step automatically.
-            </div>
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="kicker">Install</span>
+            <h2 class="section-title">One line. Then orchestrate.</h2>
           </div>
 
-          <div class="install-card reveal">
-            <div class="install-card-head">
-              <span class="install-card-tag install-card-tag-muted">For hackers</span>
-              <h3 class="install-card-title">Build from source</h3>
-              <p class="install-card-desc">
-                Clone the repo, install deps, run in dev mode with hot reload, or bundle your own
-                signed release with <code>pnpm tauri:build</code>.
-              </p>
-            </div>
-
-            <div class="source-steps">
-              <div class="source-step">
-                <span class="source-step-label">Step 01 · Prereqs</span>
-                <div class="source-step-body">
-                  <a href="https://nodejs.org/">Node 20+</a>
-                  <span class="step-sep">·</span>
-                  <a href="https://pnpm.io/">pnpm 9+</a>
-                  <span class="step-sep">·</span>
-                  <a href="https://www.rust-lang.org/tools/install">Rust ≥ 1.77</a>
-                  <span class="step-sep">·</span>
-                  <a href="https://tauri.app/start/prerequisites/">Tauri deps</a>
-                </div>
-              </div>
-
-              <div class="source-step">
-                <span class="source-step-label">Step 02 · Clone &amp; install</span>
-                <div
-                  class="cmd-block"
-                  onclick="
-                    copyCmd(
-                      this,
-                      'git clone https://github.com/erdembas/runhq.git\ncd runhq\npnpm install',
-                    )
-                  "
+          <div class="install-grid reveal">
+            <div class="install-card">
+              <div class="install-card-os">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                  aria-hidden="true"
                 >
-                  <span class="cmd-prompt">$</span>
-                  <code
-                    >git clone github.com/erdembas/runhq<br />cd runhq &amp;&amp; pnpm install</code
-                  >
-                  <span class="cmd-copy">copy</span>
-                </div>
+                  <path
+                    d="M16.5 2c-.4 0-.7.1-1 .3-1.4.7-2.6 2-3.1 3.6-.4 1.3.1 2.6 1 3.5.5-1.5 1.7-2.7 3.1-3.4 1-.4 1.3-1.7.5-2.7-.2-.5-.6-.9-1-1.1l-.5-.2zM7.4 8c-2 0-3.5 1.6-4.4 3.7-1.3 3.2-.3 7.6 1.6 10.1.7.9 1.5 1.4 2.4 1.4.9 0 1.4-.5 2.4-.5 1 0 1.4.5 2.4.5.9 0 1.6-.5 2.4-1.4 1-1.3 1.5-2.6 1.7-3.6-3-.6-3.5-4.7-1.3-6.4-.7-1.4-2.2-2.3-3.6-2.3-1 0-1.7.5-2.5.5-.9 0-1.5-.5-2.5-.5z"
+                  />
+                </svg>
+                <span>macOS</span>
+                <small>Homebrew</small>
               </div>
-
-              <div class="source-step">
-                <span class="source-step-label">Step 03 · Run in dev</span>
-                <div class="cmd-block" onclick="copyCmd(this, 'pnpm tauri:dev')">
-                  <span class="cmd-prompt">$</span>
-                  <code>pnpm tauri:dev</code>
-                  <span class="cmd-copy">copy</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="install-card-foot">
-              Hot reload, full devtools and the same build we ship — bundle a release with
-              <code>pnpm tauri:build</code>.
-            </div>
-          </div>
-        </div>
-
-        <div class="pm-wrap reveal">
-          <div class="pm-head">
-            <span class="kicker">Package managers</span>
-            <h3 class="pm-title">One-line install for your OS.</h3>
-          </div>
-
-          <div class="pm-grid">
-            <div class="pm-card">
-              <div class="pm-card-head">
-                <span class="pm-os">macOS</span>
-                <span class="pm-mgr">Homebrew</span>
-              </div>
-              <div
-                class="cmd-block"
-                onclick="copyCmd(this, 'brew tap erdembas/tap\nbrew install --cask runhq')"
-              >
+              <div class="cmd" data-copy="brew tap erdembas/tap&#10;brew install --cask runhq">
                 <span class="cmd-prompt">$</span>
-                <code>brew tap erdembas/tap<br />brew install --cask runhq</code>
+                <code>brew tap erdembas/tap brew install --cask runhq</code>
                 <span class="cmd-copy">copy</span>
               </div>
-              <div class="pm-card-foot">Upgrade: <code>brew upgrade --cask runhq</code></div>
+              <div class="install-card-foot">
+                Cask clears Gatekeeper quarantine — opens on first launch, no terminal tricks.
+              </div>
             </div>
 
-            <div class="pm-card">
-              <div class="pm-card-head">
-                <span class="pm-os">Windows</span>
-                <span class="pm-mgr">winget</span>
+            <div class="install-card">
+              <div class="install-card-os">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
+                </svg>
+                <span>Windows</span>
+                <small>winget</small>
               </div>
-              <div class="cmd-block" onclick="copyCmd(this, 'winget install erdembas.RunHQ')">
+              <div class="cmd" data-copy="winget install erdembas.RunHQ">
                 <span class="cmd-prompt">&gt;</span>
                 <code>winget install erdembas.RunHQ</code>
                 <span class="cmd-copy">copy</span>
               </div>
-              <div class="pm-card-foot">Upgrade: <code>winget upgrade erdembas.RunHQ</code></div>
+              <div class="install-card-foot">
+                Auto-updates in place. Upgrade later with
+                <code>winget upgrade erdembas.RunHQ</code>.
+              </div>
             </div>
 
-            <div class="pm-card">
-              <div class="pm-card-head">
-                <span class="pm-os">Linux</span>
-                <span class="pm-mgr">.deb · AppImage</span>
+            <div class="install-card">
+              <div class="install-card-os">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 2c-1 0-1.8.4-2.4 1.1-.6.7-1 1.6-1 2.6 0 .6.1 1.1.3 1.6-.6.5-1 1.2-1.3 2-.4 1-.5 2.1-.5 3 0 1.5-.7 2.6-1.5 3.4-.8.8-1.6 1.4-1.6 2.6 0 .9.5 1.7 1.4 2.2.8.5 2 .7 3.6.7h7c1.6 0 2.8-.2 3.6-.7.9-.5 1.4-1.3 1.4-2.2 0-1.2-.8-1.8-1.6-2.6-.8-.8-1.5-1.9-1.5-3.4 0-.9-.1-2-.5-3-.3-.8-.7-1.5-1.3-2 .2-.5.3-1 .3-1.6 0-1-.4-1.9-1-2.6C13.8 2.4 13 2 12 2z"
+                  />
+                </svg>
+                <span>Linux</span>
+                <small>.deb · AppImage</small>
               </div>
               <div
-                class="cmd-block"
-                onclick="
-                  copyCmd(
-                    this,
-                    'gh release download --repo erdembas/runhq --pattern &quot;*.deb&quot;\nsudo dpkg -i RunHQ_*_amd64.deb',
-                  )
-                "
+                class="cmd"
+                data-copy="curl -L https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb -o runhq.deb&#10;sudo dpkg -i runhq.deb"
               >
                 <span class="cmd-prompt">$</span>
-                <code
-                  >gh release download --repo erdembas/runhq --pattern "*.deb"<br />sudo dpkg -i
-                  RunHQ_*_amd64.deb</code
-                >
+                <code>curl -L .../runhq_amd64.deb -o runhq.deb sudo dpkg -i runhq.deb</code>
                 <span class="cmd-copy">copy</span>
               </div>
-              <div class="pm-card-foot">
-                Prefer a browser? —
-                <a href="https://github.com/erdembas/runhq/releases/latest"
-                  >download the .deb or AppImage from releases</a
-                >.
+              <div class="install-card-foot">
+                Or grab the AppImage — see
+                <a href="https://github.com/erdembas/runhq/releases/latest">all releases</a>.
               </div>
             </div>
           </div>
+
+          <p class="install-foot reveal">
+            Prefer source?
+            <a href="https://github.com/erdembas/runhq#development">pnpm tauri:dev</a> after a clone
+            — Rust + pnpm, that's the full toolchain.
+          </p>
         </div>
       </section>
 
       <!-- ============ FINAL CTA ============ -->
       <section class="cta">
-        <div class="cta-glow" aria-hidden="true"></div>
-        <div class="cta-inner reveal">
-          <h2 class="cta-title">Every project. One window.</h2>
-          <p class="cta-sub">Free · MIT · macOS · Linux · Windows</p>
+        <div class="wrap">
+          <h2 class="cta-title">Stop hunting. <em>Start orchestrating.</em></h2>
+          <p class="cta-sub">Free · MIT · macOS · Linux · Windows · &lt; 100 MB RAM</p>
           <div class="cta-actions">
-            <a href="#install" class="btn btn-primary"> Get RunHQ </a>
-            <a href="https://github.com/erdembas/runhq" class="btn btn-text">
-              Contribute on GitHub
+            <a href="#install" class="btn btn-primary">Get RunHQ</a>
+            <a href="https://github.com/erdembas/runhq" class="btn btn-ghost">
+              Star on GitHub
               <svg
                 viewBox="0 0 24 24"
                 width="14"
                 height="14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
+                fill="currentColor"
                 aria-hidden="true"
               >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6" />
+                <path
+                  d="M12 .5l3.7 7.5 8.3 1.2-6 5.8 1.4 8.3L12 19.5 4.6 23.3 6 15l-6-5.8 8.3-1.2L12 .5z"
+                />
               </svg>
             </a>
           </div>
-          <p class="cta-note">Free forever. No credit card. No account.</p>
+          <p class="cta-note">No account. No credit card. No telemetry.</p>
         </div>
       </section>
     </main>
@@ -1386,6 +714,7 @@
           <img src="icon.png" alt="" width="20" height="20" />
           <span>RunHQ</span>
         </div>
+
         <div class="footer-meta">
           <span>MIT licensed</span>
           <span class="footer-sep">·</span>
@@ -1393,364 +722,890 @@
           <span class="footer-sep">·</span>
           <a href="https://github.com/erdembas/runhq/issues">Issues</a>
           <span class="footer-sep">·</span>
-          <span>Built by <a href="https://github.com/erdembas">@erdembas</a></span>
+          <a href="https://github.com/erdembas/runhq/blob/main/CHANGELOG.md">Changelog</a>
+          <span class="footer-sep">·</span>
+          <span>by <a href="https://github.com/erdembas">@erdembas</a></span>
         </div>
       </div>
     </footer>
 
     <script>
-      function copyCmd(el, text) {
-        text = text.replace(/\\n/g, '\n');
-        var h = el.querySelector('.cmd-copy');
-        if (!h) return doCopy(text, function () {});
-        var orig = h.textContent;
-        doCopy(text, function () {
-          h.textContent = 'copied';
-          el.classList.add('is-copied');
-          setTimeout(function () {
-            h.textContent = orig;
-            el.classList.remove('is-copied');
-          }, 1500);
-        });
-      }
-
-      function doCopy(text, cb) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard
-            .writeText(text)
-            .then(cb)
-            .catch(function () {
-              fallbackCopy(text, cb);
-            });
-        } else {
-          fallbackCopy(text, cb);
-        }
-      }
-
-      function fallbackCopy(text, cb) {
-        var a = document.createElement('textarea');
-        a.value = text;
-        a.style.position = 'fixed';
-        a.style.opacity = '0';
-        document.body.appendChild(a);
-        a.select();
-        try {
-          document.execCommand('copy');
-        } catch (e) {}
-        document.body.removeChild(a);
-        cb();
-      }
-
-      var obs = new IntersectionObserver(
-        function (entries) {
-          entries.forEach(function (entry) {
-            if (entry.isIntersecting) {
-              entry.target.classList.add('is-revealed');
-              obs.unobserve(entry.target);
-            }
-          });
-        },
-        { threshold: 0.08, rootMargin: '0px 0px -60px 0px' },
-      );
-      document.querySelectorAll('.reveal').forEach(function (el) {
-        obs.observe(el);
-      });
-
       (function () {
-        // Portfolio framing: each word completes the sentence
-        // "Every <word> on your machine, in one window." Wording leans
-        // toward "things that live in your project folder" (project /
-        // repo / crate / module) rather than "things that run"
-        // (service / daemon / worker) because the cockpit pitch is
-        // about discovery + health, not just supervision.
-        var words = [
-          'Node.js project',
-          'Rust crate',
-          'Go module',
-          'Python repo',
-          '.NET solution',
-          'Java project',
-          'Docker stack',
-          'Bun app',
-          'Ruby gem',
-        ];
-        var el = document.querySelector('.tw-text');
-        if (!el) return;
-        var wi = 0,
-          ci = 0,
-          deleting = false;
-        function tick() {
-          var w = words[wi];
-          if (!deleting) {
-            ci++;
-            el.textContent = w.slice(0, ci);
-            if (ci === w.length) {
-              deleting = true;
-              setTimeout(tick, 1600);
-              return;
-            }
-          } else {
-            ci--;
-            el.textContent = w.slice(0, ci);
-            if (ci === 0) {
-              deleting = false;
-              wi = (wi + 1) % words.length;
-              setTimeout(tick, 260);
-              return;
-            }
-          }
-          setTimeout(tick, deleting ? 35 : 70 + Math.random() * 40);
-        }
-        tick();
-      })();
+        // -- Reveal-on-scroll ----------------------------------------
+        var io = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) {
+                e.target.classList.add('is-revealed');
+                io.unobserve(e.target);
+              }
+            });
+          },
+          { threshold: 0.08, rootMargin: '0px 0px -40px 0px' },
+        );
+        document.querySelectorAll('.reveal').forEach(function (el) {
+          io.observe(el);
+        });
 
-      var nav = document.querySelector('.nav');
-      if (nav) {
-        var onScroll = function () {
+        // -- Sticky nav shadow ----------------------------------------
+        var nav = document.querySelector('.nav');
+        function onScroll() {
           if (window.scrollY > 8) nav.classList.add('is-scrolled');
           else nav.classList.remove('is-scrolled');
-        };
+        }
         onScroll();
         window.addEventListener('scroll', onScroll, { passive: true });
-      }
-    </script>
-    <div id="videoModal" class="video-modal">
-      <div class="video-modal-bg"></div>
-      <div class="video-modal-content">
-        <span class="video-modal-close">&times;</span>
-        <video id="fullVideo" src="RunHQ-web-version-final.mp4" playsinline></video>
-        <div class="cv-controls">
-          <button class="cv-btn" id="playPauseBtn" aria-label="Play/Pause">
-            <svg
-              id="playIcon"
-              viewBox="0 0 24 24"
-              width="22"
-              height="22"
-              fill="currentColor"
-              style="display: none"
-            >
-              <path d="M8 5v14l11-7z" />
-            </svg>
-            <svg id="pauseIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-            </svg>
-          </button>
-          <div class="cv-progress-wrap" id="progressWrap">
-            <div class="cv-progress-bg">
-              <div class="cv-progress-current" id="progressBar"></div>
-            </div>
-          </div>
-          <div class="cv-time" id="timeDisplay">0:00 / 0:00</div>
-          <button class="cv-btn cv-btn-mute" id="muteBtn" aria-label="Mute/Unmute">
-            <svg id="unmuteIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-              <path
-                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
-              />
-            </svg>
-            <svg
-              id="muteIcon"
-              viewBox="0 0 24 24"
-              width="22"
-              height="22"
-              fill="currentColor"
-              style="display: none"
-            >
-              <path
-                d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
-              />
-            </svg>
-          </button>
-          <button class="cv-btn" id="fullscreenBtn" aria-label="Fullscreen">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-              <path
-                d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
-              />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-    <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        var preview = document.getElementById('heroVideoPreview');
-        if (preview) {
-          preview.addEventListener('timeupdate', function () {
-            if (preview.currentTime >= 10) {
-              preview.currentTime = 0;
-              preview.play();
-            }
-          });
-        }
 
-        var modal = document.getElementById('videoModal');
-        var fullVideo = document.getElementById('fullVideo');
-        var btn = document.getElementById('heroVideoLink');
-        var closer = document.querySelector('.video-modal-close');
-        var bg = document.querySelector('.video-modal-bg');
-        var rotator = document.getElementById('heroVideoText');
-        var vtcTitle = document.getElementById('vtcTitle');
-        var vtcDesc = document.getElementById('vtcDesc');
-
-        if (btn && modal && fullVideo) {
-          if (rotator && vtcTitle && vtcDesc) {
-            var snippets = [
-              {
-                t: 'Every project, indexed',
-                d: 'Auto-discovered across 10 runtimes — Node, Bun, Deno, .NET, Java, Go, Rust, Python, Ruby, PHP, Docker.',
-              },
-              {
-                t: 'Native. Local. Offline.',
-                d: 'Built with Rust and Tauri. No containers, no cloud dependencies, no telemetry.',
-              },
-              {
-                t: 'Less than 100 MB RAM',
-                d: "A ridiculously lightweight cockpit that respects your machine's resources.",
-              },
-              {
-                t: 'What needs you this week?',
-                d: 'CVEs, outdated deps, stale scans, dirty git — surfaced as one cross-portfolio answer, not a hunt across thirty repos.',
-              },
-            ];
-            var snippetIndex = 0;
-            vtcTitle.textContent = snippets[0].t;
-            vtcDesc.textContent = snippets[0].d;
-
-            setTimeout(function () {
-              rotator.classList.add('is-visible');
-            }, 500);
-
-            setInterval(function () {
-              rotator.classList.remove('is-visible');
+        // -- Copy-on-click for .cmd blocks ---------------------------
+        document.querySelectorAll('.cmd[data-copy]').forEach(function (el) {
+          el.addEventListener('click', function () {
+            var text = el.getAttribute('data-copy').replace(/&#10;/g, '\n');
+            var copy = el.querySelector('.cmd-copy');
+            var doIt = function () {
+              if (!copy) return;
+              var prev = copy.textContent;
+              copy.textContent = 'copied';
+              el.classList.add('is-copied');
               setTimeout(function () {
-                snippetIndex = (snippetIndex + 1) % snippets.length;
-                vtcTitle.textContent = snippets[snippetIndex].t;
-                vtcDesc.textContent = snippets[snippetIndex].d;
-                rotator.classList.add('is-visible');
-              }, 800);
-            }, 5000);
-          }
-          btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            modal.classList.add('is-open');
-            document.body.style.overflow = 'hidden';
-            fullVideo.currentTime = preview ? preview.currentTime : 0;
-            fullVideo.play();
-            if (preview) preview.pause();
-          });
-
-          function closeModal() {
-            modal.classList.remove('is-open');
-            document.body.style.overflow = '';
-            fullVideo.pause();
-            if (preview) preview.play();
-          }
-
-          closer.addEventListener('click', closeModal);
-          bg.addEventListener('click', closeModal);
-
-          /* Custom Video Controls Logic */
-          var playPauseBtn = document.getElementById('playPauseBtn');
-          var playIcon = document.getElementById('playIcon');
-          var pauseIcon = document.getElementById('pauseIcon');
-          var muteBtn = document.getElementById('muteBtn');
-          var unmuteIcon = document.getElementById('unmuteIcon');
-          var muteIcon = document.getElementById('muteIcon');
-          var fullscreenBtn = document.getElementById('fullscreenBtn');
-          var progressWrap = document.getElementById('progressWrap');
-          var progressBar = document.getElementById('progressBar');
-          var timeDisplay = document.getElementById('timeDisplay');
-          var controlsWrap = document.querySelector('.cv-controls');
-
-          function formatTime(sec) {
-            if (isNaN(sec)) return '0:00';
-            var m = Math.floor(sec / 60);
-            var s = Math.floor(sec % 60);
-            return m + ':' + (s < 10 ? '0' : '') + s;
-          }
-
-          playPauseBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (fullVideo.paused) fullVideo.play();
-            else fullVideo.pause();
-          });
-
-          fullVideo.addEventListener('play', function () {
-            playIcon.style.display = 'none';
-            pauseIcon.style.display = 'block';
-          });
-          fullVideo.addEventListener('pause', function () {
-            playIcon.style.display = 'block';
-            pauseIcon.style.display = 'none';
-          });
-
-          muteBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            fullVideo.muted = !fullVideo.muted;
-          });
-          fullVideo.addEventListener('volumechange', function () {
-            if (fullVideo.muted || fullVideo.volume === 0) {
-              unmuteIcon.style.display = 'none';
-              muteIcon.style.display = 'block';
+                copy.textContent = prev;
+                el.classList.remove('is-copied');
+              }, 1400);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).then(doIt, doIt);
             } else {
-              unmuteIcon.style.display = 'block';
-              muteIcon.style.display = 'none';
+              var ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.select();
+              try {
+                document.execCommand('copy');
+              } catch (e) {}
+              document.body.removeChild(ta);
+              doIt();
             }
           });
+        });
 
-          fullVideo.addEventListener('timeupdate', function () {
-            var perc = (fullVideo.currentTime / fullVideo.duration) * 100;
-            if (!isNaN(perc)) progressBar.style.width = perc + '%';
-            timeDisplay.textContent =
-              formatTime(fullVideo.currentTime) + ' / ' + formatTime(fullVideo.duration);
-          });
-          fullVideo.addEventListener('loadedmetadata', function () {
-            timeDisplay.textContent =
-              formatTime(fullVideo.currentTime) + ' / ' + formatTime(fullVideo.duration);
-          });
-
-          progressWrap.addEventListener('click', function (e) {
-            e.stopPropagation();
-            var rect = progressWrap.getBoundingClientRect();
-            var pos = (e.clientX - rect.left) / rect.width;
-            fullVideo.currentTime = pos * fullVideo.duration;
-          });
-
-          fullscreenBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (fullVideo.requestFullscreen) {
-              fullVideo.requestFullscreen();
-            } else if (fullVideo.webkitRequestFullscreen) {
-              fullVideo.webkitRequestFullscreen();
-            } else if (fullVideo.msRequestFullscreen) {
-              fullVideo.msRequestFullscreen();
-            }
-          });
-
-          fullVideo.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (fullVideo.paused) fullVideo.play();
-            else fullVideo.pause();
-          });
-
-          /* Hide controls when inactive */
-          var hideControlsTid;
-          function showControls() {
-            controlsWrap.style.opacity = '1';
-            fullVideo.style.cursor = 'default';
-            clearTimeout(hideControlsTid);
-            if (!fullVideo.paused) {
-              hideControlsTid = setTimeout(function () {
-                controlsWrap.style.opacity = '0';
-                fullVideo.style.cursor = 'none';
-              }, 2000);
-            }
+        // -- viz-grid (why card 02) ----------------------------------
+        var vg = document.getElementById('vizGrid');
+        if (vg) {
+          var cells = 50;
+          var cveCount = 5;
+          var staleCount = 7;
+          var okCount = 28;
+          var runCount = 4;
+          var arr = [];
+          for (var i = 0; i < cveCount; i++) arr.push('cve');
+          for (var j = 0; j < staleCount; j++) arr.push('stale');
+          for (var k = 0; k < okCount; k++) arr.push('ok');
+          for (var l = 0; l < runCount; l++) arr.push('run');
+          while (arr.length < cells) arr.push('');
+          // shuffle (Fisher–Yates)
+          for (var m = arr.length - 1; m > 0; m--) {
+            var n = Math.floor(Math.random() * (m + 1));
+            var t = arr[m];
+            arr[m] = arr[n];
+            arr[n] = t;
           }
-          document
-            .querySelector('.video-modal-content')
-            .addEventListener('mousemove', showControls);
-          fullVideo.addEventListener('pause', showControls);
+          arr.forEach(function (cls) {
+            var c = document.createElement('div');
+            c.className = 'viz-grid-cell' + (cls ? ' ' + cls : '');
+            vg.appendChild(c);
+          });
         }
-      });
+      })();
+
+      /* ============================================================
+         Cockpit demo engine
+         A tiny state-driven mock of the actual app surface. One
+         render function paints the rail, list, headline and AI
+         panel from a `state` object. Every interactive surface
+         dispatches an action that mutates state and re-renders.
+         The hero cockpit is interactive (click rail rows / Analyze).
+         The loop cockpit auto-plays scripted timelines on tab
+         switch + IntersectionObserver.
+         ============================================================ */
+      (function () {
+        // ---------- shared rendering ----------
+        function chip(label, kind) {
+          var k = kind ? ' ' + kind : '';
+          return '<span class="lc-chip' + k + '">' + label + '</span>';
+        }
+
+        function renderLc(root, state) {
+          if (!root) return;
+          // rail
+          var rail = root.querySelector('[data-lc-rail]');
+          if (rail) {
+            var html = '<div class="lc-rail-section">' + (state.section || 'Services') + '</div>';
+            (state.services || []).forEach(function (s, i) {
+              var dotCls = 'lc-rail-dot';
+              if (s.status === 'running') dotCls += ' is-running';
+              else if (s.status === 'warn') dotCls += ' is-warn';
+              else if (s.status === 'error') dotCls += ' is-error';
+              var rowCls = 'lc-rail-row' + (state.activeIndex === i ? ' is-active' : '');
+              html +=
+                '<div class="' +
+                rowCls +
+                '" data-lc-row="' +
+                i +
+                '">' +
+                '<span class="' +
+                dotCls +
+                '"></span>' +
+                '<span class="lc-rail-name">' +
+                s.name +
+                '</span>' +
+                (s.port ? '<span class="lc-rail-port">' + s.port + '</span>' : '') +
+                '</div>';
+            });
+            rail.innerHTML = html;
+          }
+          // cwd / status pill
+          var cwd = root.querySelector('[data-lc-cwd]');
+          if (cwd && state.cwd) cwd.textContent = state.cwd;
+          var status = root.querySelector('[data-lc-status]');
+          if (status && state.statusText) status.textContent = state.statusText;
+          // headline
+          var h = root.querySelector('[data-lc-h]');
+          if (h && state.headline) h.textContent = state.headline;
+          var st = root.querySelector('[data-lc-state]');
+          if (st && state.stateLine !== undefined) st.innerHTML = state.stateLine;
+          // hero card
+          var heroH = root.querySelector('[data-lc-hero-h]');
+          if (heroH && state.heroH) heroH.textContent = state.heroH;
+          var heroSub = root.querySelector('[data-lc-hero-sub]');
+          if (heroSub && state.heroSub !== undefined) heroSub.textContent = state.heroSub;
+          var heroChips = root.querySelector('[data-lc-hero-chips]');
+          if (heroChips)
+            heroChips.innerHTML = (state.heroChips || [])
+              .map(function (c) {
+                return chip(c.label, c.kind);
+              })
+              .join('');
+          // list (project rows)
+          var list = root.querySelector('[data-lc-list]');
+          if (list) {
+            list.innerHTML = (state.list || [])
+              .map(function (r, i) {
+                var dotCls = 'lc-rail-dot';
+                if (r.status === 'running') dotCls += ' is-running';
+                else if (r.status === 'warn') dotCls += ' is-warn';
+                else if (r.status === 'error') dotCls += ' is-error';
+                return (
+                  '<div class="lc-row' +
+                  (r.selected ? ' is-selected' : '') +
+                  '">' +
+                  '<div class="lc-row-name">' +
+                  '<span class="' +
+                  dotCls +
+                  '"></span>' +
+                  '<b>' +
+                  r.name +
+                  '</b>' +
+                  '</div>' +
+                  (r.chips || [])
+                    .map(function (c) {
+                      return chip(c.label, c.kind);
+                    })
+                    .join('') +
+                  '<span class="lc-row-meta">' +
+                  (r.meta || '') +
+                  '</span>' +
+                  '</div>'
+                );
+              })
+              .join('');
+          }
+          // AI panel
+          var ai = root.querySelector('[data-lc-ai]');
+          if (ai) {
+            if (state.aiOpen) ai.classList.add('is-open');
+            else ai.classList.remove('is-open');
+            var aiBody = root.querySelector('[data-lc-ai-body]');
+            if (aiBody && state.aiHtml !== undefined) aiBody.innerHTML = state.aiHtml;
+          }
+          // Kill action visibility
+          var killBtn = root.querySelector('[data-lc-action="kill"]');
+          if (killBtn) killBtn.hidden = !state.killVisible;
+        }
+
+        function renderLogs(root, lines) {
+          var box = root.querySelector('[data-lc-logs]');
+          if (!box) return;
+          if (!lines || !lines.length) {
+            box.innerHTML = '';
+            return;
+          }
+          box.innerHTML = lines
+            .map(function (l, i) {
+              return (
+                '<div class="lc-log" style="animation-delay:' +
+                i * 30 +
+                'ms">' +
+                '<span class="lc-log-t">' +
+                l.t +
+                '</span>' +
+                (l.svc
+                  ? '<span class="lc-log-svc ' + (l.svcCls || '') + '">' + l.svc + '</span>'
+                  : '') +
+                '<span class="lc-log-msg">' +
+                l.msg +
+                '</span>' +
+                '</div>'
+              );
+            })
+            .join('');
+          // scroll to bottom
+          box.scrollTop = box.scrollHeight;
+        }
+
+        // ---------- AI typewriter ----------
+        function typeInto(el, html, speed, done) {
+          if (!el) {
+            done && done();
+            return;
+          }
+          el.innerHTML = '';
+          var i = 0;
+          var raw = html;
+          var buf = '';
+          var inTag = false;
+          function tick() {
+            if (i >= raw.length) {
+              el.innerHTML = buf + '<span class="lc-ai-cursor"></span>';
+              done && done();
+              return;
+            }
+            var ch = raw.charAt(i);
+            if (ch === '<') inTag = true;
+            buf += ch;
+            if (ch === '>') inTag = false;
+            i++;
+            // when inside tag, fast-forward through it without delay
+            el.innerHTML = buf + '<span class="lc-ai-cursor"></span>';
+            setTimeout(tick, inTag ? 0 : (speed || 14) + Math.random() * 8);
+          }
+          tick();
+        }
+
+        // ============================================================
+        //  HERO COCKPIT — interactive
+        // ============================================================
+        var heroLc = document.getElementById('heroLc');
+        if (heroLc) {
+          var heroState = {
+            cwd: '~/code · 27 projects',
+            statusText: '4 services running',
+            headline: 'acme-platform',
+            stateLine: '<b>4</b> running · <b class="warn">2</b> dirty · <b class="err">2 CVE</b>',
+            section: 'Stack',
+            activeIndex: 1,
+            killVisible: false,
+            aiOpen: false,
+            aiHtml: 'Click <strong>Analyze workspace</strong> to see what needs you this week.',
+            services: [
+              { name: 'postgres', status: 'running', port: ':5432' },
+              { name: 'api', status: 'running', port: ':8080' },
+              { name: 'web', status: 'running', port: ':3000' },
+              { name: 'worker', status: 'running' },
+              { name: 'mailer', status: '' },
+              { name: 'redis', status: '' },
+            ],
+            heroH: '4 / 6 services running',
+            heroSub: 'acme-platform · ~/code/acme',
+            heroChips: [
+              { label: 'go · pg · node', kind: 'dim' },
+              { label: '↑2 ahead', kind: 'ok' },
+              { label: '2 CVE', kind: 'cve' },
+              { label: '8↑ outdated', kind: 'out' },
+            ],
+            list: [
+              {
+                name: 'acme-web',
+                status: 'running',
+                selected: false,
+                chips: [
+                  { label: '3 dirty', kind: 'out' },
+                  { label: ':3000', kind: 'ok' },
+                ],
+                meta: 'pnpm dev',
+              },
+              {
+                name: 'acme-api',
+                status: 'running',
+                selected: true,
+                chips: [
+                  { label: '2 CVE', kind: 'cve' },
+                  { label: ':8080', kind: 'ok' },
+                ],
+                meta: 'go run ./cmd/api',
+              },
+              {
+                name: 'internal-cli',
+                status: '',
+                selected: false,
+                chips: [
+                  { label: 'stale 47d', kind: 'out' },
+                  { label: '8↑', kind: 'out' },
+                ],
+                meta: 'cargo run',
+              },
+              {
+                name: 'design-system',
+                status: 'warn',
+                selected: false,
+                chips: [
+                  { label: '↓4 behind', kind: 'dim' },
+                  { label: '1 dirty', kind: 'out' },
+                ],
+                meta: 'pnpm storybook',
+              },
+            ],
+          };
+
+          function renderHero() {
+            renderLc(heroLc, heroState);
+          }
+          renderHero();
+
+          heroLc.addEventListener('click', function (ev) {
+            var rail = ev.target.closest('[data-lc-row]');
+            if (rail) {
+              var idx = parseInt(rail.getAttribute('data-lc-row'), 10);
+              heroState.list.forEach(function (r) {
+                r.selected = false;
+              });
+              if (idx >= 0 && heroState.services[idx]) {
+                var s = heroState.services[idx];
+                heroState.headline = 'acme-platform · ' + s.name;
+                heroState.heroH = s.name + (s.status === 'running' ? ' · running' : ' · stopped');
+                heroState.heroSub = s.port ? 'listening on ' + s.port : 'background worker';
+              }
+              renderHero();
+              return;
+            }
+            var listRow = ev.target.closest('.lc-row');
+            if (listRow) {
+              var rows = Array.prototype.slice.call(heroLc.querySelectorAll('.lc-row'));
+              var ri = rows.indexOf(listRow);
+              heroState.list.forEach(function (r, i) {
+                r.selected = i === ri;
+              });
+              renderHero();
+              return;
+            }
+            var ai = ev.target.closest('[data-lc-action="ai"]');
+            if (ai) {
+              heroState.aiOpen = true;
+              heroState.aiHtml = '';
+              renderHero();
+              var body = heroLc.querySelector('[data-lc-ai-body]');
+              typeInto(
+                body,
+                "Across <strong>27 projects</strong>: <strong>acme-api</strong> has a <strong>critical CVE</strong> in <code>axios</code> — patch first. <strong>internal-cli</strong> hasn't moved in 47 days and is 8 packages outdated. <strong>design-system</strong> is 4 commits behind <code>origin/main</code>. Want a triage plan?",
+                14,
+              );
+              return;
+            }
+          });
+        }
+
+        // ============================================================
+        //  LOOP COCKPIT — scripted demo timelines
+        // ============================================================
+        var loopStage = document.querySelector('[data-loop-stage]');
+        var loopRoot = loopStage ? loopStage.querySelector('[data-lc]') : null;
+        var loopTabs = document.querySelectorAll('[data-loop-tab]');
+        var loopH = document.querySelector('[data-loop-h]');
+        var loopP = document.querySelector('[data-loop-p]');
+        var loopList = document.querySelector('[data-loop-list]');
+        var loopReplay = document.querySelector('[data-loop-replay]');
+
+        if (!loopRoot) return;
+
+        var copy = {
+          discover: {
+            h: 'One scan, every repo.',
+            p: 'RunHQ walks your dev folders, infers each project\'s runtime and start commands from manifest files, and persists the registry. Cold start paints from a SQLite cache — no 30-second "loading…" before you see your own machine.',
+            list: [
+              '<strong>10 runtimes</strong> · Node, Bun, Deno, Go, Rust, .NET, Python, Java, Ruby, PHP, Docker',
+              '<strong>Manifest-aware</strong> · package.json, go.mod, Cargo.toml, pyproject.toml, compose.yaml…',
+              '<strong>Persisted</strong> · ~/.runhq/config.json — diffable, version-controllable',
+            ],
+          },
+          orchestrate: {
+            h: 'Stacks, ports, processes — one click.',
+            p: 'Group services into named stacks and start them together. Graceful shutdown (SIGTERM → grace → SIGKILL). Live port watchdog — when something else is holding :5432, kill it from the same window. ⌘K palette searches every command in your portfolio.',
+            list: [
+              '<strong>Stacks</strong> · multi-service · "▶ Play all"',
+              '<strong>Port watchdog</strong> · live TCP list · one-click kill',
+              '<strong>Embedded PTY</strong> · xterm.js, opens to project cwd',
+              '<strong>Cmd+K palette</strong> · cross-portfolio fuzzy search',
+            ],
+          },
+          heal: {
+            h: 'What needs you, this week.',
+            p: 'Every npm outdated / cargo audit / pip audit is persisted to a local SQLite store, so the dashboard paints chips instantly on cold start. AI takes the whole portfolio as context — local model or cloud, your call — and writes a triage plan you can act on.',
+            list: [
+              '<strong>Persistent scan cache</strong> · SQLite, paints in &lt; 100 ms',
+              '<strong>Per-card freshness</strong> · "3h ago" chip · click to rescan one',
+              '<strong>"N stale" pill</strong> · sequentially sweep just the &gt;7d projects',
+              '<strong>Cross-project AI</strong> · BYO endpoint · zero data leaves the machine',
+            ],
+          },
+        };
+
+        // ---- demo scripts ----
+        // Each script is an array of "frames" applied via setTimeout.
+        // A frame is { delay, patch }, where patch mutates state.
+
+        function makeDiscoverScript() {
+          var frames = [
+            {
+              delay: 0,
+              patch: function (s) {
+                s.cwd = '~/code';
+                s.statusText = 'Scanning…';
+                s.headline = 'Discovery';
+                s.stateLine = '<b>0</b> projects · scanning manifests…';
+                s.section = 'Found';
+                s.heroH = 'Walking ~/code';
+                s.heroSub = 'parsing manifests…';
+                s.heroChips = [];
+                s.services = [];
+                s.list = [];
+                s.logs = [];
+                s.aiOpen = false;
+                s.aiHtml = '';
+              },
+            },
+          ];
+          var found = [
+            {
+              name: 'acme-web',
+              runtime: 'node',
+              manifest: 'package.json',
+              port: ':3000',
+              cmd: 'pnpm dev',
+            },
+            {
+              name: 'acme-api',
+              runtime: 'go',
+              manifest: 'go.mod',
+              port: ':8080',
+              cmd: 'go run ./cmd/api',
+            },
+            {
+              name: 'internal-cli',
+              runtime: 'rust',
+              manifest: 'Cargo.toml',
+              port: '',
+              cmd: 'cargo run',
+            },
+            {
+              name: 'finsel-billing',
+              runtime: 'dotnet',
+              manifest: '.csproj',
+              port: ':5050',
+              cmd: 'dotnet run',
+            },
+            {
+              name: 'data-jobs',
+              runtime: 'python',
+              manifest: 'pyproject.toml',
+              port: '',
+              cmd: 'uv run train.py',
+            },
+            {
+              name: 'design-system',
+              runtime: 'node',
+              manifest: 'package.json',
+              port: ':6006',
+              cmd: 'pnpm storybook',
+            },
+            {
+              name: 'acme-stack',
+              runtime: 'docker',
+              manifest: 'compose.yaml',
+              port: '',
+              cmd: 'docker compose up',
+            },
+          ];
+          var t = 200;
+          found.forEach(function (f, i) {
+            t += 220 + Math.random() * 80;
+            (function (idx, fn) {
+              frames.push({
+                delay: t,
+                patch: function (s) {
+                  s.services.push({ name: fn.name, status: '', port: fn.port });
+                  s.list.unshift({
+                    name: fn.name,
+                    status: '',
+                    chips: [
+                      { label: fn.runtime, kind: 'dim' },
+                      { label: fn.manifest, kind: 'dim' },
+                    ],
+                    meta: fn.cmd,
+                  });
+                  if (s.list.length > 5) s.list.pop();
+                  s.heroH = idx + 1 + ' / 7 found';
+                  s.stateLine = '<b>' + (idx + 1) + '</b> projects · scanning…';
+                  s.heroSub = 'parsed ' + fn.manifest;
+                  s.logs = (s.logs || []).concat([
+                    {
+                      t: '00:0' + idx,
+                      svc: 'scan',
+                      svcCls: 'scan',
+                      msg: 'discovered <span class="ok">' + fn.name + '</span> · ' + fn.runtime,
+                    },
+                  ]);
+                  if (s.logs.length > 6) s.logs = s.logs.slice(-6);
+                },
+              });
+            })(i, f);
+          });
+          frames.push({
+            delay: t + 500,
+            patch: function (s) {
+              s.statusText = 'Scan complete · 7 projects';
+              s.heroH = '7 projects indexed';
+              s.heroSub = 'cached to ~/.runhq/config.json';
+              s.heroChips = [
+                { label: '3 node', kind: 'dim' },
+                { label: '1 go', kind: 'dim' },
+                { label: '1 rust', kind: 'dim' },
+                { label: '1 .net', kind: 'dim' },
+                { label: '1 docker', kind: 'dim' },
+              ];
+              s.stateLine = '<b>7</b> indexed · <b>0</b> running';
+            },
+          });
+          return frames;
+        }
+
+        function makeOrchestrateScript() {
+          var base = {
+            cwd: '~/code/acme · acme-platform',
+            statusText: 'Stack idle',
+            headline: 'acme-platform',
+            stateLine: '<b>0</b> / 4 running',
+            section: 'Stack',
+            heroH: 'acme-platform',
+            heroSub: 'press ▶ to start the whole stack',
+            heroChips: [
+              { label: 'go · pg · node · redis', kind: 'dim' },
+              { label: '4 services', kind: 'dim' },
+            ],
+            services: [
+              { name: 'postgres', status: '', port: ':5432' },
+              { name: 'redis', status: '', port: ':6379' },
+              { name: 'api', status: '', port: ':8080' },
+              { name: 'web', status: '', port: ':3000' },
+            ],
+            list: [],
+            logs: [],
+            killVisible: false,
+            aiOpen: false,
+            aiHtml: '',
+          };
+          var frames = [
+            {
+              delay: 0,
+              patch: function (s) {
+                Object.assign(s, base);
+                s.services = base.services.map(function (x) {
+                  return Object.assign({}, x);
+                });
+              },
+            },
+          ];
+          frames.push({
+            delay: 600,
+            patch: function (s) {
+              s.statusText = 'Starting stack…';
+              s.heroSub = '▶ Play all';
+              s.logs = [
+                {
+                  t: '12:00',
+                  svc: 'stack',
+                  svcCls: 'worker',
+                  msg: 'starting acme-platform · 4 services',
+                },
+              ];
+            },
+          });
+          frames.push({
+            delay: 1100,
+            patch: function (s) {
+              s.services[0].status = 'running';
+              s.stateLine = '<b>1</b> / 4 running';
+              s.logs.push({
+                t: '12:00',
+                svc: 'db',
+                svcCls: 'db',
+                msg: 'postgres ready · <span class="ok">listening :5432</span>',
+              });
+            },
+          });
+          frames.push({
+            delay: 1700,
+            patch: function (s) {
+              s.services[1].status = 'running';
+              s.stateLine = '<b>2</b> / 4 running';
+              s.logs.push({
+                t: '12:00',
+                svc: 'redis',
+                svcCls: 'db',
+                msg: 'redis ready · <span class="ok">listening :6379</span>',
+              });
+            },
+          });
+          // Port conflict on api
+          frames.push({
+            delay: 2300,
+            patch: function (s) {
+              s.services[2].status = 'error';
+              s.stateLine = '<b>2</b> / 4 running · <b class="err">port conflict</b>';
+              s.killVisible = true;
+              s.heroSub = 'something else is holding :5432? — no, :8080';
+              s.logs.push({
+                t: '12:00',
+                svc: 'api',
+                svcCls: 'api',
+                msg: '<span class="err">EADDRINUSE :8080</span> · pid 4218 holding port',
+              });
+            },
+          });
+          // Kill the offending port
+          frames.push({
+            delay: 3100,
+            patch: function (s) {
+              s.killVisible = false;
+              s.heroSub = 'killed pid 4218 — retrying api';
+              s.logs.push({
+                t: '12:00',
+                svc: 'api',
+                svcCls: 'api',
+                msg: '<span class="warn">SIGTERM → grace → SIGKILL pid 4218</span>',
+              });
+            },
+          });
+          frames.push({
+            delay: 3700,
+            patch: function (s) {
+              s.services[2].status = 'running';
+              s.stateLine = '<b>3</b> / 4 running';
+              s.logs.push({
+                t: '12:00',
+                svc: 'api',
+                svcCls: 'api',
+                msg: 'GET /health · <span class="ok">200</span> · 4ms',
+              });
+            },
+          });
+          frames.push({
+            delay: 4300,
+            patch: function (s) {
+              s.services[3].status = 'running';
+              s.stateLine = '<b>4</b> / 4 running';
+              s.statusText = 'Stack healthy · 4 / 4';
+              s.heroH = 'acme-platform · running';
+              s.heroSub = 'all 4 services up · ⌘K to jump to any of them';
+              s.heroChips = [
+                { label: ':5432 ok', kind: 'ok' },
+                { label: ':6379 ok', kind: 'ok' },
+                { label: ':8080 ok', kind: 'ok' },
+                { label: ':3000 ok', kind: 'ok' },
+              ];
+              s.logs.push({
+                t: '12:00',
+                svc: 'web',
+                svcCls: 'web',
+                msg: 'Ready · <span class="ok">http://localhost:3000</span>',
+              });
+            },
+          });
+          return frames;
+        }
+
+        function makeHealScript() {
+          var base = {
+            cwd: '~/code · 27 projects',
+            statusText: 'Cross-project audit',
+            headline: 'Workspace health',
+            stateLine:
+              '<b class="err">2 critical CVE</b> · <b class="warn">14 outdated</b> · <b>3 stale</b>',
+            section: 'Worst offenders',
+            heroH: 'Workspace audit · 27 projects',
+            heroSub: 'persisted scans · paints in <100ms',
+            heroChips: [],
+            services: [],
+            list: [
+              {
+                name: 'acme-api',
+                status: 'error',
+                chips: [
+                  { label: '2 CVE', kind: 'cve' },
+                  { label: 'lodash 4.17.20', kind: 'cve' },
+                ],
+                meta: '9d ago',
+              },
+              {
+                name: 'internal-cli',
+                status: 'warn',
+                chips: [
+                  { label: '8↑ outdated', kind: 'out' },
+                  { label: 'stale 47d', kind: 'out' },
+                ],
+                meta: '47d ago',
+              },
+              {
+                name: 'design-system',
+                status: 'warn',
+                chips: [
+                  { label: '↓4 behind', kind: 'dim' },
+                  { label: '6↑ outdated', kind: 'out' },
+                ],
+                meta: '5d ago',
+              },
+              {
+                name: 'acme-web',
+                status: 'running',
+                chips: [
+                  { label: 'clean', kind: 'ok' },
+                  { label: '3h ago', kind: 'ok' },
+                ],
+                meta: 'fresh',
+              },
+            ],
+            logs: [],
+            aiOpen: false,
+            aiHtml: '',
+          };
+          var frames = [
+            {
+              delay: 0,
+              patch: function (s) {
+                Object.assign(s, base);
+                s.list = base.list.map(function (x) {
+                  return Object.assign({}, x);
+                });
+              },
+            },
+          ];
+          frames.push({
+            delay: 700,
+            patch: function (s) {
+              s.aiOpen = true;
+              s.aiHtml = '';
+            },
+          });
+          return frames;
+        }
+
+        // ---- runner ----
+        // Each runScript() call bumps `loopGen`; every scheduled
+        // callback captures the gen at schedule time and silently
+        // no-ops if a newer script has taken over. `clearTimeout`
+        // can't cancel a callback that already left the timer queue
+        // and is sitting in the event-loop ready-set, which is
+        // exactly the race we hit during aggressive tab-spam.
+        var loopState = {};
+        var loopGen = 0;
+        function runScript(frames, after) {
+          loopGen++;
+          var myGen = loopGen;
+          loopState = {
+            services: [],
+            list: [],
+            logs: [],
+            heroChips: [],
+            cwd: '',
+            statusText: '',
+            headline: '',
+            stateLine: '',
+            heroH: '',
+            heroSub: '',
+            section: '',
+            aiOpen: false,
+            aiHtml: '',
+            killVisible: false,
+          };
+          frames.forEach(function (f) {
+            setTimeout(function () {
+              if (loopGen !== myGen) return;
+              f.patch(loopState);
+              renderLc(loopRoot, loopState);
+              renderLogs(loopRoot, loopState.logs);
+            }, f.delay);
+          });
+          if (after) {
+            var totalDelay = frames[frames.length - 1].delay + 200;
+            setTimeout(function () {
+              if (loopGen !== myGen) return;
+              after();
+            }, totalDelay);
+          }
+        }
+
+        function setTab(name) {
+          loopTabs.forEach(function (t) {
+            t.classList.toggle('is-active', t.getAttribute('data-loop-tab') === name);
+          });
+          if (loopH) loopH.textContent = copy[name].h;
+          if (loopP) loopP.textContent = copy[name].p;
+          if (loopList) {
+            loopList.innerHTML = copy[name].list
+              .map(function (li) {
+                return '<li>' + li + '</li>';
+              })
+              .join('');
+          }
+          if (name === 'discover') runScript(makeDiscoverScript());
+          else if (name === 'orchestrate') runScript(makeOrchestrateScript());
+          else if (name === 'heal') {
+            runScript(makeHealScript(), function () {
+              var body = loopRoot.querySelector('[data-lc-ai-body]');
+              typeInto(
+                body,
+                "Across your <strong>27 projects</strong>, here's this week's plan:<br>1. Patch <strong>acme-api</strong> first — critical CVE in <code>axios@0.21.1</code>, fix is <code>axios@1.x</code>.<br>2. <strong>internal-cli</strong> hasn't moved in 47 days; ship the dependabot batch.<br>3. <strong>design-system</strong> is 4 commits behind — fast-forward and republish.",
+                14,
+              );
+            });
+          }
+        }
+
+        loopTabs.forEach(function (t) {
+          t.addEventListener('click', function () {
+            setTab(t.getAttribute('data-loop-tab'));
+          });
+        });
+        if (loopReplay) {
+          loopReplay.addEventListener('click', function () {
+            var active = document.querySelector('[data-loop-tab].is-active');
+            if (active) setTab(active.getAttribute('data-loop-tab'));
+          });
+        }
+
+        // Auto-play on first scroll into view
+        var loopIo = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) {
+                setTab('discover');
+                loopIo.unobserve(e.target);
+              }
+            });
+          },
+          { threshold: 0.25 },
+        );
+        if (loopStage) loopIo.observe(loopStage);
+      })();
     </script>
   </body>
 </html>
