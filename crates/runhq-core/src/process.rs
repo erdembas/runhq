@@ -25,6 +25,7 @@ use tokio::task::JoinHandle;
 use crate::error::{AppError, AppResult};
 use crate::events::EventSink;
 use crate::logs::{LogStore, Stream};
+use crate::process_group::JobObject;
 use crate::resources::{ResourceSample, ResourceSampler};
 use crate::state::{CommandEntry, ServiceDef};
 
@@ -106,6 +107,22 @@ struct Running {
     started_at_ms: i64,
     stop_tx: Option<oneshot::Sender<()>>,
     _task: JoinHandle<()>,
+    /// Windows-only Job Object that owns the supervised process tree.
+    ///
+    /// Held as long as the run is alive; dropping it (on supervise
+    /// completion or stop) closes the job and triggers
+    /// `KILL_ON_JOB_CLOSE` semantics, terminating every descendant
+    /// process the user's command spawned (`pnpm dev` → `node` →
+    /// `esbuild` → workers, etc.). Without this, Windows leaves
+    /// orphaned processes holding dev ports — the symptom users see is
+    /// "stop service" succeeds but `:3000` is still occupied.
+    ///
+    /// On non-Windows targets this is a zero-cost no-op shim; the Unix
+    /// `setsid()` + `killpg()` path in [`graceful_kill`] handles tree
+    /// teardown there. Carrying the field unconditionally keeps the
+    /// struct identical across platforms and avoids `cfg`-sprawl on
+    /// every construction site.
+    _job: Option<JobObject>,
 }
 
 fn process_key(service_id: &str, cmd_name: &str) -> String {
@@ -575,6 +592,44 @@ impl Supervisor {
         let pid = child.id().unwrap_or(0);
         let started_at_ms = chrono::Utc::now().timestamp_millis();
 
+        // Windows: pin the freshly-spawned shell into a Job Object that
+        // tree-kills on close. Best-effort — if attachment fails (race
+        // with an instant-exit child, EDR blocking OpenProcess), we log
+        // and proceed without containment rather than refusing to start
+        // the service. Same outcome as before this fix existed; only the
+        // tree-kill on stop is degraded. Held in `Running._job` so the
+        // job stays open for the entire run lifetime.
+        //
+        // On non-Windows targets `JobObject::attach_kill_on_close` is a
+        // no-op shim that returns `Ok(JobObject)` — kept unconditional
+        // to avoid `cfg`-sprawl at the spawn site. Unix tree-kill is
+        // delivered via `setsid()` + `killpg()` in `graceful_kill`.
+        let job = if pid != 0 {
+            #[cfg(windows)]
+            {
+                match JobObject::attach_kill_on_close(pid) {
+                    Ok(j) => Some(j),
+                    Err(e) => {
+                        tracing::warn!(
+                            "failed to attach Job Object for {}::{} (pid {}): {} \
+                             — process tree kill on stop will be degraded",
+                            svc.id,
+                            entry.name,
+                            pid,
+                            e
+                        );
+                        None
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                JobObject::attach_kill_on_close(pid).ok()
+            }
+        } else {
+            None
+        };
+
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         // Detach the stdin pipe-writer from `Child` BEFORE we hand the child
@@ -744,6 +799,7 @@ impl Supervisor {
                 started_at_ms,
                 stop_tx: Some(stop_tx),
                 _task: task,
+                _job: job,
             },
         );
 

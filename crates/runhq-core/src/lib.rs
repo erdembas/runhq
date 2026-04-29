@@ -33,6 +33,7 @@ pub mod overview;
 pub mod paths;
 pub mod ports;
 pub mod process;
+pub mod process_group;
 pub mod resources;
 pub mod scan_history;
 pub mod scanner;
