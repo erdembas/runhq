@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Terminal, type ITheme } from '@xterm/xterm';
+import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { SearchAddon, type ISearchDecorationOptions } from '@xterm/addon-search';
+import { SearchAddon } from '@xterm/addon-search';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
+import { XTERM_SEARCH_DECORATIONS, xtermTheme } from '@/lib/xtermTheme';
 
 interface Props {
   id: string;
@@ -15,80 +16,6 @@ interface Props {
 
 const NERD_FONT_STACK =
   '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrainsMono Nerd Font", "FiraCode Nerd Font", "Hack Nerd Font", "Menlo", "Monaco", "Consolas", "Courier New", monospace';
-
-const DARK_THEME: ITheme = {
-  background: '#0c0c0c',
-  foreground: '#e8e4e0',
-  cursor: '#e8e4e0',
-  cursorAccent: '#0c0c0c',
-  selectionBackground: '#e8e4e033',
-  black: '#0c0c0c',
-  red: '#ef4444',
-  green: '#34d399',
-  yellow: '#fbbf24',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e8e4e0',
-  brightBlack: '#6c6560',
-  brightRed: '#f87171',
-  brightGreen: '#6ee7b7',
-  brightYellow: '#fcd34d',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#f5f5f4',
-};
-
-const LIGHT_THEME: ITheme = {
-  background: '#faf8f6',
-  foreground: '#141210',
-  cursor: '#141210',
-  cursorAccent: '#faf8f6',
-  selectionBackground: '#14121020',
-  black: '#141210',
-  red: '#dc2626',
-  green: '#059669',
-  yellow: '#d97706',
-  blue: '#2563eb',
-  magenta: '#9333ea',
-  cyan: '#0891b2',
-  white: '#faf8f6',
-  brightBlack: '#5c5650',
-  brightRed: '#ef4444',
-  brightGreen: '#10b981',
-  brightYellow: '#f59e0b',
-  brightBlue: '#3b82f6',
-  brightMagenta: '#a855f7',
-  brightCyan: '#06b6d4',
-  brightWhite: '#f5f5f4',
-};
-
-/** Highlight palette for the search addon's decorations layer.
- *
- *  Two states:
- *  - `match*`: every match in the buffer that *isn't* currently active.
- *    Soft amber so the user can see at-a-glance how many hits exist
- *    without their eye being yanked to one specific spot.
- *  - `activeMatch*`: the match the cursor is on right now. Saturated
- *    orange so it pops against the surrounding amber sea — important
- *    when scrubbing through dozens of hits with Enter/Shift+Enter.
- *
- *  The ruler colors land on xterm's overview scrollbar. They mirror
- *  the same hue so a user scrolled away from their match still gets
- *  an unmistakable scrollbar tick pointing at it. */
-const SEARCH_DECORATIONS: ISearchDecorationOptions = {
-  matchBackground: '#fbbf2466',
-  matchBorder: '#fbbf24',
-  matchOverviewRuler: '#fbbf24',
-  activeMatchBackground: '#f59e0bcc',
-  activeMatchBorder: '#f59e0b',
-  activeMatchColorOverviewRuler: '#f59e0b',
-};
-
-function xtermTheme(isDark: boolean): ITheme {
-  return isDark ? DARK_THEME : LIGHT_THEME;
-}
 
 function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(
@@ -178,7 +105,7 @@ export function TerminalPane({ id, cwd }: Props) {
       // a stale value during fast Backspace-to-empty.
       return;
     }
-    const opts = { decorations: SEARCH_DECORATIONS };
+    const opts = { decorations: XTERM_SEARCH_DECORATIONS };
     if (direction === 'next') {
       search.findNext(query, opts);
     } else {
