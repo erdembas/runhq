@@ -54,12 +54,16 @@ nix = { version = "0.29", features = ["signal"] }
 # features pull in CreateJobObjectW, AssignProcessToJobObject, and
 # OpenProcess — exactly what `process_group::JobObject` needs to attach
 # kill-on-close semantics to spawned shells. Win32_Foundation gives us
-# CloseHandle. Pinned to 0.61 to match the version Tauri's transitive
-# tree already resolves to, avoiding duplicate `windows-*` crates in the
-# final binary.
+# CloseHandle. `Win32_Security` is required because `CreateJobObjectW`'s
+# signature references `SECURITY_ATTRIBUTES` (even though we always pass
+# `None`) — without the feature, the symbol stays gated out of the
+# generated bindings and the import fails with E0432. Pinned to 0.61 to
+# match the version Tauri's transitive tree already resolves to,
+# avoiding duplicate `windows-*` crates in the final binary.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
 ] }
