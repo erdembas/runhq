@@ -399,7 +399,7 @@ pub fn run() {
                 app: app.handle().clone(),
             });
             let supervisor = Arc::new(Supervisor::new(sink));
-            let terminals = TerminalManager::new(app.handle().clone());
+            let terminals = TerminalManager::new();
 
             // Drive the per-service CPU + memory sampler on Tauri's own
             // async runtime. Can't call `tokio::spawn` inside `setup()` —

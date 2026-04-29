@@ -68,6 +68,27 @@ export interface LogEvent {
   line: LogLine;
 }
 
+/**
+ * Single batch of PTY output forwarded through a per-terminal
+ * `Channel<TerminalOutput>`.
+ *
+ * `data` is **base64-encoded raw bytes** straight off the PTY master
+ * fd — the Rust side encodes once on the boundary because Tauri's IPC
+ * layer JSON-serializes typed channels (a `Vec<u8>` would balloon to
+ * `[12, 34, ...]`, ~3-4× wire size; base64 holds at ~1.33×). Decode
+ * with `atob` + a `Uint8Array` and hand the bytes straight to
+ * `xterm.write` — no further parsing on the client.
+ *
+ * Each batch represents up to ~8 ms of PTY output coalesced on the
+ * Rust side; the backend never lets a partial batch sit longer than
+ * that, so interactive REPL echo still feels instant.
+ */
+export interface TerminalOutput {
+  /** Base64-encoded raw bytes from the PTY master. Standard alphabet
+   *  (NOT URL-safe) — the renderer decodes with `atob`. */
+  data: string;
+}
+
 export interface ListeningPort {
   port: number;
   pid: number;

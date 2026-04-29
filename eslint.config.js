@@ -65,6 +65,8 @@ export default [
         ResizeObserver: 'readonly',
         TextEncoder: 'readonly',
         Uint8Array: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
         Node: 'readonly',
         NodeFilter: 'readonly',
         Text: 'readonly',

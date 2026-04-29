@@ -43,6 +43,14 @@ anyhow = "1"
 parking_lot = "0.12"
 open = "5"
 
+# Base64 codec for the PTY output stream. Bytes off the master fd are
+# encoded once on the Rust side and shipped through a typed Tauri
+# `Channel<TerminalOutput>` so the frontend pays only the ~33% base64
+# overhead instead of the ~3-4x bloat we used to see when serializing
+# `Vec<u8>` as a JSON number array. STANDARD (not URL_SAFE) — webview
+# `atob` only understands the standard alphabet.
+base64 = "0.22"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 

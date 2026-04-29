@@ -33,6 +33,7 @@ import type {
   StackDef,
   StackStatus,
   StreamChunk,
+  TerminalOutput,
   TimelineEvent,
   TimelineEventType,
 } from '@/types';
@@ -103,8 +104,34 @@ export const ipc = {
   stopStack: (id: string) => invoke<StackStatus>('stop_stack', { id }),
   restartStack: (id: string) => invoke<StackStatus>('restart_stack', { id }),
 
-  terminalCreate: (id: string, cwd: string, cols: number, rows: number) =>
-    invoke<void>('terminal_create', { id, cwd, cols, rows }),
+  /**
+   * Spin up a PTY shell for `id` and start streaming its output through
+   * a per-instance Tauri `Channel<TerminalOutput>`. Channels bypass the
+   * global event bus, so we don't pay an id-filter scan on every tick
+   * — the Rust side only ships to *this* terminal's channel and the
+   * supplied `onOutput` callback fires directly.
+   *
+   * `data` is base64-encoded raw PTY bytes (~33% overhead vs the prior
+   * JSON-array `Vec<u8>` shape that ballooned to 3-4× wire size). The
+   * caller is expected to `atob` + write into xterm.js verbatim.
+   *
+   * The returned promise resolves once the backend has spawned the
+   * shell. It rejects if PTY allocation, child spawn, or the initial
+   * shell-resolution path fails — callers should surface this in the
+   * UI (e.g. by writing a red banner into the terminal) so an empty
+   * black pane never silently means "shell never started".
+   */
+  terminalCreate: (
+    id: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    onOutput: (chunk: TerminalOutput) => void,
+  ) => {
+    const channel = new Channel<TerminalOutput>();
+    channel.onmessage = onOutput;
+    return invoke<void>('terminal_create', { id, cwd, cols, rows, onOutput: channel });
+  },
   terminalWrite: (id: string, data: number[]) => invoke<void>('terminal_write', { id, data }),
   terminalResize: (id: string, cols: number, rows: number) =>
     invoke<void>('terminal_resize', { id, cols, rows }),
