@@ -167,6 +167,11 @@ mod tests {
         // platform that runs the test suite.
         fn assert_send<T: Send>(_: &T) {}
         assert_send(&job);
-        drop(job);
+        // Rely on scope-end drop to exercise the no-op destructor —
+        // an explicit `drop(job)` would trip `clippy::drop_non_drop`
+        // on Unix because the shim is a unit struct without `Drop`.
+        // The intent ("constructing and going out of scope must not
+        // panic") is preserved either way.
+        let _ = job;
     }
 }
