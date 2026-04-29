@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/erdembas/runhq/compare/v0.8.0...v0.9.0) (2026-04-29)
 
+
+### Features
+
+* **dashboard:** implement service search functionality with optimized rendering ([5e5dad1](https://github.com/erdembas/runhq/commit/5e5dad1b7c325239535d026fb7bdf9ca7074de2d))
+* **log-panel:** introduce terminal maximization and state preservation ([07b8ae2](https://github.com/erdembas/runhq/commit/07b8ae2853d2350e69ea27f65ce14b89fabfca91))
+* **shell:** add tabbed main view with state preservation ([7730786](https://github.com/erdembas/runhq/commit/77307866603c1d447354391fdf253855b48bd9a8))
+
+
+### Code Refactoring
+
+* **global-shortcut:** simplify global shortcut registration by removing unnecessary borrowing ([f273647](https://github.com/erdembas/runhq/commit/f2736478eb5c0bcbeccadc38bf1106e7f8b53f4b))
+
+
+### Documentation
+
+* reframe value prop from service orchestrator to portfolio cockpit ([13b6a5f](https://github.com/erdembas/runhq/commit/13b6a5f474f045e5930022b10be4aac974316f47))
+* update landing page title and meta descriptions to reflect new value proposition ([5361d85](https://github.com/erdembas/runhq/commit/5361d85d464fff68548a327bc3d18a420bf48325))
+
+## [0.9.0](https://github.com/erdembas/runhq/compare/v0.8.0...v0.9.0) (2026-04-29)
+
 This release is the **IDE-parity cockpit** chapter — RunHQ stops
 behaving like a single-page tool that swaps Dashboard / LogPanel /
 StackDetail in and out of one slot, and starts behaving like an
