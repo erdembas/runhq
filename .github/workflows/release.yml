@@ -10,21 +10,61 @@ concurrency:
 
 jobs:
   release:
-    name: Release (${{ matrix.platform }}${{ matrix.args && format(' {0}', matrix.args) || '' }})
+    name: Release (${{ matrix.family }} ${{ matrix.arch }})
     permissions:
       contents: write
+    # ARM jobs are marked experimental: true so the rest of the matrix
+    # still ships even if a brand-new ARM toolchain regression breaks
+    # one of them. Once they have shipped cleanly across two releases
+    # we should drop the flag and treat them as required.
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── macOS ─────────────────────────────────────────────────
           - platform: macos-latest
+            family: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
           - platform: macos-latest
+            family: macos
+            arch: x64
+            target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
+
+          # ── Linux ─────────────────────────────────────────────────
           - platform: ubuntu-22.04
+            family: linux
+            arch: amd64
+            target: x86_64-unknown-linux-gnu
             args: ''
+          - platform: ubuntu-22.04-arm
+            family: linux
+            arch: arm64
+            target: aarch64-unknown-linux-gnu
+            args: ''
+            experimental: true
+
+          # ── Windows ───────────────────────────────────────────────
           - platform: windows-latest
+            family: windows
+            arch: x64
+            target: x86_64-pc-windows-msvc
             args: ''
+          # ARM64 is cross-compiled on the x64 Windows runner via the
+          # MSVC ARM64 toolchain. tauri-bundler picks up `--target` and
+          # produces NSIS + MSI installers that boot natively on ARM
+          # Windows hosts. Cross-compile keeps us off the
+          # `windows-11-arm` runner pool, which still has spotty
+          # availability for free public-repo minutes.
+          - platform: windows-latest
+            family: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            args: --target aarch64-pc-windows-msvc
+            experimental: true
 
     runs-on: ${{ matrix.platform }}
 
@@ -32,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.family == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -41,10 +81,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cache key is implicitly partitioned by runner OS + matrix
+          # entry, so x64 and ARM64 windows-latest jobs don't share a
+          # `target/` directory and avoid clobbering each other's
+          # incremental artefacts.
           workspaces: |
             crates/runhq-core -> target
             apps/desktop/src-tauri -> target
@@ -80,39 +124,116 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      # Publish version-less aliases for the Linux artefacts so the
+      # Publish version-less aliases (e.g. `runhq_amd64.deb`,
+      # `runhq_arm64-setup.exe`, `runhq_aarch64.dmg`) alongside the
+      # `tauri-action`-produced versioned bundles. The docs install
+      # snippets and the auto-detect on docs/index.html point at these
+      # stable names through the
       # `https://github.com/erdembas/runhq/releases/latest/download/<name>`
-      # redirect always resolves to a real binary. tauri-action names
-      # the bundles `RunHQ_<version>_amd64.{deb,AppImage}`; without
-      # these stable aliases the docs install snippet 302s onto the
-      # release HTML page and `curl -L` writes the HTML to disk
-      # (which dpkg then rejects with "unexpected end of file in
-      # archive magic version number").
-      - name: Publish stable Linux asset aliases
-        if: matrix.platform == 'ubuntu-22.04'
+      # redirect — without the alias the redirect 404s onto an HTML
+      # page and curl writes that HTML to disk under the binary name,
+      # which dpkg/msiexec/Finder then reject with "magic number"
+      # errors.
+      - name: Publish stable asset aliases
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAMILY: ${{ matrix.family }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          deb_src=$(find apps/desktop/src-tauri/target/release/bundle/deb \
-            -maxdepth 1 -name 'RunHQ_*_amd64.deb' -print -quit)
-          if [ -z "$deb_src" ]; then
-            echo "::error::No .deb produced under target/release/bundle/deb/"
-            exit 1
-          fi
-          cp "$deb_src" runhq_amd64.deb
-          uploads=(runhq_amd64.deb)
 
-          appimage_src=$(find apps/desktop/src-tauri/target/release/bundle/appimage \
-            -maxdepth 1 -name 'RunHQ_*_amd64.AppImage' -print -quit 2>/dev/null || true)
-          if [ -n "$appimage_src" ]; then
-            cp "$appimage_src" runhq_amd64.AppImage
-            uploads+=(runhq_amd64.AppImage)
+          # When `--target <triple>` is passed, tauri writes bundles
+          # under `target/<triple>/release/bundle/<format>/`. With no
+          # explicit target it falls back to `target/release/...`.
+          # Probe both so the script doesn't have to care.
+          bundle_a="apps/desktop/src-tauri/target/${TARGET}/release/bundle"
+          bundle_b="apps/desktop/src-tauri/target/release/bundle"
+
+          find_first() {
+            local subdir=$1
+            local glob=$2
+            for root in "$bundle_a" "$bundle_b"; do
+              if [ -d "$root/$subdir" ]; then
+                local hit
+                hit=$(find "$root/$subdir" -maxdepth 1 -name "$glob" -print -quit 2>/dev/null || true)
+                if [ -n "$hit" ]; then
+                  printf '%s' "$hit"
+                  return
+                fi
+              fi
+            done
+          }
+
+          uploads=()
+
+          case "$FAMILY" in
+            linux)
+              # AppImage uses the AppImage-native arch suffix
+              # (`amd64`/`aarch64`) while .deb follows Debian's
+              # (`amd64`/`arm64`); we surface both as `runhq_<arch>.*`
+              # using Debian's vocabulary because that's what dpkg
+              # users grep for.
+              if [ "$ARCH" = "amd64" ]; then
+                deb_glob='RunHQ_*_amd64.deb'
+                appimage_glob='RunHQ_*_amd64.AppImage'
+              else
+                deb_glob='RunHQ_*_arm64.deb'
+                appimage_glob='RunHQ_*_aarch64.AppImage'
+              fi
+              deb_src=$(find_first deb "$deb_glob")
+              if [ -n "$deb_src" ]; then
+                cp "$deb_src" "runhq_${ARCH}.deb"
+                uploads+=("runhq_${ARCH}.deb")
+              fi
+              appimage_src=$(find_first appimage "$appimage_glob")
+              if [ -n "$appimage_src" ]; then
+                cp "$appimage_src" "runhq_${ARCH}.AppImage"
+                uploads+=("runhq_${ARCH}.AppImage")
+              fi
+              ;;
+            windows)
+              # NSIS produces `RunHQ_<v>_<arch>-setup.exe`; WiX
+              # produces `RunHQ_<v>_<arch>_<lang>.msi` where lang
+              # defaults to en-US. We expose the NSIS installer as the
+              # primary `runhq_<arch>-setup.exe` (winget/Cask updaters
+              # follow this filename), and the MSI as a fallback.
+              nsis_src=$(find_first nsis "RunHQ_*_${ARCH}-setup.exe")
+              if [ -n "$nsis_src" ]; then
+                cp "$nsis_src" "runhq_${ARCH}-setup.exe"
+                uploads+=("runhq_${ARCH}-setup.exe")
+              fi
+              msi_src=$(find_first msi "RunHQ_*_${ARCH}_*.msi")
+              if [ -n "$msi_src" ]; then
+                cp "$msi_src" "runhq_${ARCH}.msi"
+                uploads+=("runhq_${ARCH}.msi")
+              fi
+              ;;
+            macos)
+              # DMGs ship as `RunHQ_<v>_<arch>.dmg` where <arch> is
+              # `aarch64` or `x64`; we mirror that vocabulary in the
+              # alias so the docs auto-detect doesn't have to remap.
+              if [ "$ARCH" = "aarch64" ]; then
+                dmg_glob='RunHQ_*_aarch64.dmg'
+              else
+                dmg_glob='RunHQ_*_x64.dmg'
+              fi
+              dmg_src=$(find_first dmg "$dmg_glob")
+              if [ -n "$dmg_src" ]; then
+                cp "$dmg_src" "runhq_${ARCH}.dmg"
+                uploads+=("runhq_${ARCH}.dmg")
+              fi
+              ;;
+          esac
+
+          if [ "${#uploads[@]}" -eq 0 ]; then
+            echo "::warning::No bundles found to alias for ${FAMILY}/${ARCH}"
+            exit 0
           fi
 
           # `--clobber` is required because tauri-action drafted the
-          # release in an earlier step; on retries the alias may
+          # release in an earlier step and on retries the alias may
           # already exist.
           gh release upload "${{ github.ref_name }}" "${uploads[@]}" \
             --clobber --repo "${{ github.repository }}"
