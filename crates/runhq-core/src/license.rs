@@ -867,7 +867,7 @@ pub fn generate_third_party_notices(result: &LicenseScanResult) -> String {
     out.push_str("# Third-Party Notices\n\n");
     out.push_str("This file contains the license information for third-party\n");
     out.push_str("dependencies used by this project.\n\n");
-    out.push_str(&format!("## Summary\n\n"));
+    out.push_str("## Summary\n\n");
     out.push_str(&format!(
         "- Permissive licenses: {}\n",
         result.permissive_count + result.safe_count
