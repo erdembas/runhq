@@ -133,19 +133,13 @@ brew install --cask runhq
 
 Upgrade later by `brew upgrade --cask runhq`. The cask clears macOS's quarantine attribute automatically on install, so RunHQ opens on first launch with no warnings or terminal tricks.
 
-### winget (Windows)
-
-```powershell
-winget install erdembas.RunHQ
-```
-
 ### Download from GitHub Releases
 
-Grab a pre-built binary for your platform from the [latest release](https://github.com/erdembas/runhq/releases/latest):
+Grab a pre-built binary for your platform from the [latest release](https://github.com/erdembas/runhq/releases/latest). Versionless aliases redirect to the most recent tag, so the same URL keeps working between releases:
 
-- **macOS** — `RunHQ_<version>_aarch64.dmg` (Apple Silicon) or `RunHQ_<version>_x64.dmg` (Intel)
-- **Linux** — `runhq_<version>_amd64.deb` or `runhq_<version>_amd64.AppImage`
-- **Windows** — `RunHQ_<version>_x64-setup.exe` (installer) or `RunHQ_<version>_x64_en-US.msi`
+- **macOS** — `runhq_aarch64.dmg` (Apple Silicon) or `runhq_x64.dmg` (Intel)
+- **Linux** — `runhq_<arch>.deb`, `runhq_<arch>.rpm`, or `runhq_<arch>.AppImage` where `<arch>` is `amd64` or `arm64`
+- **Windows** — `runhq_<arch>-setup.exe` (NSIS installer) or `runhq_<arch>.msi` where `<arch>` is `x64` or `arm64`
 
 The app auto-updates in place — you only need to download manually once.
 
@@ -179,7 +173,7 @@ runhq/
 │       ├── src/              # Domain: supervisor, logs, ports, scanner, editors, state
 │       └── tests/            # Integration tests
 ├── docs/
-├── scripts/                  # Distribution helpers (Homebrew cask, winget, icons)
+├── scripts/                  # Distribution helpers (Homebrew cask, icons)
 ├── Cargo.toml                # Rust workspace
 ├── pnpm-workspace.yaml       # pnpm workspace
 └── package.json              # Workspace root

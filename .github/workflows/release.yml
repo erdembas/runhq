@@ -13,11 +13,14 @@ jobs:
     name: Release (${{ matrix.family }} ${{ matrix.arch }})
     permissions:
       contents: write
-    # ARM jobs are marked experimental: true so the rest of the matrix
-    # still ships even if a brand-new ARM toolchain regression breaks
-    # one of them. Once they have shipped cleanly across two releases
-    # we should drop the flag and treat them as required.
-    continue-on-error: ${{ matrix.experimental == true }}
+    # Every matrix entry is now treated as required. Earlier releases
+    # gated ARM builds behind `continue-on-error` while we shook the
+    # toolchain out, but that masked a missing-`xdg-open` regression
+    # on `ubuntu-22.04-arm` for v0.10.0 — the entire Linux ARM64
+    # build (.deb / .rpm / .AppImage) silently dropped from the
+    # release. Failing loudly is the right default; if a future ARM
+    # toolchain regression really does need a soft-fail, re-introduce
+    # `continue-on-error` per-entry rather than blanket-applying it.
     # `secrets.X` cannot be referenced inside `if:` conditions on
     # individual steps, so we surface "is a Developer ID cert present?"
     # as a job-level boolean string ('true' / 'false') and gate the
@@ -52,7 +55,6 @@ jobs:
             arch: arm64
             target: aarch64-unknown-linux-gnu
             args: ''
-            experimental: true
 
           # ── Windows ───────────────────────────────────────────────
           - platform: windows-latest
@@ -71,7 +73,6 @@ jobs:
             arch: arm64
             target: aarch64-pc-windows-msvc
             args: --target aarch64-pc-windows-msvc
-            experimental: true
 
     runs-on: ${{ matrix.platform }}
 
@@ -82,9 +83,19 @@ jobs:
         if: matrix.family == 'linux'
         run: |
           sudo apt-get update
+          # `xdg-utils` ships `xdg-open`, which tauri-bundler embeds into
+          # the AppImage runtime. The x86 ubuntu-22.04 runner image
+          # pre-installs it, but `ubuntu-22.04-arm` does not — without
+          # this line the AppImage step crashes with `xdg-open binary
+          # not found /usr/bin/xdg-open` and takes the whole job (and
+          # the .deb / .rpm artifacts produced earlier in the same
+          # bundle pass) down with it. `file` and `libfuse2` are
+          # belt-and-suspenders for AppImage runtime introspection and
+          # the FUSE-based `--appimage-extract-and-run` self-test.
           sudo apt-get install -y \
             libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
-            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            xdg-utils file libfuse2
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -214,22 +225,33 @@ jobs:
 
           case "$FAMILY" in
             linux)
-              # AppImage uses the AppImage-native arch suffix
-              # (`amd64`/`aarch64`) while .deb follows Debian's
-              # (`amd64`/`arm64`); we surface both as `runhq_<arch>.*`
-              # using Debian's vocabulary because that's what dpkg
-              # users grep for.
+              # Each Linux bundler picks its own arch vocabulary:
+              #   .deb       → Debian: `amd64` / `arm64`
+              #   .rpm       → RPM:    `x86_64` / `aarch64`
+              #   .AppImage  → upstream: `amd64` / `aarch64`
+              # We surface all three as `runhq_<arch>.<ext>` using
+              # Debian's vocabulary (`amd64` / `arm64`) because that's
+              # the most common one developers grep for and it lets
+              # docs/index.html use a single arch token across every
+              # format chip.
               if [ "$ARCH" = "amd64" ]; then
                 deb_glob='RunHQ_*_amd64.deb'
+                rpm_glob='RunHQ-*-1.x86_64.rpm'
                 appimage_glob='RunHQ_*_amd64.AppImage'
               else
                 deb_glob='RunHQ_*_arm64.deb'
+                rpm_glob='RunHQ-*-1.aarch64.rpm'
                 appimage_glob='RunHQ_*_aarch64.AppImage'
               fi
               deb_src=$(find_first deb "$deb_glob")
               if [ -n "$deb_src" ]; then
                 cp "$deb_src" "runhq_${ARCH}.deb"
                 uploads+=("runhq_${ARCH}.deb")
+              fi
+              rpm_src=$(find_first rpm "$rpm_glob")
+              if [ -n "$rpm_src" ]; then
+                cp "$rpm_src" "runhq_${ARCH}.rpm"
+                uploads+=("runhq_${ARCH}.rpm")
               fi
               appimage_src=$(find_first appimage "$appimage_glob")
               if [ -n "$appimage_src" ]; then
@@ -240,9 +262,9 @@ jobs:
             windows)
               # NSIS produces `RunHQ_<v>_<arch>-setup.exe`; WiX
               # produces `RunHQ_<v>_<arch>_<lang>.msi` where lang
-              # defaults to en-US. We expose the NSIS installer as the
-              # primary `runhq_<arch>-setup.exe` (winget/Cask updaters
-              # follow this filename), and the MSI as a fallback.
+              # defaults to en-US. We expose the NSIS installer as
+              # the primary `runhq_<arch>-setup.exe` and the MSI as a
+              # fallback for managed deployments.
               nsis_src=$(find_first nsis "RunHQ_*_${ARCH}-setup.exe")
               if [ -n "$nsis_src" ]; then
                 cp "$nsis_src" "runhq_${ARCH}-setup.exe"

@@ -30,7 +30,6 @@ RunHQ uses **[Release Please](https://github.com/googleapis/release-please)** to
 - [Distribution Channels](#distribution-channels)
   - [GitHub Releases](#github-releases)
   - [Homebrew (macOS)](#homebrew-macos)
-  - [Winget (Windows)](#winget-windows)
   - [Linux](#linux)
 - [Auto-Update System](#auto-update-system)
 - [Troubleshooting](#troubleshooting)
@@ -459,27 +458,6 @@ brew upgrade --cask RunHQ
 ```
 
 The Cask file is automatically updated by the release workflow.
-
-### Winget (Windows)
-
-After the first release is published:
-
-```bash
-./scripts/generate-winget-manifest.sh 0.1.0
-```
-
-This creates manifest YAML files under `winget-manifests/`. Then:
-
-1. Fork `https://github.com/microsoft/winget-pkgs`.
-2. Copy the manifests to `manifests/e/erdembas/RunHQ/{version}/`.
-3. Replace `{REPLACE_WITH_PRODUCT_CODE_GUID}` in the installer manifest (use `orca` or `lessmsi` to extract from the MSI).
-4. Open a PR against `winget-pkgs`.
-
-Once merged, users can install with:
-
-```powershell
-winget install erdembas.RunHQ
-```
 
 ### Linux
 

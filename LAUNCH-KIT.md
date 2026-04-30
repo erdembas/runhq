@@ -420,10 +420,8 @@ impl RuntimeProvider for SwiftProvider {
 brew tap erdembas/tap
 brew install --cask runhq
 
-# Windows
-winget install erdembas.RunHQ
-
-# Linux — download .deb or AppImage from releases
+# Linux  — download .deb, .rpm, or AppImage from releases
+# Windows — download .exe (NSIS) or .msi from releases
 ```
 
 Or [download from GitHub Releases](https://github.com/erdembas/runhq/releases/latest) for any platform.
@@ -538,8 +536,7 @@ RunHQ doesn't replace Docker — it works alongside it. Use Docker Compose for i
 brew tap erdembas/tap
 brew install --cask runhq
 
-# Windows
-winget install erdembas.RunHQ
+# Linux & Windows — download from releases
 ```
 
 Or download from [GitHub Releases](https://github.com/erdembas/runhq/releases/latest) for any platform.

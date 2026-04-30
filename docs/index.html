@@ -591,19 +591,19 @@
           </div>
 
           <!--
-            macOS + Windows still ship through their package managers
-            because Homebrew Cask and winget resolve the right
-            architecture and version on the user's behalf — there is
-            nothing to "pick" client-side. Everything else (Linux .deb /
-            AppImage, .msi, raw DMGs, .sig files, the Tauri updater
-            manifest) lives on the GitHub Releases page; the third
-            card is a deliberate hand-off to that page rather than a
-            browser-side architecture detector. RunHQ's audience is
-            developers — they will pick the right asset themselves and
-            we don't have to maintain a JS auto-detect loop on top of
-            ARM/x64/AppImage/.deb permutations.
+            Direct downloads land on the versionless GitHub release
+            aliases (`runhq_<arch>.<ext>`) that release.yml publishes
+            after every successful matrix job. Those aliases redirect
+            via `releases/latest/download/...` so users land on
+            whatever the most recent tag is — no JS auto-detect, no
+            backend, no CDN to babysit. The `brew install` row stays
+            on macOS because the Cask handles Gatekeeper quarantine
+            on first launch; everywhere else the in-app Tauri updater
+            takes over after the first install, so no second package
+            manager is wired in.
           -->
-          <div class="install-grid reveal">
+          <div class="install-grid install-grid-os reveal">
+            <!-- ─── macOS ─────────────────────────────────────── -->
             <div class="install-card">
               <div class="install-card-os">
                 <svg
@@ -618,43 +618,36 @@
                   />
                 </svg>
                 <span>macOS</span>
-                <small>Homebrew</small>
+                <small>11+</small>
               </div>
               <div class="cmd" data-copy="brew tap erdembas/tap&#10;brew install --cask runhq">
                 <span class="cmd-prompt">$</span>
-                <code>brew tap erdembas/tap brew install --cask runhq</code>
+                <code>brew install --cask runhq</code>
                 <span class="cmd-copy">copy</span>
               </div>
+              <div class="dl-rows">
+                <div class="dl-row">
+                  <span class="dl-row-label">.dmg</span>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64.dmg"
+                  >
+                    Intel
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_aarch64.dmg"
+                  >
+                    Apple&nbsp;Silicon
+                  </a>
+                </div>
+              </div>
               <div class="install-card-foot">
-                Cask clears Gatekeeper quarantine — opens on first launch, no terminal tricks.
+                Cask postflight clears Gatekeeper quarantine. First launch is one click.
               </div>
             </div>
 
-            <div class="install-card">
-              <div class="install-card-os">
-                <svg
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
-                </svg>
-                <span>Windows</span>
-                <small>winget</small>
-              </div>
-              <div class="cmd" data-copy="winget install erdembas.RunHQ">
-                <span class="cmd-prompt">&gt;</span>
-                <code>winget install erdembas.RunHQ</code>
-                <span class="cmd-copy">copy</span>
-              </div>
-              <div class="install-card-foot">
-                Auto-updates in place. Upgrade later with
-                <code>winget upgrade erdembas.RunHQ</code>.
-              </div>
-            </div>
-
+            <!-- ─── Linux ─────────────────────────────────────── -->
             <div class="install-card">
               <div class="install-card-os">
                 <svg
@@ -668,36 +661,122 @@
                     d="M12 2c-1 0-1.8.4-2.4 1.1-.6.7-1 1.6-1 2.6 0 .6.1 1.1.3 1.6-.6.5-1 1.2-1.3 2-.4 1-.5 2.1-.5 3 0 1.5-.7 2.6-1.5 3.4-.8.8-1.6 1.4-1.6 2.6 0 .9.5 1.7 1.4 2.2.8.5 2 .7 3.6.7h7c1.6 0 2.8-.2 3.6-.7.9-.5 1.4-1.3 1.4-2.2 0-1.2-.8-1.8-1.6-2.6-.8-.8-1.5-1.9-1.5-3.4 0-.9-.1-2-.5-3-.3-.8-.7-1.5-1.3-2 .2-.5.3-1 .3-1.6 0-1-.4-1.9-1-2.6C13.8 2.4 13 2 12 2z"
                   />
                 </svg>
-                <span>Linux &amp; everything else</span>
-                <small>GitHub Releases</small>
+                <span>Linux</span>
+                <small>x64 &amp; ARM64</small>
               </div>
-              <a class="install-cta" href="https://github.com/erdembas/runhq/releases/latest">
-                Browse the latest release
+              <div class="dl-rows">
+                <div class="dl-row">
+                  <span class="dl-row-label" title="Debian, Ubuntu, Pop!_OS">.deb</span>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb"
+                  >
+                    x64
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.deb"
+                  >
+                    ARM64
+                  </a>
+                </div>
+                <div class="dl-row">
+                  <span class="dl-row-label" title="Red Hat, Fedora, openSUSE">.rpm</span>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.rpm"
+                  >
+                    x64
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.rpm"
+                  >
+                    ARM64
+                  </a>
+                </div>
+                <div class="dl-row">
+                  <span class="dl-row-label" title="Universal — runs on any modern distro"
+                    >AppImage</span
+                  >
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.AppImage"
+                  >
+                    x64
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.AppImage"
+                  >
+                    ARM64
+                  </a>
+                </div>
+              </div>
+              <div class="install-card-foot">
+                Every artifact is signed with the same minisign key the in-app updater verifies.
+              </div>
+            </div>
+
+            <!-- ─── Windows ───────────────────────────────────── -->
+            <div class="install-card">
+              <div class="install-card-os">
                 <svg
-                  viewBox="0 0 16 16"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
                   aria-hidden="true"
                 >
-                  <path d="M5 3h8v8" />
-                  <path d="M13 3 3 13" />
+                  <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
                 </svg>
-              </a>
+                <span>Windows</span>
+                <small>10 / 11</small>
+              </div>
+              <div class="dl-rows">
+                <div class="dl-row">
+                  <span class="dl-row-label" title="NSIS — recommended">.exe</span>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64-setup.exe"
+                  >
+                    x64
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64-setup.exe"
+                  >
+                    ARM64
+                  </a>
+                </div>
+                <div class="dl-row">
+                  <span class="dl-row-label" title="MSI — for managed deployments">.msi</span>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64.msi"
+                  >
+                    x64
+                  </a>
+                  <a
+                    class="dl-arch"
+                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.msi"
+                  >
+                    ARM64
+                  </a>
+                </div>
+              </div>
               <div class="install-card-foot">
-                .deb / AppImage (amd64 + arm64), .msi, raw .dmg, .sig files, and the Tauri updater
-                manifest are all attached to every release.
+                The in-app updater keeps it current — no reinstall needed between releases.
               </div>
             </div>
           </div>
 
           <p class="install-foot reveal">
+            Need an older version, the <code>.sig</code> alongside a binary, or the Tauri updater
+            manifest?
+            <a href="https://github.com/erdembas/runhq/releases">Browse every release on GitHub</a>.
             Prefer source?
-            <a href="https://github.com/erdembas/runhq#development">pnpm tauri:dev</a> after a clone
+            <a href="https://github.com/erdembas/runhq#development">pnpm tauri:dev</a>
             — Rust + pnpm, that's the full toolchain.
           </p>
         </div>
