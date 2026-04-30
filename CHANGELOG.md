@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1](https://github.com/erdembas/runhq/compare/v0.10.0...v0.10.1) (2026-04-30)
+
+
+### Code Refactoring
+
+* **docs:** hand Linux/manual installs over to GitHub Releases ([d052fbc](https://github.com/erdembas/runhq/commit/d052fbc81f9c01a4502f96f63e030ca73bf19d73))
+* **docs:** update installation instructions and remove winget references ([fbce994](https://github.com/erdembas/runhq/commit/fbce99421b3a947c184d4280cf5d4aa26fde334e))
+
 ## [0.10.0](https://github.com/erdembas/runhq/compare/v0.9.0...v0.10.0) (2026-04-30)
 
 
