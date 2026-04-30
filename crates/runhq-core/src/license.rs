@@ -931,10 +931,12 @@ async fn run_timed(program: &str, args: &[&str], cwd: &Path) -> Option<Vec<u8>> 
     // Suppress the console window flash on Windows. Without this, a
     // license scan would briefly pop a black `cmd.exe`-style window
     // every time the user clicked Rescan — jarring inside a windowed
-    // Tauri shell. CREATE_NO_WINDOW = 0x08000000.
+    // Tauri shell. CREATE_NO_WINDOW = 0x08000000. `tokio::process::
+    // Command` exposes `creation_flags` directly on Windows, so we
+    // don't need the `std::os::windows::process::CommandExt` import
+    // (which clippy flags as unused under -D warnings).
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
 
