@@ -80,6 +80,43 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # Publish version-less aliases for the Linux artefacts so the
+      # `https://github.com/erdembas/runhq/releases/latest/download/<name>`
+      # redirect always resolves to a real binary. tauri-action names
+      # the bundles `RunHQ_<version>_amd64.{deb,AppImage}`; without
+      # these stable aliases the docs install snippet 302s onto the
+      # release HTML page and `curl -L` writes the HTML to disk
+      # (which dpkg then rejects with "unexpected end of file in
+      # archive magic version number").
+      - name: Publish stable Linux asset aliases
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          deb_src=$(find apps/desktop/src-tauri/target/release/bundle/deb \
+            -maxdepth 1 -name 'RunHQ_*_amd64.deb' -print -quit)
+          if [ -z "$deb_src" ]; then
+            echo "::error::No .deb produced under target/release/bundle/deb/"
+            exit 1
+          fi
+          cp "$deb_src" runhq_amd64.deb
+          uploads=(runhq_amd64.deb)
+
+          appimage_src=$(find apps/desktop/src-tauri/target/release/bundle/appimage \
+            -maxdepth 1 -name 'RunHQ_*_amd64.AppImage' -print -quit 2>/dev/null || true)
+          if [ -n "$appimage_src" ]; then
+            cp "$appimage_src" runhq_amd64.AppImage
+            uploads+=(runhq_amd64.AppImage)
+          fi
+
+          # `--clobber` is required because tauri-action drafted the
+          # release in an earlier step; on retries the alias may
+          # already exist.
+          gh release upload "${{ github.ref_name }}" "${uploads[@]}" \
+            --clobber --repo "${{ github.repository }}"
+
   # Sync the Homebrew Cask only after every matrix job has uploaded its
   # DMGs. Running this as a `release: published` trigger races the Tauri
   # build and 404s on the download URLs (see docs/RELEASING.md).
