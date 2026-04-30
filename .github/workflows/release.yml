@@ -18,6 +18,13 @@ jobs:
     # one of them. Once they have shipped cleanly across two releases
     # we should drop the flag and treat them as required.
     continue-on-error: ${{ matrix.experimental == true }}
+    # `secrets.X` cannot be referenced inside `if:` conditions on
+    # individual steps, so we surface "is a Developer ID cert present?"
+    # as a job-level boolean string ('true' / 'false') and gate the
+    # notarized macOS branch off it below. The value itself never
+    # leaks the secret — only its presence.
+    env:
+      APPLE_CERT_PRESENT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,19 +110,56 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      - uses: tauri-apps/tauri-action@v0
+      # ─── macOS notarized build ─────────────────────────────────
+      # Active only when every required APPLE_* secret is populated
+      # (the `APPLE_CERT_PRESENT` job-level env is the gate). The
+      # ad-hoc `signingIdentity: "-"` from tauri.conf.json would
+      # otherwise trump APPLE_SIGNING_IDENTITY at bundle time, so we
+      # override it inline via `--config` and let tauri-action's env
+      # vars drive the real Developer ID Application identity, the
+      # hardened-runtime signature, and `notarytool submit ...
+      # --staple` against Apple. See docs/RELEASING.md for the full
+      # secret list and a recovery checklist.
+      - name: Build (macOS, notarized)
+        if: matrix.family == 'macos' && env.APPLE_CERT_PRESENT == 'true'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS builds rely on the ad-hoc `signingIdentity: "-"` from
-          # tauri.conf.json — see docs/RELEASING.md for the full strategy.
-          # DO NOT set APPLE_* env vars here unconditionally: tauri-action
-          # treats any non-empty value as "a real Developer ID cert is
-          # present" and crashes `security import` if the secret is blank.
-          # To enable notarization later, gate the APPLE_* block behind an
-          # `if: env.APPLE_CERTIFICATE != ''` runner step, or split it into
-          # a conditional job — never pipe empty secrets straight to env.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'RunHQ ${{ github.ref_name }}'
+          releaseBody: 'See the assets below to download and install RunHQ.'
+          releaseDraft: true
+          prerelease: false
+          # `--config '{"bundle":{"macOS":{"signingIdentity":null}}}'`
+          # nulls out the on-disk ad-hoc identity so tauri-bundler
+          # honours APPLE_SIGNING_IDENTITY instead. Tauri 2.x merges
+          # this JSON over the on-disk config; the Linux/Windows
+          # branches and the unsigned macOS branch leave the file
+          # untouched.
+          args: ${{ matrix.args }} --config '{"bundle":{"macOS":{"signingIdentity":null}}}'
+
+      # ─── Default build (Linux, Windows, ad-hoc macOS) ─────────
+      # Runs whenever the platform isn't macOS or the Apple secrets
+      # aren't set. macOS without secrets keeps shipping the ad-hoc
+      # signed `.app` (sealed bundle, brew postflight strips
+      # quarantine) — see docs/RELEASING.md → "macOS Code Signing
+      # Strategy" for why that's still a sane fallback.
+      - name: Build (default — Linux / Windows / ad-hoc macOS)
+        if: matrix.family != 'macos' || env.APPLE_CERT_PRESENT != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'RunHQ ${{ github.ref_name }}'

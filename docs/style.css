@@ -1586,6 +1586,10 @@ main {
 .install-foot a:hover {
   color: var(--accent-soft);
 }
+.install-foot-sep {
+  margin: 0 6px;
+  opacity: 0.4;
+}
 
 /* ===============================================================
    CTA + FOOTER

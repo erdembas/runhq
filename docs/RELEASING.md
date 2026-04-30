@@ -315,9 +315,17 @@ For a local dev tool used by developers, this trade-off is acceptable. If RunHQ 
 
 ### Optional upgrade path: Apple Developer ID + notarization
 
-> **Heads-up:** unlike an earlier iteration of this doc, `release.yml` **no longer wires `APPLE_*` secrets to `tauri-action` unconditionally**. Empty secrets would expand to blank env vars and crash `security import` on every macOS runner (the "damaged v0.1.2" incident). If you want notarization, you must explicitly add those env vars back behind an `if:` guard such as `if: env.APPLE_CERTIFICATE != ''`, or gate the whole Apple block inside a conditional job.
+> **Status:** `release.yml` is **wired and ready** as of `9574aed`. Two
+> sibling `Build` steps run conditionally: a notarized one fires only
+> when the job-level boolean `APPLE_CERT_PRESENT == 'true'` (i.e. the
+> `APPLE_CERTIFICATE` secret is non-empty), and a default one fires
+> for every other case (Linux, Windows, and macOS without secrets).
+> Empty secrets are never piped into `tauri-action`, so the "damaged
+> v0.1.2" `security: import` crash cannot recur. Populate the six
+> `APPLE_*` secrets and the very next tag flips macOS into notarized
+> output — no workflow edit required.
 
-Once the env vars are wired back in and every one of `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` is populated, `tauri-action` will:
+When all six of `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are populated, `tauri-action` will:
 
 1. Import the `.p12` into a temporary keychain on the macOS runner.
 2. Sign the `.app` with `Developer ID Application` instead of `-`.
