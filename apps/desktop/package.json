@@ -37,6 +37,7 @@
     "ansi-to-html": "^0.7.2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
+    "monaco-editor": "0.55.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
