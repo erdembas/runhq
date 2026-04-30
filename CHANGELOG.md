@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/erdembas/runhq/compare/v0.9.0...v0.10.0) (2026-04-30)
+
+
+### Features
+
+* license scanner, project notes, project docs, document-style release notes ([69c106b](https://github.com/erdembas/runhq/commit/69c106b45ef999c168bf6a2a0d780f034f4d8ac7))
+* **logs:** migrate log panel to xterm.js with unified theme ([78fc5c7](https://github.com/erdembas/runhq/commit/78fc5c70519b4dcb6974a7bd0c7eb71646bf670e))
+* **release,docs:** ARM64 builds + OS/arch auto-detect on landing ([84d4686](https://github.com/erdembas/runhq/commit/84d46861e88e28390111b3b7bc475223f4211e76))
+* **terminal:** cross-platform pty hardening and xterm addons ([1027681](https://github.com/erdembas/runhq/commit/1027681c64c23cae239dd9d632e6ce45741ee0e1))
+
+
+### Bug Fixes
+
+* **core:** avoid clippy drop_non_drop in process_group shim test ([546a212](https://github.com/erdembas/runhq/commit/546a212b776f4ea5a493bb3a041203321fc5a172))
+* **core:** drop unused CommandExt import on Windows license scanner ([060c4d7](https://github.com/erdembas/runhq/commit/060c4d7580111b7d44839d950cfe6b1ccff59bf6))
+* **core:** drop useless format! in third-party notices summary header ([b1a49eb](https://github.com/erdembas/runhq/commit/b1a49eb8a18e58f90eb2070913626352a02c6c28))
+* **core:** enable Win32_Security feature for CreateJobObjectW ([380c5a3](https://github.com/erdembas/runhq/commit/380c5a3fb079bb747c61deebb7c23095eb566e1a))
+* **desktop:** pin monaco-editor as a direct dependency ([9517150](https://github.com/erdembas/runhq/commit/9517150d030ef456c0368289ece9ab4824e8dee4))
+* **process:** contain windows process trees with job objects ([b1b6a12](https://github.com/erdembas/runhq/commit/b1b6a124a0c791a5b5b723b97661ae71dc0a4542))
+
 ## [0.9.0](https://github.com/erdembas/runhq/compare/v0.8.0...v0.9.0) (2026-04-29)
 
 
