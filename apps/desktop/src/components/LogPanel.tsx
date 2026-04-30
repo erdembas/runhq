@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BookOpen,
   Eraser,
   ExternalLink,
+  FileText,
   FolderOpen,
   Globe,
   GripHorizontal,
@@ -11,6 +13,7 @@ import {
   Pencil,
   Play,
   RotateCcw,
+  ScrollText,
   Search,
   Square,
   TerminalSquare,
@@ -18,9 +21,17 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
+import { Drawer } from '@/components/ui/Drawer';
 import { StatusDot, StatusPill } from '@/components/ui/StatusDot';
 import { TagChip } from '@/components/ui/TagChip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import {
+  AuditChip,
+  LicenseChip,
+  OutdatedChip,
+  licenseContaminationCount,
+} from '@/components/dashboard/healthChips';
+import { ProjectDetailDrawer, type DetailTab } from '@/components/ProjectDetailDrawer';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
 import { LogXtermView } from '@/components/LogXtermView';
@@ -32,6 +43,40 @@ import { localUrl } from '@/lib/url';
 import { runtimeFromTags, inferRuntimeFromCmds } from '@/lib/runtimes';
 import { buildLogChatPayload } from '@/lib/ai/logPayload';
 import type { ListeningPort, LogLine } from '@/types';
+
+// Lazy-load the LicensePanel — same rationale as the dashboard:
+// the panel pulls in the full per-package license table renderer
+// and the THIRD-PARTY-NOTICES generator, which is dead weight for
+// the (majority) sessions where the user never opens it.
+const LicensePanel = lazy(() =>
+  import('@/components/LicensePanel').then((m) => ({ default: m.LicensePanel })),
+);
+
+// The DOCS tab pulls in `react-markdown` + `remark-gfm` + the docs
+// renderer. That's ~80 KB gzipped — meaningful for a panel a
+// significant fraction of users won't open. Lazy-loading defers it
+// until the user clicks the DOCS tab; the LOGS path stays as fast
+// as before.
+const ProjectDocsTab = lazy(() =>
+  import('@/components/docs/ProjectDocsTab').then((m) => ({ default: m.ProjectDocsTab })),
+);
+
+// Notes tab shares the markdown renderer with DOCS, but ships its
+// own edit/preview surface. Lazy-loaded for the same bundle-cost
+// reason as DOCS — most service-tab views start on LOGS and never
+// hit Notes, so we don't want to eagerly pay for the markdown
+// pipeline up front.
+const ProjectNotesTab = lazy(() =>
+  import('@/components/ProjectNotesTab').then((m) => ({ default: m.ProjectNotesTab })),
+);
+
+/** Body tab a user is currently viewing inside a service panel. */
+type MainTab = 'logs' | 'docs' | 'notes';
+
+/** Encode a UTF-8 string as the byte-array shape `terminal_write` expects. */
+function utf8ToBytes(s: string): number[] {
+  return Array.from(new TextEncoder().encode(s));
+}
 
 type PopoverKey = 'ports';
 
@@ -90,6 +135,57 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   const removeServiceLocal = useAppStore((s) => s.removeService);
   const openAiChat = useAppStore((s) => s.openAiChat);
 
+  // Mirror of the dashboard's per-card health chips, surfaced inline
+  // in the service header so the badges the user just saw on the
+  // dashboard card don't disappear the moment they drill in. We
+  // read the `ProjectOverview` row for this specific service from
+  // the global overview snapshot — the same data that drives the
+  // card chips, so the two surfaces can never disagree.
+  const projectMeta = useAppStore(
+    (s) => s.overview?.projects.find((p) => p.service_id === serviceId) ?? null,
+  );
+
+  // Detail / license overlays are managed locally per-tab. Each
+  // service tab keeps its own drawer state so flipping between
+  // services doesn't leak "I had advisories open for foo-api" into
+  // the bar-frontend tab. Mounting them here (instead of bubbling
+  // up to App-level shared state) keeps the LogPanel a self-
+  // contained per-service surface; the trade-off is a small DOM
+  // duplication when many tabs are open at once, but each drawer
+  // only renders when its trigger flag is set.
+  const [detailTab, setDetailTab] = useState<DetailTab | null>(null);
+  const [licenseOpen, setLicenseOpen] = useState(false);
+  // Expose `runScan` so chip clicks (or a future "rescan" button on
+  // the LogPanel itself) can re-trigger the per-service license +
+  // dep audit pass. The dashboard does the same thing through its
+  // own `runScan` callback; we do it inline here so the panel
+  // doesn't have to reach back into the dashboard's local state.
+  const overviewScanning = useAppStore((s) => s.overviewScanning);
+  const lastScanAt = useAppStore((s) => s.lastScanAt);
+  const setOverviewScanning = useAppStore((s) => s.setOverviewScanning);
+  const patchOverviewScan = useAppStore((s) => s.patchOverviewScan);
+  const editors = useAppStore((s) => s.editors);
+  // Cross-surface "open this body tab" deep-link. The dashboard's
+  // notes button writes a request into the store keyed by service
+  // id; we read it here, apply, and clear so a second click on the
+  // same button works again. Subscribing via a per-service selector
+  // keeps every other LogPanel in the workspace from re-rendering
+  // when an unrelated service's request flips.
+  const pendingBodyTabRequest = useAppStore((s) => s.pendingServiceBodyTab[serviceId]);
+  const consumePendingBodyTab = useAppStore((s) => s.consumePendingServiceBodyTab);
+  const runWorkspaceScan = useCallback(async () => {
+    if (overviewScanning) return;
+    setOverviewScanning(true);
+    try {
+      const result = await ipc.scanProjectDependencies(true);
+      patchOverviewScan(result);
+    } catch (err) {
+      console.error('scan_project_dependencies failed', err);
+    } finally {
+      setOverviewScanning(false);
+    }
+  }, [overviewScanning, setOverviewScanning, patchOverviewScan]);
+
   const [filter, setFilter] = useState('');
   const [follow, setFollow] = useState(true);
   // Off by default — the active command strip at the top of the log list
@@ -111,6 +207,20 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  // Body tab — DOCS or LOGS. Default is LOGS, but a service that
+  // has no logs yet AND an available README opens straight into
+  // DOCS so first-time and just-cloned projects feel useful from
+  // the first click. Auto-switch back to LOGS is driven later by
+  // the running-cmd diff effect, which always pulls a launching
+  // command into focus regardless of how the DOCS tab got opened.
+  const [mainTab, setMainTab] = useState<MainTab>('logs');
+  // Whether the project has any docs to render. Driven by a
+  // lightweight `discoverProjectDocs` call so we can decide
+  // whether to show the DOCS tab at all. We don't render the tab
+  // strip when the project has zero docs — saves a row of
+  // chrome on services with nothing to show.
+  const [hasDocs, setHasDocs] = useState(false);
 
   // AI log-triage now routes through the right-side chat panel via
   // `openAiChat`. We keep no local triage state — the right-click
@@ -168,6 +278,52 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 
   const logK = activeCmd && selectedId ? logKey(selectedId, activeCmd) : '';
   const logs = useAppStore((s) => (logK ? (s.logs[logK]?.lines ?? EMPTY_LOGS) : EMPTY_LOGS));
+
+  // Probe the project for docs once per service. Cheap (a single
+  // IPC round-trip per service tab); the result is used both to
+  // gate the DOCS tab visibility and to drive the smart default.
+  useEffect(() => {
+    if (!selectedId) return;
+    let alive = true;
+    setHasDocs(false);
+    setMainTab('logs');
+    ipc
+      .discoverProjectDocs(selectedId)
+      .then((list) => {
+        if (!alive) return;
+        const present = list.length > 0;
+        setHasDocs(present);
+        // Smart default: a fresh service tab with no logs but a
+        // README jumps straight into DOCS so a just-cloned project
+        // surfaces something useful on the first click. The moment
+        // a command actually launches, the running-cmd diff effect
+        // pulls focus back to LOGS — so this is purely about the
+        // empty-buffer first impression, not a sticky preference.
+        if (present) {
+          // Read logs lazily out of the store at decision time —
+          // we don't want this effect to re-run every time the
+          // log buffer grows.
+          const logsKey = activeCmd ? logKey(selectedId, activeCmd) : '';
+          const linesNow = logsKey ? (useAppStore.getState().logs[logsKey]?.lines.length ?? 0) : 0;
+          if (linesNow === 0) {
+            setMainTab('docs');
+          }
+        }
+      })
+      .catch((err) => {
+        if (!alive) return;
+        console.warn('docs: discover probe failed', err);
+        setHasDocs(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // We deliberately depend only on `selectedId` so the panel
+    // never reshuffles tabs underneath the user mid-session. The
+    // panel remounts (`key={service.id}`) when the service tab
+    // itself changes, which is the right time to redo discovery.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId || !activeCmd) return;
@@ -227,6 +383,117 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     },
     [filtered, service, openAiChat],
   );
+
+  const onSelectMainTab = useCallback((tab: MainTab) => {
+    setMainTab(tab);
+  }, []);
+
+  // Honour cross-surface "open at this tab" requests. Runs after
+  // the docs-discovery effect so a request to land on DOCS for a
+  // service that genuinely has docs wins over the docs-tab gating;
+  // we consume the request unconditionally to avoid a stale entry
+  // re-firing on the next render. Notes is always available, DOCS
+  // is gated on `hasDocs` — but we apply the request even if DOCS
+  // is requested without docs being discovered yet, because the
+  // tab strip will hide the DOCS button anyway and the tab state
+  // will look like LOGS in that edge case. Cheaper than introducing
+  // a second wait-for-docs state machine.
+  useEffect(() => {
+    if (!pendingBodyTabRequest) return;
+    if (
+      pendingBodyTabRequest === 'logs' ||
+      pendingBodyTabRequest === 'docs' ||
+      pendingBodyTabRequest === 'notes'
+    ) {
+      setMainTab(pendingBodyTabRequest);
+    }
+    consumePendingBodyTab(serviceId);
+  }, [pendingBodyTabRequest, consumePendingBodyTab, serviceId]);
+
+  // When the user clicks Run on a fenced shell block in DOCS, we
+  // open the integrated terminal pane (if it isn't already), wait
+  // a beat for the PTY to spawn, then write the command + CR
+  // through `ipc.terminalWrite`. Switching back to LOGS lets the
+  // user see the command's output land in the same panel — that's
+  // the "no friction" promise of the DOCS tab.
+  const runDocCommand = useCallback(
+    (command: string) => {
+      if (!selectedId) return;
+      setShowTerminal(true);
+      onSelectMainTab('logs');
+      // 250ms is empirically enough for the PTY spawn round-trip
+      // on macOS / Linux / Windows; the terminal pane will queue
+      // any earlier writes anyway via the IPC layer's pending
+      // buffer. We don't await the spawn explicitly because the
+      // TerminalPane manages its own lifecycle and exposing a
+      // ready-promise just to support a single feature would mean
+      // wiring through a hefty contract change for marginal gain.
+      window.setTimeout(() => {
+        const bytes = utf8ToBytes(`${command}\r`);
+        void ipc.terminalWrite(selectedId, bytes).catch((err) => {
+          console.warn('docs: terminal_write failed', err);
+        });
+      }, 250);
+    },
+    [selectedId, onSelectMainTab],
+  );
+
+  // When a NEW command transitions into the running pipeline —
+  // whether via Play All, Restart, or an individual cmd start
+  // button — we surface the LOGS tab and focus that command so the
+  // user lands directly on its fresh output. This intentionally
+  // overrides a manual DOCS pick: kicking off a command is the
+  // strongest possible signal that the user wants to watch it run,
+  // and silently leaving them on the README would feel like the
+  // app swallowed their click. We still leave the LOGS-tab user
+  // alone (no command swap) — they're likely tailing one cmd while
+  // others churn in the background, and stealing their selection
+  // would yank context out from under them.
+  //
+  // Implementation: derive a stable join-key from the set of
+  // running cmd names so the diff effect only re-fires when that
+  // set actually changes (not on every status payload), then
+  // detect newly-added entries by set difference.
+  const runningCmdNames = useMemo(
+    () =>
+      (status?.commands ?? [])
+        .filter((c) => c.status === 'running' || c.status === 'starting')
+        .map((c) => c.name),
+    [status?.commands],
+  );
+  const runningCmdKey = useMemo(
+    () => runningCmdNames.slice().sort().join('\x1f'),
+    [runningCmdNames],
+  );
+  // Read latest `mainTab` from a ref inside the diff effect — we
+  // don't want the effect to re-run when the user toggles tabs,
+  // only when the running-cmd set actually changes.
+  const mainTabRef = useRef<MainTab>(mainTab);
+  useEffect(() => {
+    mainTabRef.current = mainTab;
+  }, [mainTab]);
+  const prevRunningCmdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const prev = prevRunningCmdsRef.current;
+    prevRunningCmdsRef.current = runningCmdNames;
+    if (runningCmdNames.length === 0) return;
+    const prevSet = new Set(prev);
+    const newlyRunning = runningCmdNames.find((n) => !prevSet.has(n));
+    if (!newlyRunning) return;
+    // Same reasoning extends to NOTES as for DOCS: if the user is
+    // reading a non-LOGS body tab and a fresh command kicks off, the
+    // command launch is the strongest possible signal they want to
+    // watch it run. Bouncing them back to LOGS for any non-logs
+    // surface keeps the "click Play → see output" mental model
+    // intact regardless of which sibling tab they were parked on.
+    if (mainTabRef.current !== 'logs') {
+      setSelectedCmdName(newlyRunning);
+      setMainTab('logs');
+    }
+    // `runningCmdNames` is captured via closure; the join-key is
+    // the actual change-trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningCmdKey]);
 
   const onDragStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -327,6 +594,56 @@ export function LogPanel({ serviceId }: LogPanelProps) {
                 <TagChip key={t} tag={t} />
               ))}
             </div>
+            {/*
+              Health badges — mirror the dashboard `ServiceCard` so
+              the same scan result the user just clicked on stays
+              visible inside the service. Order matches the card's
+              chain (Outdated → Audit → License) so the visual
+              language is consistent across surfaces.
+
+              The chips read from the same `ProjectOverview` snapshot
+              the dashboard does, so:
+                • A workspace rescan refreshes both surfaces at once.
+                • Cold-start hydration (persisted scans → store)
+                  populates this row before the user even sees the
+                  dashboard, which is the real fix for "I opened a
+                  service tab and the chips were missing for 30s
+                  until the scan finished".
+
+              Click semantics are split on purpose: deps + audit
+              chips open `ProjectDetailDrawer` (the same triage
+              tabs the dashboard uses), while the license chip
+              opens the dedicated `LicensePanel` overlay where the
+              full per-package table + THIRD-PARTY-NOTICES.md
+              generator live. We never duplicate the audit table
+              into the license drawer or vice versa — the user
+              clicking on the chip is expressing explicit intent
+              about which axis they want to triage.
+            */}
+            {projectMeta && (
+              <div className="ml-1 flex items-center gap-1.5">
+                {projectMeta.outdated && projectMeta.outdated.total > 0 && (
+                  <OutdatedChip
+                    outdated={projectMeta.outdated}
+                    onClick={() => setDetailTab('outdated')}
+                  />
+                )}
+                {projectMeta.audit &&
+                  projectMeta.audit.critical +
+                    projectMeta.audit.high +
+                    projectMeta.audit.medium +
+                    projectMeta.audit.low >
+                    0 && (
+                    <AuditChip
+                      audit={projectMeta.audit}
+                      onClick={() => setDetailTab('advisories')}
+                    />
+                  )}
+                {projectMeta.license && licenseContaminationCount(projectMeta.license) > 0 && (
+                  <LicenseChip license={projectMeta.license} onClick={() => setLicenseOpen(true)} />
+                )}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <IconButton
@@ -550,9 +867,89 @@ export function LogPanel({ serviceId }: LogPanelProps) {
         )}
       </div>
 
-      {/* Logs — always the primary body. Ports / Env are popovers in the toolbar. */}
+      {/*
+        Body tab strip. Always rendered now that NOTES joined the
+        mix — every service can have notes regardless of whether it
+        ships docs, so the strip is a permanent fixture rather than
+        a conditional one. The DOCS button hides itself when the
+        project has no discoverable README/docs to render; LOGS and
+        NOTES are universal.
+      */}
       <div
-        className="relative flex min-h-0 flex-1 flex-col"
+        data-body-tabs
+        className="border-border/60 bg-surface flex shrink-0 items-center gap-0 border-b px-2"
+      >
+        <BodyTabButton
+          active={mainTab === 'logs'}
+          onClick={() => onSelectMainTab('logs')}
+          icon={<ScrollText className="h-3 w-3" />}
+          label="Logs"
+        />
+        {hasDocs && (
+          <BodyTabButton
+            active={mainTab === 'docs'}
+            onClick={() => onSelectMainTab('docs')}
+            icon={<BookOpen className="h-3 w-3" />}
+            label="Docs"
+          />
+        )}
+        <BodyTabButton
+          active={mainTab === 'notes'}
+          onClick={() => onSelectMainTab('notes')}
+          icon={<FileText className="h-3 w-3" />}
+          label="Notes"
+        />
+      </div>
+
+      {/*
+        DOCS body. Lazy-loaded — only paid for once the user actually
+        clicks the tab (or the smart default opens it for an
+        empty-logs project). We keep the LOGS body mounted even when
+        DOCS is showing, hidden via `display:none`, so the xterm
+        scrollback survives a tab toggle and we don't pay a re-build
+        cost when the user flips back. (DOCS is not similarly
+        retained: react-markdown is fast enough that re-mounting is
+        cheaper than holding its DOM tree in memory while LOGS
+        plays.)
+      */}
+      {mainTab === 'docs' && (
+        <Suspense
+          fallback={
+            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
+              Loading docs…
+            </div>
+          }
+        >
+          <ProjectDocsTab serviceId={selectedId} cwd={service.cwd} onRunCommand={runDocCommand} />
+        </Suspense>
+      )}
+
+      {/*
+        NOTES body. Lazy-loaded for the same bundle-cost reason as
+        DOCS (shares the markdown pipeline). Like DOCS, we don't
+        keep it mounted-but-hidden when the user flips away — the
+        textarea has no expensive state worth retaining and a
+        remount cleanly resets the dirty-buffer guard so a stale
+        unsaved buffer can't bleed across tab toggles. (If we kept
+        it hidden we'd also have to thread "you have unsaved
+        notes" warnings into the parent tab close flow; remount
+        sidesteps that by re-reading the on-disk file every time.)
+      */}
+      {mainTab === 'notes' && service && (
+        <Suspense
+          fallback={
+            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
+              Loading notes…
+            </div>
+          }
+        >
+          <ProjectNotesTab serviceId={selectedId} serviceName={service.name} />
+        </Suspense>
+      )}
+
+      {/* Logs — primary body when the LOGS tab is active. Ports / Env are popovers in the toolbar. */}
+      <div
+        className={cn('relative flex min-h-0 flex-1 flex-col', mainTab !== 'logs' && 'hidden')}
         style={{ userSelect: dragging.current ? 'none' : undefined }}
       >
         {/* Meta strip directly above the xterm log view.
@@ -714,7 +1111,101 @@ export function LogPanel({ serviceId }: LogPanelProps) {
           onCancel={() => setPendingConfirm(null)}
         />
       )}
+      {/*
+        License compliance overlay — same component the dashboard
+        chip opens. Lazy because the panel pulls in the full
+        per-package table + THIRD-PARTY-NOTICES generator (~30 KB
+        gzipped); a session that never opens it pays nothing.
+      */}
+      {licenseOpen && (
+        <Drawer onClose={() => setLicenseOpen(false)} ariaLabel="License compliance" size="lg">
+          <Suspense fallback={<div className="text-fg-dim p-4 text-[12px]">Loading…</div>}>
+            <LicensePanel
+              serviceId={service.id}
+              serviceName={service.name}
+              onClose={() => setLicenseOpen(false)}
+            />
+          </Suspense>
+        </Drawer>
+      )}
+      {/*
+        Project triage drawer (Outdated / Advisories tabs) — opened
+        by the deps + audit chips above. Mirrors the dashboard's
+        per-card drawer behaviour: same component, same tabs,
+        same rescan affordance, just mounted inside the per-service
+        panel instead of the dashboard root.
+      */}
+      {detailTab && projectMeta && (
+        <ProjectDetailDrawer
+          project={projectMeta}
+          initialTab={detailTab}
+          scanning={overviewScanning}
+          lastScanAt={lastScanAt}
+          onRescan={() => void runWorkspaceScan()}
+          onClose={() => setDetailTab(null)}
+          onJump={(id) => {
+            setDetailTab(null);
+            useAppStore.getState().setSelected(id);
+          }}
+          editors={editors}
+          onOpenPath={(path) => void ipc.openPath(path)}
+          onOpenUrl={(url) => void ipc.openUrl(url)}
+          onOpenInEditor={async (command, path) => {
+            try {
+              await ipc.openInEditor(command, path);
+            } catch {
+              // Fallback so the click is never a dead-end — if
+              // the editor isn't installed or returns an error,
+              // at least surface the folder in the OS file
+              // browser. Silent failure here is what made the
+              // dashboard version of this prompt feel broken
+              // before the fallback was added.
+              await ipc.openPath(path);
+            }
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Body tab strip button — Logs / Docs. Visually mirrors a VS Code
+ * panel tab (left-aligned, underline-on-active) so it doesn't
+ * compete with the much louder toolbar buttons above. Compact
+ * height keeps the body real-estate as close to legacy as
+ * possible; users on a small laptop only lose a single 28-px row
+ * to gain the entire DOCS tab.
+ */
+function BodyTabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'group relative inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors',
+        active ? 'text-fg' : 'text-fg-dim hover:text-fg',
+      )}
+    >
+      <span className={cn('shrink-0', active ? 'text-accent' : 'text-fg-dim')}>{icon}</span>
+      <span>{label}</span>
+      <span
+        className={cn(
+          'absolute right-2 bottom-0 left-2 h-px',
+          active ? 'bg-accent' : 'bg-transparent',
+        )}
+      />
+    </button>
   );
 }
 

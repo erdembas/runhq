@@ -34,6 +34,23 @@ interface WorkspaceProjectFact {
   is_stale?: boolean;
   cve?: { critical: number; high: number; medium: number; low: number };
   outdated?: { total: number; major: number; minor: number; patch: number };
+  /**
+   * License contamination summary. Populated only when the project's
+   * scan ran AND found at least one warning — clean trees and
+   * unsupported runtimes are omitted to keep the JSON tight and
+   * avoid the model citing "0 contamination" as a positive signal
+   * on a runtime where the scan never ran.
+   *
+   * `top_warnings` is capped at 3 by the backend (`LicenseScanSummary`).
+   * That's enough for the model to name a real package in its risk
+   * hotspot bullet without inflating the payload.
+   */
+  license?: {
+    network_copyleft: number;
+    strong_copyleft: number;
+    proprietary: number;
+    top_warnings: { package: string; license: string; risk: string }[];
+  };
 }
 
 interface WorkspaceTotals {
@@ -53,6 +70,21 @@ interface WorkspaceTotals {
   outdated_packages: number;
   stale_projects: number;
   dirty_projects: number;
+  /** Total network-copyleft (AGPL/SSPL) hits across all projects.
+   *  Surfaced separately from `total_license_warnings` because for a
+   *  SaaS workspace, a single AGPL package eclipses ten proprietary
+   *  warnings — collapsing them into one number would let the model
+   *  miss the headline. */
+  license_network_copyleft: number;
+  /** Total strong-copyleft (GPL family) hits across all projects. */
+  license_strong_copyleft: number;
+  /** Total proprietary-license hits — usually fixable with a paid
+   *  license rather than a re-architect, hence the third bucket. */
+  license_proprietary: number;
+  /** Number of projects with at least one license contamination
+   *  warning. Lets the model say "license risk in `3 of 12` projects"
+   *  without scanning the per-project array. */
+  projects_with_license_risk: number;
 }
 
 export interface WorkspaceFacts {
@@ -76,9 +108,22 @@ function projectImportance(p: WorkspaceProjectFact): number {
   const stale = p.is_stale ? 1 : 0;
   const dirty = (p.dirty_files ?? 0) > 0 ? 1 : 0;
   const outdatedMajor = p.outdated?.major ?? 0;
+  // License weights mirror the dashboard's `riskScore` calibration:
+  // network copyleft outranks even critical CVEs (it's a
+  // re-architect, not a patch), strong copyleft is comparable to
+  // ~2 critical CVEs, proprietary slots between high and medium.
+  // Without this, the workspace report would order an AGPL-tainted
+  // project below a project with a couple of medium CVEs — exactly
+  // backwards for anyone shipping commercial.
+  const licNetwork = p.license?.network_copyleft ?? 0;
+  const licStrong = p.license?.strong_copyleft ?? 0;
+  const licProp = p.license?.proprietary ?? 0;
   return (
+    licNetwork * 150 +
+    licStrong * 80 +
     cveCritical * 100 +
     cveHigh * 25 +
+    licProp * 15 +
     cveMedium * 5 +
     failed * 30 +
     stale * 4 +
@@ -151,6 +196,10 @@ export function buildWorkspaceFacts(input: {
   let dirtyProjects = 0;
   let totalCpu = 0;
   let totalMem = 0;
+  let licenseNetworkCopyleft = 0;
+  let licenseStrongCopyleft = 0;
+  let licenseProprietary = 0;
+  let projectsWithLicenseRisk = 0;
 
   const projects: WorkspaceProjectFact[] = [];
 
@@ -166,6 +215,7 @@ export function buildWorkspaceFacts(input: {
     const g = git[svc.id] ?? meta?.git_status ?? null;
     const audit = meta?.audit ?? null;
     const outdated = meta?.outdated ?? null;
+    const license = meta?.license ?? null;
     const isRunning = st === 'running' || st === 'starting';
 
     if (isRunning && res) {
@@ -182,6 +232,15 @@ export function buildWorkspaceFacts(input: {
     if (outdated) outdatedPackages += outdated.total ?? 0;
     if (meta?.is_stale) staleProjects++;
     if (g?.is_dirty) dirtyProjects++;
+    if (license && license.scan_supported && license.has_contamination) {
+      const net = license.network_copyleft_count ?? 0;
+      const strong = license.strong_copyleft_count ?? 0;
+      const prop = license.proprietary_count ?? 0;
+      licenseNetworkCopyleft += net;
+      licenseStrongCopyleft += strong;
+      licenseProprietary += prop;
+      if (net + strong + prop > 0) projectsWithLicenseRisk++;
+    }
 
     const lastActivity = meta?.last_activity ?? null;
     const fact: WorkspaceProjectFact = {
@@ -226,6 +285,29 @@ export function buildWorkspaceFacts(input: {
         patch: outdated.patch ?? 0,
       };
     }
+    // Per-project license fact: emit only when the scan ran AND
+    // hit at least one warning. A clean-but-scanned project doesn't
+    // need a `license: { network_copyleft: 0, ... }` row in the JSON
+    // — that would just bait the model into citing zeros as positive
+    // signal. The aggregate counters in `workspace.*` already tell
+    // the model whether scans ran at all.
+    if (license && license.scan_supported && license.has_contamination) {
+      const net = license.network_copyleft_count ?? 0;
+      const strong = license.strong_copyleft_count ?? 0;
+      const prop = license.proprietary_count ?? 0;
+      if (net + strong + prop > 0) {
+        fact.license = {
+          network_copyleft: net,
+          strong_copyleft: strong,
+          proprietary: prop,
+          top_warnings: (license.top_warnings ?? []).map((w) => ({
+            package: w.package,
+            license: w.license,
+            risk: w.risk,
+          })),
+        };
+      }
+    }
 
     projects.push(fact);
   }
@@ -257,6 +339,10 @@ export function buildWorkspaceFacts(input: {
       outdated_packages: outdatedPackages,
       stale_projects: staleProjects,
       dirty_projects: dirtyProjects,
+      license_network_copyleft: licenseNetworkCopyleft,
+      license_strong_copyleft: licenseStrongCopyleft,
+      license_proprietary: licenseProprietary,
+      projects_with_license_risk: projectsWithLicenseRisk,
     },
     projects: trimmed,
   };

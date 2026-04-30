@@ -145,13 +145,59 @@ export interface Highlight {
   cta?: HighlightCta;
 }
 
-export interface WhatsNewRelease {
+/**
+ * Tone for inline `<Callout>` primitives used inside DocumentRelease
+ * subsection bodies. Mirrors the well-known GitHub-flavoured-Markdown
+ * note/tip/success/warning palette so the visual language is familiar.
+ */
+export type CalloutTone = 'note' | 'tip' | 'success' | 'warning';
+
+/**
+ * "In this release" hook rendered at the top of a DocumentRelease as a
+ * tight bulleted index — same role as the four highlight links at the
+ * top of a VS Code release notes page. Each hook resolves to an
+ * in-page anchor on a {@link ReleaseSubsection.id}.
+ */
+export interface ReleaseHook {
+  /** In-page anchor — `#${ReleaseSubsection.id}`. */
+  href: string;
+  /** Bold lead — the feature name (≤ ~28 chars). */
+  label: string;
+  /** Single-line value prop after the colon (≤ ~80 chars). */
+  detail: string;
+}
+
+/**
+ * One subsection inside a {@link ReleaseSection}. Renders as `<h3>` in
+ * the document plus an entry in the in-page TOC (right-sidebar). Body
+ * is JSX so authors can compose paragraphs, lists, callouts, inline
+ * media and chip primitives freely — the schema deliberately doesn't
+ * model prose structure.
+ */
+export interface ReleaseSubsection {
+  id: string;
+  title: string;
+  badge?: HighlightBadge;
+  body: ReactNode;
+}
+
+/**
+ * Top-level grouping inside a {@link DocumentRelease}. Sections render
+ * as `<h2>` and become parent rows in the TOC; their {@link ReleaseSubsection}
+ * children indent under them.
+ */
+export interface ReleaseSection {
+  id: string;
+  title: string;
+  subsections: ReleaseSubsection[];
+}
+
+interface ReleaseBase {
   version: string;
   releasedAt: string;
   /** Single-line tagline rendered under the title. */
   headline: string;
-  highlights: Highlight[];
-  /** External link surfaced as "Read full changelog" in the modal footer. */
+  /** External link surfaced as "Read full changelog" in the page footer. */
   changelogUrl: string;
   /**
    * When true the modal will auto-show even on patch upgrades. Default
@@ -160,3 +206,34 @@ export interface WhatsNewRelease {
    */
   showOnPatch?: boolean;
 }
+
+/**
+ * Pre-0.10.0 release shape — paginated carousel of {@link Highlight} cards
+ * in the modal, stacked hero+tail in the archive page. Kept as the
+ * default (kind omitted = legacy) so existing data files keep working
+ * unchanged.
+ */
+export interface LegacyHighlightsRelease extends ReleaseBase {
+  kind?: 'legacy';
+  highlights: Highlight[];
+}
+
+/**
+ * Document-style release shape used from 0.10.0 onwards. Models a
+ * scrollable long-form page (à la VS Code release notes / Linear
+ * changelog): an intro paragraph, a "in this release" hook list, and
+ * one or more sections each holding subsections of free-form JSX
+ * prose. The modal renders a slim preview (intro + hooks + "Read full
+ * notes" link) instead of paginating; the full content lives in the
+ * Release Notes page where it belongs.
+ */
+export interface DocumentRelease extends ReleaseBase {
+  kind: 'document';
+  /** Welcome paragraph shown under the version header in both modal and page. */
+  intro: ReactNode;
+  /** 3–6 hooks linking to the most newsworthy subsections. */
+  hooks: ReleaseHook[];
+  sections: ReleaseSection[];
+}
+
+export type WhatsNewRelease = LegacyHighlightsRelease | DocumentRelease;

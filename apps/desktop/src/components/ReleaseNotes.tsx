@@ -40,14 +40,18 @@
  * + Lucide icon so the page never shows an empty rectangle, even
  * before screenshots are captured.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, History, Sparkles, X, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { getAllReleases } from '@/lib/whatsnew';
+import { resolveMediaSrc } from '@/lib/whatsnew/resolveMediaSrc';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { MediaLightbox } from '@/components/whatsnew/MediaLightbox';
+import { DocumentReleaseDetail } from '@/components/whatsnew/DocumentReleaseDetail';
 import type {
+  DocumentRelease,
   Highlight,
   HighlightCta,
   HighlightFallback,
@@ -164,7 +168,7 @@ function HighlightVisual({
   onZoom,
 }: {
   highlight: Highlight;
-  themeSuffix: string;
+  themeSuffix: 'light' | 'dark';
   /**
    * When provided, the rendered media becomes click-to-zoom. Fallback
    * tiles (no real asset) skip this — there's nothing meaningful to
@@ -189,15 +193,12 @@ function HighlightVisual({
 
   const isVideo = media.kind === 'video';
 
-  const resolvedSrc = useMemo(() => {
-    if (!media.src) return null;
-    // Extension is derived from `media.kind` — see WhatsNewModal /
-    // `HighlightMedia` doc for the long form. Default (`image`) keeps
-    // every pre-0.9.0 entry shipping `.webp` without a registry diff.
-    const ext = isVideo ? 'webm' : 'webp';
-    if (media.themeAware) return `${media.src}-${themeSuffix}.${ext}`;
-    return `${media.src}.${ext}`;
-  }, [media.src, media.themeAware, themeSuffix, isVideo]);
+  // Resolution shared with `WhatsNewModal` via the same helper —
+  // see `lib/whatsnew/resolveMediaSrc` for the relative-vs-absolute
+  // logic. Both surfaces have to agree on the URL so a CDN-hosted
+  // video plays identically in the post-update modal and the
+  // archive page.
+  const resolvedSrc = useMemo(() => resolveMediaSrc(media, themeSuffix), [media, themeSuffix]);
 
   // Image-less highlight: render *no visual at all* so the section reads
   // as a content block (bullets / copy live inline below the title) and
@@ -367,124 +368,6 @@ function InlineBulletGrid({ fallback }: { fallback: HighlightFallback }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-/**
- * Full-screen zoom view for release-note media. Lives in its own
- * component because it owns its own keyboard handler + portal-style
- * fixed positioning; nesting that into `HighlightVisual` would multiply
- * the listener across every visible highlight on the page.
- *
- * Handles two media kinds with the same shell, but with **kind-specific
- * sizing** because their default scaling rules disagree:
- *
- *   • `kind: 'image'` — `<img>` capped at 94vh / 96vw via `max-*`
- *     classes (`object-contain` semantics). Static screenshots have
- *     a known intrinsic size; a 2× DPR `.webp` rarely needs more
- *     room, and we want tiny captures to stay at native size rather
- *     than blow up into a soft, upscaled mess.
- *
- *   • `kind: 'video'` — wrapped in an `aspect-video` container at
- *     `w-[96vw] max-h-[94vh]` and the `<video>` itself stretched via
- *     `h-full w-full object-contain`. This is a deliberate departure
- *     from the image path: a `<video>` element without explicit
- *     dimensions falls back to its intrinsic size (1280×720 for our
- *     0.9.0 clips), so plain `max-*` classes would let the lightbox
- *     render as a small ~67vw box on a 1920px display — the exact
- *     opposite of "zoom in". Forcing the wrapper to a viewport-relative
- *     16:9 rectangle and letting the video fill it pushes the clip up
- *     to ~94vw × 94vh on widescreen and keeps it perfectly aspect-fit
- *     on tall / narrow viewports too. `controls` lights up only at
- *     the zoomed level so the inline tile stays decorative motion;
- *     pause / scrub becomes a "study mode" affordance unique to the
- *     lightbox.
- *
- * Common behaviour:
- *   • Backdrop click closes (matches GitHub / Linear / Stripe lightboxes)
- *   • `Escape` closes (and stops propagation so the parent page's own
- *     Escape-handler doesn't also pop the Release Notes view)
- *   • Click on the media itself doesn't bubble to backdrop — only
- *     clicks on the dim area dismiss. For video this is critical:
- *     hitting Play/Pause inside `controls` would otherwise also close
- *     the lightbox.
- */
-function MediaLightbox({
-  src,
-  alt,
-  kind,
-  onClose,
-}: {
-  src: string;
-  alt: string;
-  kind: 'image' | 'video';
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
-
-  const stopBackdrop = (e: MouseEvent) => e.stopPropagation();
-  // Padding around the lightbox inner content. `p-3` (instead of the
-  // previous `p-6`) trims the dead band between the X button and the
-  // media so the zoomed clip / screenshot reads as edge-to-edge while
-  // the close affordance still has 12px of negative space around it.
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={alt}
-      onClick={onClose}
-      className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-3 backdrop-blur-sm"
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label={kind === 'video' ? 'Close video preview' : 'Close image preview'}
-        className="absolute top-4 right-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-white/20 focus-visible:bg-white/20 focus-visible:outline-none"
-      >
-        <X className="h-4 w-4" />
-      </button>
-      {kind === 'video' ? (
-        // Aspect-locked wrapper drives the size: width = 96vw,
-        // height auto-derived to 16:9, then `max-h-[94vh]` clamps on
-        // tall viewports (browser shrinks width back to maintain
-        // aspect, ratio-aware behaviour widely supported since 2021).
-        // `bg-black` paints any letterbox bands solid black instead of
-        // the inherited surface tint, so the result reads as
-        // "cinematic preview" rather than "broken chrome".
-        <div
-          onClick={stopBackdrop}
-          className="relative aspect-video max-h-[94vh] w-[96vw] overflow-hidden rounded-lg bg-black shadow-[0_20px_60px_-12px_rgb(0_0_0/0.6)]"
-        >
-          <video
-            src={src}
-            aria-label={alt}
-            autoPlay
-            muted
-            loop
-            playsInline
-            controls
-            className="h-full w-full object-contain"
-          />
-        </div>
-      ) : (
-        <img
-          src={src}
-          alt={alt}
-          onClick={stopBackdrop}
-          className="max-h-[94vh] max-w-[96vw] rounded-lg shadow-[0_20px_60px_-12px_rgb(0_0_0/0.6)]"
-        />
-      )}
-    </div>
   );
 }
 
@@ -676,6 +559,7 @@ export function ReleaseNotes() {
                 themeSuffix={themeSuffix}
                 onOpenModal={handleOpenInModal}
                 onAfterAction={closeReleaseNotes}
+                scrollerRef={scrollerRef}
               />
             ) : (
               <SelectionEmpty />
@@ -692,24 +576,25 @@ function ReleaseDetail({
   themeSuffix,
   onOpenModal,
   onAfterAction,
+  scrollerRef,
 }: {
   release: WhatsNewRelease;
-  themeSuffix: string;
+  themeSuffix: 'light' | 'dark';
   onOpenModal: () => void;
   onAfterAction: () => void;
+  scrollerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const heroHighlight = release.highlights[0];
-  // Skip the hero in the highlight stack so we don't render the same
-  // image twice on the detail page. If the release ever ships with no
-  // highlights at all, the stack is empty and the page is just the
-  // header + changelog link, which is fine.
-  const tail = release.highlights.slice(1);
-
-  // Single lightbox owned at the detail level — switching releases on the
-  // left rail naturally tears it down and rebuilds, so we never carry an
-  // open zoom from one release into another by accident. `kind` is part
-  // of the state so the lightbox renders the right element (and `<video>`
-  // re-mounts cleanly between consecutive zooms of different clips).
+  // Hooks must run on every render regardless of release shape; we
+  // branch on `release.kind` AFTER all hook calls below. The legacy
+  // path uses `lightbox`/`openZoom`/`closeZoom`; the document path
+  // simply ignores them.
+  //
+  // Single lightbox owned at the detail level — switching releases on
+  // the left rail naturally tears it down and rebuilds, so we never
+  // carry an open zoom from one release into another by accident.
+  // `kind` is part of the state so the lightbox renders the right
+  // element (and `<video>` re-mounts cleanly between consecutive zooms
+  // of different clips).
   const [lightbox, setLightbox] = useState<{
     src: string;
     alt: string;
@@ -720,6 +605,21 @@ function ReleaseDetail({
     [],
   );
   const closeZoom = useCallback(() => setLightbox(null), []);
+
+  // Document-style releases (0.10.0+) ship a long-form page with a
+  // sticky in-page TOC; legacy releases keep their hero+stacked layout.
+  // Branching here (rather than at the call site) keeps the timeline
+  // rail / lightbox / keyboard wiring free of release-shape concerns.
+  if (release.kind === 'document') {
+    return <DocumentReleaseDetail release={release as DocumentRelease} scrollerRef={scrollerRef} />;
+  }
+
+  const heroHighlight = release.highlights[0];
+  // Skip the hero in the highlight stack so we don't render the same
+  // image twice on the detail page. If the release ever ships with no
+  // highlights at all, the stack is empty and the page is just the
+  // header + changelog link, which is fine.
+  const tail = release.highlights.slice(1);
 
   return (
     // `max-w-5xl` (1024px) is the sweet spot — wide enough that 16:9

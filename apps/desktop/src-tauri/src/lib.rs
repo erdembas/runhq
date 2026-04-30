@@ -747,6 +747,19 @@ pub fn run() {
             ipc::ai_analyze_workspace,
             ipc::ai_count_tokens,
             ipc::ai_explain_project_state,
+            ipc::list_notes,
+            ipc::read_note,
+            ipc::write_note,
+            ipc::delete_note,
+            ipc::create_note,
+            ipc::read_all_notes,
+            ipc::list_noted_services,
+            ipc::discover_project_docs,
+            ipc::read_project_doc,
+            ipc::resolve_doc_image,
+            ipc::scan_licenses,
+            ipc::generate_third_party_notices,
+            ipc::write_third_party_notices,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_resize,
@@ -783,7 +796,8 @@ pub fn run() {
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let _ = (app_handle, event);
+                let _ = app_handle;
+                let _ = event;
             }
         });
 }

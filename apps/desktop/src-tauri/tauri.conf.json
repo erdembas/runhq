@@ -35,7 +35,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1421"
+      "csp": "default-src 'self'; img-src 'self' data: asset: https://asset.localhost https://cdn.runhq.dev; media-src 'self' https://cdn.runhq.dev; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1421"
     }
   },
   "bundle": {

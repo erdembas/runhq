@@ -37,6 +37,7 @@ use tokio::time::timeout;
 
 use crate::error::AppResult;
 use crate::git::{self, GitStatus};
+use crate::license::{self, LicenseScanSummary};
 use crate::process::Supervisor;
 use crate::resources::ResourceSample;
 use crate::scan_history::{PersistedScan, ScanHistoryDb};
@@ -46,6 +47,14 @@ use crate::state::Store;
 /// returns `None` — we'd rather miss a number than hang the UI.
 const OUTDATED_TIMEOUT: Duration = Duration::from_secs(20);
 const AUDIT_TIMEOUT: Duration = Duration::from_secs(25);
+/// Hard cap for the license scan side-channel. License scans walk
+/// `node_modules` directly (3000+ package.json reads on a typical
+/// React app) and `cargo metadata` resolves the full dep graph; both
+/// can exceed the audit budget on a cold filesystem cache, so we
+/// give them a slightly bigger envelope. Worst case we drop the
+/// license result for one slow project — the UI degrades to "scan
+/// inconclusive" rather than freezing.
+const LICENSE_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// Dependency scan results are memoised for this long. Re-running
 /// `npm outdated` across 20 projects every time the user toggles a filter
@@ -71,6 +80,12 @@ pub struct ProjectOverview {
     pub outdated: Option<OutdatedResult>,
     /// Populated by [`gather_dependency_scan`]. `None` on the fast path.
     pub audit: Option<AuditResult>,
+    /// Slim license-scan summary used by the dashboard's `LicenseChip`
+    /// and the workspace-wide `License risk` filter. `None` on the
+    /// fast path; populated when [`gather_dependency_scan`] runs the
+    /// license side-channel for this service or when the cold-start
+    /// hydrator finds a persisted row in `dependency_scans.license_json`.
+    pub license: Option<LicenseScanSummary>,
     pub tags: Vec<String>,
 }
 
@@ -138,6 +153,18 @@ pub struct OverviewSummary {
     pub total_memory: u64,
     pub total_outdated: usize,
     pub total_vulnerabilities: usize,
+    /// Workspace-wide aggregate of strong + network copyleft + proprietary
+    /// licenses (i.e. `LicenseScanSummary::contamination_count`). Drives
+    /// the hero headline's "N license risk" priority bucket and the
+    /// workspace-level filter chip count. Weak copyleft and unknown
+    /// are deliberately excluded — see the function-level
+    /// rationale on `LicenseScanSummary::contamination_count`.
+    pub total_license_warnings: usize,
+    /// Number of projects that carry at least one strong/network
+    /// copyleft or proprietary dependency. Used by the FilterBar
+    /// chip ("License risk · 3 projects") so the count matches the
+    /// roster size, not the package size.
+    pub projects_with_license_risk: usize,
     pub stale_count: usize,
     /// `true` when at least one project in the list has non-`None`
     /// `outdated`/`audit`. Lets the UI show "scan dependencies" as a
@@ -153,6 +180,19 @@ pub struct DependencyScanResult {
     pub entries: Vec<DependencyScanEntry>,
     pub total_outdated: usize,
     pub total_vulnerabilities: usize,
+    /// Workspace-wide contamination count (`strong + network +
+    /// proprietary`). See [`OverviewSummary::total_license_warnings`].
+    pub total_license_warnings: usize,
+    /// Workspace-wide strong-copyleft count (GPL/LGPL strong family
+    /// excluding LGPL). Surfaced separately from
+    /// `total_license_warnings` so the hero / WorstOffenders can
+    /// special-case GPL contamination ("3 GPL packages will infect
+    /// your tree") versus the softer proprietary case.
+    pub total_strong_copyleft: usize,
+    /// Workspace-wide network-copyleft count (AGPL / SSPL). Most
+    /// commercially toxic class for SaaS — promoted to its own
+    /// total so the dashboard can call it out.
+    pub total_network_copyleft: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,6 +200,10 @@ pub struct DependencyScanEntry {
     pub service_id: String,
     pub outdated: Option<OutdatedResult>,
     pub audit: Option<AuditResult>,
+    /// Slim license summary collected alongside outdated/audit. See
+    /// [`LicenseScanSummary`] for why we ship a projection rather
+    /// than the full result.
+    pub license: Option<LicenseScanSummary>,
     /// Wall-clock timestamp when this individual project's scan
     /// completed, in epoch ms. Stamped per-entry rather than per-batch
     /// so a 30-project run still tells the UI "react app finished
@@ -187,6 +231,12 @@ pub struct DependencyScanEntry {
     /// so a delta would always be zero).
     pub previous_total_outdated: Option<i64>,
     pub previous_total_vulnerabilities: Option<i64>,
+    /// Total contamination from the **previous** persisted scan
+    /// (`strong + network + proprietary`). Drives a "+N license
+    /// warnings since last scan" delta badge in the same spirit as
+    /// the deps deltas. `None` for cache hits / first-ever scans
+    /// for the same reasons documented on `previous_total_outdated`.
+    pub previous_total_license_warnings: Option<i64>,
 }
 
 // ---- Helpers --------------------------------------------------------------
@@ -303,6 +353,8 @@ pub async fn gather_overview_with_history(
     let mut total_memory = 0u64;
     let mut total_outdated = 0usize;
     let mut total_vulnerabilities = 0usize;
+    let mut total_license_warnings = 0usize;
+    let mut projects_with_license_risk = 0usize;
     let mut stale_count = 0usize;
     let mut has_dependency_scan = false;
 
@@ -351,17 +403,19 @@ pub async fn gather_overview_with_history(
         // Reuse last scan result if it's still within TTL. This lets the
         // user close and reopen the dashboard without paying the full
         // scan cost each time.
-        let (mut outdated, mut audit) = scan_snapshot
+        let (mut outdated, mut audit, mut license) = scan_snapshot
             .get(&svc.cwd)
-            .map(|e| (e.outdated.clone(), e.audit.clone()))
-            .unwrap_or((None, None));
+            .map(|e| (e.outdated.clone(), e.audit.clone(), e.license.clone()))
+            .unwrap_or((None, None, None));
 
         // Fall back to the persistent scan history when the in-memory
         // cache doesn't cover this service (the typical cold-start
-        // case). We stitch outdated and audit independently because
-        // some runtimes only persist one of the two — losing both
-        // because one was missing would defeat the whole hydration.
-        if outdated.is_none() || audit.is_none() {
+        // case). We stitch outdated/audit/license independently
+        // because some runtimes only persist a subset (e.g. Python
+        // has audit but no outdated/license today) — losing all
+        // three because one was missing would defeat the whole
+        // hydration.
+        if outdated.is_none() || audit.is_none() || license.is_none() {
             if let Some(persisted) = persisted_by_id.get(&svc.id) {
                 if outdated.is_none() {
                     outdated = persisted.outdated.clone();
@@ -369,10 +423,13 @@ pub async fn gather_overview_with_history(
                 if audit.is_none() {
                     audit = persisted.audit.clone();
                 }
+                if license.is_none() {
+                    license = persisted.license.clone();
+                }
             }
         }
 
-        if outdated.is_some() || audit.is_some() {
+        if outdated.is_some() || audit.is_some() || license.is_some() {
             has_dependency_scan = true;
         }
         if let Some(ref o) = outdated {
@@ -380,6 +437,13 @@ pub async fn gather_overview_with_history(
         }
         if let Some(ref a) = audit {
             total_vulnerabilities += a.critical + a.high + a.medium + a.low;
+        }
+        if let Some(ref l) = license {
+            let warnings = l.contamination_count();
+            total_license_warnings += warnings;
+            if warnings > 0 {
+                projects_with_license_risk += 1;
+            }
         }
 
         projects.push(ProjectOverview {
@@ -395,6 +459,7 @@ pub async fn gather_overview_with_history(
             is_stale,
             outdated,
             audit,
+            license,
             tags: svc.tags.clone(),
         });
     }
@@ -409,6 +474,8 @@ pub async fn gather_overview_with_history(
         total_memory,
         total_outdated,
         total_vulnerabilities,
+        total_license_warnings,
+        projects_with_license_risk,
         stale_count,
         has_dependency_scan,
     })
@@ -470,11 +537,13 @@ pub async fn gather_dependency_scan_with_history(
                         service_id,
                         outdated: entry.outdated,
                         audit: entry.audit,
+                        license: entry.license,
                         scanned_at_ms,
                         duration_ms: None,
                         from_cache: true,
                         previous_total_outdated: None,
                         previous_total_vulnerabilities: None,
+                        previous_total_license_warnings: None,
                     }
                 });
                 continue;
@@ -486,18 +555,26 @@ pub async fn gather_dependency_scan_with_history(
             let started = Instant::now();
             let outdated_fut = run_outdated(&cwd, runtime.as_deref());
             let audit_fut = run_audit(&cwd, runtime.as_deref());
-            let (outdated, audit) = tokio::join!(outdated_fut, audit_fut);
+            let license_fut = run_license(&cwd);
+            // Three-way join: dep tools and license walk hit different
+            // sources (registry / disk) so they don't contend; running
+            // them concurrently keeps the per-service wall time at
+            // roughly `max(outdated, audit, license)` instead of the
+            // sum.
+            let (outdated, audit, license) = tokio::join!(outdated_fut, audit_fut, license_fut);
             let duration_ms = started.elapsed().as_millis() as i64;
-            cache.insert(&cwd, outdated.clone(), audit.clone());
+            cache.insert(&cwd, outdated.clone(), audit.clone(), license.clone());
             DependencyScanEntry {
                 service_id,
                 outdated,
                 audit,
+                license,
                 scanned_at_ms: now_ms(),
                 duration_ms: Some(duration_ms),
                 from_cache: false,
                 previous_total_outdated: None,
                 previous_total_vulnerabilities: None,
+                previous_total_license_warnings: None,
             }
         });
     }
@@ -518,6 +595,9 @@ pub async fn gather_dependency_scan_with_history(
     let mut entries = Vec::with_capacity(services.len());
     let mut total_outdated = 0usize;
     let mut total_vulnerabilities = 0usize;
+    let mut total_license_warnings = 0usize;
+    let mut total_strong_copyleft = 0usize;
+    let mut total_network_copyleft = 0usize;
     while let Some(res) = tasks.join_next().await {
         let Ok(mut entry) = res else { continue };
         if let Some(ref o) = entry.outdated {
@@ -525,6 +605,11 @@ pub async fn gather_dependency_scan_with_history(
         }
         if let Some(ref a) = entry.audit {
             total_vulnerabilities += a.critical + a.high + a.medium + a.low;
+        }
+        if let Some(ref l) = entry.license {
+            total_license_warnings += l.contamination_count();
+            total_strong_copyleft += l.strong_copyleft_count;
+            total_network_copyleft += l.network_copyleft_count;
         }
 
         // Persist fresh runs only — see function-level docstring for
@@ -546,6 +631,7 @@ pub async fn gather_dependency_scan_with_history(
                 if let Ok(Some(prev)) = db.get_by_service(&entry.service_id) {
                     entry.previous_total_outdated = Some(prev.total_outdated);
                     entry.previous_total_vulnerabilities = Some(prev.total_vulnerabilities);
+                    entry.previous_total_license_warnings = Some(prev.total_license_warnings);
                 }
 
                 let entry_total_outdated =
@@ -555,16 +641,23 @@ pub async fn gather_dependency_scan_with_history(
                     .as_ref()
                     .map(|a| a.critical + a.high + a.medium + a.low)
                     .unwrap_or(0) as i64;
+                let entry_total_license = entry
+                    .license
+                    .as_ref()
+                    .map(|l| l.contamination_count())
+                    .unwrap_or(0) as i64;
                 let scan_row = PersistedScan {
                     service_id: entry.service_id.clone(),
                     cwd: cwd.to_string_lossy().to_string(),
                     service_name: name,
                     outdated: entry.outdated.clone(),
                     audit: entry.audit.clone(),
+                    license: entry.license.clone(),
                     scanned_at_ms: entry.scanned_at_ms,
                     duration_ms: entry.duration_ms,
                     total_outdated: entry_total_outdated,
                     total_vulnerabilities: entry_total_vulns,
+                    total_license_warnings: entry_total_license,
                 };
                 if let Err(e) = db.upsert(&scan_row) {
                     tracing::warn!(
@@ -582,6 +675,9 @@ pub async fn gather_dependency_scan_with_history(
         entries,
         total_outdated,
         total_vulnerabilities,
+        total_license_warnings,
+        total_strong_copyleft,
+        total_network_copyleft,
     })
 }
 
@@ -625,11 +721,13 @@ pub async fn gather_dependency_scan_for_service(
                 service_id: svc_id,
                 outdated: cached.outdated,
                 audit: cached.audit,
+                license: cached.license,
                 scanned_at_ms: ms_from_instant(cached.fetched_at),
                 duration_ms: None,
                 from_cache: true,
                 previous_total_outdated: None,
                 previous_total_vulnerabilities: None,
+                previous_total_license_warnings: None,
             }));
         }
     }
@@ -637,19 +735,22 @@ pub async fn gather_dependency_scan_for_service(
     let started = Instant::now();
     let outdated_fut = run_outdated(&cwd, runtime.as_deref());
     let audit_fut = run_audit(&cwd, runtime.as_deref());
-    let (outdated, audit) = tokio::join!(outdated_fut, audit_fut);
+    let license_fut = run_license(&cwd);
+    let (outdated, audit, license) = tokio::join!(outdated_fut, audit_fut, license_fut);
     let duration_ms = started.elapsed().as_millis() as i64;
-    scan_cache.insert(&cwd, outdated.clone(), audit.clone());
+    scan_cache.insert(&cwd, outdated.clone(), audit.clone(), license.clone());
 
     let mut entry = DependencyScanEntry {
         service_id: svc_id.clone(),
         outdated: outdated.clone(),
         audit: audit.clone(),
+        license: license.clone(),
         scanned_at_ms: now_ms(),
         duration_ms: Some(duration_ms),
         from_cache: false,
         previous_total_outdated: None,
         previous_total_vulnerabilities: None,
+        previous_total_license_warnings: None,
     };
 
     if let Some(path) = scan_history_db_path {
@@ -664,6 +765,7 @@ pub async fn gather_dependency_scan_for_service(
             if let Ok(Some(prev)) = db.get_by_service(&svc_id) {
                 entry.previous_total_outdated = Some(prev.total_outdated);
                 entry.previous_total_vulnerabilities = Some(prev.total_vulnerabilities);
+                entry.previous_total_license_warnings = Some(prev.total_license_warnings);
             }
 
             let total_outdated = outdated.as_ref().map(|o| o.total).unwrap_or(0) as i64;
@@ -671,16 +773,22 @@ pub async fn gather_dependency_scan_for_service(
                 .as_ref()
                 .map(|a| a.critical + a.high + a.medium + a.low)
                 .unwrap_or(0) as i64;
+            let total_license = license
+                .as_ref()
+                .map(|l| l.contamination_count())
+                .unwrap_or(0) as i64;
             let scan_row = PersistedScan {
                 service_id: svc_id,
                 cwd: cwd.to_string_lossy().to_string(),
                 service_name: svc_name,
                 outdated,
                 audit,
+                license,
                 scanned_at_ms: entry.scanned_at_ms,
                 duration_ms: entry.duration_ms,
                 total_outdated,
                 total_vulnerabilities: total_vulns,
+                total_license_warnings: total_license,
             };
             if let Err(e) = db.upsert(&scan_row) {
                 tracing::warn!(
@@ -709,6 +817,29 @@ async fn run_audit(cwd: &Path, runtime: Option<&str>) -> Option<AuditResult> {
         "rust" => check_cargo_audit(cwd).await,
         "python" => check_pip_audit(cwd).await,
         _ => None,
+    }
+}
+
+/// Collect the slim workspace-grade license summary for `cwd`.
+///
+/// Wraps [`license::scan_licenses`] in a hard timeout so a slow
+/// project (cold filesystem cache, 5000+ packages) can't push the
+/// whole `gather_dependency_scan` past the user's patience window.
+/// The license module itself runs the directory walk on a blocking
+/// thread, so the timeout here is just defence-in-depth — if it
+/// fires, we return `None` and the UI shows "License: unknown" for
+/// that card rather than blocking the rest of the batch.
+async fn run_license(cwd: &Path) -> Option<LicenseScanSummary> {
+    match timeout(LICENSE_TIMEOUT, license::scan_licenses(cwd)).await {
+        Ok(Ok(result)) => Some(license::summarize(&result)),
+        Ok(Err(err)) => {
+            tracing::warn!(?cwd, error = %err, "license scan failed");
+            None
+        }
+        Err(_) => {
+            tracing::warn!(?cwd, deadline = ?LICENSE_TIMEOUT, "license scan timed out");
+            None
+        }
     }
 }
 
@@ -1347,6 +1478,13 @@ async fn run_timed(
 struct ScanEntry {
     outdated: Option<OutdatedResult>,
     audit: Option<AuditResult>,
+    /// License summary captured in the same scan pass. Stored
+    /// alongside outdated/audit so a single TTL governs all three
+    /// channels — diverging TTLs would let the chip show stale
+    /// license data while audit looked fresh, which is exactly the
+    /// kind of "what does freshness even mean here?" UX we want
+    /// to avoid.
+    license: Option<LicenseScanSummary>,
     fetched_at: Instant,
 }
 
@@ -1391,12 +1529,19 @@ impl ScanCache {
             .collect()
     }
 
-    fn insert(&self, cwd: &Path, outdated: Option<OutdatedResult>, audit: Option<AuditResult>) {
+    fn insert(
+        &self,
+        cwd: &Path,
+        outdated: Option<OutdatedResult>,
+        audit: Option<AuditResult>,
+        license: Option<LicenseScanSummary>,
+    ) {
         self.inner.lock().insert(
             cwd.to_path_buf(),
             ScanEntry {
                 outdated,
                 audit,
+                license,
                 fetched_at: Instant::now(),
             },
         );
@@ -1575,7 +1720,7 @@ mod tests {
             ttl: Duration::from_millis(20),
         };
         let cwd = PathBuf::from("/tmp/runhq-overview-test");
-        cache.insert(&cwd, None, None);
+        cache.insert(&cwd, None, None, None);
         assert!(cache.get_fresh(&cwd).is_some());
         std::thread::sleep(Duration::from_millis(40));
         assert!(cache.get_fresh(&cwd).is_none());

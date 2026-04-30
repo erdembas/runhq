@@ -31,16 +31,19 @@
  *     have to import every feature panel into the registry.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, History, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, History, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { getReleaseFor, markVersionSeen } from '@/lib/whatsnew';
+import { resolveMediaSrc } from '@/lib/whatsnew/resolveMediaSrc';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import type {
+  DocumentRelease,
   Highlight,
   HighlightCta,
   HighlightFallback,
+  LegacyHighlightsRelease,
   WhatsNewActionId,
   WhatsNewRelease,
 } from '@/lib/whatsnew';
@@ -187,7 +190,7 @@ function HighlightVisual({
   themeSuffix,
 }: {
   highlight: Highlight;
-  themeSuffix: string;
+  themeSuffix: 'light' | 'dark';
 }) {
   const { media, fallback } = highlight;
   const [errored, setErrored] = useState(false);
@@ -201,23 +204,11 @@ function HighlightVisual({
 
   const isVideo = media.kind === 'video';
 
-  const resolvedSrc = useMemo(() => {
-    if (!media.src) return null;
-    // `media.src` is the *base* path (no extension). The extension is
-    // derived from `media.kind` so the data registry stays declarative
-    // and individual entries don't repeat the format string:
-    //   • `kind: 'image'` (default) → `.webp`. Matches every release
-    //     authored before 0.9.0, so omitting `kind` keeps existing
-    //     entries working unchanged.
-    //   • `kind: 'video'`           → `.webm` (VP9 / Opus). Used for
-    //     highlights where motion tells the story; the element below
-    //     swaps to `<video>` accordingly.
-    // Theme-aware variants append `-light` / `-dark` before the
-    // extension regardless of kind.
-    const ext = isVideo ? 'webm' : 'webp';
-    if (media.themeAware) return `${media.src}-${themeSuffix}.${ext}`;
-    return `${media.src}.${ext}`;
-  }, [media.src, media.themeAware, themeSuffix, isVideo]);
+  // Resolution lives in `lib/whatsnew/resolveMediaSrc` so the modal
+  // and the release-notes archive always agree on the URL — and so
+  // the absolute-URL bypass (used for CDN-hosted videos) lands in
+  // both surfaces with a single edit.
+  const resolvedSrc = useMemo(() => resolveMediaSrc(media, themeSuffix), [media, themeSuffix]);
 
   // Image-less highlight: don't render a visual slot at all. The modal's
   // copy section will surface bullets / blurb inline so the slide reads
@@ -331,21 +322,39 @@ function InlineBulletGrid({ fallback }: { fallback: HighlightFallback }) {
 
 export function WhatsNewModal({ version, onClose }: Props) {
   const release = useMemo<WhatsNewRelease | null>(() => getReleaseFor(version), [version]);
-  const [i, setI] = useState(0);
-  const { effective: effectiveTheme } = useTheme();
-  const themeSuffix = effectiveTheme === 'dark' ? 'dark' : 'light';
+  const appVersion = useAppStore((s) => s.appVersion);
 
   // Mark the *running* version (not the release version) as seen — this
   // means even if a fresh install never sees the modal (first-launch
   // silent rule), the trigger still records a baseline so the next
-  // major / minor upgrade fires correctly. We do this in an effect
-  // because reading the store inside render is a footgun, and because
-  // we want the side-effect to run exactly once per mount.
-  const appVersion = useAppStore((s) => s.appVersion);
-  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
+  // major / minor upgrade fires correctly. Lifted out of the kind-
+  // branched sub-renderers so the side-effect runs exactly once per
+  // mount regardless of which shape we end up rendering.
   useEffect(() => {
     if (appVersion) markVersionSeen(appVersion);
   }, [appVersion]);
+
+  // Document-style releases (0.10.0+) get a slim "tease + jump to full
+  // notes" treatment instead of the carousel — the long-form content
+  // lives in the Release Notes page where it's actually browsable.
+  if (release?.kind === 'document') {
+    return <DocumentSlimModal release={release} onClose={onClose} />;
+  }
+
+  return <LegacyCarouselModal release={release} onClose={onClose} />;
+}
+
+function LegacyCarouselModal({
+  release,
+  onClose,
+}: {
+  release: LegacyHighlightsRelease | null;
+  onClose: () => void;
+}) {
+  const [i, setI] = useState(0);
+  const { effective: effectiveTheme } = useTheme();
+  const themeSuffix = effectiveTheme === 'dark' ? 'dark' : 'light';
+  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
 
   const finish = useCallback(() => {
     onClose();
@@ -551,6 +560,158 @@ export function WhatsNewModal({ version, onClose }: Props) {
                   <ArrowRight className="h-3.5 w-3.5" />
                 </>
               )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Slim post-update modal for document-style releases (0.10.0+).
+ *
+ * Renders the version header, the release intro paragraph, and the
+ * "in this release" hook list — same content the user sees at the top
+ * of the full Release Notes page — then a single primary CTA that
+ * closes the modal and opens the page. No carousel, no media slot, no
+ * pagination dots: the long-form content lives where it's actually
+ * scrollable, and the modal is just the "celebrate + redirect" beat.
+ *
+ * Esc closes (matches the legacy carousel). The primary "Read full
+ * notes" button is auto-focused so keyboard users can ↩ through the
+ * tease without ever reaching for the mouse.
+ */
+function DocumentSlimModal({
+  release,
+  onClose,
+}: {
+  release: DocumentRelease;
+  onClose: () => void;
+}) {
+  const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
+  const finish = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    primaryRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [finish]);
+
+  const handleOpenNotes = useCallback(() => {
+    finish();
+    openReleaseNotes(release.version);
+  }, [finish, openReleaseNotes, release.version]);
+
+  const releasedDate = formatReleaseDate(release.releasedAt);
+
+  return (
+    <div
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/65 p-6 backdrop-blur-md"
+      onClick={finish}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="runhq-whatsnew-title"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="border-border bg-surface-overlay animate-fade-in rounded-app-lg relative flex w-full max-w-xl flex-col overflow-hidden border shadow-2xl select-text"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-24 left-1/2 h-52 w-[28rem] -translate-x-1/2 opacity-70"
+          style={{
+            background: 'radial-gradient(closest-side, rgb(var(--accent) / 0.30), transparent 70%)',
+          }}
+        />
+
+        <header className="relative flex items-start justify-between gap-4 px-5 pt-4 pb-3">
+          <div className="min-w-0">
+            <span className="text-fg-dim inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wider uppercase">
+              <Sparkles className="text-accent h-3.5 w-3.5" />
+              What&apos;s new
+            </span>
+            <h2
+              id="runhq-whatsnew-title"
+              className="text-fg mt-1 text-[16px] leading-tight font-semibold tracking-tight"
+            >
+              RunHQ {release.version}
+              <span className="text-fg-dim ml-2 text-[12px] font-normal">— {release.headline}</span>
+            </h2>
+            {releasedDate && (
+              <p className="text-fg-dim mt-0.5 text-[11px]">Released {releasedDate}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={finish}
+            aria-label="Close What's New"
+            className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 -mt-1 -mr-1 flex h-7 w-7 items-center justify-center rounded-md transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex flex-col gap-4 px-6 pt-1 pb-5">
+          <div className="text-fg-muted max-w-prose text-[13px] leading-relaxed">
+            {release.intro}
+          </div>
+
+          {release.hooks.length > 0 && (
+            <div className="border-border bg-surface-raised/40 flex flex-col gap-2 rounded-xl border px-4 py-3">
+              <div className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wider uppercase">
+                <Sparkles className="text-accent h-3 w-3" />
+                In this release
+              </div>
+              <ul className="flex flex-col gap-1">
+                {release.hooks.map((h) => (
+                  <li key={h.href} className="text-[12.5px] leading-relaxed">
+                    <span className="text-fg font-medium">{h.label}</span>
+                    <span className="text-fg-muted">: {h.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-surface-raised/60 border-border flex items-center justify-between gap-2 border-t px-4 py-3">
+          <a
+            href={release.changelogUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-fg-dim hover:text-fg text-[11px] font-medium underline-offset-2 transition-colors hover:underline"
+          >
+            Read full changelog ↗
+          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={finish}
+              className="text-fg-dim hover:text-fg inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors"
+            >
+              Maybe later
+            </button>
+            <button
+              ref={primaryRef}
+              type="button"
+              onClick={handleOpenNotes}
+              className="btn-primary rounded-app-sm inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] font-medium"
+            >
+              Read full notes
+              <ArrowUpRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>

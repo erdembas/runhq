@@ -6,11 +6,17 @@
  * without churning every consumer.
  */
 export type {
+  CalloutTone,
+  DocumentRelease,
   Highlight,
   HighlightBadge,
   HighlightCta,
   HighlightFallback,
   HighlightMedia,
+  LegacyHighlightsRelease,
+  ReleaseHook,
+  ReleaseSection,
+  ReleaseSubsection,
   WhatsNewActionId,
   WhatsNewRelease,
 } from './types';

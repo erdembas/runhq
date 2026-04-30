@@ -1,6 +1,8 @@
 import {
   forwardRef,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -24,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Scale,
   Search,
   ShieldAlert,
   Sparkles,
@@ -36,7 +39,28 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
 import { Select } from '@/components/ui/Select';
+import { Drawer } from '@/components/ui/Drawer';
 import { ProjectDetailDrawer, type DetailTab } from '@/components/ProjectDetailDrawer';
+
+// Lazy-load the per-service overlay panels so a dashboard with 50 cards
+// doesn't pay the bundle cost for components only opened on click.
+// Mounted inside a single Drawer slot at the dashboard root — see the
+// `serviceOverlay` state below for the lifting rationale.
+//
+// Notes used to live alongside the License overlay here, but the
+// notes surface graduated to a body tab inside the LogPanel
+// (`ProjectNotesTab`) — clicking the notes affordance on a service
+// card now opens the service tab AND deep-links the user into the
+// Notes body tab via `openServiceWithBodyTab`. We keep `LicensePanel`
+// drawer-mounted because its content is wide-ish (license tables,
+// THIRD-PARTY-NOTICES generation) and shows up in cross-service
+// audit flows where the user *isn't* viewing a single service yet.
+const LicensePanel = lazy(() =>
+  import('@/components/LicensePanel').then((m) => ({ default: m.LicensePanel })),
+);
+
+/** Which per-service overlay (if any) is currently open. */
+type ServiceOverlayKind = 'license';
 import { useAppStore, type DashboardGroupBy, type DashboardSortBy } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
@@ -229,18 +253,26 @@ interface HeroState {
  * full breakdown in the chips and offender band below.
  *
  * Ordering rationale:
- *   1. failures   → ship-tonight signal, takes precedence even if other
- *                   services are happily running.
- *   2. critical CVE → security debt, beats "outdated" because patching
- *                     a critical CVE is non-deferrable.
- *   3. running    → positive state worth surfacing when there's no
- *                   active fire, gives a sense of "things are alive".
- *   4. outdated   → maintenance debt, deferrable but accumulating.
- *   5. idle fallback.
+ *   1. failures        → ship-tonight signal, takes precedence even if
+ *                        other services are happily running.
+ *   2. critical CVE    → security debt, beats license + outdated
+ *                        because patching a critical CVE is
+ *                        non-deferrable and gates a release outright.
+ *   3. license risk    → contamination is not "fix tonight" pressure
+ *                        like a CVE, but it can torpedo a commercial
+ *                        ship date (AGPL leak in the SaaS = mandatory
+ *                        license review). Promoted ahead of plain
+ *                        outdated because it's a *legal* deferral, not
+ *                        just maintenance debt.
+ *   4. running         → positive state worth surfacing when there's
+ *                        no active fire, gives a sense of "things are
+ *                        alive".
+ *   5. outdated        → maintenance debt, deferrable but accumulating.
+ *   6. idle fallback.
  */
 function deriveHeroState(
   stats: { running: number; failed: number; starting: number },
-  attention: { cveCritical: number; outdated: number } | null,
+  attention: { cveCritical: number; licenseRisk: number; outdated: number } | null,
 ): HeroState {
   if (stats.failed > 0) {
     return {
@@ -253,6 +285,13 @@ function deriveHeroState(
     return {
       count: attention.cveCritical,
       label: attention.cveCritical === 1 ? 'critical CVE' : 'critical CVEs',
+      tone: 'critical',
+    };
+  }
+  if (attention && attention.licenseRisk > 0) {
+    return {
+      count: attention.licenseRisk,
+      label: attention.licenseRisk === 1 ? 'project at license risk' : 'projects at license risk',
       tone: 'critical',
     };
   }
@@ -317,6 +356,7 @@ export function Dashboard({ onScan }: Props) {
   const removeStack = useAppStore((s) => s.removeStack);
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const setSelectedStack = useAppStore((s) => s.setSelectedStack);
+  const openServiceWithBodyTab = useAppStore((s) => s.openServiceWithBodyTab);
   const upsertStack = useAppStore((s) => s.upsertStack);
   const git = useAppStore((s) => s.git);
   const groupBy = useAppStore((s) => s.dashboardGroupBy);
@@ -352,7 +392,7 @@ export function Dashboard({ onScan }: Props) {
   // them as a separate single-select avoids the combinatorial explosion
   // of N×M filter chip states.
   type GitFilter = 'all' | 'dirty' | 'clean' | 'ahead' | 'behind' | 'no-upstream';
-  type AttentionFilter = 'all' | 'stale' | 'risk' | 'outdated';
+  type AttentionFilter = 'all' | 'stale' | 'risk' | 'outdated' | 'license';
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all');
 
@@ -405,6 +445,53 @@ export function Dashboard({ onScan }: Props) {
     setDetail({ serviceId, tab });
   }, []);
   const closeDetail = useCallback(() => setDetail(null), []);
+
+  // Per-service overlays (Notes / License) are also lifted
+  // here. The reason isn't ergonomics but layout: each `ServiceCard`
+  // is wrapped in `.glass`, which sets `backdrop-filter` +
+  // `isolation: isolate`. CSS spec says either of those promotes the
+  // element to a new containing block for `position: absolute`
+  // descendants — the drawer's `inset-0` would scope to the card's
+  // bounds instead of the dashboard region. Mounting the overlay at
+  // the dashboard root (next to `ProjectDetailDrawer`, which uses
+  // the same trick for the same reason) puts the drawer inside a
+  // clean `relative`-positioned ancestor and lets it fill the right
+  // side of the dashboard the way the user expects.
+  const [serviceOverlay, setServiceOverlay] = useState<{
+    serviceId: string;
+    kind: ServiceOverlayKind;
+  } | null>(null);
+  // ServiceCard still calls this with `'notes' | 'license'` for
+  // backward source compat, but only `'license'` lands as a drawer
+  // overlay now — `'notes'` deep-links into the service tab's
+  // body NOTES tab via `openServiceWithBodyTab`. Keeping the
+  // single-prop API on the card means we don't have to thread two
+  // separate callbacks through the dashboard ↔ stacks ↔ unassigned
+  // sections; the routing decision lives here at the dashboard
+  // root where it logically belongs.
+  const openServiceOverlay = useCallback(
+    (serviceId: string, kind: 'notes' | 'license') => {
+      if (kind === 'notes') {
+        openServiceWithBodyTab(serviceId, 'notes');
+        return;
+      }
+      setServiceOverlay({ serviceId, kind });
+    },
+    [openServiceWithBodyTab],
+  );
+  const closeServiceOverlay = useCallback(() => setServiceOverlay(null), []);
+  const overlayService = useMemo(() => {
+    if (!serviceOverlay) return null;
+    return services.find((s) => s.id === serviceOverlay.serviceId) ?? null;
+  }, [serviceOverlay, services]);
+  // If the underlying service disappears (deleted from another
+  // surface, hot-reload, etc.) while its overlay is open, close the
+  // drawer rather than render a panel pointing at a phantom id —
+  // the panels would otherwise IPC-fetch with the stale id and
+  // surface a confusing "not found" error.
+  useEffect(() => {
+    if (serviceOverlay && !overlayService) setServiceOverlay(null);
+  }, [serviceOverlay, overlayService]);
 
   // Index overview projects by service id for O(1) lookup while iterating
   // the service list. Stable reference so `ServiceCard`s don't re-render
@@ -625,6 +712,8 @@ export function Dashboard({ onScan }: Props) {
     let cveMedium = 0;
     let cveLow = 0;
     let outdatedPackages = 0;
+    let licenseRiskProjects = 0;
+    let licenseWarnings = 0;
     for (const p of overview.projects) {
       if (p.is_stale) stale++;
       if (p.git_status?.is_dirty) dirty++;
@@ -640,6 +729,20 @@ export function Dashboard({ onScan }: Props) {
       const outTotal = p.outdated?.total ?? 0;
       if (outTotal > 0) outdatedProjects++;
       outdatedPackages += outTotal;
+
+      // License contamination — same "ship-tonight" axes the
+      // ServiceCard chip uses (strong + network + proprietary).
+      // Roster count drives the FilterChip ("3 projects with
+      // license risk"); package-level total feeds the hero
+      // headline ("12 license risk packages").
+      const lic = p.license;
+      const licenseTotal = lic
+        ? (lic.strong_copyleft_count ?? 0) +
+          (lic.network_copyleft_count ?? 0) +
+          (lic.proprietary_count ?? 0)
+        : 0;
+      if (licenseTotal > 0) licenseRiskProjects++;
+      licenseWarnings += licenseTotal;
     }
     return {
       stale,
@@ -651,6 +754,8 @@ export function Dashboard({ onScan }: Props) {
       cveMedium,
       cveLow,
       outdatedPackages,
+      licenseRisk: licenseRiskProjects,
+      licenseWarnings,
       hasDepScan: overview.has_dependency_scan,
     };
   }, [overview]);
@@ -667,6 +772,16 @@ export function Dashboard({ onScan }: Props) {
           return (meta.audit?.critical ?? 0) + (meta.audit?.high ?? 0) > 0;
         case 'outdated':
           return (meta.outdated?.total ?? 0) > 0;
+        case 'license': {
+          const lic = meta.license;
+          if (!lic) return false;
+          return (
+            (lic.strong_copyleft_count ?? 0) +
+              (lic.network_copyleft_count ?? 0) +
+              (lic.proprietary_count ?? 0) >
+            0
+          );
+        }
         default:
           return true;
       }
@@ -1063,7 +1178,7 @@ export function Dashboard({ onScan }: Props) {
                         onClick={() => void runScan()}
                         disabled={overviewScanning}
                         className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition disabled:opacity-50"
-                        title="Re-run npm outdated / cargo audit across all projects"
+                        title="Re-run npm outdated / cargo audit / license scan across all projects"
                       >
                         <RefreshCw className="h-3 w-3" />
                         Rescan
@@ -1089,7 +1204,7 @@ export function Dashboard({ onScan }: Props) {
                           type="button"
                           onClick={() => void runScan()}
                           className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition"
-                          title="Run npm outdated / cargo audit across all projects"
+                          title="Run npm outdated / cargo audit / license scan across all projects"
                         >
                           <Sparkles className="h-3 w-3" />
                           Run first scan
@@ -1289,7 +1404,11 @@ export function Dashboard({ onScan }: Props) {
               <DashboardSearchBar inputRef={searchInputRef} onCommit={setCommittedQuery} />
 
               {attentionStats &&
-                attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
+                attentionStats.stale +
+                  attentionStats.risk +
+                  attentionStats.outdated +
+                  attentionStats.licenseRisk >
+                  0 && (
                   <FilterChipGroup ariaLabel="Attention filters">
                     <FilterChip
                       active={attentionFilter === 'all'}
@@ -1340,13 +1459,34 @@ export function Dashboard({ onScan }: Props) {
                         } with outdated dependencies`}
                       />
                     )}
+                    {attentionStats.licenseRisk > 0 && (
+                      <FilterChip
+                        active={attentionFilter === 'license'}
+                        onClick={() =>
+                          setAttentionFilter((a) => (a === 'license' ? 'all' : 'license'))
+                        }
+                        tone="critical"
+                        icon={<Scale className="h-3 w-3" />}
+                        label="License"
+                        count={attentionStats.licenseRisk}
+                        title={`${attentionStats.licenseRisk} project${
+                          attentionStats.licenseRisk === 1 ? '' : 's'
+                        } with strong/network copyleft or proprietary contamination (${
+                          attentionStats.licenseWarnings
+                        } package${attentionStats.licenseWarnings === 1 ? '' : 's'} total)`}
+                      />
+                    )}
                   </FilterChipGroup>
                 )}
 
               {gitStats.dirty + gitStats.clean > 0 && (
                 <>
                   {attentionStats &&
-                    attentionStats.stale + attentionStats.risk + attentionStats.outdated > 0 && (
+                    attentionStats.stale +
+                      attentionStats.risk +
+                      attentionStats.outdated +
+                      attentionStats.licenseRisk >
+                      0 && (
                       <span
                         aria-hidden
                         className="bg-border/70 mx-1 hidden h-5 w-px self-center sm:inline-block"
@@ -1564,6 +1704,7 @@ export function Dashboard({ onScan }: Props) {
                             svc={svc}
                             projectMeta={projectMetaById.get(svc.id) ?? null}
                             onOpenDetail={openDetail}
+                            onOpenOverlay={openServiceOverlay}
                           />
                         </CardSearchSlot>
                       );
@@ -1669,6 +1810,7 @@ export function Dashboard({ onScan }: Props) {
                                 draggable
                                 projectMeta={projectMetaById.get(svc.id) ?? null}
                                 onOpenDetail={openDetail}
+                                onOpenOverlay={openServiceOverlay}
                               />
                             </CardSearchSlot>
                           );
@@ -1688,6 +1830,7 @@ export function Dashboard({ onScan }: Props) {
                             draggable
                             projectMeta={projectMetaById.get(svc.id) ?? null}
                             onOpenDetail={openDetail}
+                            onOpenOverlay={openServiceOverlay}
                           />
                         </CardSearchSlot>
                       );
@@ -1712,6 +1855,36 @@ export function Dashboard({ onScan }: Props) {
           )}
         </div>
       </div>
+      {/*
+        Per-service overlays — Notes / License.
+        Mounted at the dashboard root for the same containing-block
+        reason the project-detail drawer is: a `position: absolute
+        inset-0` chrome inside `ServiceCard` would scope to the
+        card's `.glass` box (backdrop-filter + isolation create a
+        new containing block), but at the dashboard root it scopes
+        to the entire dashboard region — main column + activity
+        rail combined — and the OS titlebar / global sidebar stay
+        visible and clickable. Lazy-loaded so a dashboard with 50
+        cards doesn't pay the bundle cost for panels only opened
+        on click.
+
+        Only LICENSE renders here now; NOTES used to live next to
+        it but moved into a body tab inside the service view —
+        the notes button on `ServiceCard` deep-links into that
+        tab via `openServiceWithBodyTab` instead of opening a
+        drawer.
+      */}
+      {serviceOverlay && overlayService && serviceOverlay.kind === 'license' && (
+        <Drawer onClose={closeServiceOverlay} ariaLabel="License compliance" size="lg">
+          <Suspense fallback={<div className="text-fg-dim p-4 text-[12px]">Loading…</div>}>
+            <LicensePanel
+              serviceId={overlayService.id}
+              serviceName={overlayService.name}
+              onClose={closeServiceOverlay}
+            />
+          </Suspense>
+        </Drawer>
+      )}
       {openDetailProject && detail && (
         <ProjectDetailDrawer
           project={openDetailProject}
@@ -1956,7 +2129,7 @@ function DashboardActionsMenu({
           <MenuItem
             icon={<RefreshCw className="h-3.5 w-3.5" />}
             label={rescanLabel}
-            hint="npm outdated · cargo audit"
+            hint="npm outdated · cargo audit · license scan"
             onClick={select(onRescan)}
             disabled={disableRescan}
           />

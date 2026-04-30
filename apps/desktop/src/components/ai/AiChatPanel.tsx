@@ -37,6 +37,7 @@ import type {
 import type { AiActionHook } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import { actionHookLabel, dispatchAiAction } from '@/lib/ai/actionHooks';
+import { buildProjectNotesContext } from '@/lib/ai/notesPayload';
 import { ReasoningPill } from './ReasoningPill';
 import { COMPACT_MARKDOWN_COMPONENTS } from './markdownComponents';
 import { HistoryDrawer } from './HistoryDrawer';
@@ -895,8 +896,36 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     return chips;
   }, [selectedService]);
 
-  /** Inline context the model should know about, derived from chips.
-   *  Inserted as a system message when present. */
+  /** Inline context the model should know about, derived from chips
+   *  and project notes. Inserted as a system message when present.
+   *
+   *  We reset to `null` synchronously when the targeted service
+   *  changes — without that, the previous service's notes would stay
+   *  in state during the read race and a quick "send message" before
+   *  the new read settled would inject the wrong project's context. */
+  const [projectNotesContext, setProjectNotesContext] = useState<string | null>(null);
+  useEffect(() => {
+    setProjectNotesContext(null);
+    if (!selectedService) return;
+    let cancelled = false;
+    buildProjectNotesContext(selectedService.id)
+      .then((ctx) => {
+        if (!cancelled) setProjectNotesContext(ctx);
+      })
+      .catch((err) => {
+        // Notes are best-effort context — a read failure (deleted
+        // file, permissions) shouldn't block the chat. Log for
+        // diagnostics but leave the system message empty so the
+        // model just doesn't see the notes.
+        if (!cancelled) {
+          console.warn('[AiChatPanel] failed to read project notes', { err });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedService]);
+
   const contextSystemMessage = useMemo(() => {
     if (!selectedService) return null;
     const lines: string[] = ['User is currently looking at this RunHQ context:'];
@@ -904,8 +933,12 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     if (selectedService.tags?.length) {
       lines.push(`  tags: ${selectedService.tags.join(', ')}`);
     }
+    if (projectNotesContext) {
+      lines.push('');
+      lines.push(projectNotesContext);
+    }
     return lines.join('\n');
-  }, [selectedService]);
+  }, [selectedService, projectNotesContext]);
 
   /**
    * Token-meter state. Lives at the panel scope so the gauge survives

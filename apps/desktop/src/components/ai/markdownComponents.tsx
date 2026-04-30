@@ -1,4 +1,6 @@
 import type { Components } from 'react-markdown';
+import { CopyableCodeBlock } from '@/components/ui/CopyableCodeBlock';
+import { extractMarkdownText, findCodeChild } from '@/lib/markdownText';
 
 /**
  * Shared `react-markdown` component map used by every AI surface
@@ -105,15 +107,25 @@ export function buildMarkdownComponents(density: MarkdownDensity = 'compact'): C
         </code>
       );
     },
-    pre: ({ children }) => (
-      <pre
-        className={`bg-fg/5 border-border/40 mb-2 overflow-x-auto rounded border p-2 last:mb-0 ${
-          isCompact ? 'text-[11px]' : 'text-[11.5px]'
-        }`}
-      >
-        {children}
-      </pre>
-    ),
+    // Fenced code blocks. Wrap the styled `<pre>` with a hovered
+    // copy-to-clipboard button so users can grab a snippet without
+    // selecting it manually. Inline `<code>` (handled above) stays
+    // unwrapped — copying a one-token identifier is faster with
+    // a regular triple-click + Cmd+C than via a button.
+    pre: ({ children }) => {
+      const codeEl = findCodeChild(children);
+      const language = codeEl?.className?.toString().match(/language-([^\s]+)/)?.[1] ?? null;
+      const raw = codeEl ? extractMarkdownText(codeEl.children) : extractMarkdownText(children);
+      return (
+        <CopyableCodeBlock
+          raw={raw.replace(/\n+$/, '')}
+          language={language}
+          preClassName={isCompact ? 'text-[11px]' : 'text-[11.5px]'}
+        >
+          {children}
+        </CopyableCodeBlock>
+      );
+    },
 
     // Block quote — used for citations / model nuance ("Note: ...").
     blockquote: ({ children }) => (

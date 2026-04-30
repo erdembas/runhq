@@ -14,10 +14,13 @@ use runhq_core::conversations::{
     self, AppendMessageInput, Conversation, ConversationSummary, ConversationsDb,
     CreateConversationInput,
 };
+use runhq_core::docs::{self, DocContent, ProjectDoc};
 use runhq_core::editors::{self, DetectedEditor};
 use runhq_core::error::{AppError, AppResult};
 use runhq_core::git::{self, CommitSummary, DiffSummary, GitStatus};
+use runhq_core::license::{self, LicenseScanResult};
 use runhq_core::logs::LogLine;
+use runhq_core::notes;
 use runhq_core::overview::{self, DependencyScanEntry, DependencyScanResult, OverviewSummary};
 use runhq_core::paths;
 use runhq_core::ports::{self, ListeningPort};
@@ -143,6 +146,14 @@ pub fn remove_service(id: String, state: State<'_, AppState>) -> AppResult<bool>
             if let Err(e) = db.delete_by_service(&id) {
                 tracing::warn!(service_id = %id, "scan history cleanup on remove failed: {e}");
             }
+        }
+        // Drop the project-notes directory too. We don't want a
+        // stale note file (or directory of notes, post-v0.10) to
+        // silently rehydrate when a freshly-added service happens
+        // to be assigned the same UUID (extremely unlikely with v4
+        // UUIDs, but the cost of cleanup is zero).
+        if let Err(e) = runhq_core::notes::delete_all_notes(&id) {
+            tracing::warn!(service_id = %id, "notes cleanup on remove failed: {e}");
         }
     }
     Ok(removed)
@@ -1809,4 +1820,150 @@ pub async fn ai_count_tokens(input: CountTokensInput) -> AppResult<CountTokensOu
     // a blocking pool. Empty inputs short-circuit inside `count_tokens`.
     let tokens = runhq_core::tokens::count_tokens_many(&input.texts);
     Ok(CountTokensOutput { tokens })
+}
+
+// ---- Per-project Notes ----------------------------------------------------
+//
+// Multi-note edition. v0.10 expanded the per-service notebook from a
+// single `.md` file to a directory of named files; the legacy single-
+// file shape auto-migrates on first list/read so old users see no
+// behavioural change beyond "now you can have more than one note".
+
+#[tauri::command]
+pub fn list_notes(service_id: String) -> AppResult<Vec<runhq_core::notes::NoteFile>> {
+    notes::list_notes(&service_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn read_note(service_id: String, name: String) -> AppResult<String> {
+    notes::read_note(&service_id, &name).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn write_note(service_id: String, name: String, content: String) -> AppResult<()> {
+    notes::write_note(&service_id, &name, &content).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn delete_note(service_id: String, name: String) -> AppResult<bool> {
+    notes::delete_note(&service_id, &name).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn create_note(service_id: String, requested_name: Option<String>) -> AppResult<String> {
+    notes::create_note(&service_id, requested_name.as_deref()).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn read_all_notes(service_id: String) -> AppResult<String> {
+    notes::read_all_notes(&service_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn list_noted_services() -> AppResult<Vec<String>> {
+    notes::list_noted_services().map_err(AppError::from)
+}
+
+// ---- Project DOCS ---------------------------------------------------------
+//
+// Backed by `runhq_core::docs`. Every command resolves the service's
+// declared `cwd` from the store so the frontend can never spoof a
+// path it doesn't already control via the service definition. The
+// path-traversal guard inside `runhq_core::docs::safe_join` is the
+// final defense — `<img src="../../../etc/passwd">` in a README is
+// rejected with `AppError::Invalid` long before any read syscall.
+
+/// Discover the documentation files for a service. Returns an empty
+/// Vec when the project has no README / docs/ at all — the panel
+/// then falls back to its no-docs empty state without surfacing an
+/// error. Failures (missing service, permission denied on cwd) DO
+/// surface so the user can fix them.
+#[tauri::command]
+pub async fn discover_project_docs(
+    service_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ProjectDoc>> {
+    let svc = state
+        .store
+        .service(&service_id)
+        .ok_or_else(|| AppError::NotFound(service_id.clone()))?;
+    let cwd = std::path::PathBuf::from(&svc.cwd);
+    docs::discover_docs(&cwd).await
+}
+
+/// Read a single doc by its relative-to-cwd path. Returns the raw
+/// Markdown plus the doc's directory (used by the frontend to
+/// resolve relative image / intra-doc link references).
+#[tauri::command]
+pub async fn read_project_doc(
+    service_id: String,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> AppResult<DocContent> {
+    let svc = state
+        .store
+        .service(&service_id)
+        .ok_or_else(|| AppError::NotFound(service_id.clone()))?;
+    let cwd = std::path::PathBuf::from(&svc.cwd);
+    docs::read_doc(&cwd, &relative_path).await
+}
+
+/// Resolve a relative `<img src>` referenced from a doc into a
+/// `data:` URI the webview can render. The frontend only calls this
+/// for paths that are NOT http(s) URLs — those it loads directly.
+///
+/// `base_dir` matches `DocContent.base_dir` (the directory portion
+/// of the doc's relative path). An empty `base_dir` treats the
+/// `src` as anchored at the project root.
+#[tauri::command]
+pub async fn resolve_doc_image(
+    service_id: String,
+    base_dir: String,
+    src: String,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let svc = state
+        .store
+        .service(&service_id)
+        .ok_or_else(|| AppError::NotFound(service_id.clone()))?;
+    let cwd = std::path::PathBuf::from(&svc.cwd);
+    docs::resolve_doc_image(&cwd, &base_dir, &src).await
+}
+
+// ---- License & Compliance Scanner -----------------------------------------
+
+#[tauri::command]
+pub async fn scan_licenses(id: String, state: State<'_, AppState>) -> AppResult<LicenseScanResult> {
+    let cwd = resolve_cwd(&id, &state)?;
+    license::scan_licenses(&cwd).await
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerateNoticesResult {
+    pub content: String,
+}
+
+#[tauri::command]
+pub async fn generate_third_party_notices(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<GenerateNoticesResult> {
+    let cwd = resolve_cwd(&id, &state)?;
+    let result = license::scan_licenses(&cwd).await?;
+    let content = license::generate_third_party_notices(&result);
+    Ok(GenerateNoticesResult { content })
+}
+
+#[tauri::command]
+pub async fn write_third_party_notices(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let cwd = resolve_cwd(&id, &state)?;
+    let result = license::scan_licenses(&cwd).await?;
+    let content = license::generate_third_party_notices(&result);
+    let target = cwd.join("THIRD-PARTY-NOTICES.md");
+    std::fs::write(&target, &content)
+        .map_err(|e| AppError::Other(format!("writing THIRD-PARTY-NOTICES.md: {e}")))?;
+    Ok(target.to_string_lossy().to_string())
 }

@@ -17,11 +17,15 @@ import type {
   DependencyScanResult,
   DetectedEditor,
   DiffSummary,
+  DocContent,
+  ProjectDoc,
   GenerateCommitResult,
   GitStatus,
+  LicenseScanResult,
   ListeningPort,
   LogEvent,
   LogLine,
+  NoteFile,
   OverviewSummary,
   PersistedScan,
   Prefs,
@@ -480,6 +484,77 @@ export const ipc = {
     channel.onmessage = onChunk;
     return invoke<void>('ai_explain_project_state', { input, onChunk: channel });
   },
+
+  // ---- Per-project Notes ---------------------------------------------------
+  //
+  // v0.10 expanded the per-service notebook from a single `.md` file
+  // to a directory of named files. Each note is keyed by its
+  // filename without the `.md` suffix (e.g. `index`, `deployment`).
+  // The Rust side migrates legacy single-file storage on first
+  // access, so callers can use the new API unconditionally.
+
+  /** List every note for a service in display order (most recently
+   *  edited first). */
+  listNotes: (serviceId: string) => invoke<NoteFile[]>('list_notes', { serviceId }),
+  /** Read a single note by name. Returns `''` if the file doesn't
+   *  exist (useful for the "I just created this and haven't saved
+   *  yet" first-paint flow). */
+  readNote: (serviceId: string, name: string) => invoke<string>('read_note', { serviceId, name }),
+  /** Atomic write of a single named note. */
+  writeNote: (serviceId: string, name: string, content: string) =>
+    invoke<void>('write_note', { serviceId, name, content }),
+  /** Delete a single named note. Returns `true` if a file was
+   *  actually removed. */
+  deleteNote: (serviceId: string, name: string) =>
+    invoke<boolean>('delete_note', { serviceId, name }),
+  /** Create a new note. Returns the final filename (de-duplicated
+   *  with a numeric suffix when the requested name collides). */
+  createNote: (serviceId: string, requestedName?: string) =>
+    invoke<string>('create_note', {
+      serviceId,
+      requestedName: requestedName ?? null,
+    }),
+  /** Concatenated body of every note for a service, used as the AI
+   *  Chat "Project Q&A" context. Each note is prefixed with its
+   *  title as a `## H2`. Capped at ~8 KB total — long notebooks
+   *  are tail-trimmed with a marker so the model knows. */
+  readAllNotes: (serviceId: string) => invoke<string>('read_all_notes', { serviceId }),
+  listNotedServices: () => invoke<string[]>('list_noted_services'),
+
+  // ---- Project DOCS --------------------------------------------------------
+
+  /**
+   * List the docs (README / CHANGELOG / docs/**) discovered for a
+   * service. Returns an empty array when the project has no
+   * documentation files; the panel surfaces an empty-state in that
+   * case rather than treating it as an error.
+   */
+  discoverProjectDocs: (serviceId: string) =>
+    invoke<ProjectDoc[]>('discover_project_docs', { serviceId }),
+  /**
+   * Read a single doc by its relative-to-cwd path (the
+   * `relative_path` field returned from `discoverProjectDocs`).
+   * The backend enforces the path traversal guard — passing
+   * `../../etc/passwd` is rejected with an `invalid input` error.
+   */
+  readProjectDoc: (serviceId: string, relativePath: string) =>
+    invoke<DocContent>('read_project_doc', { serviceId, relativePath }),
+  /**
+   * Resolve a relative `<img src>` referenced from a doc into a
+   * `data:` URI. `baseDir` should be the doc's directory portion
+   * (matching `DocContent.base_dir`); empty string treats `src`
+   * as anchored at the project root. The frontend only calls this
+   * for non-http(s) image refs — those it loads directly.
+   */
+  resolveDocImage: (serviceId: string, baseDir: string, src: string) =>
+    invoke<string>('resolve_doc_image', { serviceId, baseDir, src }),
+
+  // ---- License & Compliance Scanner -----------------------------------------
+
+  scanLicenses: (id: ServiceId) => invoke<LicenseScanResult>('scan_licenses', { id }),
+  generateThirdPartyNotices: (id: ServiceId) =>
+    invoke<{ content: string }>('generate_third_party_notices', { id }),
+  writeThirdPartyNotices: (id: ServiceId) => invoke<string>('write_third_party_notices', { id }),
 };
 
 export const events = {

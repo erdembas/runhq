@@ -58,6 +58,7 @@ function pickPrimaryTab(p: ProjectOverview): DetailTab {
 function describe(p: ProjectOverview): string {
   const audit = p.audit;
   const outdated = p.outdated;
+  const license = p.license;
   const parts: string[] = [];
   if (audit && audit.critical > 0) {
     parts.push(`${audit.critical} critical`);
@@ -68,6 +69,25 @@ function describe(p: ProjectOverview): string {
     parts.push(`${outdated.major} major bump${outdated.major > 1 ? 's' : ''}`);
   } else if (outdated && outdated.total > 0) {
     parts.push(`${outdated.total} outdated`);
+  }
+  // License contamination — surface the "loudest" class first so the
+  // reason line reads at a glance: AGPL beats GPL beats proprietary.
+  // We only emit one license fragment per row to keep the line
+  // scannable; the breakdown is one click away in the LicensePanel.
+  if (license) {
+    if (license.network_copyleft_count > 0) {
+      parts.push(
+        `${license.network_copyleft_count} AGPL${license.network_copyleft_count > 1 ? 's' : ''}`,
+      );
+    } else if (license.strong_copyleft_count > 0) {
+      parts.push(
+        `${license.strong_copyleft_count} GPL${license.strong_copyleft_count > 1 ? 's' : ''}`,
+      );
+    } else if (license.proprietary_count > 0) {
+      parts.push(
+        `${license.proprietary_count} proprietary lic${license.proprietary_count > 1 ? 's' : '.'}`,
+      );
+    }
   }
   if (p.is_stale) parts.push('stale');
   return parts.join(' · ');

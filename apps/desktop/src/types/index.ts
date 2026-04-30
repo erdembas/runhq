@@ -258,6 +258,17 @@ export interface ProjectOverview {
   is_stale: boolean;
   outdated: OutdatedResult | null;
   audit: AuditResult | null;
+  /**
+   * Slim license-scan summary collected by the workspace dependency
+   * scan or hydrated from `dependency_scans.license_json` on cold
+   * start. `null` while no scan has reached this project yet, while
+   * the runtime has no license parser (Python / unknown), or while
+   * the persisted row predates the license columns. The drawer's
+   * `LicensePanel` continues to fetch the full `LicenseScanResult`
+   * on demand — this summary only feeds the dashboard's chips,
+   * filters, and worst-offenders surface.
+   */
+  license: LicenseScanSummary | null;
   tags: string[];
 }
 
@@ -271,6 +282,18 @@ export interface OverviewSummary {
   total_memory: number;
   total_outdated: number;
   total_vulnerabilities: number;
+  /**
+   * Workspace-wide contamination count: sum of strong + network +
+   * proprietary licenses across every project's `LicenseScanSummary`.
+   * Drives the hero's "N license risk" priority bucket.
+   */
+  total_license_warnings: number;
+  /**
+   * Number of projects with at least one contamination warning.
+   * Used by the FilterBar chip count so it matches the roster size,
+   * not the package size.
+   */
+  projects_with_license_risk: number;
   stale_count: number;
   has_dependency_scan: boolean;
 }
@@ -279,6 +302,14 @@ export interface DependencyScanEntry {
   service_id: string;
   outdated: OutdatedResult | null;
   audit: AuditResult | null;
+  /**
+   * Slim license summary captured alongside outdated/audit. `null`
+   * when license scanning isn't supported for this runtime
+   * (Python today, also Go's metadata-less mode), when the scan
+   * timed out, or — for cache hits — when the in-memory entry
+   * predates the license channel.
+   */
+  license: LicenseScanSummary | null;
   /**
    * Wall-clock epoch ms when this individual project's scan finished.
    * Used to drive the per-card "Last scanned 3h ago" chip.
@@ -302,12 +333,25 @@ export interface DependencyScanEntry {
    */
   previous_total_outdated: number | null;
   previous_total_vulnerabilities: number | null;
+  /**
+   * Contamination count from the previous persisted scan. Same
+   * semantics as the deps deltas — drives a "+1 contamination"
+   * badge when a fresh scan introduces new strong/network/proprietary
+   * licenses.
+   */
+  previous_total_license_warnings: number | null;
 }
 
 export interface DependencyScanResult {
   entries: DependencyScanEntry[];
   total_outdated: number;
   total_vulnerabilities: number;
+  /** Workspace-wide contamination total. See `OverviewSummary.total_license_warnings`. */
+  total_license_warnings: number;
+  /** Workspace-wide strong-copyleft count (GPL family, excluding LGPL). */
+  total_strong_copyleft: number;
+  /** Workspace-wide network-copyleft count (AGPL / SSPL). */
+  total_network_copyleft: number;
 }
 
 /**
@@ -327,10 +371,19 @@ export interface PersistedScan {
   service_name: string;
   outdated: OutdatedResult | null;
   audit: AuditResult | null;
+  /**
+   * License summary written by the workspace dependency scan.
+   * `null` for rows from before the license columns were added
+   * (additive migration leaves the column NULL on legacy rows) or
+   * for runtimes the license scanner doesn't support.
+   */
+  license: LicenseScanSummary | null;
   scanned_at_ms: number;
   duration_ms: number | null;
   total_outdated: number;
   total_vulnerabilities: number;
+  /** Denormalised contamination total (`strong + network + proprietary`). */
+  total_license_warnings: number;
 }
 
 export type TimelineEventType =
@@ -501,7 +554,8 @@ export type ConversationOrigin =
   | 'commit'
   | 'standup'
   | 'dashboard_report'
-  | 'advisory';
+  | 'advisory'
+  | 'license';
 
 export type ConversationMessageRole = 'user' | 'assistant';
 
@@ -589,4 +643,165 @@ export interface CommitSummary {
   subject: string;
   timestamp: number;
   refs: string[];
+}
+
+// ---- License & Compliance Scanner -----------------------------------------
+
+export type LicenseRisk =
+  | 'safe'
+  | 'permissive'
+  | 'weak_copyleft'
+  | 'strong_copyleft'
+  | 'network_copyleft'
+  | 'proprietary'
+  | 'unknown';
+
+export interface LicenseEntry {
+  name: string;
+  version: string;
+  license: string;
+  risk: LicenseRisk;
+  homepage: string | null;
+  repository: string | null;
+}
+
+export interface ContaminationWarning {
+  package: string;
+  version: string;
+  license: string;
+  risk: LicenseRisk;
+  message: string;
+}
+
+/**
+ * Slim cross-project license-scan projection used by the dashboard's
+ * `ProjectOverview`, `DependencyScanEntry`, and `PersistedScan`.
+ * Carries the count breakdown plus the top 3 warnings — the full
+ * `LicenseScanResult` (with every dependency's row) is fetched on
+ * demand by the per-service `LicensePanel` drawer; shipping it
+ * everywhere would balloon the IPC payload to megabytes per scan
+ * for npm projects.
+ */
+export interface LicenseScanSummary {
+  runtime: string | null;
+  scan_supported: boolean;
+  total_entries: number;
+  permissive_count: number;
+  safe_count: number;
+  weak_copyleft_count: number;
+  strong_copyleft_count: number;
+  network_copyleft_count: number;
+  proprietary_count: number;
+  unknown_count: number;
+  has_contamination: boolean;
+  /**
+   * First 3 contamination warnings (network → strong → proprietary
+   * order). Drives the `LicenseChip` tooltip on the dashboard cards
+   * and the AI "Why?" payload without having to round-trip the
+   * full entry list.
+   */
+  top_warnings: ContaminationWarning[];
+}
+
+export interface LicenseScanResult {
+  entries: LicenseEntry[];
+  safe_count: number;
+  permissive_count: number;
+  weak_copyleft_count: number;
+  strong_copyleft_count: number;
+  network_copyleft_count: number;
+  proprietary_count: number;
+  unknown_count: number;
+  has_contamination: boolean;
+  contamination_warnings: ContaminationWarning[];
+  /**
+   * Detected runtime (`node`, `rust`, `go`, `python`, …) or `null`
+   * when the project's runtime can't be identified. Drives the
+   * runtime badge in the LicensePanel header.
+   */
+  runtime: string | null;
+  /**
+   * `true` only when RunHQ has a working license parser for this
+   * runtime AND the underlying tool produced parseable output.
+   * Frontend uses this to suppress the misleading "no contamination
+   * detected" green banner on Python projects (no implementation),
+   * Go projects (license metadata not exposed by `go list`), or
+   * runs that timed out / errored.
+   */
+  scan_supported: boolean;
+  /**
+   * Human-readable explanation when `scan_supported` is `false`.
+   * Rendered as a banner inside the License panel.
+   */
+  scan_message: string | null;
+}
+
+// ---- Project DOCS ---------------------------------------------------------
+
+/**
+ * The "kind" classification produced by `runhq_core::docs::discover_docs`.
+ * The frontend uses it to:
+ *  - Pick an icon for the sub-nav entry.
+ *  - Group entries by category in the dropdown.
+ *  - Default-select the README on first open.
+ */
+export type DocKind =
+  | 'readme'
+  | 'changelog'
+  | 'contributing'
+  | 'architecture'
+  | 'license'
+  | 'doc'
+  | 'other';
+
+// ---- Per-project Notes ----------------------------------------------------
+
+/**
+ * One note file inside a service's notebook.
+ *
+ * `name` is the on-disk filename without the `.md` suffix and is
+ * the stable key the IPC layer uses for read/write/delete. `title`
+ * is the display string — the first H1 in the file when one exists,
+ * otherwise the filename. Surface UIs should always render `title`
+ * for user-visible spots and reach for `name` only when calling
+ * back into IPC.
+ */
+export interface NoteFile {
+  name: string;
+  title: string;
+  size_bytes: number;
+  updated_at_ms: number;
+}
+
+export interface ProjectDoc {
+  kind: DocKind;
+  /**
+   * Path relative to the service's cwd, with forward slashes
+   * regardless of host OS. Stable identifier — used both as the
+   * key for the sub-nav and as the `relative_path` parameter when
+   * re-fetching the doc.
+   */
+  relative_path: string;
+  /**
+   * Display title surfaced in the sub-nav. Top-level docs use the
+   * file name (`README.md`); `docs/...` entries use the full
+   * relative path so users can disambiguate.
+   */
+  display_name: string;
+  size_bytes: number;
+  /** Last-modified time, milliseconds since UNIX epoch. */
+  last_modified_ms: number;
+}
+
+export interface DocContent {
+  relative_path: string;
+  /**
+   * Directory portion of `relative_path`. Used by the frontend
+   * to resolve relative `<img src>` references and intra-doc
+   * `[link](./other.md)` references.
+   */
+  base_dir: string;
+  markdown: string;
+  size_bytes: number;
+  last_modified_ms: number;
 }

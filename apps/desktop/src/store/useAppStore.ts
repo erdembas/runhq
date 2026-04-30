@@ -193,6 +193,25 @@ interface AppStore {
   mainTabs: MainTab[];
   activeMainTabKey: string;
   /**
+   * Per-service "open this body tab when the LogPanel mounts/runs"
+   * request slot. Set by callers that want to deep-link into a
+   * specific tab inside the service view (e.g. ServiceCard's notes
+   * button → "open this service AND focus the Notes tab").
+   *
+   * The LogPanel reads it in an effect, applies the requested tab,
+   * and clears the entry. Keyed by service id rather than a single
+   * global slot because the user could legitimately request two
+   * different services in quick succession (Cmd+click on two notes
+   * buttons) and we don't want the second request to be eaten by
+   * the first LogPanel's pending-consume.
+   *
+   * Stored as a free string ('logs' | 'docs' | 'notes' at the
+   * moment) rather than a strict enum so the LogPanel-local
+   * `MainTab` type can evolve (add new tabs) without forcing a
+   * cross-file type change here.
+   */
+  pendingServiceBodyTab: Record<ServiceId, string>;
+  /**
    * Pinned tab keys, addressed via {@link mainTabKey}. Pinned tabs sit
    * immediately after the dashboard (which itself is never pinned —
    * it's already sticky) and before any unpinned tab; the bar enforces
@@ -332,6 +351,27 @@ interface AppStore {
   setGit: (id: ServiceId, status: GitStatus | null) => void;
   setResources: (id: ServiceId, sample: ResourceSample) => void;
   setSelected: (id: ServiceId | null) => void;
+  /**
+   * Open a service tab AND queue a body-tab focus inside its
+   * LogPanel. Used by surfaces like the dashboard's per-card notes
+   * button so a click does both "show me the service" and "land
+   * me on the notes tab" in one action — without this the notes
+   * button would either open the service on the LOGS tab (wrong
+   * affordance) or rely on a brittle "remember to switch" flow.
+   *
+   * Implemented as `setSelected(id)` plus a write into
+   * `pendingServiceBodyTab[id]` so the LogPanel that mounts (or
+   * is already mounted) for that service consumes the request
+   * and clears it.
+   */
+  openServiceWithBodyTab: (id: ServiceId, bodyTab: string) => void;
+  /**
+   * LogPanel-side hook — clears a consumed `pendingServiceBodyTab`
+   * entry. Pulled out as an explicit action (rather than letting
+   * LogPanel mutate `set(...)` directly) so the call site stays
+   * ergonomic and tests don't have to reach into the store shape.
+   */
+  consumePendingServiceBodyTab: (id: ServiceId) => void;
   setSelectedCmd: (cmdName: string | null) => void;
   setSelectedStack: (id: string | null) => void;
   setAppMeta: (version: string, stateDir: string) => void;
@@ -1057,6 +1097,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   mainTabs: [DASHBOARD_TAB],
   activeMainTabKey: DASHBOARD_TAB_KEY,
   pinnedMainTabKeys: initialPinnedTabs,
+  pendingServiceBodyTab: {},
 
   categoryFilter: initialSidebarPrefs.categoryFilter,
   runtimeFilter: initialSidebarPrefs.runtimeFilter,
@@ -1213,6 +1254,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
         activeMainTabKey: key,
       };
+    }),
+  openServiceWithBodyTab: (id, bodyTab) =>
+    set((s) => {
+      const tab: MainTab = { kind: 'service', refId: id };
+      const key = mainTabKey(tab);
+      const exists = s.mainTabs.some((t) => mainTabKey(t) === key);
+      // Same tab-routing logic as `setSelected(id)` but with the
+      // body-tab request stamped onto `pendingServiceBodyTab` in
+      // the same atomic update. Inlined rather than calling
+      // `setSelected` first because we want a single store
+      // transition — separating it would mean LogPanel could
+      // mount on the freshly-opened tab BEFORE the body request
+      // landed, race-losing back to the LOGS default and
+      // clobbering the deep-link.
+      return {
+        selectedServiceId: id,
+        selectedCmdName: null,
+        selectedStackId: null,
+        releaseNotesOpen: false,
+        mainTabs: exists
+          ? s.mainTabs
+          : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
+        activeMainTabKey: key,
+        pendingServiceBodyTab: { ...s.pendingServiceBodyTab, [id]: bodyTab },
+      };
+    }),
+  consumePendingServiceBodyTab: (id) =>
+    set((s) => {
+      if (!(id in s.pendingServiceBodyTab)) return s;
+      const next = { ...s.pendingServiceBodyTab };
+      delete next[id];
+      return { pendingServiceBodyTab: next };
     }),
   setSelectedCmd: (cmdName) => set({ selectedCmdName: cmdName }),
   setSelectedStack: (id) =>
@@ -2085,8 +2158,40 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const byId = new Map(result.entries.map((e) => [e.service_id, e]));
       const projects = s.overview.projects.map((p) => {
         const hit = byId.get(p.service_id);
-        return hit ? { ...p, outdated: hit.outdated, audit: hit.audit } : p;
+        // Merge `license` alongside `outdated` / `audit` so the
+        // dashboard's `LicenseChip` lights up the moment the
+        // workspace scan returns. Cards whose entry didn't carry a
+        // license summary (runtime not supported, scan timed out)
+        // keep their previous value rather than wiping the chip —
+        // a transient timeout shouldn't erase yesterday's known
+        // contamination.
+        return hit
+          ? {
+              ...p,
+              outdated: hit.outdated,
+              audit: hit.audit,
+              license: hit.license ?? p.license,
+            }
+          : p;
       });
+
+      // Compute workspace-wide license totals from the merged
+      // project list. The Rust side already returns these in
+      // `result.total_license_warnings` etc., but recomputing from
+      // `projects` keeps the source of truth consistent with how
+      // the chips actually render — the filter chip count and the
+      // hero priority bucket both walk `overview.projects`, so we
+      // must agree with that same view.
+      let totalLicenseWarnings = 0;
+      let projectsWithLicenseRisk = 0;
+      for (const p of projects) {
+        const warnings =
+          (p.license?.strong_copyleft_count ?? 0) +
+          (p.license?.network_copyleft_count ?? 0) +
+          (p.license?.proprietary_count ?? 0);
+        totalLicenseWarnings += warnings;
+        if (warnings > 0) projectsWithLicenseRisk += 1;
+      }
 
       // Stamp per-project freshness from each entry's own
       // `scanned_at_ms`, not a single `Date.now()`. A 30-project
@@ -2135,6 +2240,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
           projects,
           total_outdated: result.total_outdated,
           total_vulnerabilities: result.total_vulnerabilities,
+          total_license_warnings: totalLicenseWarnings,
+          projects_with_license_risk: projectsWithLicenseRisk,
           has_dependency_scan: true,
         },
         lastScanAt: maxScannedAt > 0 ? maxScannedAt : Date.now(),
@@ -2150,12 +2257,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // numbers stay correct because we update *one* project's
       // contribution in place and adjust the global totals by the
       // delta.
+      // Capture old project (pre-merge) so we can both render the new
+      // license slot AND compute the delta against the workspace
+      // totals without two `find()` walks per total.
+      const oldProject = s.overview?.projects.find((p) => p.service_id === entry.service_id);
+      const newLicense = entry.license ?? oldProject?.license ?? null;
+
+      const oldLicenseWarnings = oldProject?.license
+        ? (oldProject.license.strong_copyleft_count ?? 0) +
+          (oldProject.license.network_copyleft_count ?? 0) +
+          (oldProject.license.proprietary_count ?? 0)
+        : 0;
+      const newLicenseWarnings = newLicense
+        ? (newLicense.strong_copyleft_count ?? 0) +
+          (newLicense.network_copyleft_count ?? 0) +
+          (newLicense.proprietary_count ?? 0)
+        : 0;
+
       const overview = s.overview
         ? {
             ...s.overview,
             projects: s.overview.projects.map((p) =>
               p.service_id === entry.service_id
-                ? { ...p, outdated: entry.outdated, audit: entry.audit }
+                ? {
+                    ...p,
+                    outdated: entry.outdated,
+                    audit: entry.audit,
+                    license: newLicense,
+                  }
                 : p,
             ),
             // Adjust workspace totals by the per-project delta so the
@@ -2163,19 +2292,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
             // single rescan. Falls back to a cheap local recompute
             // when the previous-totals fields aren't available.
             total_outdated: (() => {
-              const old = s.overview!.projects.find((p) => p.service_id === entry.service_id);
-              const oldT = old?.outdated?.total ?? 0;
+              const oldT = oldProject?.outdated?.total ?? 0;
               const newT = entry.outdated?.total ?? 0;
               return Math.max(0, s.overview!.total_outdated + (newT - oldT));
             })(),
             total_vulnerabilities: (() => {
-              const old = s.overview!.projects.find((p) => p.service_id === entry.service_id);
-              const oldA = old?.audit;
+              const oldA = oldProject?.audit;
               const oldT = oldA ? oldA.critical + oldA.high + oldA.medium + oldA.low : 0;
               const newA = entry.audit;
               const newT = newA ? newA.critical + newA.high + newA.medium + newA.low : 0;
               return Math.max(0, s.overview!.total_vulnerabilities + (newT - oldT));
             })(),
+            total_license_warnings: Math.max(
+              0,
+              s.overview.total_license_warnings + (newLicenseWarnings - oldLicenseWarnings),
+            ),
+            projects_with_license_risk: Math.max(
+              0,
+              s.overview.projects_with_license_risk +
+                (newLicenseWarnings > 0 ? 1 : 0) -
+                (oldLicenseWarnings > 0 ? 1 : 0),
+            ),
             has_dependency_scan: true,
           }
         : s.overview;
@@ -2270,21 +2407,48 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // version's overview cached in memory) or where a service's
       // overview row is somehow missing the chips — defensive,
       // cheap, idempotent.
-      const overview = s.overview
-        ? {
-            ...s.overview,
-            projects: s.overview.projects.map((p) => {
-              const hit = persistedById.get(p.service_id);
-              if (!hit) return p;
-              return {
-                ...p,
-                outdated: p.outdated ?? hit.outdated,
-                audit: p.audit ?? hit.audit,
-              };
-            }),
-            has_dependency_scan: s.overview.has_dependency_scan || rows.length > 0,
-          }
-        : s.overview;
+      const hydratedProjects = s.overview?.projects.map((p) => {
+        const hit = persistedById.get(p.service_id);
+        if (!hit) return p;
+        return {
+          ...p,
+          outdated: p.outdated ?? hit.outdated,
+          audit: p.audit ?? hit.audit,
+          // Same "fill the gap, don't clobber" policy as the deps
+          // hydration above: a fresh in-memory scan beats whatever
+          // SQLite knows about; SQLite only fills holes.
+          license: p.license ?? hit.license,
+        };
+      });
+
+      // Recompute workspace license totals from the hydrated
+      // projects. Persisted rows carry their own
+      // `total_license_warnings`, but only after applying our
+      // "don't clobber fresher in-memory data" merge policy can we
+      // know which projects actually contribute.
+      let totalLicenseWarnings = 0;
+      let projectsWithLicenseRisk = 0;
+      if (hydratedProjects) {
+        for (const p of hydratedProjects) {
+          const warnings =
+            (p.license?.strong_copyleft_count ?? 0) +
+            (p.license?.network_copyleft_count ?? 0) +
+            (p.license?.proprietary_count ?? 0);
+          totalLicenseWarnings += warnings;
+          if (warnings > 0) projectsWithLicenseRisk += 1;
+        }
+      }
+
+      const overview =
+        s.overview && hydratedProjects
+          ? {
+              ...s.overview,
+              projects: hydratedProjects,
+              total_license_warnings: totalLicenseWarnings,
+              projects_with_license_risk: projectsWithLicenseRisk,
+              has_dependency_scan: s.overview.has_dependency_scan || rows.length > 0,
+            }
+          : s.overview;
 
       return {
         overview,

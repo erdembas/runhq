@@ -50,6 +50,27 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
       flags.push(`${total} CVE${total === 1 ? '' : 's'} (${parts.join(', ')})`);
     }
   }
+  // License contamination is a first-class flag now — without it the
+  // "Why?" headline would say "stale 4mo · 62 outdated" on a project
+  // that's *also* about to ship AGPL-tainted code, and the model would
+  // never bring it up. Surface the warning class breakdown here so
+  // the prioritisation in the answer accounts for license risk
+  // alongside CVEs.
+  const license = p.license;
+  if (license && license.has_contamination) {
+    const parts = [
+      license.network_copyleft_count ? `${license.network_copyleft_count} network copyleft` : null,
+      license.strong_copyleft_count ? `${license.strong_copyleft_count} strong copyleft` : null,
+      license.proprietary_count ? `${license.proprietary_count} proprietary` : null,
+    ].filter(Boolean);
+    const totalWarnings =
+      license.network_copyleft_count + license.strong_copyleft_count + license.proprietary_count;
+    if (totalWarnings > 0) {
+      flags.push(
+        `${totalWarnings} license risk${totalWarnings === 1 ? '' : 's'} (${parts.join(', ')})`,
+      );
+    }
+  }
 
   const headline = flags.length ? `${p.name}: ${flags.join(' · ')}` : `${p.name}: looks clean`;
 
@@ -63,6 +84,30 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
   if (p.git_status) facts.git_status = p.git_status;
   if (p.outdated) facts.outdated = p.outdated;
   if (p.audit) facts.audit = p.audit;
+  // License facts: include the full summary (counts + top 3 warnings)
+  // so a follow-up "which license should I replace first?" has real
+  // package names to point at, not a vague "you have GPL somewhere".
+  // Skip when scan_supported is false to avoid sending phantom-zero
+  // counts that the model would misread as "clean".
+  if (license && license.scan_supported) {
+    facts.license = {
+      runtime: license.runtime,
+      total_entries: license.total_entries,
+      permissive: license.permissive_count + license.safe_count,
+      weak_copyleft: license.weak_copyleft_count,
+      strong_copyleft: license.strong_copyleft_count,
+      network_copyleft: license.network_copyleft_count,
+      proprietary: license.proprietary_count,
+      unknown: license.unknown_count,
+      has_contamination: license.has_contamination,
+      top_warnings: license.top_warnings.map((w) => ({
+        package: w.package,
+        version: w.version,
+        license: w.license,
+        risk: w.risk,
+      })),
+    };
+  }
 
   // System message ferried with EVERY send in the conversation so a
   // follow-up question ("ok, which CVE first?") still has the facts
@@ -78,6 +123,15 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
     '```',
     '',
     'Lead with a one-line takeaway, then a short prioritised plan (3 bullets max). Be specific and actionable.',
+    // License is the silent ship-killer in commercial software, so
+    // bake the priority into the system prompt rather than relying on
+    // the model to notice it on its own. Network copyleft (AGPL/SSPL)
+    // outranks even critical CVEs for SaaS because a CVE is a one-day
+    // patch, AGPL contamination is a re-architect.
+    'Priority order when multiple flags compete: network-copyleft / strong-copyleft licenses ' +
+      '> critical CVEs > major outdated bumps > everything else. If the project carries license ' +
+      'contamination, NEVER bury it under outdated-package noise — call it out explicitly with ' +
+      'the offending package name(s) from `license.top_warnings` and a one-line replacement hint.',
   ].join('\n');
 
   return {

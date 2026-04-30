@@ -2,16 +2,16 @@ import { memo, useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Clock,
+  FileText,
   FolderOpen,
   Globe,
   HelpCircle,
   History,
   Loader2,
-  Package,
   Pencil,
   Play,
   RotateCcw,
-  Shield,
+  Scale,
   Square,
   Trash2,
 } from 'lucide-react';
@@ -19,6 +19,12 @@ import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import { buildWhyChatPayload } from '@/lib/ai/whyPayload';
+import {
+  AuditChip,
+  LicenseChip,
+  OutdatedChip,
+  licenseContaminationCount,
+} from '@/components/dashboard/healthChips';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
 import { ResourceBadge } from '@/components/ResourceBadge';
@@ -29,7 +35,7 @@ import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import { localUrl } from '@/lib/url';
 import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtimes';
-import type { AuditResult, OutdatedResult, ProjectOverview, ServiceDef, Status } from '@/types';
+import type { ProjectOverview, ServiceDef, Status } from '@/types';
 
 /**
  * Human-readable "how stale is this project?" label for the card badge.
@@ -287,6 +293,7 @@ export const ServiceCard = memo(function ServiceCard({
   draggable: cardDraggable,
   projectMeta,
   onOpenDetail,
+  onOpenOverlay,
 }: {
   svc: ServiceDef;
   draggable?: boolean;
@@ -303,6 +310,19 @@ export const ServiceCard = memo(function ServiceCard({
    * drawer so it survives switching between cards without flicker.
    */
   onOpenDetail?: (serviceId: string, tab: DetailTab) => void;
+  /**
+   * Called when the user clicks one of the per-service overlay
+   * actions on the card row (Notes / License). Dashboard owns the
+   * overlay state and renders the drawer at the dashboard root —
+   * same contract as `onOpenDetail`. Lifting state out of the card
+   * matters because `ServiceCard` uses the `.glass` class
+   * (`backdrop-filter` + `isolation`), which would otherwise create
+   * a new containing block and clip the drawer's `position:
+   * absolute inset-0` chrome to the card bounds. The drawer mounted
+   * at the dashboard root scopes to the entire dashboard region
+   * instead.
+   */
+  onOpenOverlay?: (serviceId: string, kind: 'notes' | 'license') => void;
 }) {
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
@@ -490,10 +510,12 @@ export const ServiceCard = memo(function ServiceCard({
               projectMeta.audit.medium +
               projectMeta.audit.low
             : 0) > 0;
+        const hasLicenseChip = licenseContaminationCount(projectMeta?.license) > 0;
         const hasSignals =
           !!projectMeta?.is_stale ||
           hasOutdatedChip ||
           hasAuditChip ||
+          hasLicenseChip ||
           (!!projectMeta && flagCount > 0);
         const isScanning = overviewScanning && !!projectMeta?.runtime;
         const showFreshness = scanFreshness != null && !!projectMeta?.runtime;
@@ -540,6 +562,12 @@ export const ServiceCard = memo(function ServiceCard({
                       <ScanDeltaBadge delta={scanDelta.vulnerabilities} severity="risk" />
                     )}
                   </span>
+                )}
+                {hasLicenseChip && projectMeta?.license && (
+                  <LicenseChip
+                    license={projectMeta.license}
+                    onClick={() => onOpenOverlay?.(svc.id, 'license')}
+                  />
                 )}
                 {projectMeta && flagCount > 0 && (
                   <WhyAskButton projectMeta={projectMeta} flagCount={flagCount} />
@@ -658,6 +686,12 @@ export const ServiceCard = memo(function ServiceCard({
         <CardAction title="Open folder" onClick={() => void ipc.openPath(svc.cwd)}>
           <FolderOpen className="h-3.5 w-3.5" />
         </CardAction>
+        <CardAction title="Project notes" onClick={() => onOpenOverlay?.(svc.id, 'notes')}>
+          <FileText className="h-3.5 w-3.5" />
+        </CardAction>
+        <CardAction title="License compliance" onClick={() => onOpenOverlay?.(svc.id, 'license')}>
+          <Scale className="h-3.5 w-3.5" />
+        </CardAction>
         {svc.port != null && (
           <CardAction
             title={`Open ${localUrl(svc.port!)}`}
@@ -733,105 +767,13 @@ function countAttentionFlags(p: ProjectOverview | null | undefined): number {
     const total = p.audit.critical + p.audit.high + p.audit.medium + p.audit.low;
     if (total > 0) n += 1;
   }
+  // License contamination is bucketed alongside the other "needs
+  // attention" axes — the AI "Why?" trigger uses this count as a
+  // gate, and a project sitting on a strong-copyleft package is
+  // exactly the kind of "Wait, why is this flagged?" question we
+  // want the explainer to be primed for.
+  if (licenseContaminationCount(p.license) > 0) n += 1;
   return n;
-}
-
-/**
- * Dependency-freshness chip for the ServiceCard action row.
- *
- * Design decisions (card-level chips must work in ~60px of horizontal
- * space across 20+ cards without tooltip):
- *   • Icon carries the *domain* (📦 = deps). Users learn it fast.
- *   • Number carries the *magnitude*. Tabular-nums keeps columns tidy
- *     when you scan a stack of cards vertically.
- *   • Colour carries the *severity*. Same token as the Worst Offenders
- *     band and the Outdated filter pill → one visual language across
- *     the dashboard.
- *   • Tooltip carries the *breakdown* for users who pause on a specific
- *     card. No label text on the chip itself — "14 pkg" / "14 old" add
- *     noise without information the icon doesn't already convey.
- *
- * Hidden when the project has zero outdated packages. Showing "0" would
- * be visual noise that rewards the clean-state project with a yellow
- * badge, which is backwards.
- */
-function OutdatedChip({ outdated, onClick }: { outdated: OutdatedResult; onClick: () => void }) {
-  if (outdated.total === 0) return null;
-  // Severity ladder mirrors how an engineer would prioritise the upgrade
-  // queue: a major bump is real work / risk (warning), a minor is worth
-  // batching (info), patches are easy wins (success). Mapping onto our
-  // semantic tokens means the same hue automatically darkens or brightens
-  // for light/dark themes — no more washed-out orange-200 on white.
-  const tone =
-    outdated.major > 0
-      ? 'bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25 border-tone-warning/30'
-      : outdated.minor > 0
-        ? 'bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22 border-tone-info/30'
-        : 'bg-tone-success/12 text-tone-success-fg hover:bg-tone-success/22 border-tone-success/30';
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      title={`${outdated.total} outdated: ${outdated.major} major, ${outdated.minor} minor, ${outdated.patch} patch — click for details`}
-      aria-label={`${outdated.total} outdated dependencies`}
-      className={cn(
-        'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
-        tone,
-      )}
-    >
-      <Package className="h-3 w-3" />
-      {outdated.total}
-    </button>
-  );
-}
-
-/**
- * Audit/CVE chip. Same design principles as `OutdatedChip` (icon = domain,
- * number = magnitude, colour = severity). The one asymmetry: when any
- * critical CVE is present, the chip gets a subtle pulse ring — security
- * criticality *must* outbid visual hierarchy of neighbouring elements
- * (port badge, runtime tag). A quiet red chip next to a bold `:3000`
- * badge would bury the signal.
- *
- * Hidden when no vulnerabilities exist.
- */
-function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () => void }) {
-  const total = audit.critical + audit.high + audit.medium + audit.low;
-  if (total === 0) return null;
-  const hasCritical = audit.critical > 0;
-  // CVE severity → semantic tone. Critical reads as `critical` (red),
-  // high downgrades to `warning` (amber), medium to `info` (sky), low to
-  // `neutral` (stone). Tokens auto-flip for light/dark so we don't have
-  // to babysit a parallel set of `dark:` overrides per chip variant.
-  const tone = hasCritical
-    ? 'bg-tone-critical/18 text-tone-critical-fg hover:bg-tone-critical/28 border-tone-critical/35'
-    : audit.high > 0
-      ? 'bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25 border-tone-warning/30'
-      : audit.medium > 0
-        ? 'bg-tone-info/12 text-tone-info-fg hover:bg-tone-info/22 border-tone-info/30'
-        : 'bg-tone-neutral/10 text-tone-neutral-fg hover:bg-tone-neutral/20 border-tone-neutral/25';
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      title={`${total} advisories: ${audit.critical} critical, ${audit.high} high, ${audit.medium} medium, ${audit.low} low — click for details`}
-      aria-label={`${total} security advisories`}
-      className={cn(
-        'rounded-app-sm relative inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
-        tone,
-        hasCritical && 'shadow-[0_0_0_1px_rgb(239_68_68/0.2),0_0_12px_-2px_rgb(239_68_68/0.6)]',
-      )}
-    >
-      <Shield className="h-3 w-3" />
-      {total}
-    </button>
-  );
 }
 
 /**

@@ -41,6 +41,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
+use crate::license::LicenseScanSummary;
 use crate::overview::{AuditResult, OutdatedResult};
 
 /// One row from `dependency_scans`. Matches the shape the frontend
@@ -65,6 +66,13 @@ pub struct PersistedScan {
     pub service_name: String,
     pub outdated: Option<OutdatedResult>,
     pub audit: Option<AuditResult>,
+    /// Slim license-scan summary captured alongside outdated/audit by
+    /// the workspace-wide gather. Optional for the same reason
+    /// `outdated`/`audit` are: not every runtime supports a license
+    /// scanner today (Python is a no-op, Go's metadata is missing
+    /// licenses), and old rows written before this column was added
+    /// will surface as `None` after the additive migration.
+    pub license: Option<LicenseScanSummary>,
     /// Wall-clock timestamp when this scan completed, in epoch ms. Used
     /// by the freshness chip ("3h ago") and the stale-recommendation
     /// banner. Picked over `Instant`-style monotonic clocks because we
@@ -81,6 +89,12 @@ pub struct PersistedScan {
     /// counts" without re-parsing every JSON blob on hydration.
     pub total_outdated: i64,
     pub total_vulnerabilities: i64,
+    /// Denormalised contamination count (`strong + network +
+    /// proprietary`). Lets the dashboard's "License risk" filter chip
+    /// and hero priority ladder resolve `total_license_warnings`
+    /// without rehydrating `license_json`. Old rows from before the
+    /// column was added land as 0 via the migration default.
+    pub total_license_warnings: i64,
 }
 
 pub struct ScanHistoryDb {
@@ -108,10 +122,12 @@ impl ScanHistoryDb {
                     service_name TEXT NOT NULL,
                     outdated_json TEXT,
                     audit_json TEXT,
+                    license_json TEXT,
                     scanned_at_ms INTEGER NOT NULL,
                     duration_ms INTEGER,
                     total_outdated INTEGER NOT NULL DEFAULT 0,
-                    total_vulnerabilities INTEGER NOT NULL DEFAULT 0
+                    total_vulnerabilities INTEGER NOT NULL DEFAULT 0,
+                    total_license_warnings INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_scans_scanned_at
                     ON dependency_scans (scanned_at_ms DESC);
@@ -119,6 +135,40 @@ impl ScanHistoryDb {
                     ON dependency_scans (cwd);",
             )
             .map_err(|e| AppError::Other(format!("init scan history schema: {e}")))?;
+
+        // Additive migration for installs that wrote a row before the
+        // license columns existed. SQLite has no `ADD COLUMN IF NOT
+        // EXISTS`, so we rely on `pragma_table_info` to skip columns
+        // that are already present. Each ALTER runs in its own call
+        // because failing one (legitimately, e.g. due to a
+        // half-applied prior upgrade) shouldn't abort the others.
+        self.add_column_if_missing("license_json", "TEXT")?;
+        self.add_column_if_missing("total_license_warnings", "INTEGER NOT NULL DEFAULT 0")?;
+        Ok(())
+    }
+
+    /// Idempotent column adder. Cheaper than catching the
+    /// duplicate-column SQLite error because the
+    /// `pragma_table_info` lookup is one round-trip and we already
+    /// hold the connection — no need to roll back a failed ALTER.
+    fn add_column_if_missing(&self, column: &str, decl: &str) -> AppResult<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('dependency_scans') WHERE name = ?1")
+            .map_err(|e| AppError::Other(format!("prepare table_info: {e}")))?;
+        let exists = stmt
+            .exists(params![column])
+            .map_err(|e| AppError::Other(format!("query table_info: {e}")))?;
+        if exists {
+            return Ok(());
+        }
+        // SQLite forbids parameter binding for DDL identifiers; the
+        // inputs here are hard-coded constants from `init_schema`,
+        // never user-supplied, so string formatting is safe.
+        let sql = format!("ALTER TABLE dependency_scans ADD COLUMN {column} {decl}");
+        self.conn
+            .execute(&sql, [])
+            .map_err(|e| AppError::Other(format!("alter add column {column}: {e}")))?;
         Ok(())
     }
 
@@ -142,6 +192,13 @@ impl ScanHistoryDb {
             ),
             None => None,
         };
+        let license_json = match &scan.license {
+            Some(l) => Some(
+                serde_json::to_string(l)
+                    .map_err(|e| AppError::Other(format!("serialise license: {e}")))?,
+            ),
+            None => None,
+        };
 
         // INSERT OR REPLACE is the simplest fit for "always keep the
         // latest", and the PK on service_id makes the conflict path
@@ -152,20 +209,22 @@ impl ScanHistoryDb {
             .execute(
                 "INSERT OR REPLACE INTO dependency_scans (
                     service_id, cwd, service_name,
-                    outdated_json, audit_json,
+                    outdated_json, audit_json, license_json,
                     scanned_at_ms, duration_ms,
-                    total_outdated, total_vulnerabilities
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    total_outdated, total_vulnerabilities, total_license_warnings
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     scan.service_id,
                     scan.cwd,
                     scan.service_name,
                     outdated_json,
                     audit_json,
+                    license_json,
                     scan.scanned_at_ms,
                     scan.duration_ms,
                     scan.total_outdated,
                     scan.total_vulnerabilities,
+                    scan.total_license_warnings,
                 ],
             )
             .map_err(|e| AppError::Other(format!("upsert scan: {e}")))?;
@@ -180,9 +239,9 @@ impl ScanHistoryDb {
             .conn
             .prepare(
                 "SELECT service_id, cwd, service_name,
-                        outdated_json, audit_json,
+                        outdated_json, audit_json, license_json,
                         scanned_at_ms, duration_ms,
-                        total_outdated, total_vulnerabilities
+                        total_outdated, total_vulnerabilities, total_license_warnings
                  FROM dependency_scans
                  ORDER BY scanned_at_ms DESC",
             )
@@ -210,9 +269,9 @@ impl ScanHistoryDb {
             .conn
             .prepare(
                 "SELECT service_id, cwd, service_name,
-                        outdated_json, audit_json,
+                        outdated_json, audit_json, license_json,
                         scanned_at_ms, duration_ms,
-                        total_outdated, total_vulnerabilities
+                        total_outdated, total_vulnerabilities, total_license_warnings
                  FROM dependency_scans
                  WHERE service_id = ?1",
             )
@@ -243,9 +302,9 @@ impl ScanHistoryDb {
             .conn
             .prepare(
                 "SELECT service_id, cwd, service_name,
-                        outdated_json, audit_json,
+                        outdated_json, audit_json, license_json,
                         scanned_at_ms, duration_ms,
-                        total_outdated, total_vulnerabilities
+                        total_outdated, total_vulnerabilities, total_license_warnings
                  FROM dependency_scans
                  WHERE cwd = ?1
                  ORDER BY scanned_at_ms DESC
@@ -300,21 +359,26 @@ impl ScanHistoryDb {
         let service_name: String = row.get(2)?;
         let outdated_json: Option<String> = row.get(3)?;
         let audit_json: Option<String> = row.get(4)?;
-        let scanned_at_ms: i64 = row.get(5)?;
-        let duration_ms: Option<i64> = row.get(6)?;
-        let total_outdated: i64 = row.get(7)?;
-        let total_vulnerabilities: i64 = row.get(8)?;
+        let license_json: Option<String> = row.get(5)?;
+        let scanned_at_ms: i64 = row.get(6)?;
+        let duration_ms: Option<i64> = row.get(7)?;
+        let total_outdated: i64 = row.get(8)?;
+        let total_vulnerabilities: i64 = row.get(9)?;
+        let total_license_warnings: i64 = row.get(10)?;
 
         // Best-effort JSON decode: if the schema for OutdatedResult /
-        // AuditResult changed under us between writes, treat the field
-        // as None instead of failing the whole row. The user pays a
-        // rescan, not an error toast.
+        // AuditResult / LicenseScanSummary changed under us between
+        // writes, treat the field as None instead of failing the
+        // whole row. The user pays a rescan, not an error toast.
         let outdated = outdated_json
             .as_deref()
             .and_then(|s| serde_json::from_str::<OutdatedResult>(s).ok());
         let audit = audit_json
             .as_deref()
             .and_then(|s| serde_json::from_str::<AuditResult>(s).ok());
+        let license = license_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<LicenseScanSummary>(s).ok());
 
         Ok(PersistedScan {
             service_id,
@@ -322,10 +386,12 @@ impl ScanHistoryDb {
             service_name,
             outdated,
             audit,
+            license,
             scanned_at_ms,
             duration_ms,
             total_outdated,
             total_vulnerabilities,
+            total_license_warnings,
         })
     }
 }
@@ -387,10 +453,12 @@ mod tests {
             service_name: format!("svc-{id}"),
             outdated: Some(sample_outdated()),
             audit: Some(sample_audit()),
+            license: None,
             scanned_at_ms: 1_700_000_000_000,
             duration_ms: Some(12_345),
             total_outdated: 2,
             total_vulnerabilities: 1,
+            total_license_warnings: 0,
         }
     }
 
@@ -497,9 +565,9 @@ mod tests {
     #[test]
     fn schema_is_idempotent_across_reopens() {
         // Re-opening the same file must not crash on duplicate-column
-        // / duplicate-index errors. We don't currently have any
-        // ALTER columns, but the test guards against accidental
-        // regressions if a future migration adds one.
+        // / duplicate-index errors — `add_column_if_missing` checks
+        // `pragma_table_info` so the second open is a no-op even
+        // though both `license_json` columns exist already.
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("scans.db");
         let db1 = ScanHistoryDb::open(&path).unwrap();
@@ -508,5 +576,83 @@ mod tests {
 
         let db2 = ScanHistoryDb::open(&path).unwrap();
         assert_eq!(db2.list_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn legacy_db_without_license_columns_is_migrated_in_place() {
+        // Simulate a DB written by an older RunHQ build that didn't
+        // know about license columns. The migration must add them on
+        // open, and existing rows must survive (license = None,
+        // total_license_warnings = 0 by column default).
+        use rusqlite::Connection;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("scans.db");
+        {
+            let raw = Connection::open(&path).unwrap();
+            raw.execute_batch(
+                "CREATE TABLE dependency_scans (
+                    service_id TEXT PRIMARY KEY,
+                    cwd TEXT NOT NULL,
+                    service_name TEXT NOT NULL,
+                    outdated_json TEXT,
+                    audit_json TEXT,
+                    scanned_at_ms INTEGER NOT NULL,
+                    duration_ms INTEGER,
+                    total_outdated INTEGER NOT NULL DEFAULT 0,
+                    total_vulnerabilities INTEGER NOT NULL DEFAULT 0
+                );",
+            )
+            .unwrap();
+            raw.execute(
+                "INSERT INTO dependency_scans (
+                    service_id, cwd, service_name,
+                    scanned_at_ms, total_outdated, total_vulnerabilities
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    "legacy",
+                    "/tmp/legacy",
+                    "old-svc",
+                    1_700_000_000_000i64,
+                    0i64,
+                    0i64
+                ],
+            )
+            .unwrap();
+        }
+
+        // Opening through the real constructor should add the missing
+        // columns without dropping the legacy row.
+        let db = ScanHistoryDb::open(&path).unwrap();
+        let row = db
+            .get_by_service("legacy")
+            .unwrap()
+            .expect("legacy row preserved");
+        assert!(row.license.is_none());
+        assert_eq!(row.total_license_warnings, 0);
+
+        // And new license-bearing writes must round-trip through the
+        // migrated table.
+        let migrated_summary = LicenseScanSummary {
+            runtime: Some("node".into()),
+            scan_supported: true,
+            total_entries: 5,
+            permissive_count: 3,
+            safe_count: 0,
+            weak_copyleft_count: 0,
+            strong_copyleft_count: 1,
+            network_copyleft_count: 1,
+            proprietary_count: 0,
+            unknown_count: 0,
+            has_contamination: true,
+            top_warnings: vec![],
+        };
+        let mut updated = sample_scan("legacy");
+        updated.license = Some(migrated_summary.clone());
+        updated.total_license_warnings = 2;
+        db.upsert(&updated).unwrap();
+
+        let after = db.get_by_service("legacy").unwrap().unwrap();
+        assert_eq!(after.license, Some(migrated_summary));
+        assert_eq!(after.total_license_warnings, 2);
     }
 }

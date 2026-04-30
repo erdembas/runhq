@@ -24,11 +24,14 @@
 
 pub mod ai;
 pub mod conversations;
+pub mod docs;
 pub mod editors;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod license;
 pub mod logs;
+pub mod notes;
 pub mod overview;
 pub mod paths;
 pub mod ports;
