@@ -40,7 +40,7 @@
     <!-- Bump the cache-bust token whenever style.css is materially changed.
          Cloudflare's `immutable` Cache-Control on the previous deploy used
          to strand visitors on stale CSS. -->
-    <link rel="stylesheet" href="style.css?v=0.10.0-arm-detect" />
+    <link rel="stylesheet" href="style.css?v=0.10.0-releases-handoff" />
   </head>
   <body>
     <div class="page-bg" aria-hidden="true"></div>
@@ -588,36 +588,23 @@
           <div class="section-head reveal">
             <span class="kicker">Install</span>
             <h2 class="section-title">One line. Then orchestrate.</h2>
-            <!--
-              Detected-platform pill is hydrated by the install-detect
-              script below. We render an empty placeholder server-side
-              so layout doesn't jump in when JS resolves the User-Agent
-              hints; the script flips `is-detected` on once it has a
-              non-`unknown` platform/arch pair, which is the cue for
-              the CSS to fade it in.
-            -->
-            <p class="install-detected" data-install-detected hidden>
-              Detected
-              <span data-install-detected-os>your platform</span>
-              <span class="install-detected-sep">·</span>
-              <span data-install-detected-arch></span>
-              — the matching card is highlighted below.
-            </p>
           </div>
 
-          <div class="install-grid reveal" data-install-grid>
-            <!--
-              Each card carries `data-os` so the detect script can flip
-              `is-recommended` on the matching one; direct-download
-              anchors carry `data-detect-link data-os data-arch` so the
-              script can underline the right binary inside the card
-              (e.g. dim the Intel .dmg when we detected Apple Silicon).
-              The Linux card additionally carries `data-copy-x64` /
-              `data-copy-arm64` payloads — when arch is detected we swap
-              the active `data-copy` (the one the click-to-copy handler
-              reads) and the visible `<code>` line in lockstep.
-            -->
-            <div class="install-card" data-os="macos">
+          <!--
+            macOS + Windows still ship through their package managers
+            because Homebrew Cask and winget resolve the right
+            architecture and version on the user's behalf — there is
+            nothing to "pick" client-side. Everything else (Linux .deb /
+            AppImage, .msi, raw DMGs, .sig files, the Tauri updater
+            manifest) lives on the GitHub Releases page; the third
+            card is a deliberate hand-off to that page rather than a
+            browser-side architecture detector. RunHQ's audience is
+            developers — they will pick the right asset themselves and
+            we don't have to maintain a JS auto-detect loop on top of
+            ARM/x64/AppImage/.deb permutations.
+          -->
+          <div class="install-grid reveal">
+            <div class="install-card">
               <div class="install-card-os">
                 <svg
                   viewBox="0 0 24 24"
@@ -640,28 +627,10 @@
               </div>
               <div class="install-card-foot">
                 Cask clears Gatekeeper quarantine — opens on first launch, no terminal tricks.
-                <span class="install-direct">
-                  Or direct:
-                  <a
-                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_aarch64.dmg"
-                    data-detect-link
-                    data-os="macos"
-                    data-arch="arm64"
-                    >.dmg (Apple Silicon)</a
-                  >
-                  ·
-                  <a
-                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64.dmg"
-                    data-detect-link
-                    data-os="macos"
-                    data-arch="x64"
-                    >.dmg (Intel)</a
-                  >
-                </span>
               </div>
             </div>
 
-            <div class="install-card" data-os="windows">
+            <div class="install-card">
               <div class="install-card-os">
                 <svg
                   viewBox="0 0 24 24"
@@ -683,35 +652,10 @@
               <div class="install-card-foot">
                 Auto-updates in place. Upgrade later with
                 <code>winget upgrade erdembas.RunHQ</code>.
-                <span class="install-direct">
-                  Or direct:
-                  <a
-                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64-setup.exe"
-                    data-detect-link
-                    data-os="windows"
-                    data-arch="x64"
-                    >.exe (x64)</a
-                  >
-                  ·
-                  <a
-                    href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64-setup.exe"
-                    data-detect-link
-                    data-os="windows"
-                    data-arch="arm64"
-                    >.exe (ARM64)</a
-                  >
-                </span>
               </div>
             </div>
 
-            <div
-              class="install-card"
-              data-os="linux"
-              data-copy-x64="curl -L https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb -o runhq.deb&#10;sudo dpkg -i runhq.deb"
-              data-copy-arm64="curl -L https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.deb -o runhq.deb&#10;sudo dpkg -i runhq.deb"
-              data-cmd-x64="curl -L .../runhq_amd64.deb -o runhq.deb && sudo dpkg -i runhq.deb"
-              data-cmd-arm64="curl -L .../runhq_arm64.deb -o runhq.deb && sudo dpkg -i runhq.deb"
-            >
+            <div class="install-card">
               <div class="install-card-os">
                 <svg
                   viewBox="0 0 24 24"
@@ -724,60 +668,34 @@
                     d="M12 2c-1 0-1.8.4-2.4 1.1-.6.7-1 1.6-1 2.6 0 .6.1 1.1.3 1.6-.6.5-1 1.2-1.3 2-.4 1-.5 2.1-.5 3 0 1.5-.7 2.6-1.5 3.4-.8.8-1.6 1.4-1.6 2.6 0 .9.5 1.7 1.4 2.2.8.5 2 .7 3.6.7h7c1.6 0 2.8-.2 3.6-.7.9-.5 1.4-1.3 1.4-2.2 0-1.2-.8-1.8-1.6-2.6-.8-.8-1.5-1.9-1.5-3.4 0-.9-.1-2-.5-3-.3-.8-.7-1.5-1.3-2 .2-.5.3-1 .3-1.6 0-1-.4-1.9-1-2.6C13.8 2.4 13 2 12 2z"
                   />
                 </svg>
-                <span>Linux</span>
-                <small>.deb · AppImage</small>
+                <span>Linux &amp; everything else</span>
+                <small>GitHub Releases</small>
               </div>
-              <div
-                class="cmd"
-                data-copy="curl -L https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb -o runhq.deb&#10;sudo dpkg -i runhq.deb"
-              >
-                <span class="cmd-prompt">$</span>
-                <code data-install-cmd-text>
-                  curl -L .../runhq_amd64.deb -o runhq.deb && sudo dpkg -i runhq.deb
-                </code>
-                <span class="cmd-copy">copy</span>
-              </div>
+              <a class="install-cta" href="https://github.com/erdembas/runhq/releases/latest">
+                Browse the latest release
+                <svg
+                  viewBox="0 0 16 16"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 3h8v8" />
+                  <path d="M13 3 3 13" />
+                </svg>
+              </a>
               <div class="install-card-foot">
-                Or direct:
-                <a
-                  href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb"
-                  data-detect-link
-                  data-os="linux"
-                  data-arch="x64"
-                  >.deb (amd64)</a
-                >
-                ·
-                <a
-                  href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.deb"
-                  data-detect-link
-                  data-os="linux"
-                  data-arch="arm64"
-                  >.deb (arm64)</a
-                >
-                ·
-                <a
-                  href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.AppImage"
-                  data-detect-link
-                  data-os="linux"
-                  data-arch="x64"
-                  >AppImage (amd64)</a
-                >
-                ·
-                <a
-                  href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.AppImage"
-                  data-detect-link
-                  data-os="linux"
-                  data-arch="arm64"
-                  >AppImage (arm64)</a
-                >
+                .deb / AppImage (amd64 + arm64), .msi, raw .dmg, .sig files, and the Tauri updater
+                manifest are all attached to every release.
               </div>
             </div>
           </div>
 
           <p class="install-foot reveal">
-            <a href="https://github.com/erdembas/runhq/releases/latest">Browse all releases</a>
-            for older versions, .sig files, and the Tauri updater manifest.
-            <span class="install-foot-sep">·</span>
             Prefer source?
             <a href="https://github.com/erdembas/runhq#development">pnpm tauri:dev</a> after a clone
             — Rust + pnpm, that's the full toolchain.
@@ -920,150 +838,6 @@
             vg.appendChild(c);
           });
         }
-
-        // -- Install: OS + arch auto-detect ---------------------------
-        // Picks the right card to highlight and, on Linux, swaps the
-        // copy-to-clipboard payload between the amd64 and arm64 .deb
-        // URLs in lockstep with the visible code line. We deliberately
-        // detect arch via the high-entropy User-Agent Client Hints API
-        // first (Chromium 90+) and fall back to a small UA string
-        // heuristic — the fallback errs on the side of "common case"
-        // (Windows/Linux ➔ x64, macOS ➔ Apple Silicon, since 2020+
-        // shipped Macs are overwhelmingly ARM). Detection is always
-        // best-effort: when we're unsure, we leave the cards alone and
-        // the user picks from the explicit "Or direct:" links.
-        (function () {
-          var grid = document.querySelector('[data-install-grid]');
-          if (!grid) return;
-
-          function detectOs() {
-            var ua = navigator.userAgent || '';
-            // userAgentData.platform is the new spec; navigator.platform
-            // is deprecated but still authoritative on Safari, which
-            // hasn't shipped UA-CH.
-            var hint = (navigator.userAgentData && navigator.userAgentData.platform) || '';
-            var src = (hint + ' ' + ua).toLowerCase();
-            if (/android/.test(src)) return 'unknown';
-            if (/(iphone|ipad|ipod)/.test(src)) return 'unknown';
-            if (/(mac os|macos|darwin)/.test(src)) return 'macos';
-            if (/windows/.test(src)) return 'windows';
-            if (/(linux|x11|cros)/.test(src)) return 'linux';
-            return 'unknown';
-          }
-
-          function detectArchFromUa() {
-            // UA-string heuristic. Apple Silicon Macs report "Intel" in
-            // their UA for backwards compat — there's no honest way to
-            // tell them apart from a real Intel Mac via UA alone, so we
-            // surface that ambiguity to the caller (returns null) and
-            // let the caller decide its default.
-            var ua = (navigator.userAgent || '').toLowerCase();
-            if (/aarch64|arm64|armv8/.test(ua)) return 'arm64';
-            if (/x86_64|x64|win64|wow64|amd64/.test(ua)) return 'x64';
-            return null;
-          }
-
-          function applyHighlight(os, arch) {
-            // Card-level recommendation
-            grid.querySelectorAll('.install-card').forEach(function (card) {
-              if (card.getAttribute('data-os') === os) card.classList.add('is-recommended');
-              else card.classList.remove('is-recommended');
-            });
-
-            // Direct-download link recommendation
-            grid.querySelectorAll('[data-detect-link]').forEach(function (a) {
-              var matchOs = a.getAttribute('data-os') === os;
-              var matchArch = a.getAttribute('data-arch') === arch;
-              if (matchOs && matchArch) a.classList.add('is-recommended');
-              else a.classList.remove('is-recommended');
-            });
-
-            // Linux-specific: swap the live `data-copy` and the visible
-            // `<code>` text so the click-to-copy handler picks up the
-            // arch we just detected. The `data-cmd-*` attributes hold a
-            // truncated, human-friendly mirror of `data-copy-*` (with
-            // `&&` instead of newlines) — we render that directly into
-            // the visible code element rather than trying to derive one
-            // from the other at runtime.
-            var linux = grid.querySelector('.install-card[data-os="linux"]');
-            if (linux && (arch === 'x64' || arch === 'arm64')) {
-              var cmd = linux.querySelector('.cmd');
-              var code = linux.querySelector('[data-install-cmd-text]');
-              var copyKey = 'data-copy-' + arch;
-              var cmdKey = 'data-cmd-' + arch;
-              if (cmd && linux.hasAttribute(copyKey)) {
-                cmd.setAttribute('data-copy', linux.getAttribute(copyKey));
-              }
-              if (code && linux.hasAttribute(cmdKey)) {
-                code.textContent = linux.getAttribute(cmdKey);
-              }
-            }
-          }
-
-          function showDetectedPill(os, arch) {
-            var pill = document.querySelector('[data-install-detected]');
-            if (!pill) return;
-            var osLabel = os === 'macos' ? 'macOS' : os === 'windows' ? 'Windows' : 'Linux';
-            var archLabel =
-              arch === 'arm64'
-                ? os === 'macos'
-                  ? 'Apple Silicon'
-                  : 'ARM64'
-                : os === 'macos'
-                  ? 'Intel'
-                  : 'x64';
-            var osNode = pill.querySelector('[data-install-detected-os]');
-            var archNode = pill.querySelector('[data-install-detected-arch]');
-            if (osNode) osNode.textContent = osLabel;
-            if (archNode) archNode.textContent = archLabel;
-            pill.hidden = false;
-            // Defer the class flip a tick so the transition fires.
-            requestAnimationFrame(function () {
-              pill.classList.add('is-detected');
-            });
-          }
-
-          function paint(os, arch) {
-            if (os === 'unknown') return;
-            applyHighlight(os, arch);
-            showDetectedPill(os, arch);
-          }
-
-          var os = detectOs();
-          if (os === 'unknown') return;
-
-          // Try UA-CH (Chromium) first for arch + bitness — it answers
-          // honestly on Apple Silicon and ARM Windows. Safari/Firefox
-          // fall through to the UA heuristic.
-          if (
-            navigator.userAgentData &&
-            typeof navigator.userAgentData.getHighEntropyValues === 'function'
-          ) {
-            navigator.userAgentData
-              .getHighEntropyValues(['architecture', 'bitness'])
-              .then(function (data) {
-                var arch =
-                  data.architecture === 'arm'
-                    ? 'arm64'
-                    : data.bitness === '64'
-                      ? 'x64'
-                      : detectArchFromUa();
-                if (!arch) {
-                  arch = os === 'macos' ? 'arm64' : 'x64';
-                }
-                paint(os, arch);
-              })
-              .catch(function () {
-                var arch = detectArchFromUa();
-                if (!arch) arch = os === 'macos' ? 'arm64' : 'x64';
-                paint(os, arch);
-              });
-          } else {
-            var arch = detectArchFromUa();
-            if (!arch) arch = os === 'macos' ? 'arm64' : 'x64';
-            paint(os, arch);
-          }
-        })();
       })();
 
       /* ============================================================

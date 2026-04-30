@@ -1517,62 +1517,38 @@ main {
   font-size: 12px;
   color: var(--text-muted);
 }
-/* Card recommendation: the auto-detect script flips this on the card
-   that matches the visitor's OS. Subtle accent border + glow so it
-   reads as "this is for you" without screaming over the other two
-   options — users who know they want AppImage on amd64 should still
-   feel free to ignore us. */
-.install-card.is-recommended {
-  border-color: rgba(var(--accent-rgb), 0.55);
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.18),
-    0 12px 28px rgba(var(--accent-rgb), 0.18);
-}
-.install-direct {
-  display: block;
-  margin-top: 8px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  line-height: 1.55;
-}
-.install-direct a {
-  color: var(--text-muted);
-  text-decoration: none;
-  border-bottom: 1px dotted rgba(var(--text-muted-rgb, 148, 163, 184), 0.4);
-}
-.install-direct a:hover {
-  color: var(--accent-soft);
-  border-bottom-color: var(--accent-soft);
-}
-.install-direct a.is-recommended {
-  color: var(--accent-soft);
-  border-bottom-color: var(--accent-soft);
-  font-weight: 600;
-}
-/* Detected-platform pill above the install grid. The hidden+opacity
-   pair lets us show the row without layout jumping in (we render the
-   placeholder server-side hidden, then un-hide + transition opacity
-   once the script resolves UA-CH). */
-.install-detected {
-  margin-top: 14px;
+/* "Linux & everything else" card hands off to GitHub Releases instead
+   of trying to enumerate every binary the way the macOS / Windows
+   cards do. The CTA visually mirrors the `.cmd` block one row up:
+   same rounded shape, same internal padding, accent-tinted so it
+   reads as the actionable element of the card. */
+.install-cta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(var(--accent-rgb), 0.1);
-  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   color: var(--accent-soft);
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0;
-  transition: opacity 220ms ease;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
-.install-detected.is-detected {
-  opacity: 1;
+.install-cta:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.45);
+  color: var(--accent);
+  transform: translateY(-1px);
 }
-.install-detected-sep {
-  opacity: 0.5;
+.install-cta svg {
+  flex-shrink: 0;
 }
 .install-foot {
   margin-top: 24px;
@@ -1585,10 +1561,6 @@ main {
 }
 .install-foot a:hover {
   color: var(--accent-soft);
-}
-.install-foot-sep {
-  margin: 0 6px;
-  opacity: 0.4;
 }
 
 /* ===============================================================
