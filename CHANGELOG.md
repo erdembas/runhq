@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2](https://github.com/erdembas/runhq/compare/v0.10.1...v0.10.2) (2026-05-01)
+
+
+### Bug Fixes
+
+* **docs:** update Content Security Policy to allow connections to GitHub API ([4818c8e](https://github.com/erdembas/runhq/commit/4818c8ee9ab0bbf6e1448f8a5891b890b9cf474f))
+
+
+### Code Refactoring
+
+* **docs:** enhance download links and version handling ([5aaa213](https://github.com/erdembas/runhq/commit/5aaa2138dd99c88f5409129632d79c263db09597))
+
 ## [0.10.1](https://github.com/erdembas/runhq/compare/v0.10.0...v0.10.1) (2026-04-30)
 
 
