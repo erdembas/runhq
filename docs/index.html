@@ -72,7 +72,7 @@
             <div class="hero-copy">
               <span class="hero-tag">
                 <span class="hero-tag-dot"></span>
-                v0.9.0 · IDE-parity cockpit
+                <span data-rel-version>v0.9.0</span> · IDE-parity cockpit
               </span>
               <h1 class="hero-title">
                 Every project on your disk.<br />
@@ -591,16 +591,21 @@
           </div>
 
           <!--
-            Direct downloads land on the versionless GitHub release
-            aliases (`runhq_<arch>.<ext>`) that release.yml publishes
-            after every successful matrix job. Those aliases redirect
-            via `releases/latest/download/...` so users land on
-            whatever the most recent tag is — no JS auto-detect, no
-            backend, no CDN to babysit. The `brew install` row stays
-            on macOS because the Cask handles Gatekeeper quarantine
-            on first launch; everywhere else the in-app Tauri updater
-            takes over after the first install, so no second package
-            manager is wired in.
+            Each download anchor ships with a sensible static fallback
+            (`releases/latest/download/runhq_<arch>.<ext>`) so the page
+            still works with JS off — release.yml's "Publish stable
+            asset aliases" step uploads those versionless names. On top
+            of that, the `[data-asset]` resolver below hits the GitHub
+            API on page load, reads the latest tag's real assets, and
+            rewrites every `href` to the versioned bundle
+            (`RunHQ_<v>_<arch>.<ext>`). That's belt-and-suspenders: if
+            the alias step ever silently drops an artifact (it did on
+            v0.10.1) the API path keeps the buttons live, and the hero
+            tag chip auto-bumps to the new version without a redeploy.
+            Suffix tokens in `data-asset` use `endsWith` matching against
+            the asset name, so the bundler's arch vocabulary differences
+            (`amd64` vs `x86_64`, `arm64` vs `aarch64`) live in the
+            HTML, not the JS.
           -->
           <div class="install-grid install-grid-os reveal">
             <!-- ─── macOS ─────────────────────────────────────── -->
@@ -630,12 +635,14 @@
                   <span class="dl-row-label">.dmg</span>
                   <a
                     class="dl-arch"
+                    data-asset="_x64.dmg"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64.dmg"
                   >
                     Intel
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset="_aarch64.dmg"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_aarch64.dmg"
                   >
                     Apple&nbsp;Silicon
@@ -669,12 +676,14 @@
                   <span class="dl-row-label" title="Debian, Ubuntu, Pop!_OS">.deb</span>
                   <a
                     class="dl-arch"
+                    data-asset="_amd64.deb"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.deb"
                   >
                     x64
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset="_arm64.deb"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.deb"
                   >
                     ARM64
@@ -684,12 +693,14 @@
                   <span class="dl-row-label" title="Red Hat, Fedora, openSUSE">.rpm</span>
                   <a
                     class="dl-arch"
+                    data-asset=".x86_64.rpm"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.rpm"
                   >
                     x64
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset=".aarch64.rpm"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.rpm"
                   >
                     ARM64
@@ -701,12 +712,14 @@
                   >
                   <a
                     class="dl-arch"
+                    data-asset="_amd64.AppImage"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_amd64.AppImage"
                   >
                     x64
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset="_aarch64.AppImage"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.AppImage"
                   >
                     ARM64
@@ -738,12 +751,14 @@
                   <span class="dl-row-label" title="NSIS — recommended">.exe</span>
                   <a
                     class="dl-arch"
+                    data-asset="_x64-setup.exe"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64-setup.exe"
                   >
                     x64
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset="_arm64-setup.exe"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64-setup.exe"
                   >
                     ARM64
@@ -753,12 +768,14 @@
                   <span class="dl-row-label" title="MSI — for managed deployments">.msi</span>
                   <a
                     class="dl-arch"
+                    data-asset="_x64_en-US.msi"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_x64.msi"
                   >
                     x64
                   </a>
                   <a
                     class="dl-arch"
+                    data-asset="_arm64_en-US.msi"
                     href="https://github.com/erdembas/runhq/releases/latest/download/runhq_arm64.msi"
                   >
                     ARM64
@@ -831,6 +848,77 @@
     </footer>
 
     <script>
+      /* ============================================================
+         Live release resolver
+         The download anchors ship with a static
+         `releases/latest/download/runhq_<arch>.<ext>` fallback so the
+         page is useful even if this fetch fails (CSP, offline, GitHub
+         API rate limit). On a healthy load we hit the public
+         `/repos/:owner/:repo/releases/latest` endpoint — it has
+         `Access-Control-Allow-Origin: *`, returns `tag_name` plus the
+         asset list with `browser_download_url`s, and bypasses the
+         `latest.json` Tauri manifest (which omits macOS DMGs because
+         we don't ship the `.app.tar.gz` updater format). We then walk
+         every `[data-asset]` anchor and swap its href for the first
+         asset whose filename ends with the suffix token. Doing the
+         match on `endsWith` keeps every bundler's arch vocabulary
+         quirk (`amd64` vs `x86_64`, `arm64` vs `aarch64`, the WiX
+         `_en-US` infix) declarative in the HTML.
+         ============================================================ */
+      (function () {
+        var REPO = 'erdembas/runhq';
+        var ENDPOINT = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+
+        function applyVersion(tag) {
+          // `tag_name` looks like `v0.10.1`; keep the `v` prefix in
+          // the chip so the visual cadence matches the GitHub UI.
+          var label = tag && tag.charAt(0) === 'v' ? tag : 'v' + (tag || '');
+          document.querySelectorAll('[data-rel-version]').forEach(function (el) {
+            el.textContent = label;
+          });
+        }
+
+        function applyAssets(assets) {
+          if (!assets || !assets.length) return;
+          document.querySelectorAll('a[data-asset]').forEach(function (a) {
+            var suffix = a.getAttribute('data-asset');
+            if (!suffix) return;
+            // `.sig` siblings end with `.sig` so `_x64-setup.exe` won't
+            // accidentally land on `_x64-setup.exe.sig`. Still, guard
+            // explicitly — cheaper than a future surprise.
+            var hit = null;
+            for (var i = 0; i < assets.length; i++) {
+              var name = assets[i].name || '';
+              if (name.endsWith('.sig')) continue;
+              if (name.endsWith(suffix)) {
+                hit = assets[i];
+                break;
+              }
+            }
+            if (hit && hit.browser_download_url) {
+              a.href = hit.browser_download_url;
+              a.setAttribute('data-asset-resolved', hit.name);
+            }
+          });
+        }
+
+        if (typeof fetch !== 'function') return;
+        fetch(ENDPOINT, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (r) {
+            if (!r.ok) throw new Error('release fetch ' + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            applyVersion(data && data.tag_name);
+            applyAssets(data && data.assets);
+          })
+          .catch(function () {
+            // Static fallback hrefs already point at the versionless
+            // alias under `releases/latest/download/...` — nothing to
+            // do; the UI degrades gracefully.
+          });
+      })();
+
       (function () {
         // -- Reveal-on-scroll ----------------------------------------
         var io = new IntersectionObserver(
