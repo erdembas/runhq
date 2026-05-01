@@ -1,10 +1,21 @@
+# `connect-src` whitelists `api.github.com` so the inline release
+# resolver in index.html can hit `/repos/erdembas/runhq/releases/latest`
+# at page load and rewrite the download anchors to the versioned
+# bundle URLs. That endpoint already serves
+# `Access-Control-Allow-Origin: *`, so no proxy is needed — but CSP
+# `connect-src` is the second gate and was defaulting to `'self'`,
+# which silently blocked the fetch ("Refused to connect because it
+# violates the document's CSP"). Keeping the allowlist tight: only
+# the JSON releases endpoint, no `*.githubusercontent.com` — the
+# resolver only reads metadata, and the actual download navigation
+# happens via top-level `<a href>` clicks which CSP doesn't gate.
 /*
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
   X-Frame-Options: DENY
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
 
 # NOTE: `immutable` is ONLY safe on fingerprinted URLs (e.g. style-abc123.css).
 # Our docs site uses stable filenames — if we keep `immutable` + 1y TTL on
