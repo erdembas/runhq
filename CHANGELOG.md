@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3](https://github.com/erdembas/runhq/compare/v0.10.2...v0.10.3) (2026-05-03)
+
+
+### Features
+
+* **desktop:** settings & release notes as tabs, inline AI manager, smooth side-panel toggle ([910f125](https://github.com/erdembas/runhq/commit/910f125294df36d50990cbbc80eeb801bfd54ac9))
+
+
+### Miscellaneous Chores
+
+* pin next release to 0.10.3 ([d21079e](https://github.com/erdembas/runhq/commit/d21079ec3a19e9a303da70e638e00be17712176f))
+
 ## [0.10.2](https://github.com/erdembas/runhq/compare/v0.10.1...v0.10.2) (2026-05-01)
 
 
