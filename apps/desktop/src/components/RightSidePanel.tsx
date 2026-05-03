@@ -104,6 +104,24 @@ export function RightSidePanel() {
     return () => window.clearTimeout(t);
   }, [active]);
 
+  // Per-panel lazy mount: each inner panel (`<ActivityTimeline>`,
+  // `<AiChatPanel>`) is multi-thousand lines and runs IPC
+  // subscriptions / state machines on mount, so we defer mounting
+  // until the user first opens that specific panel. Once mounted
+  // we keep it mounted forever (chat history / scroll position
+  // / filter selections survive close-and-reopen), so this is a
+  // one-time cost paid exactly when the user signals interest in
+  // the panel — not at app startup.
+  //
+  // The outer `<aside>` itself is always mounted regardless: it's
+  // a single empty div at width 0 when nothing has ever been
+  // opened, which is what lets the FIRST open animate from 0 → W
+  // instead of popping in fully formed.
+  const hasOpenedActivity = useRef(false);
+  const hasOpenedAi = useRef(false);
+  if (active === 'activity') hasOpenedActivity.current = true;
+  if (active === 'ai') hasOpenedAi.current = true;
+
   const isOpen = active != null;
   const renderedWidth = isOpen ? width : 0;
 
@@ -175,17 +193,26 @@ export function RightSidePanel() {
         )}
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Both panels are mounted to keep their internal state
-              (chat history, scroll position, filter selections) alive
-              when the user toggles between them. CSS hides the inactive
-              one. Cheap by today's standards — neither panel runs a
-              heavy render loop in the background. */}
-          <div className={active === 'activity' ? 'flex h-full min-h-0 flex-1' : 'hidden'}>
-            <ActivityTimeline variant="inline" embedded />
-          </div>
-          <div className={active === 'ai' ? 'flex h-full min-h-0 flex-1' : 'hidden'}>
-            <AiChatPanel variant="inline" />
-          </div>
+          {/* Each panel is mounted on first open and then kept
+              mounted so its internal state (chat history, scroll
+              position, filter selections) survives toggling away
+              and back. CSS hides the inactive one once both have
+              been mounted. The `hasOpened*` refs guard the very
+              first paint so the multi-thousand-line components
+              don't pay their mount cost at app startup just
+              because the aside shell is always present (we need
+              the shell so the open animation has a 0-width state
+              to transition out of). */}
+          {hasOpenedActivity.current && (
+            <div className={active === 'activity' ? 'flex h-full min-h-0 flex-1' : 'hidden'}>
+              <ActivityTimeline variant="inline" embedded />
+            </div>
+          )}
+          {hasOpenedAi.current && (
+            <div className={active === 'ai' ? 'flex h-full min-h-0 flex-1' : 'hidden'}>
+              <AiChatPanel variant="inline" />
+            </div>
+          )}
         </div>
       </div>
     </aside>
