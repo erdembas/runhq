@@ -14,6 +14,7 @@ import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtim
 import { STATUS_DOT, STATUS_LABEL } from './constants';
 import { isRunning, type ListItem } from './types';
 import type { ServiceId } from '@/types';
+import { AppActionRow } from './render-row/AppActionRow';
 
 export interface RenderRowDeps {
   cursor: number;
@@ -45,27 +46,14 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
 
   if (item.type === 'app-action') {
     return (
-      <div
+      <AppActionRow
         key={item.id}
-        data-active={active ? '' : undefined}
-        className={cn(
-          'flex cursor-pointer items-center gap-3 px-4 py-2.5 transition',
-          active ? 'bg-accent/10' : 'hover:bg-surface-muted/50',
-        )}
-        onClick={() => execute(item)}
-        onMouseEnter={() => setCursor(i)}
-      >
-        <span className="text-fg-muted bg-surface-muted flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-          {item.icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-fg text-[12px] font-medium">{item.label}</div>
-          <div className="text-fg-dim text-[10px]">{item.subtitle}</div>
-        </div>
-        <kbd className="text-fg-dim border-border bg-surface-muted shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]">
-          {item.shortcut}
-        </kbd>
-      </div>
+        item={item}
+        active={active}
+        index={i}
+        execute={execute}
+        setCursor={setCursor}
+      />
     );
   }
 
@@ -189,9 +177,6 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
   }
 
   if (item.type === 'sub-action') {
-    // `nested` rows live under an expandable parent and need a deeper
-    // indent + a faint left rule so the parent/child relationship is
-    // obvious without forcing the eye to count whitespace.
     const padLeft = item.nested ? 'pl-14' : 'pl-10';
     return (
       <div

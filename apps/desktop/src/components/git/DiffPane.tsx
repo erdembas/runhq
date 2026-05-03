@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { FileTypeIcon } from '@/lib/fileIcon';
+import { useMonacoReady } from '@/lib/monacoRuntime';
 import { useAppStore } from '@/store/useAppStore';
 import {
   type FileEntry,
@@ -61,6 +62,7 @@ export function DiffPane({
   // same flag to request a wider `-U` context from git.
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
   const setShowUnchanged = useAppStore((s) => s.setDiffShowUnchanged);
+  const monaco = useMonacoReady();
 
   // "Explain this diff" routes through the right-side chat panel.
   // The hook gives us a popover anchored under the Explain button
@@ -221,6 +223,14 @@ export function DiffPane({
             deletions={selectedMeta?.deletions ?? 0}
             cwd={cwd}
           />
+        ) : monaco.error ? (
+          <div className="text-tone-critical-fg flex h-full items-center justify-center px-6 text-[12px]">
+            Couldn't load editor: {monaco.error}
+          </div>
+        ) : !monaco.ready ? (
+          <div className="bg-surface flex h-full items-center justify-center">
+            <span className="text-fg/30 text-xs">Loading editor…</span>
+          </div>
         ) : (
           <DiffEditor
             height="100%"

@@ -1,0 +1,34 @@
+/*
+ * In-document search highlight styling for the project DOCS
+ * renderer. Uses the CSS Custom Highlight API so we don't have
+ * to mutate the rendered markdown DOM (see
+ * `lib/docs/useDocsSearch.ts` for the rationale).
+ *
+ * Colors deliberately match the xterm search overlay
+ * (`XTERM_SEARCH_DECORATIONS` in `lib/xtermTheme.ts`) so the
+ * LOGS / TERMINAL / DOCS surfaces all read as one consistent
+ * "find in page" gesture: amber-400 for inactive matches,
+ * amber-500 for the currently focused one. Two variants per
+ * theme — at low opacity in the dark theme so the highlight
+ * doesn't drown the underlying text, more saturated in the
+ * light theme for the same readability under the bright body
+ * background.
+ *
+ * `::highlight()` does NOT support borders or box-shadows
+ * (spec-level limitation), so we lean on background-color +
+ * a high-contrast text color for the active match.
+ */
+::highlight(docs-search) {
+  background-color: rgba(251, 191, 36, 0.4); /* amber-400 / 40% */
+}
+::highlight(docs-search-active) {
+  background-color: rgba(245, 158, 11, 0.85); /* amber-500 / 85% */
+  color: #1a1a1a;
+}
+.dark ::highlight(docs-search) {
+  background-color: rgba(251, 191, 36, 0.35);
+}
+.dark ::highlight(docs-search-active) {
+  background-color: rgba(245, 158, 11, 0.78);
+  color: #0b0b0b;
+}

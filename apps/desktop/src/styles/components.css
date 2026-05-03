@@ -1,0 +1,171 @@
+.glow-ring {
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--accent) / 0.35),
+    0 0 16px -4px rgb(var(--accent) / 0.2);
+}
+
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgb(var(--accent) / 0.35), transparent 55%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.log-cursor-line {
+  background: linear-gradient(90deg, rgb(var(--accent) / 0.1), transparent 70%);
+  border-left: 2px solid rgb(var(--accent) / 0.55);
+}
+
+.quick-action-panel {
+  background: rgb(var(--surface-raised));
+  border: 1.5px solid rgb(var(--border-strong));
+  border-radius: 18px;
+  box-shadow:
+    0 25px 50px -12px rgb(0 0 0 / 0.5),
+    0 0 0 1px rgb(var(--border) / 0.6),
+    0 0 80px -20px rgb(var(--accent) / 0.18);
+}
+
+/* The palette's main search input is *always* focused while the window is
+ * open, so the global `*:focus-visible` accent ring is pure noise here.
+ * This rule lives outside any `@layer`, matching the global focus-visible
+ * rule's cascade tier, and wins on specificity (class + pseudo > `*` +
+ * pseudo). Both `focus` and `focus-visible` are cleared so browsers that
+ * keep the outline on click-focus also stay quiet. */
+.qa-search-input,
+.qa-search-input:focus,
+.qa-search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* Same story for the AI Chat panel's history-drawer search input — it
+ * sits inside a wrapper that already provides its own border, so the
+ * global `*:focus-visible` orange outline doubles up as a thick halo.
+ * Class-based override wins on specificity over the universal rule. */
+.history-search-input,
+.history-search-input:focus,
+.history-search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Dashboard service search — same composition pattern as the two
+ * search inputs above: a bare <input> nested inside a wrapper that
+ * draws its own border via `focus-within:`. Without this override
+ * the global `*:focus-visible` orange ring stacks an inner halo on
+ * top of the wrapper's outer border, producing the "border in a
+ * border" look. If a fourth surface ever needs the same treatment
+ * it's time to extract a shared `.bare-input` utility class. */
+.dashboard-search-input,
+.dashboard-search-input:focus,
+.dashboard-search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* -----------------------------------------------------------------------
+ * Quick Action — critical layout anchors (Tailwind-agnostic).
+ *
+ * Tailwind v4's Oxide scanner occasionally drops `first:*` variant classes
+ * and `py-1.5` after hot reload or after a new class string is added to
+ * the codebase. When that happens the palette's first row gets clipped by
+ * the filter bar border and the "Actions" section header disappears.
+ *
+ * Anchoring these two responsibilities in plain CSS keeps the palette
+ * correct regardless of whether Tailwind successfully generated the
+ * corresponding utilities on the last rebuild. Tailwind classes on the
+ * same elements are still used for typography, hover states, etc. — we
+ * only lock down the structural bits here.
+ * --------------------------------------------------------------------- */
+.qa-list {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.qa-section-header {
+  padding: 12px 16px 4px;
+  border-top: 1px solid rgb(var(--border) / 0.35);
+  color: rgb(var(--fg-dim));
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qa-section-header:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, rgb(var(--accent)) 0%, rgb(var(--accent-hover)) 100%);
+  color: rgb(var(--accent-fg));
+  border: 1px solid rgb(var(--accent-hover));
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.12) inset,
+    0 0 0 1px rgb(var(--accent) / 0),
+    0 6px 20px -8px rgb(var(--accent) / 0.55);
+  transition:
+    filter 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+.btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.18) inset,
+    0 10px 24px -8px rgb(var(--accent) / 0.7);
+}
+.btn-primary:active {
+  transform: translateY(0.5px);
+  filter: brightness(0.97);
+}
+
+.btn-chrome {
+  background: rgb(var(--surface-raised));
+  color: rgb(var(--fg));
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.03) inset;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.btn-chrome:hover {
+  background: rgb(var(--surface-overlay));
+  border-color: rgb(var(--border-strong));
+}
+
+.svc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  height: 16px;
+  min-width: 40px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  font-family:
+    'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgb(var(--surface-muted));
+  color: rgb(var(--fg));
+  white-space: nowrap;
+}

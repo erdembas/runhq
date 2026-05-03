@@ -17,44 +17,18 @@ import {
 import { ipc } from '@/lib/ipc';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { DependencyTable } from '@/components/license-panel/DependencyTable';
+import { WarningRow } from '@/components/license-panel/WarningRow';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
-import { buildLicenseChatPayload, buildSingleLicenseChatPayload } from '@/lib/ai/licensePayload';
-import { cn } from '@/lib/cn';
-import type { ContaminationWarning, LicenseScanResult, LicenseRisk } from '@/types';
+import { buildLicenseChatPayload } from '@/lib/ai/licensePayload';
+import type { LicenseScanResult } from '@/types';
 
 interface Props {
   serviceId: string;
   serviceName: string;
   onClose: () => void;
 }
-
-/**
- * Risk tone palette. Keys are `snake_case` so they line up byte-for-byte
- * with the wire format coming out of the Rust `LicenseRisk` enum
- * (`#[serde(rename_all = "snake_case")]`). If you ever see a row
- * silently render with neutral styling, the first thing to check is
- * whether the backend is still emitting the rename.
- */
-const RISK_TONE: Record<LicenseRisk, 'critical' | 'warning' | 'success' | 'neutral' | 'info'> = {
-  safe: 'success',
-  permissive: 'success',
-  weak_copyleft: 'warning',
-  strong_copyleft: 'critical',
-  network_copyleft: 'critical',
-  proprietary: 'warning',
-  unknown: 'neutral',
-};
-
-const RISK_LABEL: Record<LicenseRisk, string> = {
-  safe: 'Safe',
-  permissive: 'Permissive',
-  weak_copyleft: 'Weak Copyleft',
-  strong_copyleft: 'Strong Copyleft',
-  network_copyleft: 'Network Copyleft',
-  proprietary: 'Proprietary',
-  unknown: 'Unknown',
-};
 
 export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
   const [result, setResult] = useState<LicenseScanResult | null>(null);
@@ -406,153 +380,6 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Collapsible dependency table with a paged "show more" affordance
- * for large trees. Caps initial render at `INITIAL_LIMIT` rows so
- * opening the panel for an `npm` project with 3000+ resolved
- * dependencies doesn't stall the main thread on first paint.
- */
-const INITIAL_LIMIT = 100;
-
-interface DependencyTableProps {
-  entries: LicenseScanResult['entries'];
-  expanded: boolean;
-  onToggle: () => void;
-}
-
-/**
- * Single contamination warning, rendered as a list item with an
- * inline "Analyze with AI" Sparkles affordance.
- *
- * Extracted out of the parent `.map()` so each row can host its
- * own `useAiSurfaceTrigger` — the hook needs a stable trigger ref
- * + popover anchor per call site, and you can't legally call it
- * inside a `.map()` callback. Same architectural reason the
- * advisory list extracts `<AdvisoryRow>` instead of inlining.
- *
- * The Sparkles button is intentionally always visible (not a
- * hover-only affordance): per-warning analysis is the highest-
- * value action on the row, and hiding it behind hover would hide
- * the entire feature on first sight for new users.
- */
-function WarningRow({
-  warning,
-  result,
-  projectName,
-}: {
-  warning: ContaminationWarning;
-  result: LicenseScanResult;
-  projectName: string;
-}) {
-  const {
-    triggerRef: analyzeTriggerRef,
-    onClick: onAnalyzeClick,
-    popover: analyzePopover,
-  } = useAiSurfaceTrigger<HTMLButtonElement>({
-    buildPayload: () => {
-      const payload = buildSingleLicenseChatPayload({
-        warning,
-        result,
-        projectName,
-        runtime: result.runtime,
-      });
-      return {
-        origin: 'license',
-        title: payload.title,
-        context: payload.context,
-        draftPrompt: payload.draftPrompt,
-        contextSystemMessage: payload.contextSystemMessage,
-      };
-    },
-  });
-
-  return (
-    <li className="text-fg group/license-row text-[11px] leading-relaxed">
-      <div className="flex min-w-0 items-start gap-1.5">
-        <div className="min-w-0 flex-1">
-          <span className="font-medium">{warning.package}</span> v{warning.version}{' '}
-          <Badge tone={RISK_TONE[warning.risk]} size="xs" className="ml-1">
-            {warning.license}
-          </Badge>
-          <p className="text-fg-dim mt-0.5">{warning.message}</p>
-        </div>
-        <button
-          ref={analyzeTriggerRef}
-          type="button"
-          onClick={onAnalyzeClick}
-          className={cn(
-            'text-fg/55 hover:text-accent hover:bg-accent/10 mt-0.5 inline-flex shrink-0 items-center',
-            'gap-0.5 rounded px-1 py-0.5 transition',
-            'group-hover/license-row:text-accent/80',
-          )}
-          title={`Analyze \`${warning.package}\` (${warning.license}) with AI`}
-          aria-label={`Analyze ${warning.package} license risk with AI`}
-        >
-          <Sparkles size={11} />
-        </button>
-        {analyzePopover}
-      </div>
-    </li>
-  );
-}
-
-function DependencyTable({ entries, expanded, onToggle }: DependencyTableProps) {
-  const [showAll, setShowAll] = useState(false);
-  const total = entries.length;
-  const visible = showAll ? entries : entries.slice(0, INITIAL_LIMIT);
-  const truncated = !showAll && total > INITIAL_LIMIT;
-
-  return (
-    <div>
-      <button
-        type="button"
-        className="text-fg-dim hover:text-fg flex items-center gap-1 text-[11px]"
-        onClick={onToggle}
-      >
-        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {total} {total === 1 ? 'dependency' : 'dependencies'}
-      </button>
-      {expanded && (
-        <div className="mt-2">
-          <table className="w-full text-[11px]">
-            <thead className="bg-surface-raised/40 sticky top-0 backdrop-blur">
-              <tr className="text-fg-dim border-border border-b">
-                <th className="px-2 py-1.5 text-left font-medium">Package</th>
-                <th className="px-2 py-1.5 text-left font-medium">Version</th>
-                <th className="px-2 py-1.5 text-left font-medium">License</th>
-                <th className="px-2 py-1.5 text-left font-medium">Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((e, i) => (
-                <tr key={i} className="border-border/40 hover:bg-surface-raised/40 border-b">
-                  <td className="px-2 py-1 font-mono">{e.name}</td>
-                  <td className="text-fg-dim px-2 py-1 font-mono">{e.version}</td>
-                  <td className="px-2 py-1 font-mono">{e.license}</td>
-                  <td className="px-2 py-1">
-                    <Badge tone={RISK_TONE[e.risk]} size="xs">
-                      {RISK_LABEL[e.risk]}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {truncated && (
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="text-accent hover:bg-accent/5 mt-1 block w-full rounded px-2 py-1.5 text-center text-[11px] font-medium transition"
-            >
-              Show all {total} packages…
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

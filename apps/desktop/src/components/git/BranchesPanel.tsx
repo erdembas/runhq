@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { GitBranch, RefreshCw, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { GitBranch, RefreshCw } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
-import { type FileEntry, buildTree, collectFolderPaths, statusLetterStyle } from '@/lib/gitDiff';
+import { type FileEntry, buildTree } from '@/lib/gitDiff';
 import { useAppStore } from '@/store/useAppStore';
 import { useResizableWidth } from '@/lib/useResizableWidth';
-import { TreeView } from '@/components/git/shared';
+import { FileSearchInput, GitStatusLegend, TreeView } from '@/components/git/shared';
 import { DiffPane, type DiffViewMode } from '@/components/git/DiffPane';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { BranchPicker, type BranchPickerOption } from '@/components/ui/BranchPicker';
-import type { DiffSummary, ServiceId } from '@/types';
+import { useBranchesPanelStore, useBranchesPanelStoreRef } from './useBranchesPanelStore';
+import type { ServiceId } from '@/types';
 
 interface BranchesPanelProps {
   serviceId: ServiceId;
@@ -32,16 +33,10 @@ export function BranchesPanel({
   viewMode,
   refreshTick,
 }: BranchesPanelProps) {
-  const [branches, setBranches] = useState<string[]>([]);
-  const [baseBranch, setBaseBranch] = useState<string>('');
-  const [headBranch, setHeadBranch] = useState<string>('');
-  const [diff, setDiff] = useState<DiffSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileDiff, setFileDiff] = useState<string | null>(null);
-  const [fileLoading, setFileLoading] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [fileSearch, setFileSearch] = useState('');
+  const store = useBranchesPanelStoreRef();
+  const branch = useBranchesPanelStore(store, (state) => state);
+  const patch = branch.patch;
+  const expandTree = branch.expandTree;
 
   const sidebar = useResizableWidth({
     storageKey: 'runhq.diff.branches.sidebar.v1',
@@ -59,8 +54,10 @@ export function BranchesPanel({
       try {
         const list = await ipc.gitBranches(serviceId);
         if (!cancelled) {
-          setBranches(list);
-          setHeadBranch((current) => current || list[0] || '');
+          patch((state) => ({
+            branches: list,
+            headBranch: state.headBranch || list[0] || '',
+          }));
         }
       } catch (err) {
         console.error('Failed to load branches', err);
@@ -69,21 +66,20 @@ export function BranchesPanel({
     return () => {
       cancelled = true;
     };
-  }, [serviceId, refreshTick]);
+  }, [patch, serviceId, refreshTick]);
 
   const loadDiff = useCallback(async () => {
-    if (!baseBranch || !headBranch || baseBranch === headBranch) return;
-    setLoading(true);
+    if (!branch.baseBranch || !branch.headBranch || branch.baseBranch === branch.headBranch) return;
+    patch({ loading: true });
     try {
-      const result = await ipc.gitDiffBranches(serviceId, baseBranch, headBranch);
-      setDiff(result);
-      setSelectedFile(result.files[0]?.path ?? null);
+      const result = await ipc.gitDiffBranches(serviceId, branch.baseBranch, branch.headBranch);
+      patch({ diff: result, selectedFile: result.files[0]?.path ?? null });
     } catch (err) {
       console.error('Failed to load branch diff', err);
     } finally {
-      setLoading(false);
+      patch({ loading: false });
     }
-  }, [serviceId, baseBranch, headBranch]);
+  }, [serviceId, branch.baseBranch, branch.headBranch, patch]);
 
   const showUnchanged = useAppStore((s) => s.diffShowUnchanged);
   const fullFileContext = showUnchanged ? 100_000 : undefined;
@@ -98,33 +94,33 @@ export function BranchesPanel({
   // with a branch-aware command is tracked separately — the old code
   // had the same limitation.
   useEffect(() => {
-    if (!selectedFile) return;
+    if (!branch.selectedFile) return;
     let cancelled = false;
-    setFileLoading(true);
+    patch({ fileLoading: true });
     (async () => {
       try {
-        const raw = await ipc.gitDiffFile(serviceId, selectedFile, fullFileContext);
-        if (!cancelled) setFileDiff(raw);
+        const raw = await ipc.gitDiffFile(serviceId, branch.selectedFile!, fullFileContext);
+        if (!cancelled) patch({ fileDiff: raw });
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to load branch file diff', err);
-          setFileDiff(null);
+          patch({ fileDiff: null });
         }
       } finally {
-        if (!cancelled) setFileLoading(false);
+        if (!cancelled) patch({ fileLoading: false });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [serviceId, selectedFile, fullFileContext]);
+  }, [serviceId, branch.selectedFile, fullFileContext, patch]);
 
   const entries: FileEntry[] = useMemo(() => {
-    const sec = `${baseBranch || '?'} … ${headBranch || '?'}`;
-    return diff?.files.map((f) => ({ ...f, section: sec })) ?? [];
-  }, [diff, baseBranch, headBranch]);
+    const sec = `${branch.baseBranch || '?'} … ${branch.headBranch || '?'}`;
+    return branch.diff?.files.map((f) => ({ ...f, section: sec })) ?? [];
+  }, [branch.diff, branch.baseBranch, branch.headBranch]);
 
-  const fileSearchTrim = fileSearch.trim().toLowerCase();
+  const fileSearchTrim = branch.fileSearch.trim().toLowerCase();
   const filteredEntries = useMemo(() => {
     if (!fileSearchTrim) return entries;
     return entries.filter((f) => f.path.toLowerCase().includes(fileSearchTrim));
@@ -133,23 +129,12 @@ export function BranchesPanel({
   const tree = useMemo(() => buildTree(filteredEntries), [filteredEntries]);
 
   useEffect(() => {
-    const set = new Set<string>();
-    collectFolderPaths(tree, set);
-    setExpandedFolders(set);
-  }, [tree]);
-
-  const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+    expandTree(tree);
+  }, [expandTree, tree]);
 
   const selectedMeta: FileEntry | null = useMemo(
-    () => entries.find((f) => f.path === selectedFile) ?? null,
-    [entries, selectedFile],
+    () => entries.find((f) => f.path === branch.selectedFile) ?? null,
+    [entries, branch.selectedFile],
   );
 
   const totalAdditions = entries.reduce((a, f) => a + f.additions, 0);
@@ -160,8 +145,8 @@ export function BranchesPanel({
   // "Branches" so the picker UI matches every other branch dropdown
   // in the app.
   const branchOptions: BranchPickerOption[] = useMemo(
-    () => branches.map((b) => ({ value: b, label: b, group: 'Branches' })),
-    [branches],
+    () => branch.branches.map((b) => ({ value: b, label: b, group: 'Branches' })),
+    [branch.branches],
   );
 
   return (
@@ -178,16 +163,16 @@ export function BranchesPanel({
           </div>
           <div className="flex items-center gap-1 text-[11px]">
             <BranchPicker
-              value={baseBranch}
-              onChange={setBaseBranch}
+              value={branch.baseBranch}
+              onChange={(baseBranch) => patch({ baseBranch })}
               options={branchOptions}
               placeholder="Base…"
               className="min-w-0 flex-1"
             />
             <span className="text-fg/40">…</span>
             <BranchPicker
-              value={headBranch}
-              onChange={setHeadBranch}
+              value={branch.headBranch}
+              onChange={(headBranch) => patch({ headBranch })}
               options={branchOptions}
               placeholder="Head…"
               className="min-w-0 flex-1"
@@ -195,10 +180,15 @@ export function BranchesPanel({
           </div>
           <button
             onClick={() => void loadDiff()}
-            disabled={!baseBranch || !headBranch || baseBranch === headBranch || loading}
+            disabled={
+              !branch.baseBranch ||
+              !branch.headBranch ||
+              branch.baseBranch === branch.headBranch ||
+              branch.loading
+            }
             className="border-border bg-accent/10 text-accent hover:bg-accent/20 flex w-full items-center justify-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={11} className={branch.loading ? 'animate-spin' : ''} />
             Compare
           </button>
         </div>
@@ -212,86 +202,40 @@ export function BranchesPanel({
             <span className="text-emerald-400/80">+{totalAdditions}</span>
             <span className="text-rose-400/80">−{totalDeletions}</span>
           </span>
-          <div
-            className="ml-2 flex items-center gap-1"
-            title="Added · Modified · Deleted · Renamed"
-          >
-            {(
-              [
-                ['added', 'A'],
-                ['modified', 'M'],
-                ['deleted', 'D'],
-                ['renamed', 'R'],
-              ] as const
-            ).map(([status, letter]) => (
-              <span
-                key={status}
-                className="inline-flex items-center justify-center font-bold tabular-nums"
-                style={{
-                  ...statusLetterStyle[status],
-                  height: 13,
-                  minWidth: 13,
-                  borderRadius: 3,
-                  paddingLeft: 2,
-                  paddingRight: 2,
-                  fontSize: 8,
-                  lineHeight: 1,
-                }}
-              >
-                {letter}
-              </span>
-            ))}
+          <div className="ml-2">
+            <GitStatusLegend />
           </div>
         </div>
 
         {/* File search */}
-        <div className="border-border border-b px-2 py-1.5">
-          <div className="border-border bg-surface focus-within:border-accent/50 flex h-7 items-center gap-1.5 rounded border px-2 transition-colors">
-            <Search size={11} className="text-fg/40 shrink-0" />
-            <input
-              type="text"
-              value={fileSearch}
-              onChange={(e) => setFileSearch(e.target.value)}
-              placeholder="Search files…"
-              spellCheck={false}
-              className="text-fg placeholder:text-fg/30 min-w-0 flex-1 bg-transparent text-[11px] outline-none"
-            />
-            {fileSearch && (
-              <button
-                onClick={() => setFileSearch('')}
-                className="text-fg/40 hover:text-fg shrink-0 cursor-pointer transition"
-                title="Clear"
-                type="button"
-              >
-                <X size={11} />
-              </button>
-            )}
-          </div>
-        </div>
+        <FileSearchInput
+          value={branch.fileSearch}
+          onChange={(fileSearch) => patch({ fileSearch })}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {!diff && !loading && (
+          {!branch.diff && !branch.loading && (
             <p className="text-fg/40 px-3 py-2 text-xs">Select two branches and press Compare.</p>
           )}
-          {loading && <p className="text-fg/40 px-3 py-2 text-xs">Loading diff…</p>}
-          {diff && !loading && entries.length === 0 && (
+          {branch.loading && <p className="text-fg/40 px-3 py-2 text-xs">Loading diff…</p>}
+          {branch.diff && !branch.loading && entries.length === 0 && (
             <p className="text-fg/40 px-3 py-2 text-xs">
-              {baseBranch} and {headBranch} are identical.
+              {branch.baseBranch} and {branch.headBranch} are identical.
             </p>
           )}
-          {diff && !loading && entries.length > 0 && filteredEntries.length === 0 && (
+          {branch.diff && !branch.loading && entries.length > 0 && filteredEntries.length === 0 && (
             <p className="text-fg/40 px-3 py-2 text-xs">
-              No files match &ldquo;{fileSearch}&rdquo;
+              No files match &ldquo;{branch.fileSearch}&rdquo;
             </p>
           )}
           {filteredEntries.length > 0 && (
             <TreeView
               node={tree}
               level={0}
-              expanded={expandedFolders}
-              onToggle={toggleFolder}
-              selectedFile={selectedFile}
-              onSelect={setSelectedFile}
+              expanded={branch.expandedFolders}
+              onToggle={branch.toggleFolder}
+              selectedFile={branch.selectedFile}
+              onSelect={(selectedFile) => patch({ selectedFile })}
             />
           )}
         </div>
@@ -305,15 +249,17 @@ export function BranchesPanel({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <DiffPane
-          selectedFile={selectedFile}
-          fileDiff={fileDiff}
+          selectedFile={branch.selectedFile}
+          fileDiff={branch.fileDiff}
           selectedMeta={selectedMeta}
           monacoTheme={monacoTheme}
           cwd={cwd}
           viewMode={viewMode}
-          fileLoading={fileLoading}
+          fileLoading={branch.fileLoading}
           emptyLabel={
-            !diff ? 'Select two branches above and press Compare' : 'Select a file to view its diff'
+            !branch.diff
+              ? 'Select two branches above and press Compare'
+              : 'Select a file to view its diff'
           }
         />
       </div>

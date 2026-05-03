@@ -36,8 +36,9 @@ import type { Options as SanitizeOptions } from 'rehype-sanitize';
  *   - Restrict `<a href>` protocols to http/https/mailto. No
  *     `javascript:`, no `file:`, no `vbscript:`.
  *   - Restrict `<img src>` protocols to http/https/data. The DOCS
- *     pipeline rewrites relative paths to `data:` URIs server-side
- *     anyway; we don't need to allow filesystem references.
+ *     image component rewrites local paths and remote badges to
+ *     CSP-safe `data:` URIs; we don't need to allow filesystem
+ *     references.
  *   - Allow GitHub-style presentational attrs: `align` on
  *     paragraphs / divs / table cells / images, `width`/`height`
  *     on images, `target` + `rel` on links (the markdown

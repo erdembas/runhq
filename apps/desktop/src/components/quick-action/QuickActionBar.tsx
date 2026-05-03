@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Zap } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { cn } from '@/lib/cn';
 import { useSyncedTheme } from '@/lib/theme';
 import { ipc } from '@/lib/ipc';
 import { recordActionUse } from '@/lib/actionStats';
@@ -14,9 +12,15 @@ import type {
   Status,
 } from '@/types';
 import { isRunning, isSelectable, type FilterMode, type ListItem, type ServiceCmd } from './types';
-import { fetchServices, fetchStatus, focusMainWindow } from './hooks';
+import { fetchStatus, focusMainWindow } from './hooks';
 import { buildItems } from './items';
-import { renderRow, type RenderRowDeps } from './renderers';
+import type { RenderRowDeps } from './renderers';
+import { QUICK_ACTION_FILTERS } from './filterModes';
+import { QuickActionFilterBar } from './QuickActionFilterBar';
+import { QuickActionFooter } from './QuickActionFooter';
+import { QuickActionHeader } from './QuickActionHeader';
+import { QuickActionList } from './QuickActionList';
+import { useQuickActionBootstrap } from './useQuickActionBootstrap';
 
 export function QuickActionBar() {
   useSyncedTheme();
@@ -37,50 +41,14 @@ export function QuickActionBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) inputRef.current?.focus();
-    });
-    return () => {
-      unlisten.then((u) => u());
-    };
-  }, []);
-
-  useEffect(() => {
-    fetchServices()
-      .then(setServices)
-      .catch(() => {});
-    ipc
-      .listStacks()
-      .then(setStacks)
-      .catch(() => {});
-    // Detection runs on every quick-action mount rather than once at boot:
-    // the QA window is its own webview, so it doesn't share the main app's
-    // store, and re-probing here means a freshly installed editor (Cursor
-    // shim, new .app dropped into /Applications) shows up the next time
-    // the user opens the palette without restarting RunHQ.
-    ipc
-      .detectEditors()
-      .then(setEditors)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    Promise.all(
-      services.map(async (svc) => {
-        try {
-          return [svc.id, (await fetchStatus(svc.id)) as CommandStatus[]] as const;
-        } catch {
-          return [svc.id, [] as CommandStatus[]] as const;
-        }
-      }),
-    ).then((entries) => {
-      const map: Record<string, CommandStatus[]> = {};
-      for (const [id, cmds] of entries) map[id] = cmds;
-      setCmdStatuses(map);
-    });
-  }, [services]);
+  useQuickActionBootstrap({
+    inputRef,
+    services,
+    setServices,
+    setStacks,
+    setEditors,
+    setCmdStatuses,
+  });
 
   useEffect(() => {
     setCursor(0);
@@ -356,17 +324,7 @@ export function QuickActionBar() {
     } else if (e.key === 'Tab') {
       e.preventDefault();
       setFilter((f) => {
-        const modes: FilterMode[] = [
-          'all',
-          'running',
-          'stopped',
-          'frontend',
-          'backend',
-          'database',
-          'infra',
-          'worker',
-          'tooling',
-        ];
+        const modes: FilterMode[] = QUICK_ACTION_FILTERS.map((item) => item.key);
         const idx = modes.indexOf(f);
         const delta = e.shiftKey ? -1 : 1;
         const next = (idx + delta + modes.length) % modes.length;
@@ -374,18 +332,6 @@ export function QuickActionBar() {
       });
     }
   };
-
-  const filters: Array<{ key: FilterMode; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'running', label: 'Running' },
-    { key: 'stopped', label: 'Stopped' },
-    { key: 'frontend', label: 'Frontend' },
-    { key: 'backend', label: 'Backend' },
-    { key: 'database', label: 'Database' },
-    { key: 'infra', label: 'Infra' },
-    { key: 'worker', label: 'Worker' },
-    { key: 'tooling', label: 'Tooling' },
-  ];
 
   const renderRowDeps: RenderRowDeps = {
     cursor,
@@ -408,95 +354,35 @@ export function QuickActionBar() {
         style={{ maxHeight: 'min(520px, 78vh)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 px-4 py-3.5">
-          {inDrill ? (
-            <button
-              type="button"
-              onClick={() => setExpandedId(null)}
-              className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition"
-              title="Back"
-              aria-label="Back"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          ) : (
-            <Zap className="text-accent h-[18px] w-[18px] shrink-0" strokeWidth={2.25} />
-          )}
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={inDrill ? `Filter ${drillName}…` : 'Search services, commands, actions…'}
-            className="qa-search-input text-fg placeholder:text-fg-dim/80 h-7 w-full bg-transparent text-[15px] font-normal tracking-[-0.01em]"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-          />
-        </div>
+        <QuickActionHeader
+          inDrill={inDrill}
+          drillName={drillName}
+          query={query}
+          inputRef={inputRef}
+          onQueryChange={setQuery}
+          onKeyDown={handleKeyDown}
+          onBack={() => setExpandedId(null)}
+        />
 
         {!inDrill && (
-          <div className="border-border/30 flex flex-wrap items-center gap-1 gap-y-1 border-b px-4 pb-2">
-            {filters.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => {
-                  setFilter(f.key);
-                  setCursor(0);
-                }}
-                className={cn(
-                  'rounded-app-sm shrink-0 px-2.5 py-0.5 text-[10px] font-medium transition',
-                  filter === f.key
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-fg-dim hover:bg-surface-muted hover:text-fg',
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <QuickActionFilterBar
+            active={filter}
+            onChange={(next) => {
+              setFilter(next);
+              setCursor(0);
+            }}
+          />
         )}
 
-        <div ref={scrollRef} className="qa-list min-h-0 flex-1 overflow-y-auto">
-          {items.length === 0 && (
-            <div className="text-fg-dim py-12 text-center text-[12px]">
-              {inDrill
-                ? 'No matching commands or actions'
-                : services.length === 0
-                  ? 'No services configured'
-                  : 'No results'}
-            </div>
-          )}
-          {!inDrill && items[0]?.type === 'app-action' && (
-            <div className="qa-section-header">Actions</div>
-          )}
-          {items.map((item, i) => renderRow(item, i, renderRowDeps))}
-        </div>
+        <QuickActionList
+          scrollRef={scrollRef}
+          items={items}
+          inDrill={inDrill}
+          services={services}
+          renderRowDeps={renderRowDeps}
+        />
 
-        <div className="border-border/30 bg-surface-muted/30 border-t px-4 py-1.5">
-          <div className="text-fg-dim flex items-center gap-3 text-[10px]">
-            <span>↑↓ navigate</span>
-            {inDrill ? (
-              <>
-                <span>⏎ run</span>
-                <span>← back</span>
-                <span>⌫ empty=back</span>
-              </>
-            ) : (
-              <>
-                <span>→ details</span>
-                <span>⏎ select</span>
-                <span>↹ category</span>
-              </>
-            )}
-            <span>esc {inDrill ? 'back' : 'close'}</span>
-            <span className="ml-auto flex items-center gap-1">
-              <Zap className="text-accent h-2.5 w-2.5" />
-              RunHQ
-            </span>
-          </div>
-        </div>
+        <QuickActionFooter inDrill={inDrill} />
       </div>
     </div>
   );

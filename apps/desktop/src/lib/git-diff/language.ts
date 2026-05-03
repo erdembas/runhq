@@ -1,0 +1,68 @@
+const EXT_LANG_MAP: Record<string, string> = {
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  rs: 'rust',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  java: 'java',
+  kt: 'kotlin',
+  scala: 'scala',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  html: 'html',
+  xml: 'xml',
+  svg: 'xml',
+  json: 'json',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'ini',
+  md: 'markdown',
+  sql: 'sql',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  graphql: 'graphql',
+  vue: 'html',
+  svelte: 'html',
+  dart: 'dart',
+  lua: 'lua',
+  php: 'php',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  cs: 'csharp',
+  fs: 'fsharp',
+  swift: 'swift',
+  objc: 'objective-c',
+  mm: 'objective-c',
+  r: 'r',
+  pl: 'perl',
+  ex: 'elixir',
+  exs: 'elixir',
+  erl: 'erlang',
+  hs: 'haskell',
+  lhs: 'haskell',
+  zig: 'zig',
+  proto: 'protobuf',
+};
+
+export function languageForPath(path: string): string {
+  const filename = path.split('/').pop() ?? '';
+  if (filename === 'Dockerfile') return 'dockerfile';
+  if (filename === 'Makefile') return 'makefile';
+  if (filename === 'Cargo.toml' || filename === 'Cargo.lock') return 'toml';
+  if (filename === '.gitignore' || filename === '.env') return 'ini';
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return EXT_LANG_MAP[ext] ?? 'plaintext';
+}

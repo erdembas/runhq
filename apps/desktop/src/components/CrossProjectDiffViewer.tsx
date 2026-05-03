@@ -1,23 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronRight,
-  Columns2,
-  ExternalLink,
-  FileDiff,
-  FoldVertical,
-  GitBranch,
-  GitCommit,
-  Maximize2,
-  Minimize2,
-  RefreshCw,
-  Rows2,
-  Search,
-  UnfoldVertical,
-  X,
-} from 'lucide-react';
+import { CrossProjectDiffSidebar } from '@/components/cross-project-diff/CrossProjectDiffSidebar';
+import { CrossProjectDiffTitlebar } from '@/components/cross-project-diff/CrossProjectDiffTitlebar';
+import { RIGHT_RAIL_WIDTH, isMac } from '@/components/cross-project-diff/constants';
+import type { Selection, ServiceBucket, ServiceTree } from '@/components/cross-project-diff/types';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
 import { useTheme } from '@/lib/theme';
@@ -26,56 +11,13 @@ import { useResizableWidth } from '@/lib/useResizableWidth';
 import { useAppStore } from '@/store/useAppStore';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { type FileEntry, buildTree, collectFolderPaths } from '@/lib/gitDiff';
-import { TreeView } from '@/components/git/shared';
 import { DiffPane, type DiffViewMode } from '@/components/git/DiffPane';
-import type { DiffSummary, ProjectOverview } from '@/types';
-
-/** macOS overlays native traffic-lights on top of the window, so we need to
- *  reserve ~76px on the left so nothing sits underneath them. Same treatment
- *  as DiffViewer — keeps behaviour consistent across fullscreen surfaces. */
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-
-/** Width of the always-visible vertical activity-bar rail on the right
- *  edge, in pixels. Mirrors `RightActivityBar`'s `w-9`; kept in sync
- *  with the matching constant in `DiffViewer.tsx`. */
-const RIGHT_RAIL_WIDTH = 36;
+import type { ProjectOverview } from '@/types';
 
 interface Props {
   onClose: () => void;
 }
 
-/** Rolled up per-service state kept in this view's local cache. The backend
- *  is the source of truth; we just merge unstaged + staged into one file list
- *  to match the mental model of "everything I haven't committed yet". */
-interface ServiceBucket {
-  project: ProjectOverview;
-  unstaged: DiffSummary | null;
-  staged: DiffSummary | null;
-  loading: boolean;
-  error: string | null;
-}
-
-/** Identifies a selected diff across every service in the viewer. A plain
- *  `string` can't disambiguate the same relative path appearing in two
- *  different repos, which is a normal situation in monorepo-adjacent
- *  workflows (multiple projects each have a `README.md`). */
-interface Selection {
-  serviceId: string;
-  source: 'unstaged' | 'staged';
-  path: string;
-}
-
-/**
- * Fullscreen overlay that surfaces every uncommitted change across every
- * tracked project in one tree. Goal is to prevent the "I forgot to commit
- * that two-line fix in project X before switching branches" failure mode
- * the roadmap calls out.
- *
- * Data flow: we read `overview.projects` (already polled by App.tsx every
- * 30s) for the list of dirty services, then fetch each service's unstaged
- * + staged diffs in parallel on open. The diffs themselves are re-fetched
- * on Refresh; the per-file diff body is loaded lazily when selected.
- */
 export function CrossProjectDiffViewer({ onClose }: Props) {
   const overview = useAppStore((s) => s.overview);
   const services = useAppStore((s) => s.services);
@@ -248,19 +190,6 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
 
   // Build tree data once per bucket + search, cache locally so re-renders
   // from selection don't repeatedly walk the file list.
-  type ServiceTree = {
-    project: ProjectOverview;
-    unstagedEntries: FileEntry[];
-    stagedEntries: FileEntry[];
-    unstagedTree: ReturnType<typeof buildTree>;
-    stagedTree: ReturnType<typeof buildTree>;
-    totalAdditions: number;
-    totalDeletions: number;
-    totalFiles: number;
-    loading: boolean;
-    error: string | null;
-  };
-
   const serviceTrees = useMemo<ServiceTree[]>(() => {
     const q = search.trim().toLowerCase();
     const rows: ServiceTree[] = [];
@@ -395,139 +324,42 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
             : 'h-[88vh] w-[96vw] min-w-[1000px] rounded-lg border',
         )}
       >
-        {/* Titlebar */}
-        <div
-          {...(isFullscreen && isMac ? { 'data-tauri-drag-region': true } : {})}
-          className={cn(
-            'border-border flex h-11 shrink-0 items-center justify-between gap-3 border-b pr-3',
-            isFullscreen && isMac ? 'pl-[84px]' : 'pl-3',
-          )}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <GitBranch size={15} className="text-accent shrink-0" />
-            <h2 className="text-fg shrink-0 text-[13px] font-semibold whitespace-nowrap">
-              Uncommitted Across Projects
-            </h2>
-            <span className="text-fg/30 shrink-0">·</span>
-            <span className="text-fg/60 flex shrink-0 items-center gap-2 text-[11px] tabular-nums">
-              <span>
-                {totalServices} project{totalServices === 1 ? '' : 's'}
-              </span>
-              <span className="text-fg/30">·</span>
-              <span>
-                {totalFiles} file{totalFiles === 1 ? '' : 's'}
-              </span>
-              {(totalAdditions > 0 || totalDeletions > 0) && (
-                <>
-                  <span className="text-fg/30">·</span>
-                  <span>
-                    {totalAdditions > 0 && (
-                      <span className="text-emerald-400">+{totalAdditions}</span>
-                    )}
-                    {totalAdditions > 0 && totalDeletions > 0 && (
-                      <span className="text-fg/30"> </span>
-                    )}
-                    {totalDeletions > 0 && <span className="text-rose-400">−{totalDeletions}</span>}
-                  </span>
-                </>
-              )}
-              {anyLoading && <RefreshCw size={11} className="text-fg/30 ml-1 animate-spin" />}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <IconTool
-              onClick={refresh}
-              tooltip="Refresh diffs"
-              disabled={anyLoading}
-              icon={<RefreshCw size={13} className={anyLoading ? 'animate-spin' : ''} />}
-            />
-            <div className="bg-border/60 mx-1 h-5 w-px" />
-            <IconTool
-              onClick={() => setViewMode('side-by-side')}
-              tooltip="Side-by-side"
-              active={viewMode === 'side-by-side'}
-              icon={<Columns2 size={13} />}
-            />
-            <IconTool
-              onClick={() => setViewMode('inline')}
-              tooltip="Inline"
-              active={viewMode === 'inline'}
-              icon={<Rows2 size={13} />}
-            />
-            <div className="bg-border/60 mx-1 h-5 w-px" />
-            <IconTool
-              onClick={expandAll}
-              tooltip="Expand all"
-              icon={<UnfoldVertical size={13} />}
-            />
-            <IconTool
-              onClick={collapseAll}
-              tooltip="Collapse all"
-              icon={<FoldVertical size={13} />}
-            />
-            <div className="bg-border/60 mx-1 h-5 w-px" />
-            <IconTool
-              onClick={() => setIsFullscreen((v) => !v)}
-              tooltip={isFullscreen ? 'Restore' : 'Fullscreen (F11)'}
-              icon={isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-            />
-            <IconTool onClick={onClose} tooltip="Close (Esc)" icon={<X size={14} />} />
-          </div>
-        </div>
+        <CrossProjectDiffTitlebar
+          isFullscreen={isFullscreen}
+          isMac={isMac}
+          totalServices={totalServices}
+          totalFiles={totalFiles}
+          totalAdditions={totalAdditions}
+          totalDeletions={totalDeletions}
+          anyLoading={anyLoading}
+          viewMode={viewMode}
+          onRefresh={refresh}
+          onViewModeChange={setViewMode}
+          onExpandAll={expandAll}
+          onCollapseAll={collapseAll}
+          onToggleFullscreen={() => setIsFullscreen((v) => !v)}
+          onClose={onClose}
+        />
 
         {/* Body */}
         <div className="flex min-h-0 flex-1">
-          {/* Left: scope sidebar with search + service sections — resizable 260–720px. */}
-          <aside
-            className="border-border flex shrink-0 flex-col border-r"
-            style={{ width: sidebar.width }}
-          >
-            <div className="border-border shrink-0 border-b p-2">
-              <div className="relative">
-                <Search
-                  size={12}
-                  className="text-fg/40 pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
-                />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Filter by file or project…"
-                  className="border-border bg-surface text-fg placeholder:text-fg/40 focus:border-accent/60 h-7 w-full rounded border pr-6 pl-7 text-[12px] transition focus:outline-none"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch('')}
-                    className="text-fg/40 hover:text-fg absolute top-1/2 right-1.5 -translate-y-1/2"
-                    aria-label="Clear filter"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto py-1">
-              {serviceTrees.length === 0 && <EmptyState search={search} anyLoading={anyLoading} />}
-              {serviceTrees.map((s) => (
-                <ServiceSection
-                  key={s.project.service_id}
-                  tree={s}
-                  collapsed={collapsedServices.has(s.project.service_id)}
-                  expandedFolders={expandedFolders}
-                  onToggleService={() => toggleService(s.project.service_id)}
-                  onToggleFolder={toggleFolder}
-                  selection={selection}
-                  onSelect={(src, path) =>
-                    setSelection({ serviceId: s.project.service_id, source: src, path })
-                  }
-                  onOpenInDiffViewer={() => {
-                    openDiffViewer(s.project.service_id);
-                    closeCrossProjectDiff();
-                  }}
-                />
-              ))}
-            </div>
-          </aside>
+          <CrossProjectDiffSidebar
+            width={sidebar.width}
+            search={search}
+            serviceTrees={serviceTrees}
+            anyLoading={anyLoading}
+            collapsedServices={collapsedServices}
+            expandedFolders={expandedFolders}
+            selection={selection}
+            onSearchChange={setSearch}
+            onToggleService={toggleService}
+            onToggleFolder={toggleFolder}
+            onSelect={(serviceId, source, path) => setSelection({ serviceId, source, path })}
+            onOpenInDiffViewer={(serviceId) => {
+              openDiffViewer(serviceId);
+              closeCrossProjectDiff();
+            }}
+          />
 
           <ResizeHandle
             handleProps={sidebar.handleProps}
@@ -555,278 +387,5 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
         </div>
       </div>
     </div>
-  );
-}
-
-function EmptyState({ search, anyLoading }: { search: string; anyLoading: boolean }) {
-  if (anyLoading) {
-    return (
-      <div className="text-fg/40 flex flex-col items-center gap-2 p-6 text-[12px]">
-        <RefreshCw size={18} className="animate-spin" />
-        <span>Loading diffs…</span>
-      </div>
-    );
-  }
-  if (search) {
-    return (
-      <div className="text-fg/40 p-6 text-center text-[12px]">
-        No files match <span className="text-fg/70 font-mono">{search}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="text-fg/50 flex flex-col items-center gap-3 p-8 text-center text-[12px]">
-      <div className="bg-status-running/10 text-status-running flex h-12 w-12 items-center justify-center rounded-full">
-        <FileDiff size={24} />
-      </div>
-      <p className="text-fg/80 font-medium">All projects clean</p>
-      <p className="text-fg/40 max-w-[240px] text-[11px]">
-        No uncommitted changes anywhere. Switch branches with confidence.
-      </p>
-    </div>
-  );
-}
-
-interface ServiceSectionProps {
-  tree: {
-    project: ProjectOverview;
-    unstagedEntries: FileEntry[];
-    stagedEntries: FileEntry[];
-    unstagedTree: ReturnType<typeof buildTree>;
-    stagedTree: ReturnType<typeof buildTree>;
-    totalAdditions: number;
-    totalDeletions: number;
-    totalFiles: number;
-    loading: boolean;
-    error: string | null;
-  };
-  collapsed: boolean;
-  expandedFolders: Set<string>;
-  onToggleService: () => void;
-  onToggleFolder: (path: string) => void;
-  selection: Selection | null;
-  onSelect: (source: 'unstaged' | 'staged', path: string) => void;
-  onOpenInDiffViewer: () => void;
-}
-
-function ServiceSection({
-  tree,
-  collapsed,
-  expandedFolders,
-  onToggleService,
-  onToggleFolder,
-  selection,
-  onSelect,
-  onOpenInDiffViewer,
-}: ServiceSectionProps) {
-  const {
-    project,
-    unstagedTree,
-    stagedTree,
-    totalFiles,
-    totalAdditions,
-    totalDeletions,
-    loading,
-    error,
-  } = tree;
-  const git = project.git_status;
-  const branch = git?.branch ?? 'detached';
-  const ahead = git?.ahead ?? 0;
-  const behind = git?.behind ?? 0;
-  const stagedFiles = tree.stagedEntries.length;
-  const unstagedFiles = tree.unstagedEntries.length;
-
-  return (
-    <section className="border-border/40 mb-1 border-b last:border-b-0">
-      {/* Service header — click to collapse, hover reveals Open-in-DiffViewer */}
-      <div
-        className={cn(
-          'group relative flex w-full items-center gap-2 py-1.5 pr-1 pl-2 text-left transition',
-          'hover:bg-fg/6',
-        )}
-      >
-        <button
-          type="button"
-          onClick={onToggleService}
-          className="text-fg flex min-w-0 flex-1 items-center gap-1.5"
-        >
-          {collapsed ? (
-            <ChevronRight size={13} className="text-fg/50 shrink-0" />
-          ) : (
-            <ChevronDown size={13} className="text-fg/50 shrink-0" />
-          )}
-          <span className="text-fg truncate text-[12.5px] font-semibold">{project.name}</span>
-          <span className="text-fg/40 shrink-0 text-[10px]">·</span>
-          <span className="text-fg/50 inline-flex shrink-0 items-center gap-0.5 text-[10.5px]">
-            <GitBranch size={10} />
-            <span className="max-w-[120px] truncate">{branch}</span>
-          </span>
-          {ahead > 0 && (
-            <span className="text-status-running inline-flex shrink-0 items-center text-[10px] tabular-nums">
-              <ArrowUp size={10} />
-              {ahead}
-            </span>
-          )}
-          {behind > 0 && (
-            <span className="text-status-starting inline-flex shrink-0 items-center text-[10px] tabular-nums">
-              <ArrowDown size={10} />
-              {behind}
-            </span>
-          )}
-        </button>
-        <span className="text-fg/50 flex shrink-0 items-center gap-1.5 pr-1 text-[10px] tabular-nums">
-          {totalAdditions > 0 && <span className="text-emerald-400/80">+{totalAdditions}</span>}
-          {totalDeletions > 0 && <span className="text-rose-400/80">−{totalDeletions}</span>}
-          <span className="text-fg/40">{totalFiles}</span>
-        </span>
-        <button
-          type="button"
-          onClick={onOpenInDiffViewer}
-          title="Open in full diff viewer (Commit / History / Graph)"
-          className={cn(
-            'text-fg/50 hover:text-fg hover:bg-surface-raised flex h-5 w-5 shrink-0 items-center justify-center rounded transition',
-            'opacity-0 group-hover:opacity-100 focus:opacity-100',
-          )}
-          aria-label={`Open ${project.name} in diff viewer`}
-        >
-          <ExternalLink size={11} />
-        </button>
-      </div>
-
-      {!collapsed && (
-        <div>
-          {error && (
-            <div className="text-status-error bg-status-error/10 mx-2 my-1 rounded px-2 py-1 text-[11px]">
-              {error}
-            </div>
-          )}
-          {loading && !error && (
-            <div className="text-fg/40 flex items-center gap-1.5 px-3 py-2 text-[11px]">
-              <RefreshCw size={10} className="animate-spin" />
-              Loading…
-            </div>
-          )}
-          {!loading && !error && totalFiles === 0 && (
-            <div className="text-fg/30 px-3 py-1.5 text-[11px] italic">no matching files</div>
-          )}
-
-          {/* Staged block */}
-          {stagedFiles > 0 && (
-            <StagingBlock
-              label="Staged"
-              hintIcon={<GitCommit size={10} />}
-              count={stagedFiles}
-              tree={stagedTree}
-              expandedFolders={expandedFolders}
-              onToggleFolder={onToggleFolder}
-              selection={selection}
-              serviceId={project.service_id}
-              source="staged"
-              onSelect={onSelect}
-            />
-          )}
-
-          {/* Unstaged / Changes block */}
-          {unstagedFiles > 0 && (
-            <StagingBlock
-              label="Changes"
-              hintIcon={<FileDiff size={10} />}
-              count={unstagedFiles}
-              tree={unstagedTree}
-              expandedFolders={expandedFolders}
-              onToggleFolder={onToggleFolder}
-              selection={selection}
-              serviceId={project.service_id}
-              source="unstaged"
-              onSelect={onSelect}
-            />
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function StagingBlock({
-  label,
-  hintIcon,
-  count,
-  tree,
-  expandedFolders,
-  onToggleFolder,
-  selection,
-  serviceId,
-  source,
-  onSelect,
-}: {
-  label: string;
-  hintIcon: React.ReactNode;
-  count: number;
-  tree: ReturnType<typeof buildTree>;
-  expandedFolders: Set<string>;
-  onToggleFolder: (path: string) => void;
-  selection: Selection | null;
-  serviceId: string;
-  source: 'unstaged' | 'staged';
-  onSelect: (source: 'unstaged' | 'staged', path: string) => void;
-}) {
-  // TreeView takes a single `selectedFile` string for highlighting, but
-  // the cross-project view needs to disambiguate between services AND
-  // between staged/unstaged panes. Feeding null when the active selection
-  // lives in a different block keeps the highlight scoped to the one it
-  // belongs to — otherwise every file with the same relative path across
-  // projects would light up at once.
-  const selectedFileForThisBlock =
-    selection && selection.serviceId === serviceId && selection.source === source
-      ? selection.path
-      : null;
-
-  return (
-    <div className="border-border/40 border-t first:border-t-0">
-      <div className="text-fg/50 flex items-center gap-1.5 px-3 py-1 text-[10px] tracking-wide uppercase">
-        <span className="text-fg/40">{hintIcon}</span>
-        <span>{label}</span>
-        <span className="text-fg/40 tabular-nums">{count}</span>
-      </div>
-      <TreeView
-        node={tree}
-        level={0}
-        expanded={expandedFolders}
-        onToggle={onToggleFolder}
-        selectedFile={selectedFileForThisBlock}
-        onSelect={(path) => onSelect(source, path)}
-      />
-    </div>
-  );
-}
-
-function IconTool({
-  onClick,
-  tooltip,
-  icon,
-  active,
-  disabled,
-}: {
-  onClick: () => void;
-  tooltip: string;
-  icon: React.ReactNode;
-  active?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={tooltip}
-      aria-label={tooltip}
-      className={cn(
-        'flex h-7 w-7 items-center justify-center rounded transition',
-        active ? 'bg-accent/20 text-accent' : 'text-fg/50 hover:text-fg hover:bg-fg/10',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-      )}
-    >
-      {icon}
-    </button>
   );
 }

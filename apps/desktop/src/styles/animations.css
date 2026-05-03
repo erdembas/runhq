@@ -1,0 +1,110 @@
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--status-running) / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--status-running) / 0);
+  }
+}
+
+@keyframes accent-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--accent) / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--accent) / 0);
+  }
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.animate-accent-pulse {
+  animation: accent-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+@keyframes slide-in-left {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-slide-in {
+  animation: slide-in-left 150ms ease-out;
+}
+
+@keyframes slide-in-right {
+  0% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 180ms cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+/* Shimmer used by the AI "Thinking…" pill while the model is in
+ * its chain-of-thought phase. Subtle: cycles a brighter foreground
+ * across the label without changing layout, so the pill stays a
+ * compact strip of UI while the model takes its time. */
+@keyframes reasoning-shimmer {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+.reasoning-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--fg) / 0.55) 0%,
+    rgb(var(--fg) / 0.55) 35%,
+    rgb(var(--accent) / 0.95) 50%,
+    rgb(var(--fg) / 0.55) 65%,
+    rgb(var(--fg) / 0.55) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: reasoning-shimmer 2.4s linear infinite;
+}

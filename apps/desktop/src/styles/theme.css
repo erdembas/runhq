@@ -1,0 +1,158 @@
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-surface: rgb(var(--surface));
+  --color-surface-raised: rgb(var(--surface-raised));
+  --color-surface-muted: rgb(var(--surface-muted));
+  --color-surface-overlay: rgb(var(--surface-overlay));
+
+  --color-border: rgb(var(--border));
+  --color-border-strong: rgb(var(--border-strong));
+
+  --color-fg: rgb(var(--fg));
+  --color-fg-muted: rgb(var(--fg-muted));
+  --color-fg-dim: rgb(var(--fg-dim));
+  --color-fg-inverse: rgb(var(--fg-inverse));
+
+  --color-accent: rgb(var(--accent));
+  --color-accent-fg: rgb(var(--accent-fg));
+  --color-accent-soft: rgb(var(--accent-soft));
+  --color-accent-hover: rgb(var(--accent-hover));
+
+  --color-status-running: rgb(var(--status-running));
+  --color-status-stopped: rgb(var(--status-stopped));
+  --color-status-error: rgb(var(--status-error));
+  --color-status-starting: rgb(var(--status-starting));
+
+  --color-cat-frontend: rgb(var(--cat-frontend));
+  --color-cat-backend: rgb(var(--cat-backend));
+  --color-cat-database: rgb(var(--cat-database));
+  --color-cat-infra: rgb(var(--cat-infra));
+  --color-cat-worker: rgb(var(--cat-worker));
+  --color-cat-tooling: rgb(var(--cat-tooling));
+  --color-cat-other: rgb(var(--cat-other));
+
+  /* Severity tones — semantic badge color system.
+     Each tone exposes a *base* color (used for tinted backgrounds + rings via
+     opacity modifiers like /12, /30) and a *fg* color (used for text/icons).
+     Both adapt to light/dark themes via the :root overrides below. */
+  --color-tone-critical: rgb(var(--tone-critical));
+  --color-tone-critical-fg: rgb(var(--tone-critical-fg));
+  --color-tone-warning: rgb(var(--tone-warning));
+  --color-tone-warning-fg: rgb(var(--tone-warning-fg));
+  --color-tone-info: rgb(var(--tone-info));
+  --color-tone-info-fg: rgb(var(--tone-info-fg));
+  --color-tone-success: rgb(var(--tone-success));
+  --color-tone-success-fg: rgb(var(--tone-success-fg));
+  --color-tone-neutral: rgb(var(--tone-neutral));
+  --color-tone-neutral-fg: rgb(var(--tone-neutral-fg));
+
+  --font-mono:
+    'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --animate-fade-in: fade-in 200ms ease-out;
+}
+
+:root {
+  --surface: 250 248 246;
+  --surface-raised: 255 255 255;
+  --surface-muted: 244 242 238;
+  --surface-overlay: 255 255 255;
+
+  --border: 228 224 218;
+  --border-strong: 202 196 186;
+
+  --fg: 20 18 16;
+  --fg-muted: 92 86 80;
+  --fg-dim: 148 140 130;
+  --fg-inverse: 255 255 255;
+
+  --accent: 234 88 12;
+  --accent-hover: 194 65 12;
+  --accent-fg: 255 255 255;
+  --accent-soft: 255 237 213;
+
+  --status-running: 5 150 105;
+  --status-stopped: 120 113 108;
+  --status-error: 220 38 38;
+  --status-starting: 217 119 6;
+
+  --cat-frontend: 2 132 199;
+  --cat-backend: 124 58 237;
+  --cat-database: 5 150 105;
+  --cat-infra: 234 88 12;
+  --cat-worker: 217 119 6;
+  --cat-tooling: 219 39 119;
+  --cat-other: 87 83 78;
+
+  /* Light-mode severity tones.
+     `*-fg` values target ~7:1 contrast on `--surface` (paper white).
+     Base values are used with opacity modifiers (e.g. /12, /30) for soft
+     backgrounds + rings — keep them mid-saturation so they tint cleanly. */
+  --tone-critical: 220 38 38; /* red-600 */
+  --tone-critical-fg: 153 27 27; /* red-800 */
+  --tone-warning: 217 119 6; /* amber-600 */
+  --tone-warning-fg: 146 64 14; /* amber-800 */
+  --tone-info: 2 132 199; /* sky-600 */
+  --tone-info-fg: 7 89 133; /* sky-800 */
+  --tone-success: 5 150 105; /* emerald-600 */
+  --tone-success-fg: 6 95 70; /* emerald-800 */
+  --tone-neutral: 87 83 78; /* stone-600 */
+  --tone-neutral-fg: 41 37 36; /* stone-800 */
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+
+  color-scheme: light;
+}
+
+:root.dark {
+  --surface: 12 12 12;
+  --surface-muted: 15 15 15;
+  --surface-overlay: 18 18 18;
+  --surface-raised: 22 22 22;
+
+  --border: 38 38 38;
+  --border-strong: 56 56 56;
+
+  --fg: 236 232 228;
+  --fg-muted: 168 160 152;
+  --fg-dim: 108 100 92;
+  --fg-inverse: 12 12 12;
+
+  --accent: 251 146 60;
+  --accent-hover: 253 186 116;
+  --accent-fg: 20 10 4;
+  --accent-soft: 54 24 10;
+
+  --status-running: 52 211 153;
+  --status-stopped: 120 113 108;
+  --status-error: 248 113 113;
+  --status-starting: 250 204 21;
+
+  --cat-frontend: 56 189 248;
+  --cat-backend: 167 139 250;
+  --cat-database: 52 211 153;
+  --cat-infra: 251 146 60;
+  --cat-worker: 250 204 21;
+  --cat-tooling: 244 114 182;
+  --cat-other: 148 148 148;
+
+  /* Dark-mode severity tones.
+     Base shifts to lighter shades so opacity-tinted backgrounds remain
+     visible on near-black surfaces; `*-fg` is the brightest reading shade
+     for text against tinted backgrounds. */
+  --tone-critical: 248 113 113; /* red-400 */
+  --tone-critical-fg: 252 165 165; /* red-300 */
+  --tone-warning: 250 204 21; /* amber-400 */
+  --tone-warning-fg: 252 211 77; /* amber-300 */
+  --tone-info: 56 189 248; /* sky-400 */
+  --tone-info-fg: 125 211 252; /* sky-300 */
+  --tone-success: 52 211 153; /* emerald-400 */
+  --tone-success-fg: 110 231 183; /* emerald-300 */
+  --tone-neutral: 168 162 158; /* stone-400 */
+  --tone-neutral-fg: 214 211 209; /* stone-300 */
+
+  color-scheme: dark;
+}

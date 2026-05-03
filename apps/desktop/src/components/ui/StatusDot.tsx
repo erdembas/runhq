@@ -1,7 +1,7 @@
 import { cn } from '@/lib/cn';
 import type { Status } from '@/types';
 
-export const COLOR: Record<Status, string> = {
+const COLOR: Record<Status, string> = {
   running: 'bg-status-running shadow-[0_0_8px_rgb(var(--status-running)/0.55)]',
   starting: 'bg-status-starting animate-pulse',
   stopping: 'bg-status-starting animate-pulse',

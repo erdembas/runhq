@@ -55,13 +55,12 @@ interface DocImageProps {
  *     read.
  *
  * Behaviour:
- *   - http(s) URLs render as-is. The CSP allows them.
  *   - `data:` URIs render as-is.
- *   - Everything else goes through `ipc.resolveDocImage`, which
- *     resolves the path against the service's cwd and returns a
- *     `data:` URI (or rejects with a precise error). On failure
- *     we render an inline broken-image placeholder so the page
- *     still flows naturally and the user can spot the offender.
+ *   - Local paths and remote http(s) badges go through
+ *     `ipc.resolveDocImage`, which returns a CSP-safe `data:` URI
+ *     (or rejects with a precise error). On failure we render an
+ *     inline broken-image placeholder so the page still flows
+ *     naturally and the user can spot the offender.
  */
 export function DocImage({ serviceId, baseDir, src, alt, width, height, align }: DocImageProps) {
   const [resolved, setResolved] = useState<string | null>(() => initialResolved(src));
@@ -73,7 +72,7 @@ export function DocImage({ serviceId, baseDir, src, alt, width, height, align }:
       setFailed(true);
       return;
     }
-    if (isExternal(src) || src.startsWith('data:')) {
+    if (src.startsWith('data:')) {
       setResolved(src);
       setFailed(false);
       return;
@@ -170,10 +169,6 @@ export function DocImage({ serviceId, baseDir, src, alt, width, height, align }:
 /** Pre-fill with the src when it's already a directly-renderable URL. */
 function initialResolved(src: string | undefined): string | null {
   if (!src) return null;
-  if (isExternal(src) || src.startsWith('data:')) return src;
+  if (src.startsWith('data:')) return src;
   return null;
-}
-
-function isExternal(src: string): boolean {
-  return /^https?:\/\//i.test(src);
 }

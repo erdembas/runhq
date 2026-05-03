@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { loader } from '@monaco-editor/react';
+import { ensureMonaco } from './monacoRuntime';
 
 /**
  * Registers `runhq-dark` / `runhq-light` Monaco themes that derive their
@@ -17,7 +17,7 @@ import { loader } from '@monaco-editor/react';
 export function useMonacoTheme(effectiveTheme: 'dark' | 'light'): string {
   useEffect(() => {
     let cancelled = false;
-    void loader.init().then((monaco) => {
+    void ensureMonaco().then((monaco) => {
       if (cancelled) return;
       const rgbVar = (name: string): string => {
         const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();

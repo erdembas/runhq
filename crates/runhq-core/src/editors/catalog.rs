@@ -1,0 +1,111 @@
+pub(super) struct KnownEditor {
+    pub(super) key: &'static str,
+    pub(super) name: &'static str,
+    pub(super) command: &'static str,
+    pub(super) mac_app_bundles: &'static [&'static str],
+    pub(super) win_exe_paths: &'static [&'static str],
+    pub(super) linux_paths: &'static [&'static str],
+}
+
+pub(super) static KNOWN_EDITORS: &[KnownEditor] = &[
+    KnownEditor {
+        key: "vscode",
+        name: "VS Code",
+        command: "code",
+        mac_app_bundles: &["Visual Studio Code.app"],
+        win_exe_paths: &["Microsoft VS Code/Code.exe"],
+        linux_paths: &[
+            "/usr/share/code/code",
+            "/snap/bin/code",
+            "/var/lib/flatpak/exports/bin/com.visualstudio.code",
+        ],
+    },
+    KnownEditor {
+        key: "cursor",
+        name: "Cursor",
+        command: "cursor",
+        mac_app_bundles: &["Cursor.app"],
+        win_exe_paths: &["cursor/Cursor.exe"],
+        linux_paths: &[
+            "/opt/Cursor/cursor",
+            "/opt/cursor/cursor",
+            "/usr/bin/cursor",
+        ],
+    },
+    KnownEditor {
+        key: "windsurf",
+        name: "Windsurf",
+        command: "windsurf",
+        mac_app_bundles: &["Windsurf.app"],
+        win_exe_paths: &["Windsurf/Windsurf.exe"],
+        linux_paths: &["/usr/bin/windsurf", "/opt/Windsurf/windsurf"],
+    },
+    KnownEditor {
+        key: "zed",
+        name: "Zed",
+        command: "zed",
+        mac_app_bundles: &["Zed.app", "Zed Preview.app"],
+        win_exe_paths: &[],
+        linux_paths: &[
+            "/usr/bin/zed",
+            "/opt/zed/zed",
+            "/var/lib/flatpak/exports/bin/dev.zed.Zed",
+        ],
+    },
+    KnownEditor {
+        key: "sublime",
+        name: "Sublime Text",
+        command: "subl",
+        mac_app_bundles: &["Sublime Text.app"],
+        win_exe_paths: &["Sublime Text/subl.exe", "Sublime Text/sublime_text.exe"],
+        linux_paths: &[
+            "/opt/sublime_text/sublime_text",
+            "/snap/bin/sublime-text.subl",
+            "/usr/bin/subl",
+        ],
+    },
+    KnownEditor {
+        key: "webstorm",
+        name: "WebStorm",
+        command: "webstorm",
+        mac_app_bundles: &["WebStorm.app"],
+        win_exe_paths: &["JetBrains/WebStorm/bin/webstorm64.exe"],
+        linux_paths: &["/opt/webstorm/bin/webstorm.sh", "/snap/bin/webstorm"],
+    },
+    KnownEditor {
+        key: "idea",
+        name: "IntelliJ IDEA",
+        command: "idea",
+        mac_app_bundles: &[
+            "IntelliJ IDEA.app",
+            "IntelliJ IDEA Ultimate.app",
+            "IntelliJ IDEA CE.app",
+        ],
+        win_exe_paths: &[
+            "JetBrains/IntelliJ IDEA/bin/idea64.exe",
+            "JetBrains/IntelliJ IDEA Community Edition/bin/idea64.exe",
+        ],
+        linux_paths: &[
+            "/opt/idea/bin/idea.sh",
+            "/opt/idea-ce/bin/idea.sh",
+            "/snap/bin/intellij-idea-ultimate",
+            "/snap/bin/intellij-idea-community",
+        ],
+    },
+    KnownEditor {
+        key: "rider",
+        name: "Rider",
+        command: "rider",
+        mac_app_bundles: &["Rider.app", "JetBrains Rider.app"],
+        win_exe_paths: &["JetBrains/JetBrains Rider/bin/rider64.exe"],
+        linux_paths: &["/opt/rider/bin/rider.sh", "/snap/bin/rider"],
+    },
+    KnownEditor {
+        key: "nvim",
+        name: "Neovim",
+        command: "nvim",
+        mac_app_bundles: &[],
+        win_exe_paths: &["Neovim/bin/nvim.exe"],
+        linux_paths: &["/usr/bin/nvim", "/snap/bin/nvim"],
+    },
+];

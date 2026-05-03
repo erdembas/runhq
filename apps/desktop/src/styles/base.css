@@ -1,0 +1,75 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family:
+    'Inter',
+    'SF Pro Text',
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  font-size: 13px;
+  background: rgb(var(--surface));
+  color: rgb(var(--fg));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  line-height: 1.5;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.log-line,
+.log-line *,
+code,
+pre,
+.select-text,
+.select-text * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+button,
+a,
+[role='button'],
+[role='tab'],
+[data-tauri-drag-region] {
+  cursor: default;
+}
+
+[draggable='true'] {
+  -webkit-user-drag: element;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.font-mono,
+code,
+kbd,
+pre,
+.log-line {
+  font-family:
+    'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+:root.dark body {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgb(var(--accent) / 0.06), transparent 60%),
+    radial-gradient(900px 500px at 110% 120%, rgb(var(--accent) / 0.04), transparent 60%),
+    rgb(var(--surface));
+}
