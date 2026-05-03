@@ -295,18 +295,50 @@ interface SplitPaneProps {
 }
 
 function SplitPane({ node, renderChild, onResize }: SplitPaneProps) {
+  // Debounced commit of the split size into the layout reducer.
+  //
+  // `react-resizable-panels` already updates the rendered split
+  // visually on every pointermove via direct DOM manipulation —
+  // the `onLayout` callback is just a notification so we can
+  // persist the final sizes for the next session. Dispatching
+  // into our reducer on *every* notification (60 Hz during a
+  // smooth drag) caused a re-render storm: the entire layout
+  // tree, every SplitPane, every TabGroup, every body host
+  // re-rendered each frame, fighting the lib's own DOM updates
+  // and dragging the resize cursor on busier services. We now
+  // hold the latest sizes in a ref and only flush to the reducer
+  // once the drag has been idle for ~80 ms. The end-of-drag
+  // commit always lands because the cleanup effect flushes any
+  // pending timer when the SplitPane unmounts (e.g., the user
+  // collapses the split entirely), and the comparator below
+  // skips no-op writes so steady-state idle stays free.
+  const latestSizes = useRef<[number, number]>(node.sizes);
+  const flushTimer = useRef<number | null>(null);
+
   const handleLayout = useCallback(
     (sizes: number[]) => {
-      // `react-resizable-panels` reports as Number[] but we modelled
-      // 2-way splits exclusively, so coerce. Skipping the persist if
-      // sizes are unchanged (within 0.1%) avoids a steady drizzle of
-      // localStorage writes during a smooth drag.
       const a = sizes[0] ?? 50;
       const b = sizes[1] ?? 50;
-      if (Math.abs(a - node.sizes[0]) < 0.1 && Math.abs(b - node.sizes[1]) < 0.1) return;
-      onResize(node.id, [a, b]);
+      latestSizes.current = [a, b];
+      if (flushTimer.current != null) window.clearTimeout(flushTimer.current);
+      flushTimer.current = window.setTimeout(() => {
+        flushTimer.current = null;
+        const [na, nb] = latestSizes.current;
+        // Skip the persist if sizes are unchanged (within 0.1 %)
+        // — avoids a steady drizzle of writes when the lib reports
+        // a final layout that matches what the reducer already has.
+        if (Math.abs(na - node.sizes[0]) < 0.1 && Math.abs(nb - node.sizes[1]) < 0.1) return;
+        onResize(node.id, latestSizes.current);
+      }, 80);
     },
     [node.id, node.sizes, onResize],
+  );
+
+  useEffect(
+    () => () => {
+      if (flushTimer.current != null) window.clearTimeout(flushTimer.current);
+    },
+    [],
   );
 
   return (
