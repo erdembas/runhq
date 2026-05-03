@@ -41,7 +41,7 @@
  * before screenshots are captured.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, History, Sparkles, X, ZoomIn } from 'lucide-react';
+import { ArrowRight, History, Sparkles, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
@@ -497,18 +497,13 @@ export function ReleaseNotes() {
 
   return (
     <div className="bg-surface flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <header className="border-border bg-surface flex shrink-0 items-center gap-3 border-b px-5 py-3">
-        <button
-          type="button"
-          onClick={closeReleaseNotes}
-          className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium transition-colors"
-          title="Back to dashboard"
-          aria-label="Back to dashboard"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back
-        </button>
-        <div className="bg-border/70 h-4 w-px" aria-hidden />
+      {/* Page header — just the breadcrumb. Same rationale as
+          SettingsView: now that Release Notes is a real main tab,
+          the tab strip's X / Cmd+W / middle-click already cover
+          every closing gesture, so an in-content Back / X would
+          be duplicate chrome. The breadcrumb stays as a soft
+          anchor for "you're on the Release Notes page". */}
+      <header className="border-border bg-surface flex shrink-0 items-center border-b px-5 py-3">
         <div className="min-w-0">
           <span className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
             <History className="text-accent h-3 w-3" />
@@ -518,14 +513,6 @@ export function ReleaseNotes() {
             Every release at a glance
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={closeReleaseNotes}
-          aria-label="Close release notes"
-          className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 ml-auto flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
       </header>
 
       {releases.length === 0 ? (

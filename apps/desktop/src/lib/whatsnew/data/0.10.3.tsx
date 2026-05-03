@@ -111,6 +111,11 @@ export const release_0_10_3: DocumentRelease = {
       detail: 'replaces the modal — Shortcuts, AI, Data, About, Danger Zone in one place',
     },
     {
+      href: '#settings-as-tabs',
+      label: 'Settings & Release Notes as tabs',
+      detail: 'no more overlay freeze on return; right side panels now slide instead of snap',
+    },
+    {
       href: '#shortcuts-catalogue',
       label: 'Nine keyboard shortcuts',
       detail: 'sidebar / AI / Activity toggles, new-terminal, main-tab navigation, conflicts',
@@ -384,11 +389,12 @@ export const release_0_10_3: DocumentRelease = {
                   subsection).
                 </li>
                 <li>
-                  <strong>AI Providers</strong> — summary of configured providers + a launcher for
-                  the existing CRUD dialog. The status-bar &quot;AI&quot; chip now{' '}
-                  <strong>deep-links here</strong> instead of popping a modal — modals are
-                  interruption surfaces, status-bar chips are navigation, and the old wiring
-                  conflated the two.
+                  <strong>AI Providers</strong> — the full provider CRUD (add / edit / remove /
+                  test, language pickers, default-marking) is rendered <strong>inline</strong> on
+                  this page. No more modal hop, no more &quot;Manage providers&quot; launcher
+                  button. Every entry point that used to open the legacy dialog (status-bar AI chip,
+                  chat composer model picker &quot;Manage&quot;, model chooser popover,
+                  release-notes CTA) now deep-links straight to this page.
                 </li>
                 <li>
                   <strong>Data &amp; Cache</strong> — dependency-scan history with a one-shot reset,
@@ -420,6 +426,42 @@ export const release_0_10_3: DocumentRelease = {
                 new category is a single file in <code>components/settings/categories/</code> plus
                 an entry in the sidebar array.
               </p>
+            </>
+          ),
+        },
+
+        {
+          id: 'settings-as-tabs',
+          title: 'Settings & Release Notes are first-class tabs now',
+          badge: 'improved',
+          body: (
+            <>
+              <p>
+                Earlier in the cycle, opening Settings or Release Notes mounted them as fullscreen
+                overlays on top of the workspace — which meant going back to the dashboard
+                <em>unmounted the entire main-tab tree</em> (every service tab, every layout, every
+                terminal scrollback) and re-rendered it from scratch. With three or four service
+                tabs open you could feel the freeze (~200–500 ms of pegged main thread) every time
+                you bounced through Settings to tweak a shortcut.
+              </p>
+
+              <p>
+                Both pages are now <strong>regular main tabs</strong>, opened and closed through the
+                same tab-strip controls (X button, middle-click, right-click → Close,{' '}
+                <KbdChip>Cmd</KbdChip> + <KbdChip>W</KbdChip>) as any service or stack tab. The
+                main-tab tree never unmounts: switching between Dashboard, a service, Settings, and
+                Release Notes is instant in either direction. The redundant in-page &quot;Back&quot;
+                / &quot;X&quot; buttons that lived in the overlay headers were also removed —
+                duplicated chrome once the tab strip owned closing.
+              </p>
+
+              <Callout tone="success" title="Smooth side panels too">
+                The AI Chat and Activity panels used to vanish abruptly when toggled off (hard
+                unmount). They now slide closed with a 200 ms width ease-out — same animation system
+                as the left sidebar&apos;s collapse / expand, just on the opposite edge. An
+                absolute-anchored inner wrapper keeps the panel content fully laid out during the
+                animation, so chat history doesn&apos;t reflow while the aside collapses.
+              </Callout>
             </>
           ),
         },

@@ -26,6 +26,8 @@ import {
   ListX,
   Pin,
   PinOff,
+  Settings as SettingsIcon,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -874,6 +876,20 @@ function resolveTabMeta(
       label: 'Dashboard',
       icon: <LayoutDashboard className="h-3 w-3" />,
       closable: false,
+    };
+  }
+  if (tab.kind === 'settings') {
+    return {
+      label: 'Settings',
+      icon: <SettingsIcon className="h-3 w-3" />,
+      closable: true,
+    };
+  }
+  if (tab.kind === 'release-notes') {
+    return {
+      label: 'Release Notes',
+      icon: <Sparkles className="h-3 w-3" />,
+      closable: true,
     };
   }
   if (tab.kind === 'service') {

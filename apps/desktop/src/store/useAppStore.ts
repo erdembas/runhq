@@ -122,7 +122,7 @@ interface LogBuffer {
  * Tabs are addressed by a stable composite key `${kind}:${refId}` so the
  * tab strip can dedup and React can use it as a list key.
  */
-export type MainTabKind = 'dashboard' | 'service' | 'stack';
+export type MainTabKind = 'dashboard' | 'service' | 'stack' | 'settings' | 'release-notes';
 export interface MainTab {
   kind: MainTabKind;
   refId: string;
@@ -130,11 +130,39 @@ export interface MainTab {
 
 export const DASHBOARD_TAB: MainTab = { kind: 'dashboard', refId: 'dashboard' };
 
+/**
+ * Singleton tab for the Settings hub. Settings used to live as a
+ * fullscreen overlay that unmounted the entire main-tabs tree on
+ * open/close — with 5+ service tabs that meant a 200–500 ms freeze
+ * on every round trip (xterm DOM re-attach + buffer replay, split
+ * layouts re-reading localStorage, dashboard filter pipeline, etc.).
+ *
+ * Settings is now a regular main tab so it benefits from the same
+ * mount-stability guarantees the rest of the strip enjoys: opening
+ * it just *adds* a tab next to whatever's already there, closing it
+ * snaps focus back to the previous tab, and switching between tabs
+ * is CSS visibility (no remount).
+ *
+ * `refId` is constant — there's only ever one Settings tab at a
+ * time. The composite key `mainTabKey(SETTINGS_TAB)` doubles as the
+ * tab-strip address and the dedup key.
+ */
+export const SETTINGS_TAB: MainTab = { kind: 'settings', refId: 'settings' };
+
+/**
+ * Singleton tab for the Release Notes archive — same rationale as
+ * `SETTINGS_TAB` above (fullscreen-overlay re-mount thrash → real
+ * tab so the rest of the workspace stays warm).
+ */
+export const RELEASE_NOTES_TAB: MainTab = { kind: 'release-notes', refId: 'release-notes' };
+
 export function mainTabKey(tab: MainTab): string {
   return `${tab.kind}:${tab.refId}`;
 }
 
 export const DASHBOARD_TAB_KEY = mainTabKey(DASHBOARD_TAB);
+export const SETTINGS_TAB_KEY = mainTabKey(SETTINGS_TAB);
+export const RELEASE_NOTES_TAB_KEY = mainTabKey(RELEASE_NOTES_TAB);
 
 export type SidebarGroupBy = 'none' | 'category' | 'runtime' | 'status';
 export type DashboardGroupBy = 'none' | 'category' | 'runtime' | 'status';
@@ -1068,6 +1096,47 @@ function isPinnedKey(key: string, pinned: ReadonlySet<string>): boolean {
   return key !== DASHBOARD_TAB_KEY && pinned.has(key);
 }
 
+/**
+ * Reconcile the `settingsCategory` / `releaseNotesOpen` flags with
+ * actual tab presence after a bulk tab mutation.
+ *
+ * The flags are derived state — they exist so that consumers
+ * (sidebar highlights, the prefs reload effect in App.tsx, the
+ * SettingsView component itself) don't have to re-derive "is the
+ * settings tab open?" from `mainTabs.some(...)` on every render.
+ * The single source of truth is still `mainTabs`; this helper
+ * keeps the cached flags honest after any operation that might
+ * remove a settings or release-notes tab without going through
+ * {@link closeMainTab} (e.g. close-others / close-to-right /
+ * close-all bulk gestures).
+ *
+ * Returns a partial state slice with only the flags that actually
+ * changed, so callers can spread it into their `set` payload
+ * without dirtying unrelated state.
+ */
+function reconcileOverlayTabFlags(
+  s: { settingsCategory: SettingsCategoryId | null; releaseNotesOpen: boolean },
+  nextTabs: MainTab[],
+): {
+  settingsCategory?: null;
+  releaseNotesOpen?: false;
+  releaseNotesSelectedVersion?: null;
+} {
+  const out: {
+    settingsCategory?: null;
+    releaseNotesOpen?: false;
+    releaseNotesSelectedVersion?: null;
+  } = {};
+  if (s.settingsCategory !== null && !nextTabs.some((t) => mainTabKey(t) === SETTINGS_TAB_KEY)) {
+    out.settingsCategory = null;
+  }
+  if (s.releaseNotesOpen && !nextTabs.some((t) => mainTabKey(t) === RELEASE_NOTES_TAB_KEY)) {
+    out.releaseNotesOpen = false;
+    out.releaseNotesSelectedVersion = null;
+  }
+  return out;
+}
+
 function genSectionId(): SectionId {
   const g = globalThis as { crypto?: { randomUUID?: () => string } };
   if (g.crypto && typeof g.crypto.randomUUID === 'function') {
@@ -1317,15 +1386,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
         resourceHistory: { ...s.resourceHistory, [id]: nextHistory },
       };
     }),
-  // `releaseNotesOpen: false` here matters: Release Notes lives in the
-  // main-area conditional chain *above* selectedServiceId / selectedStackId,
-  // so without explicitly clearing it the user would click a service in
-  // the sidebar and stay stuck on the archive page. Sidebar nav must
-  // always win — that's the user's whole way out of Release Notes.
-  //
   // setSelected(id) doubles as a tab-router: passing a service id
   // either activates the existing tab for that service, or opens a
   // new one. Passing `null` snaps back to the dashboard tab.
+  //
+  // Settings / Release Notes are first-class tabs now (see
+  // `SETTINGS_TAB` / `RELEASE_NOTES_TAB` definitions), so nothing
+  // here clears `releaseNotesOpen` / `settingsCategory` — those
+  // tabs are allowed to stay in the strip while the user navigates
+  // around. Closing them is an explicit gesture (X / Cmd+W).
   setSelected: (id) =>
     set((s) => {
       if (id == null) {
@@ -1333,8 +1402,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
           selectedServiceId: null,
           selectedCmdName: null,
           selectedStackId: null,
-          releaseNotesOpen: false,
-          settingsCategory: null,
           activeMainTabKey: DASHBOARD_TAB_KEY,
         };
       }
@@ -1345,8 +1412,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: id,
         selectedCmdName: null,
         selectedStackId: null,
-        releaseNotesOpen: false,
-        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1370,8 +1435,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: id,
         selectedCmdName: null,
         selectedStackId: null,
-        releaseNotesOpen: false,
-        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1394,8 +1457,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
           selectedStackId: null,
           selectedServiceId: null,
           selectedCmdName: null,
-          releaseNotesOpen: false,
-          settingsCategory: null,
           activeMainTabKey: DASHBOARD_TAB_KEY,
         };
       }
@@ -1406,8 +1467,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedStackId: id,
         selectedServiceId: null,
         selectedCmdName: null,
-        releaseNotesOpen: false,
-        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1456,12 +1515,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const activeTab = next.find((t) => mainTabKey(t) === activeKey);
       const selectedServiceId = activeTab?.kind === 'service' ? activeTab.refId : null;
       const selectedStackId = activeTab?.kind === 'stack' ? activeTab.refId : null;
+      // Settings / Release Notes flags shadow tab presence — when
+      // their tab is the one being closed, blank the matching flag
+      // so the rest of the app (sidebar highlights, prefs reload
+      // effect in App.tsx) sees a consistent "not open" state.
+      const closedSettings = key === SETTINGS_TAB_KEY;
+      const closedReleaseNotes = key === RELEASE_NOTES_TAB_KEY;
       return {
         mainTabs: next,
         activeMainTabKey: activeKey,
         selectedServiceId,
         selectedStackId,
         selectedCmdName: null,
+        ...(closedSettings && { settingsCategory: null }),
+        ...(closedReleaseNotes && {
+          releaseNotesOpen: false,
+          releaseNotesSelectedVersion: null,
+        }),
       };
     }),
   setActiveMainTab: (key) =>
@@ -1473,8 +1543,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: tab.kind === 'service' ? tab.refId : null,
         selectedStackId: tab.kind === 'stack' ? tab.refId : null,
         selectedCmdName: null,
-        releaseNotesOpen: false,
-        settingsCategory: null,
       };
     }),
   closeOtherMainTabs: (keepKey) =>
@@ -1501,6 +1569,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
         selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
         selectedCmdName: null,
+        ...reconcileOverlayTabFlags(s, next),
       };
     }),
   closeMainTabsToRight: (key) =>
@@ -1532,6 +1601,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
         selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
         selectedCmdName: null,
+        ...reconcileOverlayTabFlags(s, next),
       };
     }),
   closeMainTabsToLeft: (key) =>
@@ -1566,6 +1636,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
         selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
         selectedCmdName: null,
+        ...reconcileOverlayTabFlags(s, next),
       };
     }),
   closeAllMainTabs: () =>
@@ -1592,6 +1663,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: activeTab?.kind === 'service' ? activeTab.refId : null,
         selectedStackId: activeTab?.kind === 'stack' ? activeTab.refId : null,
         selectedCmdName: null,
+        ...reconcileOverlayTabFlags(s, next),
       };
     }),
   toggleMainTabPin: (key) =>
@@ -2618,45 +2690,73 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   releaseNotesOpen: false,
   releaseNotesSelectedVersion: null,
+  // Release Notes is a singleton main tab now (see RELEASE_NOTES_TAB
+  // definition above). Opening it adds the tab to the strip if it
+  // isn't there, then activates it — the rest of the workspace
+  // (services, dashboard, settings tab if any) stays mounted
+  // alongside, so closing Release Notes returns the user to where
+  // they were without a remount cycle. The `releaseNotesOpen` flag
+  // shadows tab presence and is kept in sync by `closeMainTab`
+  // (and the bulk-close reconcile helper).
   openReleaseNotes: (version) =>
-    set({
-      releaseNotesOpen: true,
-      releaseNotesSelectedVersion: version ?? null,
-      // Closing Settings here mirrors the Release Notes ↔ Settings
-      // mutual exclusion: only one fullscreen page lives on the
-      // canvas at a time.
-      settingsCategory: null,
-      // Clear other main-area selections so the page truly takes over
-      // the canvas. Without this, a user who had a service open would
-      // see Release Notes "win" via render-precedence but the sidebar
-      // would still highlight the old service — confusing breadcrumbs.
-      selectedServiceId: null,
-      selectedCmdName: null,
-      selectedStackId: null,
-      // Snap the tab strip back to the dashboard so when the user
-      // closes Release Notes they land somewhere sensible instead of
-      // a stale service tab they didn't ask to be on.
-      activeMainTabKey: DASHBOARD_TAB_KEY,
+    set((s) => {
+      const exists = s.mainTabs.some((t) => mainTabKey(t) === RELEASE_NOTES_TAB_KEY);
+      return {
+        releaseNotesOpen: true,
+        releaseNotesSelectedVersion: version ?? null,
+        mainTabs: exists
+          ? s.mainTabs
+          : insertTabRespectingPin(s.mainTabs, RELEASE_NOTES_TAB, new Set(s.pinnedMainTabKeys)),
+        activeMainTabKey: RELEASE_NOTES_TAB_KEY,
+        // Mirror `setActiveMainTab` for the breadcrumb/sidebar:
+        // jumping to Release Notes via status-bar / quick-action
+        // shouldn't leave the sidebar still highlighting whatever
+        // service/stack the user was on. Clicking the Release Notes
+        // tab strip later goes through `setActiveMainTab` directly,
+        // which performs the same clears — keeping the two entry
+        // points symmetric.
+        selectedServiceId: null,
+        selectedStackId: null,
+        selectedCmdName: null,
+      };
     }),
-  closeReleaseNotes: () => set({ releaseNotesOpen: false }),
+  closeReleaseNotes: () => {
+    // Delegated to closeMainTab so the snap-to-fallback logic and
+    // the flag reconciliation live in exactly one place.
+    get().closeMainTab(RELEASE_NOTES_TAB_KEY);
+  },
 
   // ---- Settings hub ----------------------------------------------------------
-  // Opening Settings clears the same selections as Release Notes
-  // (sidebar highlight, command tab) so the breadcrumbs match what
-  // the user actually sees on the canvas. Closing simply blanks the
-  // category — the previous tab takes over again because every tab
-  // is still mounted underneath via `display: none`.
+  // Settings is a singleton main tab now (see SETTINGS_TAB definition
+  // above). Opening it adds the tab + activates + records the
+  // requested category; closing the tab through the X / Cmd+W /
+  // closeSettings action all funnel through `closeMainTab`, which
+  // also blanks `settingsCategory` so downstream consumers (the
+  // prefs reload effect in App.tsx, the SettingsView body) see a
+  // consistent "not open" state.
   settingsCategory: null,
   openSettings: (category) =>
-    set({
-      settingsCategory: category ?? 'shortcuts',
-      releaseNotesOpen: false,
-      selectedServiceId: null,
-      selectedCmdName: null,
-      selectedStackId: null,
-      activeMainTabKey: DASHBOARD_TAB_KEY,
+    set((s) => {
+      const exists = s.mainTabs.some((t) => mainTabKey(t) === SETTINGS_TAB_KEY);
+      return {
+        settingsCategory: category ?? 'shortcuts',
+        mainTabs: exists
+          ? s.mainTabs
+          : insertTabRespectingPin(s.mainTabs, SETTINGS_TAB, new Set(s.pinnedMainTabKeys)),
+        activeMainTabKey: SETTINGS_TAB_KEY,
+        // Same breadcrumb-symmetry rationale as `openReleaseNotes`:
+        // a status-bar Settings click jumps the active tab here,
+        // so the sidebar shouldn't keep pointing at the previous
+        // service/stack. Tab-strip activations route through
+        // `setActiveMainTab` and already do the same clearing.
+        selectedServiceId: null,
+        selectedStackId: null,
+        selectedCmdName: null,
+      };
     }),
-  closeSettings: () => set({ settingsCategory: null }),
+  closeSettings: () => {
+    get().closeMainTab(SETTINGS_TAB_KEY);
+  },
 
   diffShowUnchanged: initialDiffShowUnchanged,
   setDiffShowUnchanged: (v) => {

@@ -1,13 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
 import {
-  ArrowLeft,
   Bot,
   Database,
   Info,
   Keyboard,
   Settings as SettingsIcon,
   ShieldAlert,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -79,14 +77,6 @@ interface Props {
    * "things I might want to revisit" pane.
    */
   onReplayTour?: () => void;
-  /**
-   * Open the (legacy) AI Provider Manager dialog. The provider CRUD
-   * UI is large enough that embedding it inside Settings would
-   * dwarf every other page, so we keep it as a separate modal and
-   * the AI page in Settings just exposes a launcher + a quick
-   * summary.
-   */
-  onOpenAiManager?: () => void;
 }
 
 /**
@@ -111,11 +101,11 @@ interface Props {
  *     users don't have to learn a one-off interaction.
  *
  * The page reads the active category and the close action straight
- * from the store; the only props are the cross-surface callbacks
- * (replay tour, open the legacy AI manager dialog) that App.tsx
- * has to wire because the targets live in *its* component tree.
+ * from the store; the only prop is the cross-surface callback
+ * (replay tour) that App.tsx has to wire because the target
+ * (the welcome-tour modal) lives in *its* component tree.
  */
-export function SettingsView({ onReplayTour, onOpenAiManager }: Props) {
+export function SettingsView({ onReplayTour }: Props) {
   const active = useAppStore((s) => s.settingsCategory);
   const closeSettings = useAppStore((s) => s.closeSettings);
   const openSettings = useAppStore((s) => s.openSettings);
@@ -149,23 +139,17 @@ export function SettingsView({ onReplayTour, onOpenAiManager }: Props) {
 
   return (
     <div className="bg-surface flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {/* Page header — same shape as ReleaseNotes' header. Back
-          button on the left, breadcrumb in the middle, close (X)
-          on the right. The X is redundant with Back but matches
-          the user's expectation that "fullscreen pages have a
-          close affordance in the corner". */}
-      <header className="border-border bg-surface flex shrink-0 items-center gap-3 border-b px-5 py-3">
-        <button
-          type="button"
-          onClick={closeSettings}
-          className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium transition-colors"
-          title="Back to dashboard"
-          aria-label="Back to dashboard"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back
-        </button>
-        <div className="bg-border/70 h-4 w-px" aria-hidden />
+      {/* Page header — just the breadcrumb. Back / X buttons used
+          to live here back when Settings was a fullscreen overlay
+          on top of the workspace; now that Settings is a real
+          main tab, the tab strip's own X button (and Cmd+W /
+          middle-click / right-click → Close) covers every closing
+          gesture, so an in-content "Back" / "X" would be
+          duplicated chrome. The breadcrumb stays because the
+          active-category label is still useful info — the sidebar
+          inside Settings hosts multiple categories and the
+          heading anchors which one you're reading right now. */}
+      <header className="border-border bg-surface flex shrink-0 items-center border-b px-5 py-3">
         <div className="min-w-0">
           <span className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
             <SettingsIcon className="text-accent h-3 w-3" />
@@ -175,14 +159,6 @@ export function SettingsView({ onReplayTour, onOpenAiManager }: Props) {
             {currentCategory(active).label}
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={closeSettings}
-          aria-label="Close settings"
-          className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 ml-auto flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
       </header>
 
       {/* Body — sidebar (categories) + scrollable content. */}
@@ -226,12 +202,7 @@ export function SettingsView({ onReplayTour, onOpenAiManager }: Props) {
           {active === 'shortcuts' && (
             <ShortcutsCategory description={currentCategory(active).description} />
           )}
-          {active === 'ai' && (
-            <AiCategory
-              description={currentCategory(active).description}
-              onOpenManager={onOpenAiManager}
-            />
-          )}
+          {active === 'ai' && <AiCategory />}
           {active === 'data' && <DataCategory description={currentCategory(active).description} />}
           {active === 'about' && (
             <AboutCategory

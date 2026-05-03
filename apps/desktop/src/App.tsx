@@ -12,7 +12,6 @@ import { StackDetail } from '@/components/StackDetail';
 import { MainTabBar } from '@/components/MainTabBar';
 import { ScanDialog } from '@/components/ScanDialog';
 import { SettingsView } from '@/components/settings/SettingsView';
-import { AiSettings } from '@/components/AiSettings';
 import { RightActivityBar } from '@/components/RightActivityBar';
 import { RightSidePanel } from '@/components/RightSidePanel';
 import { ResizeHandles } from '@/components/ResizeHandles';
@@ -63,31 +62,34 @@ export default function App() {
   const whatsNewVersion = useAppStore((s) => s.whatsNewVersion);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
   const closeWhatsNew = useAppStore((s) => s.closeWhatsNew);
-  const releaseNotesOpen = useAppStore((s) => s.releaseNotesOpen);
-  // Settings lives in the store now (it's a fullscreen page on the
-  // canvas, not a modal) so the same render-precedence rules that
-  // gate Release Notes apply: if Settings is open, every other
-  // main-area surface is hidden underneath. The slot doubles as the
-  // "active category" so deep-linking from anywhere is just
-  // `openSettings('ai')`.
+  // `settingsCategory` doubles as the deep-link target (which
+  // category to show inside the Settings tab) AND as the
+  // "is the Settings tab currently open?" gate that the prefs
+  // reload effect below uses to avoid clobbering an in-progress
+  // edit. Settings is a real main tab now (see `SETTINGS_TAB` in
+  // the store), but the flag stays useful as derived metadata so
+  // consumers don't have to re-derive it from `mainTabs.some(...)`
+  // on every render.
   const settingsCategory = useAppStore((s) => s.settingsCategory);
   const openSettings = useAppStore((s) => s.openSettings);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
-  // Cross-component bridge for opening AI Settings without prop-
-  // drilling. Surfaces like the chat composer's model pill — which
-  // live deep inside `RightSidePanel` — fire `runhq:open-ai-settings`
-  // and we react here. Window-level CustomEvent keeps the chat
-  // panel decoupled from App's local state shape; the alternative
-  // (lifting `aiSettingsOpen` into Zustand) would touch a much larger
-  // store API surface for what is effectively a pub/sub edge.
+  // Cross-component bridge for opening the AI Provider manager
+  // without prop-drilling. Surfaces like the chat composer's model
+  // pill — which live deep inside `RightSidePanel` — fire
+  // `runhq:open-ai-settings` and we react here. The AI manager is
+  // no longer a modal; it lives inside the Settings → AI tab, so
+  // the listener simply opens (or focuses, if already open) that
+  // tab. Keeping the legacy event name avoids touching every
+  // call-site (chat composer, model picker, release-notes CTA, …)
+  // and means a future relocation of the AI page only needs to
+  // update this one handler.
   useEffect(() => {
-    const onOpen = () => setAiSettingsOpen(true);
+    const onOpen = () => openSettings('ai');
     window.addEventListener('runhq:open-ai-settings', onOpen);
     return () => window.removeEventListener('runhq:open-ai-settings', onOpen);
-  }, []);
+  }, [openSettings]);
   // When the quick-action palette opens over the top of the running app, we
   // dim the main window so the floating palette reads as a modal layer rather
   // than something floating in mid-air. Rust only emits `palette-opened`
@@ -702,84 +704,74 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <SidebarRail />
         <main className="flex min-w-0 flex-1 flex-col">
-          {/* Fullscreen pages (Release Notes, Settings) live at the
-              top of the conditional chain on purpose: opening either
-              must always win over whatever was on the canvas. The
-              store's `setSelected` / `setSelectedStack` clear both
-              `releaseNotesOpen` and `settingsCategory` so sidebar
-              navigation always wins back — precedence stays
-              one-directional. Settings has lower priority than
-              Release Notes only because the Release Notes page is
-              already an autohide-after-update flow that the user
-              didn't ask for; if they happen to open Settings on
-              top of an auto-shown notes page, surfacing the notes
-              again would be jarring. (In practice they can't both
-              be open simultaneously because each opener clears the
-              other.) */}
-          {releaseNotesOpen ? (
-            <ReleaseNotes />
-          ) : settingsCategory !== null ? (
-            <SettingsView
-              onReplayTour={() => {
-                useAppStore.getState().closeSettings();
-                setTourState({ open: true, reopened: true });
-              }}
-              onOpenAiManager={() => {
-                useAppStore.getState().closeSettings();
-                setAiSettingsOpen(true);
-              }}
-            />
-          ) : (
-            <>
-              <MainTabBar />
-              {/*
-                Per-tab state preservation strategy:
-                Every open tab stays mounted in the DOM at all
-                times; the inactive ones are hidden via
-                `display: none`. This is what lets a service tab
-                keep its terminal session alive, its log filter
-                input populated, its split-pane height intact, and
-                its scroll position pinned across tab switches.
-                Conditional rendering (`{active === 'foo' && ...}`)
-                would tear those down on every flip and we'd be
-                back to the non-tabbed UX with extra steps.
-                We collapse hidden tabs via `display: none` rather
-                than visibility/opacity tricks because (a) hidden
-                trees don't participate in tab order or
-                accessibility, exactly what we want for an
-                inactive tab, and (b) layout-affecting DOM
-                (TerminalPane sizing, virtualized log list
-                measurement) doesn't need to compete for
-                container width while invisible.
-              */}
-              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                {mainTabs.map((tab) => {
-                  const key = mainTabKey(tab);
-                  const isActive = key === activeMainTabKey;
-                  // `flex` is required (not `block`) because the
-                  // children expect a column flex context to fill
-                  // height. Hidden tabs collapse via `none` so they
-                  // don't take any layout slot at all.
-                  const style: React.CSSProperties = isActive
-                    ? { display: 'flex', flex: '1 1 auto', minHeight: 0 }
-                    : { display: 'none' };
-                  return (
-                    <div
-                      key={key}
-                      role="tabpanel"
-                      aria-hidden={!isActive}
-                      className="flex-col overflow-hidden"
-                      style={style}
-                    >
-                      {tab.kind === 'dashboard' && <Dashboard onScan={startScan} />}
-                      {tab.kind === 'service' && <LogPanel serviceId={tab.refId} />}
-                      {tab.kind === 'stack' && <StackDetail stackId={tab.refId} />}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <MainTabBar />
+          {/*
+            Per-tab state preservation strategy:
+            Every open tab stays mounted in the DOM at all
+            times; the inactive ones are hidden via
+            `display: none`. This is what lets a service tab
+            keep its terminal session alive, its log filter
+            input populated, its split-pane height intact, and
+            its scroll position pinned across tab switches.
+            Conditional rendering (`{active === 'foo' && ...}`)
+            would tear those down on every flip and we'd be
+            back to the non-tabbed UX with extra steps.
+            We collapse hidden tabs via `display: none` rather
+            than visibility/opacity tricks because (a) hidden
+            trees don't participate in tab order or
+            accessibility, exactly what we want for an
+            inactive tab, and (b) layout-affecting DOM
+            (TerminalPane sizing, virtualized log list
+            measurement) doesn't need to compete for
+            container width while invisible.
+
+            Settings and Release Notes are first-class tabs
+            now (see `SETTINGS_TAB` / `RELEASE_NOTES_TAB` in
+            the store). They were full-screen overlays in an
+            earlier iteration, which forced the entire main-
+            tab tree to unmount on open and remount on close
+            (xterm DOM re-attach, split-layout localStorage
+            rehydrate, dashboard filter pipeline, etc.) —
+            with 5+ service tabs open that meant a 200–500 ms
+            freeze on every round trip. Living inside the tab
+            map gives them the same mount-stability everything
+            else gets.
+          */}
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            {mainTabs.map((tab) => {
+              const key = mainTabKey(tab);
+              const isActive = key === activeMainTabKey;
+              // `flex` is required (not `block`) because the
+              // children expect a column flex context to fill
+              // height. Hidden tabs collapse via `none` so they
+              // don't take any layout slot at all.
+              const style: React.CSSProperties = isActive
+                ? { display: 'flex', flex: '1 1 auto', minHeight: 0 }
+                : { display: 'none' };
+              return (
+                <div
+                  key={key}
+                  role="tabpanel"
+                  aria-hidden={!isActive}
+                  className="flex-col overflow-hidden"
+                  style={style}
+                >
+                  {tab.kind === 'dashboard' && <Dashboard onScan={startScan} />}
+                  {tab.kind === 'service' && <LogPanel serviceId={tab.refId} />}
+                  {tab.kind === 'stack' && <StackDetail stackId={tab.refId} />}
+                  {tab.kind === 'settings' && (
+                    <SettingsView
+                      onReplayTour={() => {
+                        useAppStore.getState().closeSettings();
+                        setTourState({ open: true, reopened: true });
+                      }}
+                    />
+                  )}
+                  {tab.kind === 'release-notes' && <ReleaseNotes />}
+                </div>
+              );
+            })}
+          </div>
         </main>
         {/* VSCode-style right side: panel host (renders the active
             view, nothing if collapsed) + a permanent 36px icon rail
@@ -805,7 +797,10 @@ export default function App() {
       {editorStack !== undefined && <StackEditor stack={editorStack} onClose={closeStackEditor} />}
       {scanPath && <ScanDialog path={scanPath} onClose={() => setScanPath(null)} />}
       {portManagerOpen && <PortManager onClose={() => setPortManagerOpen(false)} />}
-      {aiSettingsOpen && <AiSettings onClose={() => setAiSettingsOpen(false)} />}
+      {/* The AI provider manager used to mount here as a standalone
+          dialog driven by `aiSettingsOpen`; it now lives inline in
+          the Settings → AI tab and the legacy `runhq:open-ai-settings`
+          event simply opens that tab via `openSettings('ai')`. */}
       {/* AI Chat and Activity Timeline are now both rendered inside
           the right-side shell (RightSidePanel), so we no longer
           mount them as standalone drawers/overlays here. */}

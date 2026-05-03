@@ -16,7 +16,6 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Field, Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
@@ -24,10 +23,6 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import type { AiProvider, AiTestResult } from '@/types';
-
-interface AiSettingsProps {
-  onClose: () => void;
-}
 
 interface FormState {
   id?: string;
@@ -381,7 +376,17 @@ function LanguagePicker({
   );
 }
 
-export function AiSettings({ onClose }: AiSettingsProps) {
+/**
+ * Inline AI provider manager — used to live behind a `<Dialog>` opened
+ * from the status bar / chat composer / release notes, but the
+ * provider CRUD is now hosted directly inside the Settings → AI tab.
+ * Every `runhq:open-ai-settings` consumer (status bar AI button, chat
+ * model picker "Manage", release-notes CTA, …) routes through
+ * `openSettings('ai')`, so no caller mounts this as a popup anymore;
+ * it's always rendered in the Settings tab's right pane and inherits
+ * its scroll container.
+ */
+export function AiProviderManager() {
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<FormState | null>(null);
@@ -465,12 +470,7 @@ export function AiSettings({ onClose }: AiSettingsProps) {
   };
 
   return (
-    <Dialog
-      title="AI Providers"
-      subtitle="Connect any OpenAI-compatible chat completions endpoint"
-      onClose={onClose}
-      size="lg"
-    >
+    <div className="flex flex-col gap-4">
       {editing ? (
         <ProviderForm
           state={editing}
@@ -545,7 +545,7 @@ export function AiSettings({ onClose }: AiSettingsProps) {
           onCancel={() => setRemoving(null)}
         />
       )}
-    </Dialog>
+    </div>
   );
 }
 
