@@ -1,13 +1,17 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CheckCircle2,
   Clock,
+  Eye,
+  EyeOff,
   FileText,
   FolderOpen,
   Globe,
   HelpCircle,
   History,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Play,
   RotateCcw,
@@ -404,6 +408,14 @@ export const ServiceCard = memo(function ServiceCard({
         'group/card glass relative flex flex-col gap-3 p-4 text-left transition-all duration-200',
         'hover:border-border-strong hover:-translate-y-0.5 hover:shadow-[0_10px_30px_-12px_rgb(0_0_0/0.25)]',
         isRunning && 'border-accent/35 shadow-[0_0_0_1px_rgb(var(--accent)/0.12)]',
+        // Workspace-only project rendered while "Show Hidden" is on:
+        // dial the surface back so a glance across the grid still
+        // reads "these don't count toward the dashboard headline" —
+        // even though they're temporarily visible. Border-dashed
+        // borrows the convention used by Linear/Notion for "draft
+        // / hidden / muted" rows; hover lifts back to full opacity
+        // so the user can still inspect details without strain.
+        svc.hide_dashboard && 'border-border/40 border-dashed opacity-60 hover:opacity-100',
       )}
     >
       {isRunning && (
@@ -451,6 +463,26 @@ export const ServiceCard = memo(function ServiceCard({
           <span className="text-fg truncate text-[13.5px] font-semibold tracking-tight">
             {svc.name}
           </span>
+          {/*
+            Hidden-from-dashboard marker. Renders only when the
+            service is workspace-only AND visible on the dashboard
+            (the "Show Hidden" toggle is on) — otherwise the card
+            wouldn't be in the DOM to read this. Tiny eye-off icon
+            sits next to the name so the viewer's first scan
+            confirms "right, this card is here as a courtesy, not
+            because it counts toward the workspace stats". Tooltip
+            spells it out for users who haven't internalised the
+            convention yet.
+          */}
+          {svc.hide_dashboard && (
+            <span
+              className="text-fg-dim/70 inline-flex shrink-0"
+              title="Hidden from dashboard headline (workspace-tracking only)"
+              aria-label="Hidden from dashboard"
+            >
+              <EyeOff className="h-3 w-3" />
+            </span>
+          )}
         </div>
         {(runtime || svc.port != null) && (
           <div className="flex shrink-0 items-center gap-1">
@@ -639,6 +671,36 @@ export const ServiceCard = memo(function ServiceCard({
           : `${svc.cmds.length} commands · ${svc.cmds.map((c) => c.name).join(', ')}`}
       </div>
 
+      {/*
+        Action row — pruned aggressively in v0.11. Earlier the row
+        carried six icon buttons (restart, edit, delete, open folder,
+        notes, license) plus an optional Globe (for ports), the
+        primary Start/Stop, *and* the right-pinned Git/Editor cluster.
+        On a compact card width that's nine chrome elements crammed
+        between two semantic anchors — visually it parsed as a
+        "noise band", not a control surface.
+
+        Hierarchy now:
+          • Primary CTA   : Start / Stop (always one button, full label)
+          • Live access   : Globe — only when the project carries a
+                            port. It's the most common click while a
+                            service is up; demoting it to the overflow
+                            menu would punish the running case.
+          • Secondary     : Restart — used often enough to stay visible
+                            but doesn't need an accent fill.
+          • Overflow ⋯   : Edit, Open folder, Notes, License, then a
+                            divider, then Delete (danger, isolated at
+                            the bottom so it never sits next to a
+                            common action).
+          • Right cluster : Git status + Editor dropdown — both are
+                            popovers with their own affordance, kept
+                            separate from the row of buttons because
+                            they read as state-readouts, not actions.
+
+        This keeps the most-clicked surface (Start/Stop + Globe + Git
+        + Editor) at full visibility while the long tail collapses
+        behind a single conventional ⋯ trigger every dev recognises.
+      */}
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         {isRunning ? (
           <button
@@ -664,12 +726,37 @@ export const ServiceCard = memo(function ServiceCard({
         <CardAction title="Restart" onClick={() => void ipc.restartService(svc.id)}>
           <RotateCcw className="h-3.5 w-3.5" />
         </CardAction>
-        <CardAction title="Edit" onClick={() => openEditor(svc)}>
-          <Pencil className="h-3.5 w-3.5" />
-        </CardAction>
-        <CardAction
-          title="Delete"
-          onClick={() => {
+        {svc.port != null && (
+          <CardAction
+            title={`Open ${localUrl(svc.port!)}`}
+            onClick={() => void ipc.openUrl(localUrl(svc.port!))}
+            tone="accent"
+          >
+            <Globe className="h-3.5 w-3.5" />
+          </CardAction>
+        )}
+        <CardOverflowMenu
+          onEdit={() => openEditor(svc)}
+          onOpenFolder={() => void ipc.openPath(svc.cwd)}
+          onNotes={() => onOpenOverlay?.(svc.id, 'notes')}
+          onLicense={() => onOpenOverlay?.(svc.id, 'license')}
+          isHidden={!!svc.hide_dashboard}
+          onToggleHidden={() => {
+            // Optimistic flip — `ipc.updateService` returns the
+            // canonical post-write `ServiceDef` so the
+            // store-side mutation listener will reconcile
+            // anything we got wrong (impossible here because
+            // we're flipping a boolean, but kept symmetric with
+            // every other write path in the app). We pass the
+            // ENTIRE service def, not a patch, because the
+            // backend's `update_service` command is a full
+            // replace — sending a partial would null-out fields
+            // we didn't touch.
+            void ipc.updateService({ ...svc, hide_dashboard: !svc.hide_dashboard }).catch((err) => {
+              console.warn('updateService(hide_dashboard) failed', err);
+            });
+          }}
+          onDelete={() => {
             setPendingConfirm({
               message: `Delete "${svc.name}"?`,
               onConfirm: async () => {
@@ -680,27 +767,7 @@ export const ServiceCard = memo(function ServiceCard({
               },
             });
           }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </CardAction>
-        <CardAction title="Open folder" onClick={() => void ipc.openPath(svc.cwd)}>
-          <FolderOpen className="h-3.5 w-3.5" />
-        </CardAction>
-        <CardAction title="Project notes" onClick={() => onOpenOverlay?.(svc.id, 'notes')}>
-          <FileText className="h-3.5 w-3.5" />
-        </CardAction>
-        <CardAction title="License compliance" onClick={() => onOpenOverlay?.(svc.id, 'license')}>
-          <Scale className="h-3.5 w-3.5" />
-        </CardAction>
-        {svc.port != null && (
-          <CardAction
-            title={`Open ${localUrl(svc.port!)}`}
-            onClick={() => void ipc.openUrl(localUrl(svc.port!))}
-            tone="accent"
-          >
-            <Globe className="h-3.5 w-3.5" />
-          </CardAction>
-        )}
+        />
         {/*
           Right-aligned cluster in the action row — now holds only git
           and editor, both of which are interactive popovers (not
@@ -774,6 +841,380 @@ function countAttentionFlags(p: ProjectOverview | null | undefined): number {
   // want the explainer to be primed for.
   if (licenseContaminationCount(p.license) > 0) n += 1;
   return n;
+}
+
+/**
+ * Overflow menu for the service-card action row. Houses the
+ * lower-frequency surfaces (Edit, Open folder, Notes, License) and
+ * the destructive Delete affordance — collapsing them under a
+ * single ⋯ trigger frees the action row to read as
+ * `[Start] · [Restart] · [Globe] · ⋯ · ─── · [Git] · [Editor]`
+ * instead of the earlier nine-icon clutter.
+ *
+ * Hand-rolled (no Radix dropdown) to match the inline pattern used
+ * by `DashboardActionsMenu`, `ThemeMenu`, and the section menus —
+ * one less dependency to upgrade and the click-outside / Escape
+ * wiring is identical across surfaces.
+ *
+ * Event handling notes:
+ *  - `e.stopPropagation()` on the trigger button: the surrounding
+ *    card is itself `role="button"` (clicking the card opens its
+ *    detail tab). Without the stop, opening the menu would also
+ *    teleport the user away from the dashboard.
+ *  - The same stop runs inside `onMouseDown`, not just `onClick`,
+ *    because card-level keyboard handlers fire on `onKeyDown` /
+ *    `onClick` separately and the menu's outside-click listener
+ *    runs on `mousedown` — without stopping mousedown the menu
+ *    would close itself the instant it opened on slow trackpads.
+ *  - Delete sits below a divider so a fast click on the most-common
+ *    "Edit" doesn't visually slide into the destructive row.
+ */
+/**
+ * Card overflow menu — Edit / Open folder / Notes / License / Delete.
+ *
+ * **Why a portal + fixed positioning** (instead of `absolute` inside
+ * the card): each `ServiceCard` is `overflow-hidden` so its rounded
+ * corners + sparkline halo don't bleed outside the card surface. An
+ * `absolute` popover inherits that clip and gets sliced off at the
+ * card border, which is exactly the visual bug the previous
+ * implementation shipped — the menu would render INSIDE the card,
+ * pushing layout or being half-clipped depending on how close the
+ * trigger was to the bottom edge.
+ *
+ * Portaling to `document.body` escapes every ancestor's
+ * `overflow`, `transform`, and `z-index` context. We then place the
+ * menu via viewport-relative coordinates derived from the trigger's
+ * `getBoundingClientRect()`, with an above-vs-below flip when the
+ * card sits near the bottom of the viewport (mirrors how
+ * `EditorDropdown` handles the same problem so both popovers behave
+ * identically next to each other on the same card).
+ *
+ * Right-edge anchor: the menu is wider than the trigger (200 px vs
+ * a 28-px button), so we anchor by the trigger's RIGHT edge and
+ * grow leftward. This keeps the menu visually pinned to the
+ * affordance instead of flying off into the right margin and
+ * accidentally overlapping the next card's edge in tight grids.
+ */
+const OVERFLOW_MENU_WIDTH = 220;
+const OVERFLOW_MENU_GAP = 4;
+/**
+ * Approximate menu height used to decide above-vs-below placement.
+ * Five rows × 30 px + divider + 8 px vertical padding ≈ 168 px.
+ * Off by a few pixels at most; the placement decision only needs
+ * to know whether there's "enough" space below, not the exact
+ * pixel count.
+ */
+const OVERFLOW_MENU_HEIGHT_ESTIMATE = 180;
+
+/**
+ * Single-active-popover registry for the dashboard's overflow menus.
+ *
+ * Why a module-level subject instead of Context or a Zustand slice:
+ * the registry is a pure UI concern — no other surface needs to read
+ * "which overflow menu is open right now", and lifting it into a
+ * shared store would force every card render to subscribe to a
+ * value it doesn't actually consume. A 6-line pubsub pinned to this
+ * file keeps the contract local to where it matters and avoids
+ * inflating the global store with throwaway UI state.
+ *
+ * Each `CardOverflowMenu` instance gets a stable `id` (a monotonic
+ * counter, stable for the lifetime of the React element). When it
+ * opens, it broadcasts its id; every other instance whose
+ * subscriber sees a non-matching id closes its own popover. This
+ * collapses N independent `open` states into a single source of
+ * truth without a re-render cascade across the whole dashboard —
+ * only the previously-open menu re-renders, plus the newly-opened
+ * one. Closed menus are pure listeners and stay idle.
+ */
+type OverflowMenuId = number;
+let nextOverflowMenuId: OverflowMenuId = 1;
+const overflowMenuListeners = new Set<(activeId: OverflowMenuId | null) => void>();
+function announceOverflowMenuActive(activeId: OverflowMenuId | null): void {
+  for (const listener of overflowMenuListeners) listener(activeId);
+}
+
+function CardOverflowMenu({
+  onEdit,
+  onOpenFolder,
+  onNotes,
+  onLicense,
+  isHidden,
+  onToggleHidden,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onOpenFolder: () => void;
+  onNotes: () => void;
+  onLicense: () => void;
+  /**
+   * Current dashboard-visibility state (`hide_dashboard` flag).
+   * Drives the row label + icon between "Hide from dashboard"
+   * (when currently visible) and "Show on dashboard" (when
+   * currently hidden), so the action description always reads
+   * as the *outcome* of the click — never the current state.
+   * That's the convention every modern UI follows (Notion,
+   * Linear, GitHub) and avoids the classic "is this a toggle
+   * or a checkbox?" confusion that bare "Hidden" labels hit.
+   */
+  isHidden: boolean;
+  onToggleHidden: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // Stable per-instance id used by the single-active-popover
+  // registry. Computed once at mount via `useRef` (not `useState`)
+  // because we never need to re-render when this value changes —
+  // it's just an identity tag for the registry, not display data.
+  const idRef = useRef<OverflowMenuId>(0);
+  if (idRef.current === 0) idRef.current = nextOverflowMenuId++;
+
+  // Subscribe to "another overflow menu just opened" announcements
+  // and slam ourselves shut when the active id isn't ours. The
+  // listener is attached unconditionally (cheap — a Set add/remove)
+  // so a closed menu still hears about state changes; without this
+  // we'd have to chain effects and lose the "only the affected
+  // menus re-render" property that motivates the registry in the
+  // first place.
+  useEffect(() => {
+    const ourId = idRef.current;
+    const listener = (activeId: OverflowMenuId | null) => {
+      if (activeId !== ourId) setOpen(false);
+    };
+    overflowMenuListeners.add(listener);
+    return () => {
+      overflowMenuListeners.delete(listener);
+    };
+  }, []);
+
+  // Re-derive viewport coordinates whenever the menu opens. We don't
+  // re-listen on scroll/resize: the dashboard grid scrolls vertically
+  // but the menu is opened-then-immediately-acted-upon, so chasing
+  // every scroll event is wasted work. If the user scrolls
+  // mid-menu, the next outside-click closes it cleanly.
+  const computePosition = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const above =
+      spaceBelow < OVERFLOW_MENU_HEIGHT_ESTIMATE && spaceAbove > OVERFLOW_MENU_HEIGHT_ESTIMATE;
+    // Right-anchor: menu's right edge aligns with trigger's right
+    // edge. Clamped to a 4-px gutter from the viewport's left edge
+    // so an oddly-narrow window can't push the menu off-screen.
+    const left = Math.max(4, rect.right - OVERFLOW_MENU_WIDTH);
+    setPos(
+      above
+        ? { bottom: window.innerHeight - rect.top + OVERFLOW_MENU_GAP, left }
+        : { top: rect.bottom + OVERFLOW_MENU_GAP, left },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    computePosition();
+    // Outside-click + Escape. We accept clicks inside EITHER the
+    // trigger OR the portaled menu — the menu lives in `document.body`,
+    // so a single `wrapRef.contains()` (the previous implementation)
+    // would have treated every menu-item click as "outside" and
+    // closed the menu before the click handler ran.
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, computePosition]);
+
+  const select = (fn: () => void) => () => {
+    fn();
+    setOpen(false);
+    announceOverflowMenuActive(null);
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        title="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          // Announce BEFORE flipping local state so any sibling
+          // menu's listener sees the new active id and closes
+          // itself in the same React batch as our open. Doing it
+          // after the `setOpen` would still work but produce a
+          // visible one-frame "two menus open" flash on slower
+          // GPUs — the announce-first ordering keeps the
+          // transition visually atomic.
+          setOpen((v) => {
+            const next = !v;
+            announceOverflowMenuActive(next ? idRef.current : null);
+            return next;
+          });
+        }}
+        className={cn(
+          'text-fg-dim hover:bg-surface-muted hover:text-fg flex h-7 w-7 items-center justify-center rounded-md transition',
+          open && 'bg-surface-muted text-fg',
+        )}
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            // `fixed` (not `absolute`) so coordinates are
+            // viewport-relative regardless of where in the DOM we're
+            // mounted. `z-[9999]` matches `EditorDropdown` so the two
+            // popovers from the same card stack predictably (later
+            // open wins on equal z, which is correct).
+            className={cn(
+              'border-border bg-surface-raised rounded-app animate-fade-in',
+              // Width matches `OVERFLOW_MENU_WIDTH` (220 px) so the
+              // right-anchor maths and the rendered box agree to the
+              // pixel; mismatched values would offset the menu by the
+              // delta and break the visual alignment with the trigger.
+              'fixed z-[9999] w-[220px] border py-1',
+              'shadow-[0_12px_40px_rgba(0,0,0,0.45)]',
+            )}
+            style={pos ? { top: pos.top, bottom: pos.bottom, left: pos.left } : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardOverflowItem
+              icon={<Pencil className="h-3.5 w-3.5" />}
+              label="Edit service"
+              onClick={select(onEdit)}
+            />
+            <CardOverflowItem
+              icon={<FolderOpen className="h-3.5 w-3.5" />}
+              label="Open folder"
+              onClick={select(onOpenFolder)}
+            />
+            <CardOverflowItem
+              icon={<FileText className="h-3.5 w-3.5" />}
+              label="Project notes"
+              onClick={select(onNotes)}
+            />
+            <CardOverflowItem
+              icon={<Scale className="h-3.5 w-3.5" />}
+              label="License compliance"
+              onClick={select(onLicense)}
+            />
+            {/*
+              Dashboard-visibility toggle. Lives below the read-only
+              browse actions (Edit / Open folder / Notes / License)
+              and above the danger zone — that's where Notion / VS
+              Code / Linear all park "change how this thing is
+              displayed" toggles. Putting it in the overflow keeps
+              the visible action row uncluttered while still
+              meeting the user's "I want to do this from the card"
+              expectation; the inline trigger inside the service
+              panel covers the "I'm already here, just toggle it"
+              path.
+            */}
+            <CardOverflowItem
+              icon={isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              label={isHidden ? 'Show on dashboard' : 'Hide from dashboard'}
+              onClick={select(onToggleHidden)}
+            />
+            <div className="border-border/60 my-1 border-t" aria-hidden />
+            <CardOverflowItem
+              icon={<Trash2 className="h-3.5 w-3.5" />}
+              label="Delete service"
+              onClick={select(onDelete)}
+              danger
+            />
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function CardOverflowItem({
+  icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      type="button"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      // Layout + sizing intentionally mirror `EditorDropdown`'s
+      // menu items so the two popovers that can open from the same
+      // card surface ("⋯" overflow + "</>" editor picker) feel like
+      // siblings, not different families. Specifically:
+      //
+      //   - `gap-2` between icon-tile and label (vs the previous
+      //     `gap-2.5`) matches EditorDropdown's denser tile-to-text
+      //     spacing.
+      //   - `py-1.5 px-3` matches the editor menu's row rhythm.
+      //   - `hover:bg-accent/10` (instead of `hover:bg-surface-overlay`)
+      //     gives a coloured hover that picks up the brand accent —
+      //     EditorDropdown does the same and it reads as a clear
+      //     "this is selectable" affordance against the muted
+      //     menu surface.
+      //
+      // Destructive row keeps its own red palette + softer red
+      // wash on hover so it stays visually distinct from the
+      // safe rows above the divider.
+      className={cn(
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] whitespace-nowrap transition',
+        danger
+          ? 'text-status-error hover:bg-status-error/10'
+          : 'text-fg-muted hover:bg-accent/10 hover:text-fg',
+      )}
+    >
+      {/*
+        Icon "tile" — same h-5 / w-5 surface-muted square that
+        EditorDropdown uses to anchor each row's left edge. The
+        tile is what makes the menu feel like a proper command
+        list (vs a row of bare icons floating next to text).
+        Destructive row keeps the tile but tints its background
+        with the error colour at low opacity so the red icon has
+        somewhere to sit instead of glowing in mid-air.
+      */}
+      <span
+        className={cn(
+          'rounded-app-sm flex h-5 w-5 shrink-0 items-center justify-center',
+          danger ? 'bg-status-error/10 text-status-error' : 'bg-surface-muted text-fg-muted',
+        )}
+      >
+        {icon}
+      </span>
+      <span className="font-medium">{label}</span>
+    </button>
+  );
 }
 
 /**

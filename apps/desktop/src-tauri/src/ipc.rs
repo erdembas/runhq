@@ -72,6 +72,13 @@ pub struct ServiceInput {
     pub auto_start: bool,
     #[serde(default)]
     pub open_browser: bool,
+    /// See [`runhq_core::state::ServiceDef::hide_dashboard`].
+    /// Defaulting to `false` keeps the IPC surface backward
+    /// compatible: an older frontend (or a third-party caller)
+    /// that doesn't know about the field still gets the
+    /// pre-existing "show on dashboard" behaviour.
+    #[serde(default)]
+    pub hide_dashboard: bool,
     #[serde(default = "default_grace_ms")]
     pub grace_ms: u64,
 }
@@ -113,6 +120,7 @@ pub fn add_service(input: ServiceInput, state: State<'_, AppState>) -> AppResult
         tags: input.tags,
         auto_start: input.auto_start,
         open_browser: input.open_browser,
+        hide_dashboard: input.hide_dashboard,
         grace_ms: input.grace_ms,
     };
     state

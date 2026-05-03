@@ -13,22 +13,21 @@ import {
 import {
   ArrowDownWideNarrow,
   ChevronDown,
-  Clock,
   Cpu,
+  Eye,
+  EyeOff,
+  Flame,
   FolderSearch,
   GitBranch,
   Layers,
   Loader2,
   MemoryStick,
-  Package,
   Pencil,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
-  Scale,
   Search,
-  ShieldAlert,
   Sparkles,
   Square,
   Trash2,
@@ -345,7 +344,35 @@ const TONE_CLASSES: Record<WorkspaceTone, { count: string; dot: string; backdrop
   };
 
 export function Dashboard({ onScan }: Props) {
-  const services = useAppStore((s) => s.services);
+  const allServices = useAppStore((s) => s.services);
+  const showHidden = useAppStore((s) => s.dashboardShowHidden);
+  const setShowHidden = useAppStore((s) => s.setDashboardShowHidden);
+  // The dashboard's visible roster — what the cards, stats, hero,
+  // filter chips, and stack sections all read from. We filter
+  // `hide_dashboard: true` services here and let `showHidden` open
+  // the gate when the user clicks the "N hidden" chip.
+  //
+  // The Rust core already filters them out of `gather_overview` /
+  // dependency scans, so `overview.projects` never carries hidden
+  // entries. Filtering `services` here closes the symmetric gap on
+  // the UI side: pre-fix, hidden services still rendered as cards
+  // (just without scan chips) because the card list iterates
+  // `services`, not `overview.projects`. Now both surfaces agree.
+  //
+  // When the user flips the toggle ON we deliberately do NOT
+  // refetch the overview; hidden services stay scan-less in that
+  // mode (the cards still render basic info — name, runtime, git
+  // status). Users who want full scans for a previously-hidden
+  // service should turn the flag off in the editor instead — the
+  // toggle is "reveal", not "promote".
+  const services = useMemo(
+    () => (showHidden ? allServices : allServices.filter((s) => !s.hide_dashboard)),
+    [allServices, showHidden],
+  );
+  const hiddenCount = useMemo(
+    () => allServices.reduce((n, s) => n + (s.hide_dashboard ? 1 : 0), 0),
+    [allServices],
+  );
   const servicesLoaded = useAppStore((s) => s.servicesLoaded);
   const statuses = useAppStore((s) => s.statuses);
   const resources = useAppStore((s) => s.resources);
@@ -395,6 +422,25 @@ export function Dashboard({ onScan }: Props) {
   type AttentionFilter = 'all' | 'stale' | 'risk' | 'outdated' | 'license';
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all');
+
+  // Non-urgent dispatcher used by the filter chips. React's
+  // `useTransition` marks the resulting re-render as low-priority
+  // so a click on "All" doesn't block the click ripple, the chip's
+  // own visual update, or any animations in flight. Pairs with the
+  // mount-stable visibility set below — together they keep
+  // filter switches sub-frame even on workspaces with 30+ services.
+  //
+  // We don't surface `isPending` because the filter is binary in
+  // user perception ("the cards are showing what I asked"); a
+  // spinner would just confuse for a transition that's typically
+  // <16ms anyway.
+  const [, startFilterTransition] = useTransition();
+  const setGitFilterDeferred = useCallback((next: React.SetStateAction<GitFilter>) => {
+    startFilterTransition(() => setGitFilter(next));
+  }, []);
+  const setAttentionFilterDeferred = useCallback((next: React.SetStateAction<AttentionFilter>) => {
+    startFilterTransition(() => setAttentionFilter(next));
+  }, []);
 
   // The search query Dashboard actually filters by. This is the
   // *committed* query — only changes once the user pauses typing
@@ -732,9 +778,9 @@ export function Dashboard({ onScan }: Props) {
 
       // License contamination — same "ship-tonight" axes the
       // ServiceCard chip uses (strong + network + proprietary).
-      // Roster count drives the FilterChip ("3 projects with
-      // license risk"); package-level total feeds the hero
-      // headline ("12 license risk packages").
+      // Roster count drives the Attention dropdown ("License
+      // (3)"); package-level total feeds the hero headline
+      // ("12 license risk packages").
       const lic = p.license;
       const licenseTotal = lic
         ? (lic.strong_copyleft_count ?? 0) +
@@ -789,59 +835,62 @@ export function Dashboard({ onScan }: Props) {
     [attentionFilter, projectMetaById],
   );
 
-  // Search is *deliberately* excluded from `eligibleServices`. The
-  // services that survive git/attention filters define the dashboard's
-  // mount roster — change that set and React mounts/unmounts cards.
-  // Each mount runs ~10 Zustand subscriptions, an AI hook, and SVG
-  // sparkline setup, so a search that flips two cards in/out of the
-  // result set was costing two unmounts plus two mounts on every
-  // keystroke that crossed a match boundary. With ~11 services that
-  // alone is enough to make typing visibly lag.
+  // Mount roster: every non-stacked service stays mounted regardless
+  // of which filters are active. This is the single most important
+  // perf decision on the dashboard.
   //
-  // Instead we keep the mount roster stable across search and apply
-  // search as a *visibility* filter at render time (see `searchHits`
-  // below). Cards that don't match the query stay mounted but are
-  // hidden via `display: none` on a wrapper element. The DOM keeps a
-  // few extra hidden nodes; the user gets sub-frame typing latency.
+  // Background: each ServiceCard pulls ~13 Zustand selectors, sets up
+  // an AI surface trigger, mounts a Sparkline (SVG path computation),
+  // an EditorDropdown popover, and a CardOverflowMenu — so the mount
+  // cost is non-trivial. When git/attention filters used to drive
+  // this list, flipping a chip from "Outdated 5" to "All 10" forced
+  // 5 fresh card mounts in a single React tick. On a typical machine
+  // that's a 100–300ms hitch the user reads as a freeze.
+  //
+  // Now both search AND filters are visibility-only: cards stay
+  // mounted, and `visibleServiceIds` (below) decides which ones
+  // render via `display: none` in `CardSearchSlot`. Filter clicks
+  // become near-instant — they only flip a Set membership and a
+  // CSS property per card, no reconciliation work.
+  //
+  // Trade-off: the DOM holds a few extra hidden nodes for
+  // filter-hidden cards. With workspaces in the 10–50 range that's
+  // an unmeasurable footprint compared to the latency saved.
   const eligibleServices = useMemo(() => {
     const stackServiceIds = new Set(stacks.flatMap((st) => st.service_ids));
-    return services.filter(
-      (svc) =>
-        !stackServiceIds.has(svc.id) && gitFilterFn(svc, git[svc.id]) && attentionFilterFn(svc),
-    );
-  }, [services, stacks, gitFilterFn, git, attentionFilterFn]);
+    return services.filter((svc) => !stackServiceIds.has(svc.id));
+  }, [services, stacks]);
 
-  // Set of service IDs that match the active search query. `null`
-  // when the box is empty, so render-side checks short-circuit to "no
-  // hidden cards" without paying for a Set lookup. Computed across
-  // the *full* roster (including stacked services), so the same hits
-  // map drives both the standalone group sections and the stack
-  // sections — a search hit lights up its card whether it lives in a
-  // stack or not.
-  const searchHits = useMemo<ReadonlySet<string> | null>(() => {
-    if (effectiveQuery === '') return null;
+  // Set of service IDs the user should currently *see* — combined
+  // gate over git filter, attention filter, and search query. `null`
+  // when every filter is permissive AND search is empty (the common
+  // "show everything" case), so render-side checks short-circuit to
+  // "no hidden cards" without paying for a Set lookup per service.
+  //
+  // Computed across the *full* roster (including stacked services)
+  // so the same map drives both the standalone group sections and
+  // the stack sections — a filter hit lights up its card whether it
+  // lives in a stack or not.
+  const visibleServiceIds = useMemo<ReadonlySet<string> | null>(() => {
+    const hasGit = gitFilter !== 'all';
+    const hasAttention = attentionFilter !== 'all';
+    const hasSearch = effectiveQuery !== '';
+    if (!hasGit && !hasAttention && !hasSearch) return null;
     const hits = new Set<string>();
     for (const svc of services) {
-      if (searchScore(svc, effectiveQuery) > 0) hits.add(svc.id);
+      if (hasGit && !gitFilterFn(svc, git[svc.id])) continue;
+      if (hasAttention && !attentionFilterFn(svc)) continue;
+      if (hasSearch && searchScore(svc, effectiveQuery) === 0) continue;
+      hits.add(svc.id);
     }
     return hits;
-  }, [services, effectiveQuery]);
+  }, [services, gitFilter, attentionFilter, effectiveQuery, gitFilterFn, attentionFilterFn, git]);
 
   // Total count of services that survive *every* filter (search + git +
   // attention), regardless of whether they live in a stack. Drives the
   // "no matches" empty state and the result count next to the search
   // input.
-  const totalMatchedCount = useMemo(() => {
-    if (effectiveQuery === '' && gitFilter === 'all' && attentionFilter === 'all') {
-      return services.length;
-    }
-    return services.filter(
-      (svc) =>
-        gitFilterFn(svc, git[svc.id]) &&
-        attentionFilterFn(svc) &&
-        (effectiveQuery === '' || searchScore(svc, effectiveQuery) > 0),
-    ).length;
-  }, [services, effectiveQuery, gitFilter, attentionFilter, gitFilterFn, attentionFilterFn, git]);
+  const totalMatchedCount = visibleServiceIds === null ? services.length : visibleServiceIds.size;
 
   /**
    * Build a comparator for the current sort axis.
@@ -1045,7 +1094,15 @@ export function Dashboard({ onScan }: Props) {
     return <DashboardSkeleton />;
   }
 
-  if (total === 0) {
+  // Two distinct empty states:
+  //   1. allServices.length === 0 → genuinely fresh install. The
+  //      hero "Ready when you are" splash with discover/add CTAs.
+  //   2. allServices.length > 0 but total === 0 (every registered
+  //      service is hide_dashboard=true) → don't pretend the
+  //      workspace is empty; that would push the user to "Add
+  //      service" when they already have plenty. Show a focused
+  //      reveal-prompt instead, with the toggle right there.
+  if (allServices.length === 0) {
     return (
       <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
         <div className="relative flex flex-1 items-center justify-center overflow-hidden">
@@ -1086,6 +1143,46 @@ export function Dashboard({ onScan }: Props) {
                 <Kbd className="ml-1.5 border-transparent bg-white/20 text-white/90">
                   {modChord('N')}
                 </Kbd>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (total === 0) {
+    return (
+      <div className="bg-surface relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden">
+          <div className="glass animate-fade-in relative max-w-md p-8 text-center">
+            <div className="bg-fg-dim/10 border-fg-dim/30 mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border">
+              <EyeOff className="text-fg-muted h-7 w-7" />
+            </div>
+            <h2 className="text-fg text-xl font-semibold tracking-tight">
+              {hiddenCount === 1 ? '1 project hidden' : `${hiddenCount} projects hidden`}
+            </h2>
+            <p className="text-fg-muted mt-2 text-[13px] leading-relaxed">
+              Every registered project is flagged{' '}
+              <span className="text-fg-dim font-mono text-[12px]">hide from dashboard</span>. Reveal
+              them here, or open them from the sidebar / palette.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Eye className="h-4 w-4" />}
+                onClick={() => setShowHidden(true)}
+              >
+                Show hidden projects
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Plus className="h-4 w-4" />}
+                onClick={() => openEditor(null)}
+              >
+                New service
               </Button>
             </div>
           </div>
@@ -1373,251 +1470,310 @@ export function Dashboard({ onScan }: Props) {
             )}
 
             {/*
-              Unified FilterBar — single horizontal row of pill chips
-              spanning all filterable axes (Attention + Git). Each
-              group leads with an explicit "All N" reset pill so the
-              user always has an unambiguous "show everything" target
-              instead of having to click the active pill again to
-              deactivate. Groups are visually separated by a thin
-              vertical divider; on narrow widths the row wraps but
-              groups stay together via `flex` siblings.
-
-              Why merge attention + git into one row: previously they
-              were two parallel surfaces (attention as chunky chips
-              near the hero, git as flat pills above the roster) doing
-              the same job — slicing the project list — using two
-              different visual languages. Linear/Notion-style modern
-              dashboards expose ALL filter axes in one cohesive bar
-              so the user's mental model is "I'm filtering" rather
-              than "I'm using the X widget".
-
-              The hero's title still surfaces the most-pressing state
-              ("2 critical CVEs") so severity remains visible without
-              the chunky chip row at the top.
+              Single-tier filter surface.
+              ---------------------------
+              Earlier we split this into two rows (Tools on top,
+              Attention/Git filter dropdowns underneath). The
+              second row spent most of its vertical real estate on
+              chrome — section divider + two dropdowns + Clear —
+              when the dropdowns themselves are just two Selects
+              that fit comfortably alongside Hidden/Section/Sort.
+              Pulling everything onto one line gives the workspace
+              hero strip more breathing room and makes the "current
+              filter set" legible at a glance.
+              ---------------------------
+              The two filter axes still need to be visually
+              distinct from the Group/Sort triggers (otherwise the
+              two `All (11)` chips look interchangeable with the
+              `Section` / `Last activity` chips), so each filter
+              dropdown gets a tiny attached uppercase label —
+              `ATTENTION` and `GIT` — sharing the same border as
+              its dropdown trigger. The label is purely declarative
+              ("this dropdown filters the *attention* axis"), which
+              is exactly the disambiguation the side-by-side `All`s
+              were missing in the previous chip strip.
 
               `attentionStats` is null until the first overview poll
               lands; in that window the attention group hides
               entirely (no chrome, no count) rather than rendering
               dashed placeholders that never resolve to a value.
             */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <DashboardSearchBar inputRef={searchInputRef} onCommit={setCommittedQuery} />
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                <DashboardSearchBar inputRef={searchInputRef} onCommit={setCommittedQuery} />
 
-              {attentionStats &&
-                attentionStats.stale +
-                  attentionStats.risk +
-                  attentionStats.outdated +
-                  attentionStats.licenseRisk >
-                  0 && (
-                  <FilterChipGroup ariaLabel="Attention filters">
-                    <FilterChip
-                      active={attentionFilter === 'all'}
-                      onClick={() => setAttentionFilter('all')}
-                      tone="muted"
-                      label="All"
-                      count={total}
-                      title="Show projects regardless of attention bucket"
-                    />
-                    {attentionStats.stale > 0 && (
-                      <FilterChip
-                        active={attentionFilter === 'stale'}
-                        onClick={() => setAttentionFilter((a) => (a === 'stale' ? 'all' : 'stale'))}
-                        tone="neutral"
-                        icon={<Clock className="h-3 w-3" />}
-                        label="Stale"
-                        count={attentionStats.stale}
-                        title={`${attentionStats.stale} project${
-                          attentionStats.stale === 1 ? '' : 's'
-                        } with no recent activity`}
-                      />
-                    )}
-                    {attentionStats.risk > 0 && (
-                      <FilterChip
-                        active={attentionFilter === 'risk'}
-                        onClick={() => setAttentionFilter((a) => (a === 'risk' ? 'all' : 'risk'))}
-                        tone="critical"
-                        icon={<ShieldAlert className="h-3 w-3" />}
-                        label="Risk"
-                        count={attentionStats.risk}
-                        title={`${attentionStats.risk} project${
-                          attentionStats.risk === 1 ? '' : 's'
-                        } with critical or high CVEs`}
-                      />
-                    )}
-                    {attentionStats.outdated > 0 && (
-                      <FilterChip
-                        active={attentionFilter === 'outdated'}
-                        onClick={() =>
-                          setAttentionFilter((a) => (a === 'outdated' ? 'all' : 'outdated'))
-                        }
-                        tone="warning"
-                        icon={<Package className="h-3 w-3" />}
-                        label="Outdated"
-                        count={attentionStats.outdated}
-                        title={`${attentionStats.outdated} project${
-                          attentionStats.outdated === 1 ? '' : 's'
-                        } with outdated dependencies`}
-                      />
-                    )}
-                    {attentionStats.licenseRisk > 0 && (
-                      <FilterChip
-                        active={attentionFilter === 'license'}
-                        onClick={() =>
-                          setAttentionFilter((a) => (a === 'license' ? 'all' : 'license'))
-                        }
-                        tone="critical"
-                        icon={<Scale className="h-3 w-3" />}
-                        label="License"
-                        count={attentionStats.licenseRisk}
-                        title={`${attentionStats.licenseRisk} project${
-                          attentionStats.licenseRisk === 1 ? '' : 's'
-                        } with strong/network copyleft or proprietary contamination (${
-                          attentionStats.licenseWarnings
-                        } package${attentionStats.licenseWarnings === 1 ? '' : 's'} total)`}
-                      />
-                    )}
-                  </FilterChipGroup>
-                )}
-
-              {gitStats.dirty + gitStats.clean > 0 && (
-                <>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {/*
+                    Filter axes — Attention + Git. Each dropdown is
+                    conditionally rendered: if a given axis has zero
+                    data (no project is dirty/clean, OR no project
+                    has any attention flag), the corresponding
+                    dropdown is hidden entirely so the toolbar never
+                    advertises a filter that would resolve to zero
+                    cards. Each carries a tiny attached uppercase
+                    label so the two trigger chips can't be mistaken
+                    for the Group / Sort dropdowns to their right.
+                  */}
                   {attentionStats &&
                     attentionStats.stale +
                       attentionStats.risk +
                       attentionStats.outdated +
                       attentionStats.licenseRisk >
-                      0 && (
+                      0 &&
+                    (() => {
+                      const opts: { value: AttentionFilter; label: string; description: string }[] =
+                        [
+                          {
+                            value: 'all',
+                            label: `All (${total})`,
+                            description: 'Show projects regardless of attention bucket',
+                          },
+                        ];
+                      if (attentionStats.stale > 0) {
+                        opts.push({
+                          value: 'stale',
+                          label: `Stale (${attentionStats.stale})`,
+                          description: `${attentionStats.stale} project${
+                            attentionStats.stale === 1 ? '' : 's'
+                          } with no recent activity`,
+                        });
+                      }
+                      if (attentionStats.risk > 0) {
+                        opts.push({
+                          value: 'risk',
+                          label: `Risk (${attentionStats.risk})`,
+                          description: `${attentionStats.risk} project${
+                            attentionStats.risk === 1 ? '' : 's'
+                          } with critical or high CVEs`,
+                        });
+                      }
+                      if (attentionStats.outdated > 0) {
+                        opts.push({
+                          value: 'outdated',
+                          label: `Outdated (${attentionStats.outdated})`,
+                          description: `${attentionStats.outdated} project${
+                            attentionStats.outdated === 1 ? '' : 's'
+                          } with outdated dependencies`,
+                        });
+                      }
+                      if (attentionStats.licenseRisk > 0) {
+                        opts.push({
+                          value: 'license',
+                          label: `License (${attentionStats.licenseRisk})`,
+                          description: `${attentionStats.licenseRisk} project${
+                            attentionStats.licenseRisk === 1 ? '' : 's'
+                          } with copyleft / proprietary contamination`,
+                        });
+                      }
+                      return (
+                        <LabeledFilterDropdown label="Attention" active={attentionFilter !== 'all'}>
+                          <Select<AttentionFilter>
+                            value={attentionFilter}
+                            onChange={(v) => setAttentionFilterDeferred(v)}
+                            options={opts}
+                            ariaLabel="Filter by attention bucket"
+                            leading={<Flame size={11} />}
+                            className={cn(
+                              // Attached to the label on the left:
+                              // strip the left radius and merge the
+                              // border into one continuous chip so
+                              // "ATTENTION + dropdown" reads as a
+                              // single labeled control.
+                              'rounded-l-none border-l-0',
+                              attentionFilter !== 'all' &&
+                                'border-accent/50 text-accent bg-accent/5',
+                            )}
+                          />
+                        </LabeledFilterDropdown>
+                      );
+                    })()}
+
+                  {gitStats.dirty + gitStats.clean > 0 &&
+                    (() => {
+                      const opts: { value: GitFilter; label: string; description: string }[] = [
+                        {
+                          value: 'all',
+                          label: `All (${gitStats.dirty + gitStats.clean})`,
+                          description: 'Show projects regardless of git state',
+                        },
+                      ];
+                      if (gitStats.dirty > 0) {
+                        opts.push({
+                          value: 'dirty',
+                          label: `Dirty (${gitStats.dirty})`,
+                          description: 'Projects with uncommitted changes',
+                        });
+                      }
+                      if (gitStats.clean > 0) {
+                        opts.push({
+                          value: 'clean',
+                          label: `Clean (${gitStats.clean})`,
+                          description: 'Projects with no uncommitted changes',
+                        });
+                      }
+                      if (gitStats.ahead > 0) {
+                        opts.push({
+                          value: 'ahead',
+                          label: `Ahead (${gitStats.ahead})`,
+                          description: 'Projects with unpushed commits',
+                        });
+                      }
+                      if (gitStats.behind > 0) {
+                        opts.push({
+                          value: 'behind',
+                          label: `Behind (${gitStats.behind})`,
+                          description: 'Projects whose remote has new commits',
+                        });
+                      }
+                      if (gitStats.noUpstream > 0) {
+                        opts.push({
+                          value: 'no-upstream',
+                          label: `No upstream (${gitStats.noUpstream})`,
+                          description: 'Projects without a tracking branch',
+                        });
+                      }
+                      return (
+                        <LabeledFilterDropdown label="Git" active={gitFilter !== 'all'}>
+                          <Select<GitFilter>
+                            value={gitFilter}
+                            onChange={(v) => setGitFilterDeferred(v)}
+                            options={opts}
+                            ariaLabel="Filter by git state"
+                            leading={<GitBranch size={11} />}
+                            className={cn(
+                              'rounded-l-none border-l-0',
+                              gitFilter !== 'all' && 'border-accent/50 text-accent bg-accent/5',
+                            )}
+                          />
+                        </LabeledFilterDropdown>
+                      );
+                    })()}
+
+                  {(gitFilter !== 'all' || attentionFilter !== 'all') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGitFilterDeferred('all');
+                        setAttentionFilterDeferred('all');
+                      }}
+                      className="text-fg-dim hover:text-accent inline-flex items-center gap-1 text-[11px] transition"
+                      title="Reset every filter"
+                    >
+                      <X className="h-3 w-3" />
+                      Clear
+                    </button>
+                  )}
+
+                  {/*
+                    Visual divider between *filter* triggers
+                    (Attention/Git) and *view* triggers (Hidden,
+                    Group, Sort). The two groups answer different
+                    questions ("which cards do I see?" vs "how are
+                    they laid out?") and the divider is what stops
+                    the eye from reading the row as one undifferent-
+                    iated chip strip. Only renders when at least one
+                    filter trigger is visible — otherwise the
+                    leading divider would float in space.
+                  */}
+                  {(attentionStats &&
+                    attentionStats.stale +
+                      attentionStats.risk +
+                      attentionStats.outdated +
+                      attentionStats.licenseRisk >
+                      0) ||
+                  gitStats.dirty + gitStats.clean > 0 ? (
+                    <span aria-hidden className="bg-border/60 mx-1 hidden h-5 w-px sm:block" />
+                  ) : null}
+
+                  {/*
+                    Reveal-toggle for workspace-tracking-only services.
+                    Lives next to Group/Sort because it's a *visibility*
+                    control over the mount roster, not a filter chip.
+                    Hidden entirely when nobody on the workspace has
+                    flipped the per-service `hide_dashboard` flag.
+                  */}
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowHidden(!showHidden)}
+                      aria-pressed={showHidden}
+                      title={
+                        showHidden
+                          ? `Hide ${hiddenCount} workspace-only project${hiddenCount === 1 ? '' : 's'}`
+                          : `Show ${hiddenCount} workspace-only project${hiddenCount === 1 ? '' : 's'}`
+                      }
+                      className={cn(
+                        'border-border bg-surface-raised text-fg-muted rounded-app-sm inline-flex h-7 items-center gap-1.5 border px-2.5 text-[11px] font-medium tabular-nums transition',
+                        'hover:border-fg-dim/45 hover:text-fg',
+                        showHidden && 'border-fg-dim/45 text-fg',
+                      )}
+                    >
+                      {showHidden ? (
+                        <Eye className="text-fg h-3.5 w-3.5" />
+                      ) : (
+                        <EyeOff className="text-fg-dim h-3.5 w-3.5" />
+                      )}
+                      <span>Hidden</span>
                       <span
-                        aria-hidden
-                        className="bg-border/70 mx-1 hidden h-5 w-px self-center sm:inline-block"
-                      />
-                    )}
-                  <FilterChipGroup ariaLabel="Git filters">
-                    <FilterChip
-                      active={gitFilter === 'all'}
-                      onClick={() => setGitFilter('all')}
-                      tone="muted"
-                      icon={<GitBranch className="h-3 w-3" />}
-                      label="All"
-                      count={gitStats.dirty + gitStats.clean}
-                      title="Show projects regardless of git state"
-                    />
-                    {gitStats.dirty > 0 && (
-                      <FilterChip
-                        active={gitFilter === 'dirty'}
-                        onClick={() => setGitFilter((a) => (a === 'dirty' ? 'all' : 'dirty'))}
-                        tone="warning"
-                        label="Dirty"
-                        count={gitStats.dirty}
-                        title="Projects with uncommitted changes"
-                      />
-                    )}
-                    {gitStats.clean > 0 && (
-                      <FilterChip
-                        active={gitFilter === 'clean'}
-                        onClick={() => setGitFilter((a) => (a === 'clean' ? 'all' : 'clean'))}
-                        tone="success"
-                        label="Clean"
-                        count={gitStats.clean}
-                        title="Projects with no uncommitted changes"
-                      />
-                    )}
-                    {gitStats.ahead > 0 && (
-                      <FilterChip
-                        active={gitFilter === 'ahead'}
-                        onClick={() => setGitFilter((a) => (a === 'ahead' ? 'all' : 'ahead'))}
-                        tone="muted"
-                        label="Ahead"
-                        count={gitStats.ahead}
-                        title="Projects with unpushed commits"
-                      />
-                    )}
-                    {gitStats.behind > 0 && (
-                      <FilterChip
-                        active={gitFilter === 'behind'}
-                        onClick={() => setGitFilter((a) => (a === 'behind' ? 'all' : 'behind'))}
-                        tone="muted"
-                        label="Behind"
-                        count={gitStats.behind}
-                        title="Projects whose remote has new commits"
-                      />
-                    )}
-                    {gitStats.noUpstream > 0 && (
-                      <FilterChip
-                        active={gitFilter === 'no-upstream'}
-                        onClick={() =>
-                          setGitFilter((a) => (a === 'no-upstream' ? 'all' : 'no-upstream'))
-                        }
-                        tone="muted"
-                        label="No upstream"
-                        count={gitStats.noUpstream}
-                        title="Projects without a tracking branch"
-                      />
-                    )}
-                  </FilterChipGroup>
-                </>
-              )}
-
-              {(gitFilter !== 'all' || attentionFilter !== 'all') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGitFilter('all');
-                    setAttentionFilter('all');
-                  }}
-                  className="text-fg-dim hover:text-accent inline-flex items-center gap-1 text-[11px] transition"
-                  title="Reset every filter"
-                >
-                  Clear filters
-                </button>
-              )}
-
-              <div className="ml-auto flex items-center gap-2">
-                <Select
-                  value={groupBy}
-                  onChange={(v) => setGroupBy(v as DashboardGroupBy)}
-                  options={GROUP_OPTIONS.map((o) => ({
-                    value: o.key,
-                    label: o.label,
-                    description: o.description,
-                  }))}
-                  ariaLabel="Group cards by"
-                  leading={<Layers size={11} />}
-                />
-                <Select
-                  value={sortBy}
-                  onChange={(v) => setSortBy(v as DashboardSortBy)}
-                  options={SORT_OPTIONS.map((o) => ({
-                    value: o.key,
-                    label: o.label,
-                    description: o.description,
-                  }))}
-                  ariaLabel="Sort cards by"
-                  leading={<ArrowDownWideNarrow size={11} />}
-                />
+                        className={cn(
+                          'rounded-sm px-1 text-[10px] tabular-nums',
+                          showHidden ? 'bg-fg-dim/25 text-fg' : 'bg-fg-dim/15 text-fg-dim',
+                        )}
+                      >
+                        {hiddenCount}
+                      </span>
+                    </button>
+                  )}
+                  <Select
+                    value={groupBy}
+                    onChange={(v) => setGroupBy(v as DashboardGroupBy)}
+                    options={GROUP_OPTIONS.map((o) => ({
+                      value: o.key,
+                      label: o.label,
+                      description: o.description,
+                    }))}
+                    ariaLabel="Group cards by"
+                    leading={<Layers size={11} />}
+                  />
+                  <Select
+                    value={sortBy}
+                    onChange={(v) => setSortBy(v as DashboardSortBy)}
+                    options={SORT_OPTIONS.map((o) => ({
+                      value: o.key,
+                      label: o.label,
+                      description: o.description,
+                    }))}
+                    ariaLabel="Sort cards by"
+                    leading={<ArrowDownWideNarrow size={11} />}
+                  />
+                </div>
               </div>
             </div>
 
             {stacks.map((stack) => {
+              // Stack roster keeps every member mounted regardless
+              // of git/attention/search — visibility is a CSS toggle
+              // driven by `visibleServiceIds`, same trick the standalone
+              // groups use. Filtering members at mount-time would
+              // remount stack cards on every chip click and reproduce
+              // the freeze the visibility-set was introduced to fix.
               const stackServices = stack.service_ids
                 .map((sid) => services.find((s) => s.id === sid))
-                .filter(
-                  (svc): svc is ServiceDef =>
-                    !!svc && gitFilterFn(svc, git[svc.id]) && attentionFilterFn(svc),
-                );
+                .filter((svc): svc is ServiceDef => !!svc);
               // For chrome (header count, running-count, hidden-when-empty)
-              // we want the *visible* slice — search-hidden cards are still
-              // mounted (so typing stays cheap) but shouldn't inflate the
-              // section's chip counters or keep an otherwise-empty stack
-              // visible during an active search.
-              const visibleStackServices = searchHits
-                ? stackServices.filter((svc) => searchHits.has(svc.id))
+              // we want the *visible* slice — filter/search-hidden cards
+              // are still mounted (so chip clicks stay sub-frame) but
+              // shouldn't inflate the section's chip counters or keep an
+              // otherwise-empty stack visible during an active filter or
+              // search.
+              const visibleStackServices = visibleServiceIds
+                ? stackServices.filter((svc) => visibleServiceIds.has(svc.id))
                 : stackServices;
               const runningCount = visibleStackServices.filter(
                 (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
               ).length;
               const anyRunning = runningCount > 0;
-              const sectionHidden = searchHits !== null && visibleStackServices.length === 0;
+              const sectionHidden = visibleServiceIds !== null && visibleStackServices.length === 0;
               return (
                 <section
                   key={stack.id}
@@ -1697,7 +1853,8 @@ export function Dashboard({ onScan }: Props) {
                   />
                   <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
                     {stackServices.map((svc) => {
-                      const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                      const cardHidden =
+                        visibleServiceIds !== null && !visibleServiceIds.has(svc.id);
                       return (
                         <CardSearchSlot key={svc.id} hidden={cardHidden}>
                           <ServiceCard
@@ -1761,8 +1918,8 @@ export function Dashboard({ onScan }: Props) {
                         setter?.call(el, '');
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                       }
-                      setGitFilter('all');
-                      setAttentionFilter('all');
+                      setGitFilterDeferred('all');
+                      setAttentionFilterDeferred('all');
                     }}
                     className="text-accent hover:text-accent/80 mt-1 text-[11.5px] font-semibold transition"
                   >
@@ -1776,15 +1933,17 @@ export function Dashboard({ onScan }: Props) {
                   // Same trick as the stack section: derive header
                   // counters from the *visible* slice so the chips
                   // reflect what the user can actually see, while
-                  // every card in the group stays mounted (search
-                  // visibility is a CSS toggle, not a remount).
-                  const visibleGroupServices = searchHits
-                    ? group.services.filter((svc) => searchHits.has(svc.id))
+                  // every card in the group stays mounted (filter +
+                  // search visibility is a CSS toggle, not a
+                  // remount).
+                  const visibleGroupServices = visibleServiceIds
+                    ? group.services.filter((svc) => visibleServiceIds.has(svc.id))
                     : group.services;
                   const runningInGroup = visibleGroupServices.filter(
                     (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
                   ).length;
-                  const sectionHidden = searchHits !== null && visibleGroupServices.length === 0;
+                  const sectionHidden =
+                    visibleServiceIds !== null && visibleGroupServices.length === 0;
                   return (
                     <section
                       key={group.key}
@@ -1802,7 +1961,8 @@ export function Dashboard({ onScan }: Props) {
                       />
                       <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
                         {group.services.map((svc) => {
-                          const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                          const cardHidden =
+                            visibleServiceIds !== null && !visibleServiceIds.has(svc.id);
                           return (
                             <CardSearchSlot key={svc.id} hidden={cardHidden}>
                               <ServiceCard
@@ -1822,7 +1982,8 @@ export function Dashboard({ onScan }: Props) {
               : sortedEligibleServices.length > 0 && (
                   <div className="grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
                     {sortedEligibleServices.map((svc) => {
-                      const cardHidden = searchHits !== null && !searchHits.has(svc.id);
+                      const cardHidden =
+                        visibleServiceIds !== null && !visibleServiceIds.has(svc.id);
                       return (
                         <CardSearchSlot key={svc.id} hidden={cardHidden}>
                           <ServiceCard
@@ -1924,123 +2085,6 @@ export function Dashboard({ onScan }: Props) {
  * instead of a flat stream where the eye can't tell where one group
  * ends and the next begins.
  */
-/**
- * Wraps a logical filter group (Attention, Git, …) into a single
- * inline cluster. We deliberately avoid a per-group label/header now
- * that filters share one row — the visual divider between groups
- * carries enough delineation, and a row of "ATTENTION:" "GIT:"
- * mini-titles would compete with the chip labels themselves for
- * visual real estate.
- */
-function FilterChipGroup({
-  ariaLabel,
-  children,
-}: {
-  ariaLabel: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={ariaLabel}>
-      {children}
-    </div>
-  );
-}
-
-/**
- * Unified filter pill used by every group on the dashboard's roster
- * filter row. Designed to read at three states unambiguously:
- *
- *   - inactive idle  → grey chrome, dim text, count visible
- *   - inactive hover → subtle lift toward the tone colour
- *   - active         → tone-tinted background + text, no extra
- *                      indicator dots needed
- *
- * `tone` semantics:
- *   - `muted`     → neutral state pill ("All", Ahead/Behind/etc) —
- *                   no severity, just an axis label
- *   - `neutral`   → "unwatched" bucket (Stale) — flat grey accent
- *   - `success`   → positive state (git Clean) — green
- *   - `warning`   → deferrable debt (Outdated, git Dirty) — amber
- *   - `critical`  → ship-tonight signal (Risk / CVE) — red
- *
- * Active styling carries enough contrast on its own that we no
- * longer need the persistent tone tint the previous `AttentionChip`
- * used: a row of always-tinted chips read as "alerts everywhere"
- * instead of "active filter here". With unification, only the
- * actively-selected chip wears its tone, mirroring Linear/Notion.
- */
-type FilterChipTone = 'muted' | 'neutral' | 'success' | 'warning' | 'critical';
-
-const FILTER_CHIP_TONES: Record<FilterChipTone, { active: string; idleHover: string }> = {
-  muted: {
-    active: 'border-fg-dim/40 bg-fg-dim/20 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.10)_inset]',
-    idleHover: 'hover:border-fg-dim/30 hover:bg-fg-dim/10 hover:text-fg/85',
-  },
-  neutral: {
-    active: 'border-fg-dim/40 bg-fg-dim/20 text-fg shadow-[0_0_0_1px_rgb(var(--fg)/0.10)_inset]',
-    idleHover: 'hover:border-fg-dim/30 hover:bg-fg-dim/10 hover:text-fg/85',
-  },
-  success: {
-    active:
-      'border-status-running/40 bg-status-running/18 text-status-running shadow-[0_0_0_1px_rgb(var(--status-running)/0.25)_inset]',
-    idleHover:
-      'hover:border-status-running/25 hover:bg-status-running/10 hover:text-status-running',
-  },
-  warning: {
-    active:
-      'border-tone-warning/45 bg-tone-warning/22 text-tone-warning-fg shadow-[0_0_0_1px_rgb(var(--tone-warning)/0.30)_inset]',
-    idleHover: 'hover:border-tone-warning/30 hover:bg-tone-warning/12 hover:text-tone-warning-fg',
-  },
-  critical: {
-    active:
-      'border-tone-critical/45 bg-tone-critical/22 text-tone-critical-fg shadow-[0_0_0_1px_rgb(var(--tone-critical)/0.30)_inset]',
-    idleHover:
-      'hover:border-tone-critical/30 hover:bg-tone-critical/12 hover:text-tone-critical-fg',
-  },
-};
-
-function FilterChip({
-  active,
-  onClick,
-  tone,
-  icon,
-  label,
-  count,
-  title,
-}: {
-  active: boolean;
-  onClick: () => void;
-  tone: FilterChipTone;
-  icon?: React.ReactNode;
-  label: string;
-  count: number;
-  title?: string;
-}) {
-  const palette = FILTER_CHIP_TONES[tone];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-pressed={active}
-      className={cn(
-        'inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold tabular-nums transition',
-        active ? palette.active : cn('text-fg-dim border-transparent', palette.idleHover),
-      )}
-    >
-      {icon && <span className={cn(active ? '' : 'text-fg-dim/80')}>{icon}</span>}
-      <span>{label}</span>
-      <span
-        className={cn(
-          'rounded-sm px-1 text-[10px] tabular-nums',
-          active ? 'bg-black/15 dark:bg-white/15' : 'bg-fg-dim/15 text-fg-dim',
-        )}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
 
 /**
  * Overflow menu for the dashboard hero. Houses workspace-level
@@ -2233,6 +2277,52 @@ const CARD_SLOT_VISIBLE: React.CSSProperties = { display: 'contents' };
  * inside `CardSearchSlot`, so the DOM stays steady and only the
  * wrapper styles change between renders.
  */
+/**
+ * Tiny `<label>+<dropdown>` shell used by the Attention/Git filter
+ * triggers in the dashboard toolbar.
+ *
+ * The label is a 7-px-uppercase chip glued to the dropdown's left
+ * edge — same height, same border, no gap — so the pair reads as a
+ * single *labeled* control rather than two adjacent chips. Without
+ * this label the two `All (n)` triggers would look interchangeable
+ * with each other AND with the Group / Sort dropdowns to their
+ * right; "ATTENTION" / "GIT" gives the eye an immediate disambiguator.
+ *
+ * The child Select must compose its className with
+ * `rounded-l-none border-l-0` so the right side of the chip
+ * morphs cleanly into the dropdown trigger — that styling lives at
+ * the call-site, not here, because only the call-site knows
+ * whether the active-filter accent ring is also in play.
+ *
+ * `active` lights the label up in accent so the user can spot a
+ * filtered axis even when the dropdown is collapsed; matches the
+ * accent treatment the trigger itself gets when the filter is
+ * pinned to a non-default value.
+ */
+function LabeledFilterDropdown({
+  label,
+  active,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="inline-flex items-center">
+      <span
+        className={cn(
+          'border-border/50 bg-surface-muted text-fg-dim inline-flex h-7 items-center rounded-l-md border px-2 text-[9px] font-semibold tracking-wider uppercase transition',
+          active && 'border-accent/50 bg-accent/10 text-accent',
+        )}
+      >
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 const DashboardSearchBar = memo(function DashboardSearchBar({
   inputRef,
   onCommit,

@@ -1,5 +1,12 @@
 import { useMemo } from 'react';
-import { BrainCircuit, Cpu, Keyboard, MemoryStick, Network, Sparkles } from 'lucide-react';
+import {
+  BrainCircuit,
+  Cpu,
+  MemoryStick,
+  Network,
+  Settings as SettingsIcon,
+  Sparkles,
+} from 'lucide-react';
 import { cpuToneClass, memoryToneClass } from '@/lib/resourceTone';
 import { ThemeMenu } from '@/components/ThemeMenu';
 import { useAppStore } from '@/store/useAppStore';
@@ -9,14 +16,28 @@ import type { Status } from '@/types';
 
 interface Props {
   onOpenPortManager: () => void;
-  onOpenShortcutSettings: () => void;
+  /**
+   * Open the Settings hub. The button is labelled "Settings" rather
+   * than "Shortcuts" because the hub now spans Shortcuts, AI,
+   * Data, About, and Danger Zone — pinning the entry point to one
+   * sub-page in the label was misleading.
+   */
+  onOpenSettings: () => void;
+  /**
+   * Jump straight to the AI category inside the Settings hub. The
+   * legacy provider-management modal is still mountable from the
+   * AI category itself ("Manage providers"), but the status-bar
+   * affordance no longer pops a modal — modals are interruption
+   * surfaces and a status-bar click is a navigation gesture, so
+   * deep-linking into the page reads as the right interaction.
+   */
   onOpenAiSettings: () => void;
   onToggleAiChat: () => void;
 }
 
 export function StatusBar({
   onOpenPortManager,
-  onOpenShortcutSettings,
+  onOpenSettings,
   onOpenAiSettings,
   onToggleAiChat,
 }: Props) {
@@ -127,12 +148,12 @@ export function StatusBar({
         </button>
         <button
           type="button"
-          onClick={onOpenShortcutSettings}
+          onClick={onOpenSettings}
           className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
-          title="Keyboard shortcuts"
+          title="Open Settings"
         >
-          <Keyboard className="h-3 w-3" />
-          <span className="text-fg-dim">shortcuts</span>
+          <SettingsIcon className="h-3 w-3" />
+          <span className="text-fg-dim">Settings</span>
         </button>
         <ThemeMenu />
         {appVersion && (

@@ -296,7 +296,18 @@ pub async fn gather_overview_with_history(
     stale_threshold_days: i64,
     scan_history_db_path: Option<&Path>,
 ) -> AppResult<OverviewSummary> {
-    let services = store.services();
+    // Drop "workspace-tracking-only" services up-front. They stay in
+    // the sidebar (so the user can still open them in an editor or
+    // a terminal) but never contribute to the dashboard's roster,
+    // headline counts, or aggregate totals — a vendored repo with
+    // no `pnpm dev` would otherwise inflate "0 running of 12" to
+    // "0 running of 30" and bury the surfaces the user actually
+    // cares about.
+    let services: Vec<_> = store
+        .services()
+        .into_iter()
+        .filter(|s| !s.hide_dashboard)
+        .collect();
     let cutoff = Utc::now() - chrono::Duration::days(stale_threshold_days);
 
     // Open and slurp the persisted scans up-front so the per-project
@@ -509,7 +520,22 @@ pub async fn gather_dependency_scan_with_history(
     force: bool,
     scan_history_db_path: Option<&Path>,
 ) -> AppResult<DependencyScanResult> {
-    let services = store.services();
+    // Mirror `gather_overview_with_history`: hidden services are
+    // workspace-tracking-only, so the batch dependency scan must
+    // skip them too. Otherwise the user would still pay 20–30s of
+    // `npm outdated` / `cargo audit` per hidden repo on every
+    // "Scan dependencies" click — and the totals it returns
+    // wouldn't even be rendered, since the dashboard already
+    // filtered the projects out. The single-service variant
+    // (`gather_dependency_scan_for_service`) intentionally does
+    // NOT apply this filter — a per-card "rescan this project"
+    // affordance is the one place hidden projects can still get a
+    // fresh scan if the user wants it.
+    let services: Vec<_> = store
+        .services()
+        .into_iter()
+        .filter(|s| !s.hide_dashboard)
+        .collect();
     let scan_cache = ScanCache::global();
 
     // Snapshot of (id, name, cwd) so the JoinSet tasks can persist

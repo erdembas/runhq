@@ -9,9 +9,11 @@ import { release_0_6_0 } from './data/0.6.0';
 import { release_0_7_0 } from './data/0.7.0';
 import { release_0_9_0 } from './data/0.9.0';
 import { release_0_10_0 } from './data/0.10.0';
+import { release_0_10_3 } from './data/0.10.3';
 import type { WhatsNewRelease } from './types';
 
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
+  release_0_10_3,
   release_0_10_0,
   release_0_9_0,
   release_0_7_0,

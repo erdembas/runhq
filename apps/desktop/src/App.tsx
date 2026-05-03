@@ -11,7 +11,7 @@ import { StackEditor } from '@/components/StackEditor';
 import { StackDetail } from '@/components/StackDetail';
 import { MainTabBar } from '@/components/MainTabBar';
 import { ScanDialog } from '@/components/ScanDialog';
-import { ShortcutSettings } from '@/components/ShortcutSettings';
+import { SettingsView } from '@/components/settings/SettingsView';
 import { AiSettings } from '@/components/AiSettings';
 import { RightActivityBar } from '@/components/RightActivityBar';
 import { RightSidePanel } from '@/components/RightSidePanel';
@@ -28,7 +28,10 @@ import { events, ipc } from '@/lib/ipc';
 import { hasSeenTour, hasSeenTrayHint, markTrayHintSeen } from '@/lib/onboarding';
 import { useContextMenu } from '@/lib/context-menu';
 import { useUiZoomShortcuts } from '@/lib/ui-zoom';
+import { useViewShortcuts, type ViewShortcutHandlers } from '@/lib/useViewShortcuts';
+import { getServiceShortcuts } from '@/lib/serviceShortcutBus';
 import { getLatestRelease, shouldAutoShow } from '@/lib/whatsnew';
+import type { Shortcuts } from '@/types';
 
 export default function App() {
   const mainTabs = useAppStore((s) => s.mainTabs);
@@ -41,6 +44,7 @@ export default function App() {
   const setAppMeta = useAppStore((s) => s.setAppMeta);
   const setEditors = useAppStore((s) => s.setEditors);
   const setSelected = useAppStore((s) => s.setSelected);
+  const openServiceWithBodyTab = useAppStore((s) => s.openServiceWithBodyTab);
   const editorService = useAppStore((s) => s.editorService);
   const openEditor = useAppStore((s) => s.openEditor);
   const closeEditor = useAppStore((s) => s.closeEditor);
@@ -60,10 +64,17 @@ export default function App() {
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
   const closeWhatsNew = useAppStore((s) => s.closeWhatsNew);
   const releaseNotesOpen = useAppStore((s) => s.releaseNotesOpen);
+  // Settings lives in the store now (it's a fullscreen page on the
+  // canvas, not a modal) so the same render-precedence rules that
+  // gate Release Notes apply: if Settings is open, every other
+  // main-area surface is hidden underneath. The slot doubles as the
+  // "active category" so deep-linking from anywhere is just
+  // `openSettings('ai')`.
+  const settingsCategory = useAppStore((s) => s.settingsCategory);
+  const openSettings = useAppStore((s) => s.openSettings);
 
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [portManagerOpen, setPortManagerOpen] = useState(false);
-  const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   // Cross-component bridge for opening AI Settings without prop-
   // drilling. Surfaces like the chat composer's model pill — which
@@ -115,6 +126,88 @@ export default function App() {
   );
   const { menu: contextMenu } = useContextMenu(contextItems);
   useUiZoomShortcuts();
+
+  // ---- View shortcut wiring -------------------------------------------------
+  //
+  // Load the user's bindings once (and re-load whenever the settings
+  // page closes, so a save round-trips into the dispatcher without
+  // a restart). Globals (`quick_action`, `focus_main`) are owned by
+  // the Tauri global-shortcut plugin and are not handled here —
+  // those still need an app restart to re-register with the OS,
+  // which is documented in the settings page.
+  const [viewShortcuts, setViewShortcuts] = useState<Shortcuts | null>(null);
+  useEffect(() => {
+    if (settingsCategory !== null) return; // skip while the user is editing
+    let cancelled = false;
+    ipc
+      .getPrefs()
+      .then((p) => {
+        if (cancelled) return;
+        setViewShortcuts(p.shortcuts ?? null);
+      })
+      .catch(() => {
+        // A failed prefs read just leaves us on whatever bindings
+        // we already had (or the defaults baked into `useViewShortcuts`).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsCategory]);
+
+  const toggleSidebarPinned = useAppStore((s) => s.toggleSidebarPinned);
+  const closeMainTab = useAppStore((s) => s.closeMainTab);
+  const setActiveMainTab = useAppStore((s) => s.setActiveMainTab);
+
+  const viewHandlers: ViewShortcutHandlers = {
+    toggle_left_sidebar: () => toggleSidebarPinned(),
+    toggle_ai_panel: () => toggleRightPanel('ai'),
+    toggle_activity_panel: () => toggleRightPanel('activity'),
+    new_terminal: () => {
+      // Delegate to the active service's LogPanel via the registry.
+      // If the active main tab is the dashboard / a non-service tab
+      // there's simply nothing to spawn into — silently no-op rather
+      // than firing on a stale "last selected service" id, which
+      // would feel like the wrong window opened a terminal.
+      const state = useAppStore.getState();
+      const active = state.mainTabs.find((t) => mainTabKey(t) === state.activeMainTabKey);
+      if (!active || active.kind !== 'service') return;
+      const handlers = getServiceShortcuts(active.refId);
+      handlers?.newTerminal();
+    },
+    next_main_tab: () => {
+      const state = useAppStore.getState();
+      const tabs = state.mainTabs;
+      if (tabs.length <= 1) return;
+      const idx = tabs.findIndex((t) => mainTabKey(t) === state.activeMainTabKey);
+      const nextIdx = idx < 0 ? 0 : (idx + 1) % tabs.length;
+      const target = tabs[nextIdx];
+      if (target) setActiveMainTab(mainTabKey(target));
+    },
+    prev_main_tab: () => {
+      const state = useAppStore.getState();
+      const tabs = state.mainTabs;
+      if (tabs.length <= 1) return;
+      const idx = tabs.findIndex((t) => mainTabKey(t) === state.activeMainTabKey);
+      const prevIdx = idx <= 0 ? tabs.length - 1 : idx - 1;
+      const target = tabs[prevIdx];
+      if (target) setActiveMainTab(mainTabKey(target));
+    },
+    close_main_tab: () => {
+      const state = useAppStore.getState();
+      const key = state.activeMainTabKey;
+      // Dashboard is sticky; closeMainTab already no-ops on it but
+      // we short-circuit here to avoid the ineffectual side trip
+      // through the reducer.
+      if (key && key !== 'dashboard') closeMainTab(key);
+    },
+  };
+
+  // We intentionally don't memoise `viewHandlers`: every render
+  // produces a fresh object, but `useViewShortcuts` stashes the
+  // latest value in a ref *without* re-binding the listener, so the
+  // perf cost is one Map allocation per render. That's cheaper than
+  // chasing the stable-identity dance for seven small closures.
+  useViewShortcuts(viewShortcuts, viewHandlers);
 
   useEffect(() => {
     let cancelled = false;
@@ -456,7 +549,24 @@ export default function App() {
         await listen<{ serviceId: string; openTerminal?: boolean }>(
           'quick-action://navigate',
           (e) => {
-            setSelected(e.payload.serviceId);
+            // Honour the optional `openTerminal` flag emitted by the
+            // Quick Action's "Open Terminal" sub-action. Previously
+            // we ignored it, which made that menu item silently
+            // identical to a plain "Open service" — confusing and
+            // inconsistent with the row's icon + label.
+            //
+            // Routing through `openServiceWithBodyTab('terminal')`
+            // (instead of an ad-hoc state poke) reuses the same
+            // atomic store transition the dashboard's Notes shortcut
+            // uses: the main tab is selected AND the body-tab deep
+            // link is stamped in a single `set` call, so the
+            // LogPanel's mount-time effect picks it up without a
+            // race against the default `mainTab='logs'`.
+            if (e.payload.openTerminal) {
+              openServiceWithBodyTab(e.payload.serviceId, 'terminal');
+            } else {
+              setSelected(e.payload.serviceId);
+            }
           },
         ),
       );
@@ -467,7 +577,7 @@ export default function App() {
       );
       unsubs.push(
         await listen('quick-action://shortcuts', () => {
-          setShortcutSettingsOpen(true);
+          openSettings('shortcuts');
         }),
       );
       unsubs.push(
@@ -487,7 +597,7 @@ export default function App() {
       );
     })();
     return () => unsubs.forEach((u) => u());
-  }, [setSelected, startScan, openEditor, openStackEditor]);
+  }, [setSelected, openServiceWithBodyTab, startScan, openEditor, openStackEditor, openSettings]);
 
   // One-time "still running in your menu bar" hint.
   //
@@ -592,13 +702,33 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <SidebarRail />
         <main className="flex min-w-0 flex-1 flex-col">
-          {/* Release Notes lives at the top of the conditional chain on
-              purpose: opening it must always win over whatever was on
-              the canvas. The store's `setSelected` / `setSelectedStack`
-              clear `releaseNotesOpen` so sidebar navigation always
-              wins back — keeping the precedence one-directional. */}
+          {/* Fullscreen pages (Release Notes, Settings) live at the
+              top of the conditional chain on purpose: opening either
+              must always win over whatever was on the canvas. The
+              store's `setSelected` / `setSelectedStack` clear both
+              `releaseNotesOpen` and `settingsCategory` so sidebar
+              navigation always wins back — precedence stays
+              one-directional. Settings has lower priority than
+              Release Notes only because the Release Notes page is
+              already an autohide-after-update flow that the user
+              didn't ask for; if they happen to open Settings on
+              top of an auto-shown notes page, surfacing the notes
+              again would be jarring. (In practice they can't both
+              be open simultaneously because each opener clears the
+              other.) */}
           {releaseNotesOpen ? (
             <ReleaseNotes />
+          ) : settingsCategory !== null ? (
+            <SettingsView
+              onReplayTour={() => {
+                useAppStore.getState().closeSettings();
+                setTourState({ open: true, reopened: true });
+              }}
+              onOpenAiManager={() => {
+                useAppStore.getState().closeSettings();
+                setAiSettingsOpen(true);
+              }}
+            />
           ) : (
             <>
               <MainTabBar />
@@ -664,8 +794,8 @@ export default function App() {
 
       <StatusBar
         onOpenPortManager={() => setPortManagerOpen(true)}
-        onOpenShortcutSettings={() => setShortcutSettingsOpen(true)}
-        onOpenAiSettings={() => setAiSettingsOpen(true)}
+        onOpenSettings={() => openSettings('shortcuts')}
+        onOpenAiSettings={() => openSettings('ai')}
         onToggleAiChat={() => toggleRightPanel('ai')}
       />
 
@@ -675,15 +805,6 @@ export default function App() {
       {editorStack !== undefined && <StackEditor stack={editorStack} onClose={closeStackEditor} />}
       {scanPath && <ScanDialog path={scanPath} onClose={() => setScanPath(null)} />}
       {portManagerOpen && <PortManager onClose={() => setPortManagerOpen(false)} />}
-      {shortcutSettingsOpen && (
-        <ShortcutSettings
-          onClose={() => setShortcutSettingsOpen(false)}
-          onReplayTour={() => {
-            setShortcutSettingsOpen(false);
-            setTourState({ open: true, reopened: true });
-          }}
-        />
-      )}
       {aiSettingsOpen && <AiSettings onClose={() => setAiSettingsOpen(false)} />}
       {/* AI Chat and Activity Timeline are now both rendered inside
           the right-side shell (RightSidePanel), so we no longer

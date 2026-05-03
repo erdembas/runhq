@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, RotateCcw, X } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
 import { XTERM_SEARCH_DECORATIONS, xtermTheme } from '@/lib/xtermTheme';
@@ -82,6 +82,17 @@ export function TerminalPane({ id, cwd }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [matchInfo, setMatchInfo] = useState<MatchInfo | null>(null);
+  // Bumped by the toolbar's "Restart" button. Threading it through the
+  // main effect's dep array forces a full unmount → remount cycle:
+  // cleanup runs `terminal_destroy(id)` (kills the shell + any
+  // foreground process the user has wedged, e.g. an `opencode` that
+  // ate Ctrl+C and never came back), then the next mount spins up a
+  // brand-new PTY for the same id. Cheaper than reloading the whole
+  // app; user keeps their current service tab and dashboard state.
+  const [restartNonce, setRestartNonce] = useState(0);
+  const restartTerminal = useCallback(() => {
+    setRestartNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     if (termRef.current) {
@@ -285,8 +296,12 @@ export function TerminalPane({ id, cwd }: Props) {
     // `term.options.theme` in place. `openSearch` is stable
     // (useCallback with no deps) but lint can't always prove it, so
     // we ALSO suppress its inclusion to keep the effect from churning.
+    // `restartNonce` IS in the dep array — bumping it tears down the
+    // current xterm + PTY and spawns a fresh pair, which is the
+    // escape hatch for hung foreground processes (e.g. an `opencode`
+    // wedge that ignored Ctrl+C).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, cwd]);
+  }, [id, cwd, restartNonce]);
 
   // Live-search as the user types. Debouncing isn't worth the
   // complexity — `findNext` is sub-millisecond on a 10 K-line buffer,
@@ -320,6 +335,32 @@ export function TerminalPane({ id, cwd }: Props) {
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" style={{ minHeight: '200px' }} />
+      {/*
+        Restart pill — top-right, opposite the search bar so they
+        never collide when both are open. Sized to read as a "minor
+        utility" (small icon, dim default state) rather than a
+        primary action; the user only reaches for this when something
+        is wrong (hung TUI, mojibake from a `cat /dev/urandom`, shell
+        confused by half a paste). One click = `terminal_destroy` +
+        `terminal_create` for the same id, which is the cheapest
+        correct way to recover without touching the rest of the app.
+      */}
+      {!searchOpen && (
+        <button
+          type="button"
+          onClick={restartTerminal}
+          title="Restart terminal (kill current shell & respawn)"
+          aria-label="Restart terminal"
+          onPointerDown={(e) => e.stopPropagation()}
+          className={cn(
+            'border-border bg-surface-raised/85 text-fg-dim hover:text-fg hover:bg-surface-overlay',
+            'absolute top-2 right-3 z-10 flex h-6 w-6 items-center justify-center',
+            'rounded-app-sm border shadow-sm backdrop-blur transition',
+          )}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
+      )}
       {searchOpen && (
         <div
           className={cn(

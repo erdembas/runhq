@@ -17,6 +17,16 @@ export interface ServiceDef {
   tags: string[];
   auto_start: boolean;
   open_browser: boolean;
+  /**
+   * Workspace-tracking-only flag. When `true` the service still
+   * shows up in the sidebar / palette / search (so the user can
+   * open it in an editor or terminal) but is filtered out of every
+   * dashboard surface — Overview cards, headline counts, dependency
+   * scan totals, license aggregates. Optional in the type because
+   * older configs persisted before the field existed deserialise
+   * without it; treat absent as `false`.
+   */
+  hide_dashboard?: boolean;
   grace_ms: number;
 }
 
@@ -117,7 +127,17 @@ export interface AppInfo {
   state_dir: string;
 }
 
+/**
+ * Every keyboard shortcut the user can rebind. Two scopes coexist
+ * here: `quick_action` and `focus_main` are OS-level globals
+ * registered with Tauri's `tauri-plugin-global-shortcut` (active
+ * even when RunHQ is hidden / unfocused), everything else is a
+ * window-level binding handled by a React keydown listener (only
+ * fires while the RunHQ window has focus). Stored together so a
+ * single `prefs.json` round-trip persists every key.
+ */
 export interface Shortcuts {
+  // ---- Global ----
   quick_action: string;
   /**
    * Global shortcut that brings the main RunHQ window to the
@@ -128,6 +148,24 @@ export interface Shortcuts {
    * main window so the user can resume their full workflow.
    */
   focus_main: string;
+
+  // ---- View (window-level) ----
+  /** Pin / unpin the left sidebar. */
+  toggle_left_sidebar: string;
+  /** Open / close the AI Chat panel on the right. */
+  toggle_ai_panel: string;
+  /** Open / close the Activity timeline panel on the right. */
+  toggle_activity_panel: string;
+  /** Spawn a new terminal in the active service tab. */
+  new_terminal: string;
+
+  // ---- Main tabs (window-level) ----
+  /** Cycle to the next main tab in the top tab strip. */
+  next_main_tab: string;
+  /** Cycle to the previous main tab. */
+  prev_main_tab: string;
+  /** Close the currently-active main tab (dashboard is sticky). */
+  close_main_tab: string;
 }
 
 export interface Prefs {

@@ -82,6 +82,7 @@ export function ServiceEditor({ service, onClose }: Props) {
   const [pathOverride, setPathOverride] = useState<string>(service?.path_override ?? '');
   const [preCommand, setPreCommand] = useState<string>(service?.pre_command ?? '');
   const [autoStart, setAutoStart] = useState(service?.auto_start ?? false);
+  const [hideDashboard, setHideDashboard] = useState(service?.hide_dashboard ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -278,6 +279,7 @@ export function ServiceEditor({ service, onClose }: Props) {
           port: parsedPort,
           tags,
           auto_start: autoStart,
+          hide_dashboard: hideDashboard,
           grace_ms: Math.round(parsedGrace),
         });
       } else {
@@ -291,6 +293,7 @@ export function ServiceEditor({ service, onClose }: Props) {
           port: parsedPort,
           tags,
           auto_start: autoStart,
+          hide_dashboard: hideDashboard,
           grace_ms: Math.round(parsedGrace),
         });
       }
@@ -493,6 +496,14 @@ export function ServiceEditor({ service, onClose }: Props) {
                 onChange={(e) => setGraceMs(e.target.value.replace(/[^\d]/g, ''))}
               />
             </Field>
+            <div className="md:col-span-2">
+              <Switch
+                checked={hideDashboard}
+                onChange={setHideDashboard}
+                label="Hide from dashboard"
+                description="Track this project in the sidebar, palette, and search only — skip it on the dashboard, dependency scans, and license aggregates. Useful for vendored or docs-only repos that have no run story."
+              />
+            </div>
           </div>
         )}
       </div>

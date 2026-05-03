@@ -1,22 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  BookOpen,
   Eraser,
   ExternalLink,
-  FileText,
+  Eye,
+  EyeOff,
   FolderOpen,
   Globe,
-  GripHorizontal,
-  Maximize2,
-  Minimize2,
   Network,
   Pencil,
   Play,
   RotateCcw,
-  ScrollText,
   Search,
   Square,
-  TerminalSquare,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -36,6 +32,10 @@ import { EditorDropdown } from '@/components/EditorDropdown';
 import { GitStatusChip } from '@/components/GitStatusChip';
 import { LogXtermView } from '@/components/LogXtermView';
 import { TerminalPane } from '@/components/TerminalPane';
+import { ServiceLayout } from '@/components/layout/ServiceLayout';
+import { findGroupByTab, type Tab as LayoutTab } from '@/components/layout/layoutModel';
+import { useServiceLayout } from '@/components/layout/useServiceLayout';
+import { registerServiceShortcuts } from '@/lib/serviceShortcutBus';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
@@ -70,9 +70,6 @@ const ProjectNotesTab = lazy(() =>
   import('@/components/ProjectNotesTab').then((m) => ({ default: m.ProjectNotesTab })),
 );
 
-/** Body tab a user is currently viewing inside a service panel. */
-type MainTab = 'logs' | 'docs' | 'notes';
-
 /** Encode a UTF-8 string as the byte-array shape `terminal_write` expects. */
 function utf8ToBytes(s: string): number[] {
   return Array.from(new TextEncoder().encode(s));
@@ -81,7 +78,6 @@ function utf8ToBytes(s: string): number[] {
 type PopoverKey = 'ports';
 
 const EMPTY_LOGS: LogLine[] = [];
-const MIN_PANEL = 80;
 
 /** Deterministically pick a badge color for a command name.
  *
@@ -193,34 +189,45 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   // rows while scanning output. Turn it on when you actually need to line up
   // events against wall-clock time.
   const [showTimestamp, setShowTimestamp] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
-  // When `true`, the terminal expands to fill the entire content area
-  // (logs list and splitter both collapse). Kept as local component
-  // state — like `selectedCmdName` — so each service tab remembers
-  // its own maximize preference independently. Auto-resets when the
-  // terminal itself is closed: re-opening should land in the
-  // familiar split layout, not silently re-enter fullscreen.
-  const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [openPopover, setOpenPopover] = useState<PopoverKey | null>(null);
-  const [splitY, setSplitY] = useState(() => Math.round(window.innerHeight * 0.55));
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
     onConfirm: () => void;
   } | null>(null);
 
-  // Body tab — DOCS or LOGS. Default is LOGS, but a service that
-  // has no logs yet AND an available README opens straight into
-  // DOCS so first-time and just-cloned projects feel useful from
-  // the first click. Auto-switch back to LOGS is driven later by
-  // the running-cmd diff effect, which always pulls a launching
-  // command into focus regardless of how the DOCS tab got opened.
-  const [mainTab, setMainTab] = useState<MainTab>('logs');
-  // Whether the project has any docs to render. Driven by a
-  // lightweight `discoverProjectDocs` call so we can decide
-  // whether to show the DOCS tab at all. We don't render the tab
-  // strip when the project has zero docs — saves a row of
-  // chrome on services with nothing to show.
-  const [hasDocs, setHasDocs] = useState(false);
+  // Per-service split-layout state (recursive panel tree, drag-and-
+  // drop reorder/split, persisted in localStorage). Replaces the old
+  // single `mainTab` enum + the per-pane `terminalEverOpened` latch:
+  // the layout reducer tracks tabs, splits, and active-per-pane
+  // state, and a tab is "alive" iff it appears in the tree (so
+  // closing it really does reap the PTY beneath).
+  const layout = useServiceLayout(serviceId);
+  // Slot registry: ServiceLayout calls back with a DOM node for
+  // each visible tab in each pane (active or not — inactive slots
+  // stay laid out but `visibility:hidden`). We portal each tab's
+  // body into the registered node, so moving a `terminal` tab
+  // between groups is a pure DOM relocation and the underlying
+  // PTY-bearing component never unmounts.
+  //
+  // We hold the map in `useState` (not a plain ref) so React knows
+  // to re-render the body host list when slots appear / disappear;
+  // the equality check inside `onSlotRef` makes that safe (no
+  // pointless re-renders when the same DOM node re-registers).
+  const [bodySlots, setBodySlots] = useState<Map<string, HTMLDivElement>>(() => new Map());
+  const onSlotRef = useCallback((tabId: string, el: HTMLDivElement | null) => {
+    setBodySlots((prev) => {
+      if (el) {
+        if (prev.get(tabId) === el) return prev;
+        const next = new Map(prev);
+        next.set(tabId, el);
+        return next;
+      }
+      if (!prev.has(tabId)) return prev;
+      const next = new Map(prev);
+      next.delete(tabId);
+      return next;
+    });
+  }, []);
 
   // AI log-triage now routes through the right-side chat panel via
   // `openAiChat`. We keep no local triage state — the right-click
@@ -234,35 +241,6 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => obs.disconnect();
   }, []);
-
-  const dragging = useRef(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Closing the terminal panel must also drop the maximize flag so a
-  // future re-open lands in the regular split view. Otherwise the
-  // user clicks "Terminal" expecting to *see* logs again and gets a
-  // stale fullscreen state staring back at them.
-  useEffect(() => {
-    if (!showTerminal && terminalMaximized) setTerminalMaximized(false);
-  }, [showTerminal, terminalMaximized]);
-
-  // Esc restores the split view from fullscreen. We attach the
-  // listener only while maximized to keep keyboard surface area
-  // honest — Esc has lots of meanings across this app (close
-  // popovers, dismiss dialogs) and we don't want to claim it
-  // unconditionally. Capture phase isn't necessary since nothing
-  // earlier in the tree consumes Esc when this mode is on.
-  useEffect(() => {
-    if (!terminalMaximized) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setTerminalMaximized(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [terminalMaximized]);
 
   const activeCmd = useMemo(() => {
     if (!service) return null;
@@ -281,39 +259,37 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 
   // Probe the project for docs once per service. Cheap (a single
   // IPC round-trip per service tab); the result is used both to
-  // gate the DOCS tab visibility and to drive the smart default.
+  // gate the DOCS tab visibility and to drive the smart default
+  // (a fresh tab with empty logs and a README opens straight on
+  // DOCS so just-cloned projects feel useful from the first click).
   useEffect(() => {
     if (!selectedId) return;
     let alive = true;
-    setHasDocs(false);
-    setMainTab('logs');
+    layout.setIncludeDocs(false);
     ipc
       .discoverProjectDocs(selectedId)
       .then((list) => {
         if (!alive) return;
         const present = list.length > 0;
-        setHasDocs(present);
-        // Smart default: a fresh service tab with no logs but a
-        // README jumps straight into DOCS so a just-cloned project
-        // surfaces something useful on the first click. The moment
-        // a command actually launches, the running-cmd diff effect
-        // pulls focus back to LOGS — so this is purely about the
-        // empty-buffer first impression, not a sticky preference.
+        layout.setIncludeDocs(present);
         if (present) {
-          // Read logs lazily out of the store at decision time —
-          // we don't want this effect to re-run every time the
-          // log buffer grows.
+          // Smart default: empty-logs + README → land on DOCS.
+          // We resolve the docs tab's owning group to scope the
+          // activation; layout activates per-group (a docs tab in
+          // a split-off pane shouldn't yank focus from the
+          // user's main pane).
           const logsKey = activeCmd ? logKey(selectedId, activeCmd) : '';
           const linesNow = logsKey ? (useAppStore.getState().logs[logsKey]?.lines.length ?? 0) : 0;
           if (linesNow === 0) {
-            setMainTab('docs');
+            const docsGroup = findGroupByTab(layout.state.root, 'docs');
+            if (docsGroup) layout.activate(docsGroup.id, 'docs');
           }
         }
       })
       .catch((err) => {
         if (!alive) return;
         console.warn('docs: discover probe failed', err);
-        setHasDocs(false);
+        layout.setIncludeDocs(false);
       });
     return () => {
       alive = false;
@@ -384,9 +360,23 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     [filtered, service, openAiChat],
   );
 
-  const onSelectMainTab = useCallback((tab: MainTab) => {
-    setMainTab(tab);
-  }, []);
+  /**
+   * Activate a singleton tab (logs / docs / notes) wherever it
+   * currently lives. Used by the toolbar shortcuts and by cross-
+   * surface deep-links — those don't know which pane the user
+   * happened to drag the tab into, so we resolve the owning group
+   * lazily out of the layout tree.
+   *
+   * For terminals (no fixed id) the caller should go through
+   * `layout.ensureTerminal()` instead.
+   */
+  const activateSingleton = useCallback(
+    (tabId: 'logs' | 'docs' | 'notes') => {
+      const group = findGroupByTab(layout.state.root, tabId);
+      if (group) layout.activate(group.id, tabId);
+    },
+    [layout],
+  );
 
   // Honour cross-surface "open at this tab" requests. Runs after
   // the docs-discovery effect so a request to land on DOCS for a
@@ -394,48 +384,85 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   // we consume the request unconditionally to avoid a stale entry
   // re-firing on the next render. Notes is always available, DOCS
   // is gated on `hasDocs` — but we apply the request even if DOCS
-  // is requested without docs being discovered yet, because the
-  // tab strip will hide the DOCS button anyway and the tab state
-  // will look like LOGS in that edge case. Cheaper than introducing
-  // a second wait-for-docs state machine.
+  // is requested without docs being discovered yet (the tab strip
+  // hides the DOCS button anyway, so the activation is a harmless
+  // no-op in that edge case).
   useEffect(() => {
     if (!pendingBodyTabRequest) return;
-    if (
+    if (pendingBodyTabRequest === 'terminal') {
+      // Bring an existing terminal forward, or spawn a fresh one
+      // in the preferred group — the deep-link doesn't care which.
+      layout.ensureTerminal();
+    } else if (
       pendingBodyTabRequest === 'logs' ||
       pendingBodyTabRequest === 'docs' ||
       pendingBodyTabRequest === 'notes'
     ) {
-      setMainTab(pendingBodyTabRequest);
+      activateSingleton(pendingBodyTabRequest);
     }
     consumePendingBodyTab(serviceId);
-  }, [pendingBodyTabRequest, consumePendingBodyTab, serviceId]);
+  }, [pendingBodyTabRequest, consumePendingBodyTab, serviceId, layout, activateSingleton]);
+
+  // Expose the per-service action surface to the global view-shortcut
+  // dispatcher. We register on every mount and unregister on unmount,
+  // so only currently-rendered LogPanels can be targeted by the
+  // shortcut — a safety net against the dispatcher firing on a
+  // service tab that's no longer in the DOM.
+  //
+  // The handler closes over `layout`, but `layout.ensureTerminal`
+  // already pulls fresh state from the reducer ref, so we don't
+  // need to re-register on every layout change. Re-registering
+  // when only `serviceId` changes keeps the registry key in sync
+  // when the same LogPanel instance flips to a different service
+  // (which currently doesn't happen, but is defensive against a
+  // future panel-recycling optimisation).
+  useEffect(() => {
+    if (!serviceId) return;
+    return registerServiceShortcuts(serviceId, {
+      newTerminal: () => {
+        layout.ensureTerminal();
+      },
+    });
+  }, [serviceId, layout]);
 
   // When the user clicks Run on a fenced shell block in DOCS, we
-  // open the integrated terminal pane (if it isn't already), wait
-  // a beat for the PTY to spawn, then write the command + CR
-  // through `ipc.terminalWrite`. Switching back to LOGS lets the
-  // user see the command's output land in the same panel — that's
-  // the "no friction" promise of the DOCS tab.
+  // jump them to the Terminal body tab (mounting the PTY on first
+  // hit via the mount-once latch) and write the command + CR
+  // through `ipc.terminalWrite` after a short delay. The delay
+  // covers the PTY spawn round-trip — empirically ~250 ms on
+  // macOS / Linux / Windows. The terminal pane buffers writes
+  // pre-ready, so even if we shave the delay the worst case is
+  // a couple of dropped bytes; 250 ms is the conservative pick.
+  //
+  // We deliberately land the user on the *Terminal* tab now, not
+  // Logs: the user explicitly asked to RUN a command in their
+  // shell. They want to *see the shell*, type follow-up commands,
+  // and watch interactive output (pnpm-style spinners, prompts,
+  // colored progress bars) — none of which live in the structured
+  // log buffer. Routing to Logs was a leftover from the old design
+  // where terminal was a sub-pane of the LOGS body.
   const runDocCommand = useCallback(
     (command: string) => {
       if (!selectedId) return;
-      setShowTerminal(true);
-      onSelectMainTab('logs');
-      // 250ms is empirically enough for the PTY spawn round-trip
-      // on macOS / Linux / Windows; the terminal pane will queue
-      // any earlier writes anyway via the IPC layer's pending
-      // buffer. We don't await the spawn explicitly because the
-      // TerminalPane manages its own lifecycle and exposing a
-      // ready-promise just to support a single feature would mean
-      // wiring through a hefty contract change for marginal gain.
+      // `ensureTerminal` returns the id of the existing or
+      // freshly-spawned terminal. The reducer activates it in its
+      // owning pane synchronously, so the user lands on the live
+      // shell as soon as the next paint commits.
+      const targetId = layout.ensureTerminal();
+      if (!targetId) return;
+      // Defer the write past the activation so the PTY spawn (if
+      // we just allocated one) has time to land — `terminal_write`
+      // pre-spawn races onto a missing handle and the bytes are
+      // dropped. 250 ms covers the worst-case spawn round-trip
+      // (empirically ~150 ms) with margin.
       window.setTimeout(() => {
         const bytes = utf8ToBytes(`${command}\r`);
-        void ipc.terminalWrite(selectedId, bytes).catch((err) => {
+        void ipc.terminalWrite(targetId, bytes).catch((err) => {
           console.warn('docs: terminal_write failed', err);
         });
       }, 250);
     },
-    [selectedId, onSelectMainTab],
+    [selectedId, layout],
   );
 
   // When a NEW command transitions into the running pipeline —
@@ -465,13 +492,15 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     () => runningCmdNames.slice().sort().join('\x1f'),
     [runningCmdNames],
   );
-  // Read latest `mainTab` from a ref inside the diff effect — we
-  // don't want the effect to re-run when the user toggles tabs,
-  // only when the running-cmd set actually changes.
-  const mainTabRef = useRef<MainTab>(mainTab);
+  // We don't want the diff effect to re-run when the user toggles
+  // panes; we only care about the running-cmd set. Snapshot the
+  // layout's "is logs the active tab in the pane that holds it"
+  // status via a ref so changes to the layout reducer don't
+  // invalidate the effect.
+  const layoutStateRef = useRef(layout.state);
   useEffect(() => {
-    mainTabRef.current = mainTab;
-  }, [mainTab]);
+    layoutStateRef.current = layout.state;
+  }, [layout.state]);
   const prevRunningCmdsRef = useRef<string[]>([]);
   useEffect(() => {
     const prev = prevRunningCmdsRef.current;
@@ -480,40 +509,26 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     const prevSet = new Set(prev);
     const newlyRunning = runningCmdNames.find((n) => !prevSet.has(n));
     if (!newlyRunning) return;
-    // Same reasoning extends to NOTES as for DOCS: if the user is
-    // reading a non-LOGS body tab and a fresh command kicks off, the
-    // command launch is the strongest possible signal they want to
-    // watch it run. Bouncing them back to LOGS for any non-logs
-    // surface keeps the "click Play → see output" mental model
-    // intact regardless of which sibling tab they were parked on.
-    if (mainTabRef.current !== 'logs') {
+    // A fresh command launch is the strongest possible signal the
+    // user wants to watch it run. If the LOGS tab isn't the active
+    // body in its owning pane, snap focus there so the output
+    // becomes immediately visible. Other panes (a terminal split
+    // off to the right, say) are deliberately left alone — a
+    // command launch shouldn't yank user attention away from a
+    // shell they're actively typing into.
+    const cur = layoutStateRef.current;
+    const logsGroup = findGroupByTab(cur.root, 'logs');
+    if (logsGroup && logsGroup.activeTab !== 'logs') {
       setSelectedCmdName(newlyRunning);
-      setMainTab('logs');
+      layout.activate(logsGroup.id, 'logs');
+    } else if (logsGroup) {
+      // Logs is already in front; just swap to the new command.
+      setSelectedCmdName(newlyRunning);
     }
     // `runningCmdNames` is captured via closure; the join-key is
     // the actual change-trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningCmdKey]);
-
-  const onDragStart = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const onDragMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const headerH =
-      containerRef.current.querySelector('[data-header]')?.getBoundingClientRect().height ?? 0;
-    const y = e.clientY - rect.top - headerH;
-    const max = rect.height - headerH - 28;
-    setSplitY(Math.max(MIN_PANEL, Math.min(max - MIN_PANEL, y)));
-  }, []);
-
-  const onDragEnd = useCallback(() => {
-    dragging.current = false;
-  }, []);
 
   const currentStatus = status?.status ?? 'stopped';
   const isServiceRunning = currentStatus === 'running' || currentStatus === 'starting';
@@ -574,15 +589,9 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   });
 
   return (
-    <div
-      ref={containerRef}
-      className="bg-surface relative flex min-h-0 flex-1 flex-col overflow-hidden"
-    >
+    <div className="bg-surface relative flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Header */}
-      <div
-        data-header
-        className="border-border/70 bg-surface-raised flex shrink-0 flex-col gap-2.5 border-b px-5 py-3"
-      >
+      <div className="border-border/70 bg-surface-raised flex shrink-0 flex-col gap-2.5 border-b px-5 py-3">
         {/* Title row */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -646,6 +655,44 @@ export function LogPanel({ serviceId }: LogPanelProps) {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {/*
+              Dashboard-visibility quick toggle.
+
+              Why inline (instead of "open the editor → Advanced tab
+              → flip a Switch → Save"): the Advanced tab is a
+              destination for rare, deliberate config changes
+              (path overrides, grace timers, env vars). Burying a
+              one-shot visibility toggle behind that ceremony was
+              the source of the user complaint — they hit the flag
+              often enough that the round-trip felt like
+              punishment.
+              Inline IconButton means the toggle is one click from
+              the place where the user noticed they wanted it
+              (currently looking at the service). No editor open,
+              no save round-trip, no scroll to find Advanced.
+
+              The button's label flips with the current state so
+              the tooltip always describes the OUTCOME of clicking,
+              not the current value (Notion / Linear convention).
+              Active state mirrors the dashboard's "Hidden" toggle
+              chip so a user who's mentally bound `EyeOff = hidden`
+              from the dashboard reads the same here.
+            */}
+            <IconButton
+              label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
+              icon={service.hide_dashboard ? <EyeOff /> : <Eye />}
+              size="sm"
+              onClick={() => {
+                void ipc
+                  .updateService({
+                    ...service,
+                    hide_dashboard: !service.hide_dashboard,
+                  })
+                  .catch((err) => {
+                    console.warn('updateService(hide_dashboard) failed', err);
+                  });
+              }}
+            />
             <IconButton
               label="Edit"
               icon={<Pencil />}
@@ -749,46 +796,17 @@ export function LogPanel({ serviceId }: LogPanelProps) {
                 state (branches list, in-progress inputs, popover-open flag)
                 can't leak from one service into the next. */}
             <GitStatusChip key={service.id} serviceId={service.id} />
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<TerminalSquare className="h-3 w-3" />}
-              className={showTerminal ? 'border-accent/50 text-accent bg-accent/10' : ''}
-              onClick={() => setShowTerminal((v) => !v)}
-            >
-              {showTerminal ? 'Close' : 'Terminal'}
-            </Button>
             {/*
-              Fullscreen toggle for the terminal pane. Only renders
-              when the terminal is open — there's nothing to maximize
-              otherwise, and showing a disabled control would just
-              add visual clutter to the toolbar. Keeping it adjacent
-              to the Terminal button groups the two terminal-related
-              affordances together (open ↔ size) instead of scattering
-              them across the row.
+              The toolbar Terminal button used to be the sole way to
+              spawn a shell for a service. It became redundant once
+              the layout grew its own "+ New Terminal" button in
+              every group's tab strip *and* a global `Cmd/Ctrl+\``
+              shortcut — three entry points for the same action just
+              meant a noisier toolbar. The shortcut + tab strip pair
+              covers the muscle memory case (keyboard) and the
+              discoverability case (mouse) without this button
+              taking up real estate next to Ports.
             */}
-            {showTerminal && (
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={
-                  terminalMaximized ? (
-                    <Minimize2 className="h-3 w-3" />
-                  ) : (
-                    <Maximize2 className="h-3 w-3" />
-                  )
-                }
-                className={terminalMaximized ? 'border-accent/50 text-accent bg-accent/10' : ''}
-                onClick={() => setTerminalMaximized((v) => !v)}
-                title={
-                  terminalMaximized
-                    ? 'Restore split view (Esc)'
-                    : 'Expand terminal to fill the panel'
-                }
-              >
-                {terminalMaximized ? 'Restore' : 'Expand'}
-              </Button>
-            )}
 
             <PopoverChip
               icon={<Network className="h-3 w-3" />}
@@ -868,242 +886,60 @@ export function LogPanel({ serviceId }: LogPanelProps) {
       </div>
 
       {/*
-        Body tab strip. Always rendered now that NOTES joined the
-        mix — every service can have notes regardless of whether it
-        ships docs, so the strip is a permanent fixture rather than
-        a conditional one. The DOCS button hides itself when the
-        project has no discoverable README/docs to render; LOGS and
-        NOTES are universal.
+        Recursive split layout. Owns the per-service tab tree, the
+        drag-and-drop reorder/split mechanics, and the slot
+        registry that tells us where each tab body should be
+        portaled to. Body content itself is rendered below — see
+        the `bodySlots`-driven block — so that moving a tab
+        between panes is a pure DOM relocation without remounting
+        the underlying PTY / xterm / markdown renderer.
       */}
-      <div
-        data-body-tabs
-        className="border-border/60 bg-surface flex shrink-0 items-center gap-0 border-b px-2"
-      >
-        <BodyTabButton
-          active={mainTab === 'logs'}
-          onClick={() => onSelectMainTab('logs')}
-          icon={<ScrollText className="h-3 w-3" />}
-          label="Logs"
-        />
-        {hasDocs && (
-          <BodyTabButton
-            active={mainTab === 'docs'}
-            onClick={() => onSelectMainTab('docs')}
-            icon={<BookOpen className="h-3 w-3" />}
-            label="Docs"
-          />
-        )}
-        <BodyTabButton
-          active={mainTab === 'notes'}
-          onClick={() => onSelectMainTab('notes')}
-          icon={<FileText className="h-3 w-3" />}
-          label="Notes"
-        />
-      </div>
+      <ServiceLayout
+        layout={layout}
+        onSlotRef={onSlotRef}
+        onAddTerminalToEmpty={(groupId) => layout.addTerminal(groupId)}
+      />
 
       {/*
-        DOCS body. Lazy-loaded — only paid for once the user actually
-        clicks the tab (or the smart default opens it for an
-        empty-logs project). We keep the LOGS body mounted even when
-        DOCS is showing, hidden via `display:none`, so the xterm
-        scrollback survives a tab toggle and we don't pay a re-build
-        cost when the user flips back. (DOCS is not similarly
-        retained: react-markdown is fast enough that re-mounting is
-        cheaper than holding its DOM tree in memory while LOGS
-        plays.)
+        Tab body host layer. One `<TabBodyHost>` per tab in the
+        layout state — each portals its body into whichever slot
+        ServiceLayout has registered for it. When a tab is dragged
+        between panes, ServiceLayout swaps the slot's DOM node, the
+        portal target updates, and the body content (terminal,
+        xterm log view, markdown renderer, …) physically relocates
+        without unmounting the React subtree. PTYs survive,
+        scrollback survives, the user just sees the panel slide
+        across the screen.
       */}
-      {mainTab === 'docs' && (
-        <Suspense
-          fallback={
-            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              Loading docs…
-            </div>
-          }
-        >
-          <ProjectDocsTab serviceId={selectedId} cwd={service.cwd} onRunCommand={runDocCommand} />
-        </Suspense>
-      )}
-
-      {/*
-        NOTES body. Lazy-loaded for the same bundle-cost reason as
-        DOCS (shares the markdown pipeline). Like DOCS, we don't
-        keep it mounted-but-hidden when the user flips away — the
-        textarea has no expensive state worth retaining and a
-        remount cleanly resets the dirty-buffer guard so a stale
-        unsaved buffer can't bleed across tab toggles. (If we kept
-        it hidden we'd also have to thread "you have unsaved
-        notes" warnings into the parent tab close flow; remount
-        sidesteps that by re-reading the on-disk file every time.)
-      */}
-      {mainTab === 'notes' && service && (
-        <Suspense
-          fallback={
-            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              Loading notes…
-            </div>
-          }
-        >
-          <ProjectNotesTab serviceId={selectedId} serviceName={service.name} />
-        </Suspense>
-      )}
-
-      {/* Logs — primary body when the LOGS tab is active. Ports / Env are popovers in the toolbar. */}
-      <div
-        className={cn('relative flex min-h-0 flex-1 flex-col', mainTab !== 'logs' && 'hidden')}
-        style={{ userSelect: dragging.current ? 'none' : undefined }}
-      >
-        {/* Meta strip directly above the xterm log view.
-            - Left: which command owns this log buffer (badge + raw invocation
-              like `yarn dev`). Moved out of each row because repeating the
-              same badge on every line was pure noise once a single command
-              was selected.
-            - Right: per-list toggles (timestamp, follow) + clear. */}
-        <div className="text-fg-dim flex items-center justify-between gap-3 px-5 py-1.5 text-[10.5px]">
-          <div className="flex min-w-0 items-center gap-2">
-            {activeCmd && (
-              <span className={cn('svc-badge shrink-0', badgeClass(activeCmd))}>{activeCmd}</span>
-            )}
-            {activeCmdEntry && (
-              <code
-                className="text-fg-muted truncate font-mono text-[11px]"
-                title={activeCmdEntry.cmd}
-              >
-                {activeCmdEntry.cmd}
-              </code>
-            )}
-            <span className="text-fg-dim/80 shrink-0 tabular-nums">
-              · {filtered.length.toLocaleString()} / {logs.length.toLocaleString()} lines
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
-              <input
-                type="checkbox"
-                checked={showTimestamp}
-                onChange={(e) => setShowTimestamp(e.target.checked)}
-                className="accent-accent h-2.5 w-2.5"
-              />
-              Timestamp
-            </label>
-            <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
-              <input
-                type="checkbox"
-                checked={follow}
-                onChange={(e) => setFollow(e.target.checked)}
-                className="accent-accent h-2.5 w-2.5"
-              />
-              Follow
-            </label>
-            <IconButton
-              label="Clear logs"
-              icon={<Eraser />}
-              size="xs"
-              onClick={() => {
-                if (logK) {
-                  void ipc.clearLogs(logK);
-                  clearLogsLocal(logK);
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        {/*
-          xterm.js host. The view is "controlled" via props: `filtered`
-          is the source of truth, `LogXtermView` reconciles its buffer
-          against that array. We intentionally use `display: none` (via
-          `hidden`) instead of unmounting on maximize so the xterm
-          instance, its scrollback, and the per-line markers all
-          survive — re-mounting on every toggle would dump the user's
-          scroll position and force a full re-write of the buffer.
-
-          The `key` is keyed on `serviceId + activeCmd` so switching
-          commands (or services) gives the xterm a fresh instance with
-          clean state. Reusing one xterm across cmd switches would
-          require an extra reset round-trip and risk leaking markers
-          into the wrong cmd's lookup table.
-        */}
-        <div
-          className={cn('flex-1 overflow-hidden px-6', terminalMaximized && 'hidden')}
-          style={showTerminal && !terminalMaximized ? { height: splitY, flex: 'none' } : undefined}
-        >
-          <LogXtermView
-            key={`${selectedId}::${activeCmd ?? '__none__'}`}
-            lines={filtered}
-            totalLogs={logs.length}
+      {Object.values(layout.state.tabs).map((tab) => {
+        const slot = bodySlots.get(tab.id);
+        if (!slot) return null;
+        return (
+          <TabBodyHost
+            key={tab.id}
+            tab={tab}
+            slot={slot}
+            // Logs body deps
+            selectedId={selectedId}
+            cwd={service.cwd}
+            serviceName={service.name}
+            activeCmd={activeCmd}
+            activeCmdEntry={activeCmdEntry}
+            filtered={filtered}
+            allLogs={logs}
+            logK={logK}
             showTimestamp={showTimestamp}
+            setShowTimestamp={setShowTimestamp}
             follow={follow}
+            setFollow={setFollow}
             isDark={isDark}
-            onLineContextMenu={handleLineContextMenu}
+            handleLineContextMenu={handleLineContextMenu}
+            clearLogsLocal={clearLogsLocal}
+            // Docs deps
+            onRunCommand={runDocCommand}
           />
-        </div>
-
-        {showTerminal && (
-          <>
-            {/*
-              Hide the resize splitter while maximized — there's
-              nothing on the other side to resize against, so a
-              draggable handle would just be confusing dead UI. We
-              still keep it mounted via `hidden` so its pointer
-              capture refs stay stable; not strictly required
-              today, but cheaper than re-creating handlers on
-              every maximize toggle.
-            */}
-            <div
-              onPointerDown={onDragStart}
-              onPointerMove={onDragMove}
-              onPointerUp={onDragEnd}
-              className={cn(
-                'border-border/60 bg-surface-muted/60 group hover:bg-accent/10 relative flex h-5 shrink-0 cursor-row-resize items-center justify-center border-y transition-colors',
-                terminalMaximized && 'hidden',
-              )}
-            >
-              <GripHorizontal className="text-fg-dim group-hover:text-accent h-3 w-3" />
-              {/*
-                In-handle Expand affordance.
-
-                Why here: the splitter is exactly where the user's
-                eye lands when they want "more terminal, less log" —
-                a fullscreen button on the same line is a natural
-                escalation of that intent. Putting the control IN the
-                handle (right-anchored) instead of next to it keeps
-                the row a single visual unit at h-5.
-
-                Why `stopPropagation` on pointer down: the parent owns
-                the drag-to-resize gesture (`onPointerDown` →
-                `setPointerCapture`). Without stopping the event the
-                act of clicking the button would also start a drag,
-                and the user would feel the panel jump while their
-                fullscreen click "succeeded but did weird things".
-                Stopping the bubble keeps the two interactions
-                cleanly separated.
-              */}
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setTerminalMaximized(true);
-                }}
-                title="Expand terminal to fill the panel"
-                aria-label="Expand terminal to fill the panel"
-                className={cn(
-                  'absolute top-1/2 right-1.5 -translate-y-1/2',
-                  'flex h-4 items-center gap-1 rounded px-1.5',
-                  'text-fg-dim hover:bg-accent/15 hover:text-accent',
-                  'cursor-pointer text-[10px] font-medium transition-colors',
-                )}
-              >
-                <Maximize2 className="h-2.5 w-2.5" />
-                <span>Expand</span>
-              </button>
-            </div>
-            <div className="bg-surface-muted min-h-0 flex-1">
-              <TerminalPane id={selectedId} cwd={service.cwd} />
-            </div>
-          </>
-        )}
-      </div>
+        );
+      })}
       {pendingConfirm && (
         <ConfirmDialog
           message={pendingConfirm.message}
@@ -1170,43 +1006,169 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 }
 
 /**
- * Body tab strip button — Logs / Docs. Visually mirrors a VS Code
- * panel tab (left-aligned, underline-on-active) so it doesn't
- * compete with the much louder toolbar buttons above. Compact
- * height keeps the body real-estate as close to legacy as
- * possible; users on a small laptop only lose a single 28-px row
- * to gain the entire DOCS tab.
+ * Renders the body for a single tab into the DOM node that
+ * `ServiceLayout` registered for it. Each kind has its own body
+ * (logs view, docs renderer, notes editor, terminal pane); we
+ * dispatch on `tab.kind` and portal the result.
+ *
+ * Mount stability: as long as a tab stays in the layout tree
+ * (i.e. the user hasn't closed it), this host stays mounted.
+ * Switching active tabs in a pane just toggles the slot's
+ * `visibility:hidden`, which doesn't unmount the body. Dragging
+ * a tab to another pane changes the portal target's DOM identity
+ * but the React subtree underneath this host doesn't reconcile
+ * with a remount — `createPortal` reparents the host's children
+ * into the new target without disturbing them. Net result: a
+ * `terminal` tab can be split, dragged across panes, made
+ * inactive and re-activated all without losing its PTY.
  */
-function BodyTabButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
+function TabBodyHost(props: {
+  tab: LayoutTab;
+  slot: HTMLDivElement;
+  // Logs deps
+  selectedId: string;
+  cwd: string;
+  serviceName: string;
+  activeCmd: string | null;
+  activeCmdEntry: { name: string; cmd: string } | null;
+  filtered: LogLine[];
+  allLogs: LogLine[];
+  logK: string;
+  showTimestamp: boolean;
+  setShowTimestamp: (v: boolean) => void;
+  follow: boolean;
+  setFollow: (v: boolean) => void;
+  isDark: boolean;
+  handleLineContextMenu: (index: number) => void;
+  clearLogsLocal: (key: string) => void;
+  // Docs deps
+  onRunCommand: (command: string) => void;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'group relative inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors',
-        active ? 'text-fg' : 'text-fg-dim hover:text-fg',
-      )}
-    >
-      <span className={cn('shrink-0', active ? 'text-accent' : 'text-fg-dim')}>{icon}</span>
-      <span>{label}</span>
-      <span
-        className={cn(
-          'absolute right-2 bottom-0 left-2 h-px',
-          active ? 'bg-accent' : 'bg-transparent',
-        )}
-      />
-    </button>
-  );
+  const {
+    tab,
+    slot,
+    selectedId,
+    cwd,
+    serviceName,
+    activeCmd,
+    activeCmdEntry,
+    filtered,
+    allLogs,
+    logK,
+    showTimestamp,
+    setShowTimestamp,
+    follow,
+    setFollow,
+    isDark,
+    handleLineContextMenu,
+    clearLogsLocal,
+    onRunCommand,
+  } = props;
+
+  let body: React.ReactNode = null;
+  switch (tab.kind) {
+    case 'logs':
+      body = (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="text-fg-dim flex items-center justify-between gap-3 px-5 py-1.5 text-[10.5px]">
+            <div className="flex min-w-0 items-center gap-2">
+              {activeCmd && (
+                <span className={cn('svc-badge shrink-0', badgeClass(activeCmd))}>{activeCmd}</span>
+              )}
+              {activeCmdEntry && (
+                <code
+                  className="text-fg-muted truncate font-mono text-[11px]"
+                  title={activeCmdEntry.cmd}
+                >
+                  {activeCmdEntry.cmd}
+                </code>
+              )}
+              <span className="text-fg-dim/80 shrink-0 tabular-nums">
+                · {filtered.length.toLocaleString()} / {allLogs.length.toLocaleString()} lines
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
+                <input
+                  type="checkbox"
+                  checked={showTimestamp}
+                  onChange={(e) => setShowTimestamp(e.target.checked)}
+                  className="accent-accent h-2.5 w-2.5"
+                />
+                Timestamp
+              </label>
+              <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(e) => setFollow(e.target.checked)}
+                  className="accent-accent h-2.5 w-2.5"
+                />
+                Follow
+              </label>
+              <IconButton
+                label="Clear logs"
+                icon={<Eraser />}
+                size="xs"
+                onClick={() => {
+                  if (logK) {
+                    void ipc.clearLogs(logK);
+                    clearLogsLocal(logK);
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden px-6">
+            <LogXtermView
+              key={`${selectedId}::${activeCmd ?? '__none__'}`}
+              lines={filtered}
+              totalLogs={allLogs.length}
+              showTimestamp={showTimestamp}
+              follow={follow}
+              isDark={isDark}
+              onLineContextMenu={handleLineContextMenu}
+            />
+          </div>
+        </div>
+      );
+      break;
+    case 'docs':
+      body = (
+        <Suspense
+          fallback={
+            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
+              Loading docs…
+            </div>
+          }
+        >
+          <ProjectDocsTab serviceId={selectedId} cwd={cwd} onRunCommand={onRunCommand} />
+        </Suspense>
+      );
+      break;
+    case 'notes':
+      body = (
+        <Suspense
+          fallback={
+            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
+              Loading notes…
+            </div>
+          }
+        >
+          <ProjectNotesTab serviceId={selectedId} serviceName={serviceName} />
+        </Suspense>
+      );
+      break;
+    case 'terminal':
+      body = (
+        <div className="bg-surface-muted relative flex min-h-0 flex-1 flex-col">
+          <TerminalPane id={tab.id} cwd={cwd} />
+        </div>
+      );
+      break;
+  }
+
+  return createPortal(body, slot);
 }
 
 /** Toolbar chip-button that anchors a floating popover panel below it. */

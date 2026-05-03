@@ -22,6 +22,18 @@ import { nextSectionColor } from '@/lib/sectionColors';
 import { ipc } from '@/lib/ipc';
 
 /**
+ * Identifier for each Settings hub page.
+ *
+ * Lives in the store (not next to `SettingsView`) so the store can
+ * type its `settingsCategory` slot without importing from the
+ * component layer — that import direction would create a cycle
+ * because `SettingsView` already pulls store actions for category
+ * content (AI provider list, sidebar pin, etc.). Components import
+ * the type from here.
+ */
+export type SettingsCategoryId = 'shortcuts' | 'ai' | 'data' | 'about' | 'danger';
+
+/**
  * Surface-specific action embedded in an assistant turn.
  *
  * Drives the small "Use as commit message" / "Copy to standup" /
@@ -309,6 +321,17 @@ interface AppStore {
   sidebarGroupBy: SidebarGroupBy;
   dashboardGroupBy: DashboardGroupBy;
   dashboardSortBy: DashboardSortBy;
+  /**
+   * Whether the dashboard reveals services flagged
+   * `hide_dashboard: true`. Off by default — those services exist
+   * to be tracked in the sidebar / palette / search only, and
+   * surfacing them on the dashboard would re-pollute the very
+   * surface the flag was created to protect. The dashboard renders
+   * a single "N hidden" toggle chip when at least one such service
+   * exists, letting power users peek at the full roster without
+   * editing each service back to visible.
+   */
+  dashboardShowHidden: boolean;
   search: string;
   editorService: ServiceDef | null | undefined;
   stacks: StackDef[];
@@ -382,6 +405,7 @@ interface AppStore {
   setSidebarGroupBy: (v: SidebarGroupBy) => void;
   setDashboardGroupBy: (v: DashboardGroupBy) => void;
   setDashboardSortBy: (v: DashboardSortBy) => void;
+  setDashboardShowHidden: (v: boolean) => void;
   resetSidebarFilters: () => void;
   setSearch: (q: string) => void;
   openEditor: (service: ServiceDef | null) => void;
@@ -438,6 +462,19 @@ interface AppStore {
   setRightPanel: (panel: 'activity' | 'ai' | null) => void;
   toggleRightPanel: (panel: 'activity' | 'ai') => void;
   setRightPanelWidth: (width: number) => void;
+
+  /**
+   * Whether the left sidebar is pinned open. When `false` the rail
+   * collapses to a thin strip and re-expands on hover (the legacy
+   * SidebarRail behaviour). The actual rendering still happens
+   * inside `SidebarRail` — this flag is just the shared baseline so
+   * the `toggle_left_sidebar` shortcut and any future surface (a
+   * menu item, a quick-action command) can flip it without
+   * prop-drilling.
+   */
+  sidebarPinned: boolean;
+  setSidebarPinned: (pinned: boolean) => void;
+  toggleSidebarPinned: () => void;
 
   /**
    * AI Chat Hub state.
@@ -650,6 +687,28 @@ interface AppStore {
   closeReleaseNotes: () => void;
 
   /**
+   * Settings hub state.
+   *
+   * `null` means the hub is closed and the main canvas shows the
+   * tab content (Dashboard / LogPanel / StackDetail) as usual; any
+   * other value opens the hub on the given category. Modeling this
+   * as a single nullable id (instead of a boolean + an
+   * "initialCategory" pair) means deep-linking to a specific page
+   * from anywhere — status bar gear, status-bar AI cog, the
+   * `quick-action://shortcuts` event, future `Cmd+,` shortcut — is
+   * a single store call with no risk of the hub opening on a stale
+   * page from the previous launch.
+   *
+   * Lives next to `releaseNotesOpen` because both follow the same
+   * "fullscreen page that takes over the main canvas" pattern, and
+   * sidebar navigation needs to clear *both* in lockstep so a tab
+   * switch always wins back the canvas.
+   */
+  settingsCategory: SettingsCategoryId | null;
+  openSettings: (category?: SettingsCategoryId) => void;
+  closeSettings: () => void;
+
+  /**
    * Diff viewer preference: when true, every DiffPane fetches the diff
    * with a huge `-U` context so Monaco can render the ENTIRE file with
    * unchanged code in place (not just the changed hunks + 3 lines).
@@ -722,13 +781,17 @@ const initialSidebarPrefs = loadSidebarPrefs();
 interface DashboardPrefs {
   groupBy: DashboardGroupBy;
   sortBy: DashboardSortBy;
+  /** Default `false`: hidden services stay off the dashboard until the
+   *  user explicitly toggles the "N hidden" chip. Persisted so the
+   *  power-user "show me everything" mode survives reloads. */
+  showHidden: boolean;
 }
 
 const VALID_GROUP_BYS: DashboardGroupBy[] = ['none', 'category', 'runtime', 'status'];
 const VALID_SORT_BYS: DashboardSortBy[] = ['name', 'activity', 'risk', 'memory', 'cpu'];
 
 function loadDashboardPrefs(): DashboardPrefs {
-  const defaults: DashboardPrefs = { groupBy: 'category', sortBy: 'name' };
+  const defaults: DashboardPrefs = { groupBy: 'category', sortBy: 'name', showHidden: false };
   if (typeof window === 'undefined') return defaults;
   try {
     const raw = window.localStorage.getItem(DASHBOARD_PREFS_KEY);
@@ -741,6 +804,7 @@ function loadDashboardPrefs(): DashboardPrefs {
       sortBy: VALID_SORT_BYS.includes(parsed.sortBy as DashboardSortBy)
         ? (parsed.sortBy as DashboardSortBy)
         : defaults.sortBy,
+      showHidden: typeof parsed.showHidden === 'boolean' ? parsed.showHidden : defaults.showHidden,
     };
   } catch {
     return defaults;
@@ -1078,6 +1142,37 @@ function saveRightPanelWidth(width: number) {
   }
 }
 
+// ---------- Left sidebar pin state -----------------------------------------
+//
+// SidebarRail used to track `pinned` purely as a component-local
+// `useState` boolean, which meant the keyboard shortcut for "toggle
+// sidebar" couldn't reach it without prop-drilling or an event bus.
+// Promoting it to the store solves both: the rail still owns its own
+// hover-expand behaviour, but the *pinned* baseline is shared so
+// `Cmd+B` can flip it from anywhere in the app and the choice now
+// survives reloads (which the local state did not).
+const SIDEBAR_PINNED_KEY = 'runhq.sidebar.pinned';
+
+function loadSidebarPinned(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_PINNED_KEY);
+    if (raw == null) return true; // first launch keeps the previous default
+    return raw === '1' || raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function saveSidebarPinned(pinned: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, pinned ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   services: [],
   servicesLoaded: false,
@@ -1105,6 +1200,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sidebarGroupBy: initialSidebarPrefs.groupBy,
   dashboardGroupBy: initialDashboardPrefs.groupBy,
   dashboardSortBy: initialDashboardPrefs.sortBy,
+  dashboardShowHidden: initialDashboardPrefs.showHidden,
   search: '',
   editorService: undefined,
   stacks: [],
@@ -1238,6 +1334,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           selectedCmdName: null,
           selectedStackId: null,
           releaseNotesOpen: false,
+          settingsCategory: null,
           activeMainTabKey: DASHBOARD_TAB_KEY,
         };
       }
@@ -1249,6 +1346,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedCmdName: null,
         selectedStackId: null,
         releaseNotesOpen: false,
+        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1273,6 +1371,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedCmdName: null,
         selectedStackId: null,
         releaseNotesOpen: false,
+        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1296,6 +1395,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           selectedServiceId: null,
           selectedCmdName: null,
           releaseNotesOpen: false,
+          settingsCategory: null,
           activeMainTabKey: DASHBOARD_TAB_KEY,
         };
       }
@@ -1307,6 +1407,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedServiceId: null,
         selectedCmdName: null,
         releaseNotesOpen: false,
+        settingsCategory: null,
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
@@ -1373,6 +1474,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         selectedStackId: tab.kind === 'stack' ? tab.refId : null,
         selectedCmdName: null,
         releaseNotesOpen: false,
+        settingsCategory: null,
       };
     }),
   closeOtherMainTabs: (keepKey) =>
@@ -1673,11 +1775,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setDashboardGroupBy: (v) => {
     set({ dashboardGroupBy: v });
-    saveDashboardPrefs({ groupBy: v, sortBy: get().dashboardSortBy });
+    saveDashboardPrefs({
+      groupBy: v,
+      sortBy: get().dashboardSortBy,
+      showHidden: get().dashboardShowHidden,
+    });
   },
   setDashboardSortBy: (v) => {
     set({ dashboardSortBy: v });
-    saveDashboardPrefs({ groupBy: get().dashboardGroupBy, sortBy: v });
+    saveDashboardPrefs({
+      groupBy: get().dashboardGroupBy,
+      sortBy: v,
+      showHidden: get().dashboardShowHidden,
+    });
+  },
+  setDashboardShowHidden: (v) => {
+    set({ dashboardShowHidden: v });
+    saveDashboardPrefs({
+      groupBy: get().dashboardGroupBy,
+      sortBy: get().dashboardSortBy,
+      showHidden: v,
+    });
   },
   resetSidebarFilters: () => {
     set({
@@ -1994,6 +2112,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const clamped = Math.max(RIGHT_PANEL_MIN_W, Math.min(RIGHT_PANEL_MAX_W, width));
     saveRightPanelWidth(clamped);
     set({ rightPanelWidth: clamped });
+  },
+
+  sidebarPinned: loadSidebarPinned(),
+  setSidebarPinned: (pinned) => {
+    saveSidebarPinned(pinned);
+    set({ sidebarPinned: pinned });
+  },
+  toggleSidebarPinned: () => {
+    const next = !get().sidebarPinned;
+    saveSidebarPinned(next);
+    set({ sidebarPinned: next });
   },
 
   // -------- AI Chat Hub ---------------------------------------------------
@@ -2493,6 +2622,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       releaseNotesOpen: true,
       releaseNotesSelectedVersion: version ?? null,
+      // Closing Settings here mirrors the Release Notes ↔ Settings
+      // mutual exclusion: only one fullscreen page lives on the
+      // canvas at a time.
+      settingsCategory: null,
       // Clear other main-area selections so the page truly takes over
       // the canvas. Without this, a user who had a service open would
       // see Release Notes "win" via render-precedence but the sidebar
@@ -2506,6 +2639,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
       activeMainTabKey: DASHBOARD_TAB_KEY,
     }),
   closeReleaseNotes: () => set({ releaseNotesOpen: false }),
+
+  // ---- Settings hub ----------------------------------------------------------
+  // Opening Settings clears the same selections as Release Notes
+  // (sidebar highlight, command tab) so the breadcrumbs match what
+  // the user actually sees on the canvas. Closing simply blanks the
+  // category — the previous tab takes over again because every tab
+  // is still mounted underneath via `display: none`.
+  settingsCategory: null,
+  openSettings: (category) =>
+    set({
+      settingsCategory: category ?? 'shortcuts',
+      releaseNotesOpen: false,
+      selectedServiceId: null,
+      selectedCmdName: null,
+      selectedStackId: null,
+      activeMainTabKey: DASHBOARD_TAB_KEY,
+    }),
+  closeSettings: () => set({ settingsCategory: null }),
 
   diffShowUnchanged: initialDiffShowUnchanged,
   setDiffShowUnchanged: (v) => {

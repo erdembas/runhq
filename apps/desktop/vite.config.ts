@@ -14,6 +14,14 @@ export default defineConfig(() => ({
   },
   clearScreen: false,
   build: {
+    // Workaround for xterm.js v6.0.0 bug #5800: esbuild's identifier
+    // mangler corrupts a closure capture in `InputHandler.requestMode`
+    // when re-minifying xterm's already-minified ESM, breaking every
+    // DECRQM-using TUI (opencode, claude-code, gemini, …) in
+    // production builds. Terser does proper AST scope tracking and
+    // handles the file correctly. See `docs/KNOWN_ISSUES.md` for
+    // root cause, removal criteria, and tracking links.
+    minify: 'terser' as const,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),

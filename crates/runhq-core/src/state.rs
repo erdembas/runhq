@@ -48,6 +48,20 @@ pub struct ServiceDef {
     pub auto_start: bool,
     #[serde(default)]
     pub open_browser: bool,
+    /// Workspace-tracking-only services: keep them in the sidebar /
+    /// search / palette so the user can still open them in an editor
+    /// or jump into a terminal, but hide them from the dashboard
+    /// surfaces (Overview cards, dependency scan totals, license
+    /// risk aggregates). Turned on for "I just want to know this
+    /// repo exists, but it has no `pnpm dev` story" registrations
+    /// — vendored mono-repos, scratch checkouts, docs-only repos.
+    ///
+    /// Defaults to `false` so every previously-saved service keeps
+    /// behaving exactly like before this field existed (additive
+    /// migration: missing key in `config.json` deserialises as
+    /// `false`, no rewrite needed).
+    #[serde(default)]
+    pub hide_dashboard: bool,
     #[serde(default = "default_grace_ms")]
     pub grace_ms: u64,
 }
@@ -79,8 +93,31 @@ pub struct StackDef {
     pub auto_start: bool,
 }
 
+/// All keyboard shortcuts the user can rebind.
+///
+/// Two scopes share this struct:
+///
+///   • **Global** (`quick_action`, `focus_main`) — registered with
+///     Tauri's `tauri-plugin-global-shortcut`, fires from anywhere on
+///     the OS even when RunHQ is minimised / hidden / behind a
+///     fullscreen app. Touching these requires re-registering with
+///     the OS and a process restart (or reload) to take effect.
+///
+///   • **View** (everything else added since 0.10.3) — handled by a
+///     window-level keydown listener in the React layer, only active
+///     while the RunHQ main window has focus. These take effect
+///     immediately on save; no restart, no OS round-trip. Treating
+///     them as user-rebindable through the same UI keeps the mental
+///     model simple ("this is *the* shortcut surface"), and storing
+///     them in the same struct means a single `prefs.json` write
+///     persists every binding.
+///
+/// Every `view_*` / `tabs_*` field uses `#[serde(default = ...)]`
+/// so a `prefs.json` from before 0.10.3 deserialises cleanly — the
+/// missing fields just get the factory binding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Shortcuts {
+    // ---- Global (Tauri global-shortcut plugin) ----
     #[serde(default = "default_quick_action")]
     pub quick_action: String,
     /// Global shortcut that brings the main RunHQ window to the
@@ -96,6 +133,40 @@ pub struct Shortcuts {
     /// or both to whatever they like.
     #[serde(default = "default_focus_main")]
     pub focus_main: String,
+
+    // ---- View (window-level, fires only while RunHQ is focused) ----
+    /// Pin / unpin the left sidebar. Default `CmdOrCtrl+B` mirrors VS
+    /// Code so the muscle memory transfers.
+    #[serde(default = "default_toggle_left_sidebar")]
+    pub toggle_left_sidebar: String,
+    /// Open / close the AI Chat panel on the right. Default
+    /// `CmdOrCtrl+Shift+A` (A for AI).
+    #[serde(default = "default_toggle_ai_panel")]
+    pub toggle_ai_panel: String,
+    /// Open / close the Activity timeline panel on the right.
+    /// Default `CmdOrCtrl+Shift+T` (T for Timeline).
+    #[serde(default = "default_toggle_activity_panel")]
+    pub toggle_activity_panel: String,
+    /// Spawn a new terminal in the active service tab's preferred
+    /// pane. Default `CmdOrCtrl+\`` matches VS Code's "new terminal"
+    /// chord exactly.
+    #[serde(default = "default_new_terminal")]
+    pub new_terminal: String,
+
+    // ---- Main tabs (window-level) ----
+    /// Cycle to the next main tab in the top tab strip. Default
+    /// `Ctrl+Tab` matches every browser convention.
+    #[serde(default = "default_next_main_tab")]
+    pub next_main_tab: String,
+    /// Cycle to the previous main tab. Default `Ctrl+Shift+Tab`.
+    #[serde(default = "default_prev_main_tab")]
+    pub prev_main_tab: String,
+    /// Close the currently-active main tab. Default `CmdOrCtrl+W`
+    /// matches the universal "close tab" chord. The dashboard tab
+    /// is sticky and ignores this; closing it would leave the
+    /// workspace with no anchor.
+    #[serde(default = "default_close_main_tab")]
+    pub close_main_tab: String,
 }
 
 impl Default for Shortcuts {
@@ -103,6 +174,13 @@ impl Default for Shortcuts {
         Self {
             quick_action: default_quick_action(),
             focus_main: default_focus_main(),
+            toggle_left_sidebar: default_toggle_left_sidebar(),
+            toggle_ai_panel: default_toggle_ai_panel(),
+            toggle_activity_panel: default_toggle_activity_panel(),
+            new_terminal: default_new_terminal(),
+            next_main_tab: default_next_main_tab(),
+            prev_main_tab: default_prev_main_tab(),
+            close_main_tab: default_close_main_tab(),
         }
     }
 }
@@ -135,6 +213,42 @@ fn default_focus_main() -> String {
     // Stored in the platform-agnostic `CmdOrCtrl` form for the same
     // reason as `quick_action` above.
     "CmdOrCtrl+Shift+L".into()
+}
+
+// ---- View shortcut defaults --------------------------------------------------
+//
+// All view defaults stick to chords already familiar from VS Code /
+// JetBrains so a returning user doesn't have to relearn anything just
+// because RunHQ wraps them. Stored in the `CmdOrCtrl` cross-platform
+// form for the same reason as the global ones — Tauri's parser, the
+// React-side normaliser, and the settings UI all agree on the alias.
+fn default_toggle_left_sidebar() -> String {
+    "CmdOrCtrl+B".into()
+}
+fn default_toggle_ai_panel() -> String {
+    "CmdOrCtrl+Shift+A".into()
+}
+fn default_toggle_activity_panel() -> String {
+    "CmdOrCtrl+Shift+T".into()
+}
+fn default_new_terminal() -> String {
+    // Backtick matches VS Code / JetBrains exactly. We deliberately
+    // don't include `Shift` (which would mean "split terminal" in
+    // VS Code) — splitting is exposed via the layout's drag-and-drop,
+    // not a separate keystroke.
+    "CmdOrCtrl+`".into()
+}
+fn default_next_main_tab() -> String {
+    // `Ctrl+Tab` (literal Control even on macOS) is the universal
+    // browser/IDE next-tab chord. We bypass the `CmdOrCtrl` aliasing
+    // here because Cmd+Tab on macOS is the OS-level app switcher.
+    "Control+Tab".into()
+}
+fn default_prev_main_tab() -> String {
+    "Control+Shift+Tab".into()
+}
+fn default_close_main_tab() -> String {
+    "CmdOrCtrl+W".into()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

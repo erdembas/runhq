@@ -65,6 +65,7 @@ export const ipc = {
     tags?: string[];
     auto_start?: boolean;
     open_browser?: boolean;
+    hide_dashboard?: boolean;
     grace_ms?: number;
   }) => invoke<ServiceDef>('add_service', { input }),
   updateService: (service: ServiceDef) => invoke<ServiceDef>('update_service', { service }),

@@ -51,7 +51,14 @@ export function SidebarRail() {
   const sectionItemOrder = useAppStore((s) => s.sectionItemOrder);
   const toggleSectionCollapsed = useAppStore((s) => s.toggleSectionCollapsed);
 
-  const [pinned, setPinned] = useState(true);
+  // `pinned` lives in the global store now (see `sidebarPinned` /
+  // `setSidebarPinned`) so the `toggle_left_sidebar` keyboard
+  // shortcut can flip it from anywhere in the app and the choice
+  // survives reloads. The local boolean used to fork on every
+  // render — keeping the rail-controlled UI in sync with the store
+  // is a one-liner because both are plain booleans.
+  const pinned = useAppStore((s) => s.sidebarPinned);
+  const setPinned = useAppStore((s) => s.setSidebarPinned);
   const [hovered, setHovered] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [width, setWidth] = useState(DEFAULT_W);
@@ -364,7 +371,7 @@ export function SidebarRail() {
             label={pinned ? 'Collapse sidebar' : 'Pin sidebar open'}
             icon={pinned ? <PanelLeftClose /> : <Pin />}
             size="xs"
-            onClick={() => setPinned((v) => !v)}
+            onClick={() => setPinned(!pinned)}
           />
         )}
       </div>
