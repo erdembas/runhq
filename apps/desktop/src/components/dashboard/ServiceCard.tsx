@@ -336,6 +336,7 @@ export const ServiceCard = memo(function ServiceCard({
   const setSelected = useAppStore((s) => s.setSelected);
   const openEditor = useAppStore((s) => s.openEditor);
   const removeServiceLocal = useAppStore((s) => s.removeService);
+  const upsertService = useAppStore((s) => s.upsertService);
   const logs = useAppStore((s) => s.logs);
   const resourceSample = useAppStore((s) => s.resources[svc.id]);
   const resourceHistory = useAppStore((s) => s.resourceHistory[svc.id]);
@@ -742,19 +743,29 @@ export const ServiceCard = memo(function ServiceCard({
           onLicense={() => onOpenOverlay?.(svc.id, 'license')}
           isHidden={!!svc.hide_dashboard}
           onToggleHidden={() => {
-            // Optimistic flip — `ipc.updateService` returns the
-            // canonical post-write `ServiceDef` so the
-            // store-side mutation listener will reconcile
-            // anything we got wrong (impossible here because
-            // we're flipping a boolean, but kept symmetric with
-            // every other write path in the app). We pass the
-            // ENTIRE service def, not a patch, because the
-            // backend's `update_service` command is a full
-            // replace — sending a partial would null-out fields
-            // we didn't touch.
-            void ipc.updateService({ ...svc, hide_dashboard: !svc.hide_dashboard }).catch((err) => {
-              console.warn('updateService(hide_dashboard) failed', err);
-            });
+            // Optimistic flip — write the new value into the
+            // local store FIRST so the card / sidebar / service
+            // tab all react to the click on the same frame. We
+            // then reconcile against the canonical post-write
+            // `ServiceDef` the backend hands back (no-op for a
+            // boolean flip, but kept symmetric with every other
+            // write path in the app). On failure we roll back
+            // to the pre-click value so the UI doesn't lie about
+            // a state the disk doesn't actually hold.
+            //
+            // We pass the ENTIRE service def, not a patch,
+            // because the backend's `update_service` command is
+            // a full replace — sending a partial would null-out
+            // fields we didn't touch.
+            const next = { ...svc, hide_dashboard: !svc.hide_dashboard };
+            upsertService(next);
+            void ipc
+              .updateService(next)
+              .then((saved) => upsertService(saved))
+              .catch((err) => {
+                console.warn('updateService(hide_dashboard) failed', err);
+                upsertService(svc);
+              });
           }}
           onDelete={() => {
             setPendingConfirm({

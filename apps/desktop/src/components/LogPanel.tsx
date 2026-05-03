@@ -129,6 +129,7 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   const clearLogsLocal = useAppStore((s) => s.clearLogs);
   const openEditor = useAppStore((s) => s.openEditor);
   const removeServiceLocal = useAppStore((s) => s.removeService);
+  const upsertService = useAppStore((s) => s.upsertService);
   const openAiChat = useAppStore((s) => s.openAiChat);
 
   // Mirror of the dashboard's per-card health chips, surfaced inline
@@ -682,14 +683,29 @@ export function LogPanel({ serviceId }: LogPanelProps) {
               label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
               icon={service.hide_dashboard ? <EyeOff /> : <Eye />}
               size="sm"
+              className={cn(service.hide_dashboard && 'text-accent hover:!text-accent')}
               onClick={() => {
+                // Optimistic local-store flip so the icon /
+                // tooltip / dashboard filter all react to the
+                // click immediately. Without it the IPC succeeds
+                // and the value is persisted, but every consumer
+                // (this button, the sidebar row, the dashboard
+                // card) keeps reading the stale `service` from
+                // the store until the next full reload — which
+                // reads exactly like "the toggle does nothing".
+                // We then reconcile against the canonical post-
+                // write `ServiceDef` the backend hands back, so
+                // any field-level coercion the store does on the
+                // way through wins over our locally-spliced
+                // patch.
+                const next = { ...service, hide_dashboard: !service.hide_dashboard };
+                upsertService(next);
                 void ipc
-                  .updateService({
-                    ...service,
-                    hide_dashboard: !service.hide_dashboard,
-                  })
+                  .updateService(next)
+                  .then((saved) => upsertService(saved))
                   .catch((err) => {
                     console.warn('updateService(hide_dashboard) failed', err);
+                    upsertService(service);
                   });
               }}
             />
