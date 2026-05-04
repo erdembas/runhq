@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/erdembas/runhq/compare/v0.10.3...v1.0.0) (2026-05-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* insane overhaul of process supervisor, layout, and log panel
+
+### Bug Fixes
+
+* **desktop:** drop unused focus_main_window import on non-macos builds ([76bab07](https://github.com/erdembas/runhq/commit/76bab070ac913811d76ebf02da8ba0ecf741f4a8))
+* **desktop:** reflect dashboard-visibility toggle instantly across surfaces ([b65cdfa](https://github.com/erdembas/runhq/commit/b65cdfa7e8672085104b67e1d189f16f0d1923ed))
+
+
+### Performance Improvements
+
+* **desktop:** debounce split-pane resize commits to the layout reducer ([a023907](https://github.com/erdembas/runhq/commit/a0239079c18a037ebd6801459d5e2872b7aafff8))
+* **desktop:** lazy-mount right-side panels until first opened ([5ea3922](https://github.com/erdembas/runhq/commit/5ea3922c535a2abd45454dcb5fb5edb6f0472d27))
+
+
+### Code Refactoring
+
+* insane overhaul of process supervisor, layout, and log panel ([53a63ee](https://github.com/erdembas/runhq/commit/53a63ee86c8c635989812a6f6a1732800f7f7b7d))
+* modularize desktop and core architecture ([1e6824a](https://github.com/erdembas/runhq/commit/1e6824a76979d5493c934396fa8fafd76803606d))
+
 ## [0.10.3](https://github.com/erdembas/runhq/compare/v0.10.2...v0.10.3) (2026-05-03)
 
 
