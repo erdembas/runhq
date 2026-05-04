@@ -21,7 +21,6 @@ pub use app_state::AppState;
 
 use setup::setup_app;
 use tracing_subscriber::{fmt, EnvFilter};
-use window::focus_main_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -169,7 +168,7 @@ pub fn run() {
             } = event
             {
                 if !has_visible_windows {
-                    focus_main_window(app_handle.clone());
+                    window::focus_main_window(app_handle.clone());
                 }
             }
             #[cfg(not(target_os = "macos"))]
