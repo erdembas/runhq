@@ -3,29 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RunHQ — Every project on your disk. One cockpit.</title>
+    <title>RunHQ — Replace terminal-tab chaos with one local dev cockpit.</title>
     <meta
       name="description"
-      content="The orchestration cockpit for your local dev portfolio. RunHQ discovers every project on disk, runs whole stacks with one click, and uses AI to surface what needs you across all of them. Native, local, &lt; 100 MB RAM."
+      content="RunHQ replaces terminal-tab chaos with one local dev cockpit. Discover repos, start stacks, watch command logs, inspect ports, track CVEs and ask AI what needs attention."
     />
-    <meta property="og:title" content="RunHQ — Every project on your disk. One cockpit." />
+    <meta
+      property="og:title"
+      content="RunHQ — Replace terminal-tab chaos with one local dev cockpit."
+    />
     <meta
       property="og:description"
-      content="Discover, orchestrate, and heal every project on your machine. Stacks, ports, CVEs, git, AI — all cross-project. Native, local, no account."
+      content="One local-first desktop app for every project, service, log, port, git state, CVE and AI triage flow on your machine."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://runhq.dev" />
-    <meta property="og:image" content="https://runhq.dev/icon.png" />
-    <meta property="og:image:width" content="512" />
-    <meta property="og:image:height" content="512" />
-    <meta property="og:image:alt" content="RunHQ app icon" />
+    <meta property="og:image" content="https://runhq.dev/dashboard.png" />
+    <meta property="og:image:width" content="3606" />
+    <meta property="og:image:height" content="2480" />
+    <meta
+      property="og:image:alt"
+      content="RunHQ dashboard showing local projects, status chips, and actions"
+    />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="RunHQ — Every project on your disk. One cockpit." />
+    <meta
+      name="twitter:title"
+      content="RunHQ — Replace terminal-tab chaos with one local dev cockpit."
+    />
     <meta
       name="twitter:description"
-      content="Discover, orchestrate, and heal every project on your machine. Stacks, ports, CVEs, git, AI — all cross-project. Native, local, no account."
+      content="One local-first desktop app for every project, service, log, port, git state, CVE and AI triage flow on your machine."
     />
-    <meta name="twitter:image" content="https://runhq.dev/icon.png" />
+    <meta name="twitter:image" content="https://runhq.dev/dashboard.png" />
     <meta name="theme-color" content="#0b0b0b" />
     <link rel="canonical" href="https://runhq.dev" />
     <link rel="icon" type="image/png" sizes="512x512" href="icon.png" />
@@ -52,9 +61,9 @@
           <span>RunHQ</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
-          <a href="#loop">The loop</a>
+          <a href="#loop">Demo</a>
           <a href="#why">Why</a>
-          <a href="#box">In the box</a>
+          <a href="#box">Features</a>
           <a href="#install">Install</a>
           <a href="https://github.com/erdembas/runhq">GitHub</a>
         </nav>
@@ -72,23 +81,22 @@
             <div class="hero-copy">
               <span class="hero-tag">
                 <span class="hero-tag-dot"></span>
-                <span data-rel-version>v0.9.0</span> · IDE-parity cockpit
+                <span data-rel-version>v0.9.0</span> · local-first dev cockpit
               </span>
               <h1 class="hero-title">
-                Every project on your disk.<br />
-                <em>One cockpit.</em>
+                Replace terminal-tab chaos<br />
+                <em>with one local cockpit.</em>
               </h1>
               <p class="hero-lead">
-                Your <code>~/code</code> has 30 repos. Half are dormant client work, two pay the
-                bills, one has a CVE you can't remember which.
-                <strong>RunHQ orchestrates the whole portfolio</strong> — discovers every project,
-                runs stacks with one click, and an AI that reasons across all of them tells you what
-                needs you this week.
+                RunHQ discovers the repos on your machine, starts whole stacks, opens command log
+                tabs, watches ports, tracks git and CVEs, and lets AI triage the entire workspace.
+                Your editor keeps the code focused.
+                <strong>RunHQ keeps the environment visible.</strong>
               </p>
               <div class="hero-ctas">
-                <a href="#install" class="btn btn-primary">Get RunHQ — free</a>
+                <a href="#install" class="btn btn-primary">Install free</a>
                 <a href="#loop" class="btn btn-text">
-                  See it in action
+                  See the product loop
                   <svg
                     viewBox="0 0 24 24"
                     width="14"
@@ -109,7 +117,7 @@
               <div class="hero-meta">
                 <span>Native · Tauri + Rust</span>
                 <span>&lt; 100 MB RAM</span>
-                <span>10 runtimes</span>
+                <span>10 runtime families</span>
                 <span>MIT</span>
                 <span>Zero telemetry</span>
               </div>
@@ -250,11 +258,12 @@
       <section id="loop" class="loop">
         <div class="wrap">
           <div class="section-head reveal">
-            <span class="kicker">The loop</span>
-            <h2 class="section-title">RunHQ runs on a 3-step loop your IDE can't.</h2>
+            <span class="kicker">Product loop</span>
+            <h2 class="section-title">The daily loop RunHQ compresses.</h2>
             <p class="section-sub">
-              Foreman supervises one repo. Your IDE knows recents. Docker shows containers. RunHQ is
-              the only thing that closes the loop across <em>every project on your disk</em>.
+              Find the repo, remember how it boots, start the stack, chase logs, check ports, then
+              decide what deserves attention. RunHQ turns that routine into one persistent local
+              cockpit.
             </p>
           </div>
 
@@ -265,33 +274,34 @@
             </button>
             <button class="loop-tab" role="tab" data-loop-tab="orchestrate">
               <span class="loop-tab-num">02</span>
-              <span>Orchestrate</span>
+              <span>Run</span>
             </button>
             <button class="loop-tab" role="tab" data-loop-tab="heal">
               <span class="loop-tab-num">03</span>
-              <span>Heal</span>
+              <span>Triage</span>
             </button>
           </div>
 
           <div class="loop-grid reveal">
             <div class="loop-copy">
-              <h3 data-loop-h>One scan, every repo.</h3>
+              <h3 data-loop-h>One scan, no memory tax.</h3>
               <p data-loop-p>
-                RunHQ walks your dev folders, infers each project's runtime and start commands from
-                manifest files, and persists the registry. Cold start paints from a SQLite cache —
-                no 30-second "loading…" before you see your own machine.
+                RunHQ walks your dev folders, infers runtimes and start commands from manifest
+                files, and keeps the registry local. Open the app and your projects are already a
+                workspace, not a directory hunt.
               </p>
               <ul data-loop-list>
                 <li>
-                  <strong>10 runtimes</strong> · Node, Bun, Deno, Go, Rust, .NET, Python, Java,
-                  Ruby, PHP, Docker
+                  <strong>10 runtime families</strong> · Node, Bun, Deno, Go, Rust, .NET, Python,
+                  Java, Ruby, PHP, Docker
                 </li>
                 <li>
-                  <strong>Manifest-aware</strong> · package.json, go.mod, Cargo.toml,
-                  pyproject.toml, compose.yaml…
+                  <strong>Manifest-aware commands</strong> · package.json, go.mod, Cargo.toml,
+                  pyproject.toml, compose.yaml
                 </li>
                 <li>
-                  <strong>Persisted</strong> · ~/.runhq/config.json — diffable, version-controllable
+                  <strong>Persistent local registry</strong> · ~/.runhq/config.json plus SQLite
+                  snapshots
                 </li>
               </ul>
               <div class="loop-replay">
@@ -312,7 +322,7 @@
                     />
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5" />
                   </svg>
-                  Replay demo
+                  Replay loop
                 </button>
                 <span>Auto-plays once when in view.</span>
               </div>
@@ -379,17 +389,18 @@
         <div class="wrap">
           <div class="section-head reveal">
             <span class="kicker">Why RunHQ</span>
-            <h2 class="section-title">Other tools see one repo. RunHQ sees the portfolio.</h2>
+            <h2 class="section-title">
+              Your editor edits code. RunHQ coordinates the environment.
+            </h2>
           </div>
 
           <div class="why-grid reveal">
             <div class="why-card">
               <div class="why-card-num">01 · The status quo</div>
-              <h3>Tool per repo.</h3>
+              <h3>Terminal tabs are hidden state.</h3>
               <p>
                 Foreman runs one Procfile. Your IDE remembers recents. Docker Desktop shows
-                containers. Each tool stops at the service boundary — the portfolio lives in your
-                head.
+                containers. The rest is a pile of terminal tabs, shell history and memory.
               </p>
               <div class="why-viz viz-single">
                 <div class="viz-single-dot"></div>
@@ -398,21 +409,20 @@
 
             <div class="why-card">
               <div class="why-card-num">02 · RunHQ</div>
-              <h3>One window, every repo.</h3>
+              <h3>RunHQ gives local dev one surface.</h3>
               <p>
-                Persistent registry of every project on disk with health, CVEs, git state, ports,
-                processes — all cross-project. Hover the grid: red is CVEs, amber is stale, emerald
-                is running, ember is needs-attention.
+                Projects, services, logs, ports, git state, CVEs and stale scans live together. The
+                grid is the answer to "what is happening on this machine?"
               </p>
               <div class="why-viz viz-grid" id="vizGrid"></div>
             </div>
 
             <div class="why-card">
               <div class="why-card-num">03 · The AI difference</div>
-              <h3>Reasons across all of them.</h3>
+              <h3>AI gets the missing context.</h3>
               <p>
-                Per-project AI exists everywhere. RunHQ's AI is the only one that takes the whole
-                portfolio as context — local model or cloud, your call.
+                File-level AI can write code. RunHQ can explain the workspace around that code:
+                which project is stale, which command failed, which CVE should go first.
               </p>
               <div class="why-viz viz-ai">
                 <div class="viz-ai-q">&gt; which projects need me this week?</div>
@@ -430,11 +440,12 @@
       <section id="box" class="box">
         <div class="wrap">
           <div class="section-head reveal">
-            <span class="kicker">In the box</span>
-            <h2 class="section-title">A complete dev cockpit. No bolt-ons.</h2>
+            <span class="kicker">Features</span>
+            <h2 class="section-title">Everything outside the editor, finally in one place.</h2>
             <p class="section-sub">
-              Four surfaces, one app. Everything below ships today — no cloud, no account, no
-              telemetry, MIT.
+              RunHQ is the local dev cockpit: launch the stack, watch the logs, clear port
+              conflicts, read workspace health and ask AI for next actions without leaving the same
+              surface.
             </p>
           </div>
 
@@ -455,7 +466,8 @@
               </div>
               <h3>Run</h3>
               <p class="box-card-sub">
-                Process supervisor, port watchdog, embedded PTY, 8 IDEs one-click — the day-to-day.
+                Start services, stacks and custom commands without reopening the same terminal tabs
+                every morning.
               </p>
               <ul>
                 <li>SIGTERM → grace → SIGKILL</li>
@@ -467,7 +479,9 @@
                 <li>⌘K palette</li>
                 <li>⌘⇧K global hotkey</li>
               </ul>
-              <div class="box-card-foot">Survives editor crashes. Zero orphan processes.</div>
+              <div class="box-card-foot">
+                Graceful shutdown, multi-command services, one-click IDE launch.
+              </div>
             </article>
 
             <article class="box-card">
@@ -490,8 +504,8 @@
               </div>
               <h3>Observe</h3>
               <p class="box-card-sub">
-                Unified log stream across every running service, plus a timeline that replays your
-                day.
+                Command logs open as tabs, render like a real terminal, and stay searchable while
+                services run.
               </p>
               <ul>
                 <li>Ring buffer · 10k/svc</li>
@@ -503,7 +517,9 @@
                 <li>Right-click → AI triage</li>
                 <li>SQLite persistence</li>
               </ul>
-              <div class="box-card-foot">Search, jump, copy lines. Tail from anywhere.</div>
+              <div class="box-card-foot">
+                Search, follow, copy lines, and send suspicious output to AI.
+              </div>
             </article>
 
             <article class="box-card">
@@ -524,10 +540,10 @@
                   />
                 </svg>
               </div>
-              <h3>Heal</h3>
+              <h3>Triage</h3>
               <p class="box-card-sub">
-                Cross-portfolio health: CVEs, outdated, stale scans, dirty git — persisted, paints
-                instant.
+                See stale scans, outdated packages, CVEs and dirty git across the whole local
+                portfolio before they become surprises.
               </p>
               <ul>
                 <li>npm · cargo · pip audit</li>
@@ -562,7 +578,8 @@
               </div>
               <h3>Think</h3>
               <p class="box-card-sub">
-                BYO OpenAI-compatible endpoint. Local (Ollama, LM Studio, vLLM) or cloud — same hub.
+                Ask questions against the whole workspace with your own OpenAI-compatible endpoint,
+                local or cloud.
               </p>
               <ul>
                 <li>Project · Why?</li>
@@ -587,7 +604,7 @@
         <div class="wrap">
           <div class="section-head reveal">
             <span class="kicker">Install</span>
-            <h2 class="section-title">One line. Then orchestrate.</h2>
+            <h2 class="section-title">Install once. Stop rebuilding your setup.</h2>
           </div>
 
           <!--
@@ -802,7 +819,9 @@
       <!-- ============ FINAL CTA ============ -->
       <section class="cta">
         <div class="wrap">
-          <h2 class="cta-title">Stop hunting. <em>Start orchestrating.</em></h2>
+          <h2 class="cta-title">
+            Stop carrying your dev setup in terminal tabs. <em>Start from RunHQ.</em>
+          </h2>
           <p class="cta-sub">Free · MIT · macOS · Linux · Windows · &lt; 100 MB RAM</p>
           <div class="cta-actions">
             <a href="#install" class="btn btn-primary">Get RunHQ</a>
@@ -1318,32 +1337,32 @@
 
         var copy = {
           discover: {
-            h: 'One scan, every repo.',
-            p: 'RunHQ walks your dev folders, infers each project\'s runtime and start commands from manifest files, and persists the registry. Cold start paints from a SQLite cache — no 30-second "loading…" before you see your own machine.',
+            h: 'One scan, no memory tax.',
+            p: 'RunHQ walks your dev folders, infers runtimes and start commands from manifest files, and keeps the registry local. Open the app and your projects are already a workspace, not a directory hunt.',
             list: [
-              '<strong>10 runtimes</strong> · Node, Bun, Deno, Go, Rust, .NET, Python, Java, Ruby, PHP, Docker',
-              '<strong>Manifest-aware</strong> · package.json, go.mod, Cargo.toml, pyproject.toml, compose.yaml…',
-              '<strong>Persisted</strong> · ~/.runhq/config.json — diffable, version-controllable',
+              '<strong>10 runtime families</strong> · Node, Bun, Deno, Go, Rust, .NET, Python, Java, Ruby, PHP, Docker',
+              '<strong>Manifest-aware commands</strong> · package.json, go.mod, Cargo.toml, pyproject.toml, compose.yaml',
+              '<strong>Persistent local registry</strong> · ~/.runhq/config.json plus SQLite snapshots',
             ],
           },
           orchestrate: {
-            h: 'Stacks, ports, processes — one click.',
-            p: 'Group services into named stacks and start them together. Graceful shutdown (SIGTERM → grace → SIGKILL). Live port watchdog — when something else is holding :5432, kill it from the same window. ⌘K palette searches every command in your portfolio.',
+            h: 'Start the stack, logs included.',
+            p: 'Group services into named stacks and start them together. Each command gets its own log tab, terminal-grade ANSI output, graceful shutdown, and the same port watchdog when something else is holding :5432.',
             list: [
-              '<strong>Stacks</strong> · multi-service · "▶ Play all"',
-              '<strong>Port watchdog</strong> · live TCP list · one-click kill',
-              '<strong>Embedded PTY</strong> · xterm.js, opens to project cwd',
-              '<strong>Cmd+K palette</strong> · cross-portfolio fuzzy search',
+              '<strong>Play all</strong> · multi-command services and stacks',
+              '<strong>Command log tabs</strong> · follow, search, copy, AI triage',
+              '<strong>Port watchdog</strong> · live TCP list and one-click kill',
+              '<strong>Cmd+K palette</strong> · cross-project fuzzy search',
             ],
           },
           heal: {
-            h: 'What needs you, this week.',
-            p: 'Every npm outdated / cargo audit / pip audit is persisted to a local SQLite store, so the dashboard paints chips instantly on cold start. AI takes the whole portfolio as context — local model or cloud, your call — and writes a triage plan you can act on.',
+            h: 'Turn workspace noise into next actions.',
+            p: 'Every dependency scan, git signal, port, process and command failure becomes part of the same local picture. AI can use that workspace context — local model or cloud, your call — to write a triage plan you can act on.',
             list: [
-              '<strong>Persistent scan cache</strong> · SQLite, paints in &lt; 100 ms',
-              '<strong>Per-card freshness</strong> · "3h ago" chip · click to rescan one',
-              '<strong>"N stale" pill</strong> · sequentially sweep just the &gt;7d projects',
-              '<strong>Cross-project AI</strong> · BYO endpoint · zero data leaves the machine',
+              '<strong>Health snapshot</strong> · CVEs, outdated packages, stale scans, dirty git',
+              '<strong>Per-project rescan</strong> · fix one repo without sweeping everything',
+              '<strong>Workspace AI</strong> · "what should I fix first?" with real context',
+              '<strong>Local-first</strong> · BYO endpoint, no telemetry, no account',
             ],
           },
         };
