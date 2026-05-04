@@ -60,8 +60,8 @@ importers:
         specifier: ^3.2.2
         version: 3.2.2(react@18.3.1)
       '@iconify-json/material-icon-theme':
-        specifier: ^1.2.60
-        version: 1.2.60
+        specifier: ^1.2.62
+        version: 1.2.62
       '@iconify/react':
         specifier: ^6.0.2
         version: 6.0.2(react@18.3.1)
@@ -540,8 +540,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@iconify-json/material-icon-theme@1.2.60':
-    resolution: {integrity: sha512-gCn3w5ON8TiX80K+HHVwQNYDjZhe/swk6vQopS9gn5VyuJsmCNUfzHKhT2cBK8krVqt5bzI2MuTKLofVLNB9OA==}
+  '@iconify-json/material-icon-theme@1.2.62':
+    resolution: {integrity: sha512-jQyDOOeSjbBH8wv4CeMAVa9+tieX+f5ZUO+Svv1kAkdn5X1zKSe9FP70sZeaFVCnCVAr2LRTDHy+Yec9p/0/UQ==}
 
   '@iconify/react@6.0.2':
     resolution: {integrity: sha512-SMmC2sactfpJD427WJEDN6PMyznTFMhByK9yLW0gOTtnjzzbsi/Ke/XqsumsavFPwNiXs8jSiYeZTmLCLwO+Fg==}
@@ -2861,7 +2861,7 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@iconify-json/material-icon-theme@1.2.60':
+  '@iconify-json/material-icon-theme@1.2.62':
     dependencies:
       '@iconify/types': 2.0.0
 
