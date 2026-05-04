@@ -1,12 +1,12 @@
 import type { IMarker, Terminal } from '@xterm/xterm';
-import { formatLineBytes } from './format';
+import { formatLineBytes, type LogLineFormatOptions } from './format';
 import type { LogLine } from '@/types';
 
 export function appendLineWithMarker(
   term: Terminal,
   line: LogLine,
   markers: IMarker[],
-  opts: { showTimestamp: boolean },
+  opts: LogLineFormatOptions,
 ): void {
   const marker = term.registerMarker(0);
   if (marker) markers.push(marker);

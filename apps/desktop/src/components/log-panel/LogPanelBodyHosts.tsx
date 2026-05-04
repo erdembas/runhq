@@ -1,47 +1,43 @@
 import { TabBodyHost } from './TabBodyHost';
 import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
-import type { LogLine } from '@/types';
+import type { CommandEntry, LogLine } from '@/types';
 
 interface LogPanelBodyHostsProps {
-  tabs: Record<string, LayoutTab>;
+  allLogsByCommand: Record<string, LogLine[]>;
   bodySlots: Map<string, HTMLDivElement>;
-  selectedId: string;
-  cwd: string;
-  serviceName: string;
-  activeCmd: string | null;
-  activeCmdEntry: { name: string; cmd: string } | null;
-  filtered: LogLine[];
-  allLogs: LogLine[];
-  logK: string;
-  showTimestamp: boolean;
-  setShowTimestamp: (value: boolean) => void;
-  follow: boolean;
-  setFollow: (value: boolean) => void;
-  isDark: boolean;
-  handleLineContextMenu: (index: number) => void;
   clearLogsLocal: (key: string) => void;
+  commands: CommandEntry[];
+  cwd: string;
+  filter: string;
+  follow: boolean;
+  handleLineContextMenu: (commandName: string, index: number) => void;
   onRunCommand: (command: string) => void;
+  selectedId: string;
+  serviceName: string;
+  setFollow: (value: boolean) => void;
+  setShowTimestamp: (value: boolean) => void;
+  showTimestamp: boolean;
+  tabs: Record<string, LayoutTab>;
+  isDark: boolean;
 }
 
 export function LogPanelBodyHosts({
-  tabs,
+  allLogsByCommand,
   bodySlots,
-  selectedId,
-  cwd,
-  serviceName,
-  activeCmd,
-  activeCmdEntry,
-  filtered,
-  allLogs,
-  logK,
-  showTimestamp,
-  setShowTimestamp,
-  follow,
-  setFollow,
-  isDark,
-  handleLineContextMenu,
   clearLogsLocal,
+  commands,
+  cwd,
+  filter,
+  follow,
+  handleLineContextMenu,
+  isDark,
   onRunCommand,
+  selectedId,
+  serviceName,
+  setFollow,
+  setShowTimestamp,
+  showTimestamp,
+  tabs,
 }: LogPanelBodyHostsProps) {
   return (
     <>
@@ -56,11 +52,9 @@ export function LogPanelBodyHosts({
             selectedId={selectedId}
             cwd={cwd}
             serviceName={serviceName}
-            activeCmd={activeCmd}
-            activeCmdEntry={activeCmdEntry}
-            filtered={filtered}
-            allLogs={allLogs}
-            logK={logK}
+            commands={commands}
+            allLogsByCommand={allLogsByCommand}
+            filter={filter}
             showTimestamp={showTimestamp}
             setShowTimestamp={setShowTimestamp}
             follow={follow}

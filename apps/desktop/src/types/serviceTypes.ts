@@ -64,6 +64,8 @@ export interface LogLine {
   ts_ms: number;
   stream: LogStream;
   text: string;
+  raw?: boolean;
+  detail?: string | null;
   /** Correlation id of the run that produced this line. Rust stamps every
    *  line emitted between the `start_*` call and the child's exit —
    *  including the `$ <cmd>` prompt echo and the `[exited code N]`

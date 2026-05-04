@@ -1,18 +1,14 @@
 use std::time::Duration;
 
-use tokio::process::{Child, Command};
 use tokio::sync::oneshot;
 
 use crate::error::{AppError, AppResult};
 use crate::logs::Stream;
-use crate::process_group::JobObject;
 use crate::state::{CommandEntry, ServiceDef};
 
 use super::diagnostics::emit_launch_diagnostics;
-use super::line_reader::spawn_line_reader;
-use super::shell::{compose_launch_script, shell_command, wrap_with_path_override};
-use super::stdio::configure_child_stdio;
-use super::supervision::{supervise, Outcome};
+use super::pty::{spawn_pty_output_reader, spawn_service_pty, supervise_pty, Outcome, ServicePty};
+use super::shell::{compose_launch_script, wrap_with_path_override};
 use super::supervisor::Supervisor;
 use super::types::{process_key, CommandStatus, Running, ServiceStatus, Status};
 
@@ -75,33 +71,6 @@ impl Supervisor {
         // empty pre-command still benefits from it.
         let composed = compose_launch_script(svc.pre_command.as_deref(), &entry.cmd);
         let user_cmd = wrap_with_path_override(&composed, svc.path_override.as_deref());
-        let (program, args) = shell_command(&user_cmd);
-        let mut cmd = Command::new(program);
-        cmd.args(args).current_dir(&svc.cwd);
-        configure_child_stdio(&mut cmd);
-
-        // Persuade CLIs that lose their TTY through `Stdio::piped()` to keep
-        // emitting ANSI color. Covers the Node ecosystem (chalk/supports-color
-        // via FORCE_COLOR), BSD conventions (CLICOLOR_FORCE), Cargo's own
-        // toggle, and advertises a 256-color-capable terminal. Set before the
-        // user env so explicit overrides still win.
-        cmd.env("FORCE_COLOR", "1")
-            .env("CLICOLOR_FORCE", "1")
-            .env("CARGO_TERM_COLOR", "always")
-            .env("TERM", "xterm-256color")
-            .env("COLORTERM", "truecolor");
-
-        for (k, v) in &svc.env {
-            cmd.env(k, v);
-        }
-
-        if let Some(path_extra) = &svc.path_override {
-            let extra = path_extra.trim();
-            if !extra.is_empty() {
-                let current = std::env::var("PATH").unwrap_or_default();
-                cmd.env("PATH", format!("{extra}:{current}"));
-            }
-        }
 
         emit_launch_diagnostics(
             svc,
@@ -113,18 +82,9 @@ impl Supervisor {
         )
         .await;
 
-        #[cfg(unix)]
-        {
-            unsafe {
-                cmd.pre_exec(|| {
-                    let _ = nix::unistd::setsid();
-                    Ok(())
-                });
-            }
-        }
-
-        let mut child: Child = match cmd.spawn() {
-            Ok(c) => c,
+        let (cols, rows) = self.pty_size_for(&key);
+        let pty = match spawn_service_pty(svc, &user_cmd, cols, rows) {
+            Ok(pty) => pty,
             Err(e) => {
                 let msg = format!("failed to spawn: {e}");
                 let line = self
@@ -135,100 +95,27 @@ impl Supervisor {
             }
         };
 
-        let pid = child.id().unwrap_or(0);
+        let ServicePty {
+            pid,
+            process_group,
+            child,
+            killer,
+            reader,
+            writer,
+            handle,
+            job,
+        } = pty;
         let started_at_ms = chrono::Utc::now().timestamp_millis();
 
-        // Windows: pin the freshly-spawned shell into a Job Object that
-        // tree-kills on close. Best-effort — if attachment fails (race
-        // with an instant-exit child, EDR blocking OpenProcess), we log
-        // and proceed without containment rather than refusing to start
-        // the service. Same outcome as before this fix existed; only the
-        // tree-kill on stop is degraded. Held in `Running._job` so the
-        // job stays open for the entire run lifetime.
-        //
-        // On non-Windows targets `JobObject::attach_kill_on_close` is a
-        // no-op shim that returns `Ok(JobObject)` — kept unconditional
-        // to avoid `cfg`-sprawl at the spawn site. Unix tree-kill is
-        // delivered via `setsid()` + `killpg()` in `graceful_kill`.
-        let job = if pid != 0 {
-            #[cfg(windows)]
-            {
-                match JobObject::attach_kill_on_close(pid) {
-                    Ok(j) => Some(j),
-                    Err(e) => {
-                        tracing::warn!(
-                            "failed to attach Job Object for {}::{} (pid {}): {} \
-                             — process tree kill on stop will be degraded",
-                            svc.id,
-                            entry.name,
-                            pid,
-                            e
-                        );
-                        None
-                    }
-                }
-            }
-            #[cfg(not(windows))]
-            {
-                JobObject::attach_kill_on_close(pid).ok()
-            }
-        } else {
-            None
-        };
-
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        // Detach the stdin pipe-writer from `Child` BEFORE we hand the child
-        // off to `supervise` / `child.wait()`. Tokio documents that
-        // `Child::wait()` "will close the stdin handle to the child process,
-        // if any" before awaiting — a deliberate deadlock-avoidance measure
-        // that's exactly the wrong default for us. The whole reason we used
-        // `Stdio::piped()` (see the long comment above where stdio is
-        // configured) was to keep the writer end open so dev servers like
-        // create-react-app / react-app-rewired don't see stdin EOF and
-        // self-terminate via:
-        //
-        //     process.stdin.on('end', () => { devServer.close(); process.exit(); });
-        //
-        // If we leave `child.stdin` populated, Tokio drops it the instant
-        // `wait()` is called, the child reads EOF on its stdin, fires the
-        // `end` listener, and exits 0 a heartbeat after printing "Starting
-        // the development server…". The user sees a phantom green exit
-        // and our config tab gets blamed.
-        //
-        // Taking the handle out *here* and parking it in the supervise task
-        // (`_stdin_keepalive` below) means: (a) `child.wait()` finds
-        // `stdin: None` and has nothing to close, (b) the OS-level pipe
-        // writer stays open for the full lifetime of the supervised run,
-        // and (c) it gets dropped naturally — and only — when the child
-        // has already exited and the task is unwinding, which is too late
-        // to matter.
-        let stdin_keepalive = child.stdin.take();
-
-        if let Some(out) = stdout {
-            spawn_line_reader(
-                &log_key,
-                out,
-                Stream::Stdout,
-                self.logs.clone(),
-                self.sink.clone(),
-                svc.id.clone(),
-                entry.name.clone(),
-                run_id.clone(),
-            );
-        }
-        if let Some(err) = stderr {
-            spawn_line_reader(
-                &log_key,
-                err,
-                Stream::Stderr,
-                self.logs.clone(),
-                self.sink.clone(),
-                svc.id.clone(),
-                entry.name.clone(),
-                run_id.clone(),
-            );
-        }
+        spawn_pty_output_reader(
+            &log_key,
+            reader,
+            self.logs.clone(),
+            self.sink.clone(),
+            svc.id.clone(),
+            entry.name.clone(),
+            run_id.clone(),
+        );
 
         let (stop_tx, stop_rx) = oneshot::channel();
 
@@ -248,14 +135,10 @@ impl Supervisor {
         let grace = Duration::from_millis(svc.grace_ms);
 
         let task = tokio::spawn(async move {
-            // Hold the stdin pipe writer here for the lifetime of the
-            // supervised run. See the comment at the `child.stdin.take()`
-            // call site for why this is load-bearing. The leading
-            // underscore silences "unused" without disabling drop —
-            // dropping the binding only happens after `supervise` returns,
-            // i.e. after the child has already exited.
-            let _stdin_keepalive = stdin_keepalive;
-            let outcome = supervise(&mut child, stop_rx, grace).await;
+            // Keep the PTY writer alive while the child runs. The log view is
+            // readonly, but some dev servers still exit when stdin hits EOF.
+            let _pty_writer = writer;
+            let outcome = supervise_pty(child, killer, process_group, stop_rx, grace).await;
             let (status, err_msg) = match outcome.kind {
                 Outcome::Exited | Outcome::Killed => (Status::Exited, None),
                 Outcome::Crashed(e) => (Status::Crashed, Some(e)),
@@ -345,6 +228,7 @@ impl Supervisor {
                 started_at_ms,
                 stop_tx: Some(stop_tx),
                 _task: task,
+                pty: Some(handle),
                 _job: job,
             },
         );

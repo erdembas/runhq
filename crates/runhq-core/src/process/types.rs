@@ -4,6 +4,8 @@ use tokio::task::JoinHandle;
 
 use crate::process_group::JobObject;
 
+use super::pty::ServicePtyHandle;
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
@@ -74,6 +76,7 @@ pub(super) struct Running {
     pub(super) started_at_ms: i64,
     pub(super) stop_tx: Option<oneshot::Sender<()>>,
     pub(super) _task: JoinHandle<()>,
+    pub(super) pty: Option<ServicePtyHandle>,
     /// Windows-only Job Object that owns the supervised process tree.
     ///
     /// Held as long as the run is alive; dropping it (on supervise

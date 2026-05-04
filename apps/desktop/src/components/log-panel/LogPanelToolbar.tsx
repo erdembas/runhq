@@ -1,15 +1,19 @@
 import { Network, Play, RotateCcw, Search, Square } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { GitStatusChip } from '@/components/GitStatusChip';
+import { CommandRunStrip } from './CommandRunStrip';
 import { PopoverChip } from './PopoverChip';
 import { PortsPopoverBody } from './PortsPopoverBody';
-import type { ListeningPort, ServiceDef } from '@/types';
+import type { CommandStatus, ListeningPort, ServiceDef } from '@/types';
 
 interface LogPanelToolbarProps {
+  activeCmd: string | null;
+  cmdStatuses: CommandStatus[];
   filter: string;
   isServiceRunning: boolean;
   onOpenPopoverChange: (open: boolean) => void;
   onRestart: () => void;
+  onSelectCommand: (commandName: string) => void;
   onSetFilter: (filter: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -20,10 +24,13 @@ interface LogPanelToolbarProps {
 }
 
 export function LogPanelToolbar({
+  activeCmd,
+  cmdStatuses,
   filter,
   isServiceRunning,
   onOpenPopoverChange,
   onRestart,
+  onSelectCommand,
   onSetFilter,
   onStart,
   onStop,
@@ -74,7 +81,14 @@ export function LogPanelToolbar({
         )}
       </div>
 
-      <div className="relative w-full max-w-[280px]">
+      <CommandRunStrip
+        activeCmd={activeCmd}
+        cmdStatuses={cmdStatuses}
+        service={service}
+        onSelect={onSelectCommand}
+      />
+
+      <div className="relative w-full max-w-[280px] shrink-0">
         <Search className="text-fg-dim pointer-events-none absolute top-1/2 left-2.5 h-3 w-3 -translate-y-1/2" />
         <input
           value={filter}

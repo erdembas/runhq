@@ -33,6 +33,7 @@ export interface UseServiceLayoutResult {
   // ---- Tab lifecycle ------------------------------------------------------
   addTerminal: (groupId?: string) => string;
   closeTab: (tabId: string) => void;
+  openCommandLog: (commandName: string) => void;
   renameTab: (tabId: string, title: string) => void;
   // ---- Drag/drop ----------------------------------------------------------
   moveTab: (tabId: string, targetGroupId: string, insertIndex?: number) => void;
@@ -46,7 +47,10 @@ export interface UseServiceLayoutResult {
   ensureTerminal: () => string;
 }
 
-export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
+export function useServiceLayout(
+  serviceId: string,
+  commandNames: string[] = [],
+): UseServiceLayoutResult {
   // Lazy initialiser: runs synchronously once per mount. The
   // parent already remounts on `key={serviceId}` so a service
   // switch tears down the whole hook tree and re-hydrates from
@@ -54,7 +58,7 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
   const [state, dispatch] = useReducer(
     layoutReducer,
     serviceId,
-    (id) => loadLayout(id) ?? defaultLayoutState(),
+    (id) => loadLayout(id, commandNames) ?? defaultLayoutState(commandNames),
   );
 
   // Debounced persistence. The timer is reset on every state
@@ -87,6 +91,10 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
 
   const send = useCallback((action: LayoutAction) => dispatch(action), []);
 
+  useEffect(() => {
+    send({ type: 'sync-command-log-tabs', commands: commandNames });
+  }, [send, commandNames]);
+
   const activate = useCallback(
     (groupId: string, tabId: string) => send({ type: 'activate-tab', groupId, tabId }),
     [send],
@@ -108,6 +116,10 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
   );
 
   const closeTab = useCallback((tabId: string) => send({ type: 'close-tab', tabId }), [send]);
+  const openCommandLog = useCallback(
+    (commandName: string) => send({ type: 'open-command-log-tab', commandName }),
+    [send],
+  );
   const renameTab = useCallback(
     (tabId: string, title: string) => send({ type: 'rename-tab', tabId, title }),
     [send],
@@ -137,8 +149,8 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
 
   const reset = useCallback(() => {
     clearLayout(serviceId);
-    send({ type: 'reset' });
-  }, [send, serviceId]);
+    send({ type: 'reset', commands: commandNames });
+  }, [send, serviceId, commandNames]);
 
   const ensureTerminal = useCallback((): string => {
     // First look for an existing terminal anywhere in the tree.
@@ -161,6 +173,7 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
       activate,
       addTerminal,
       closeTab,
+      openCommandLog,
       renameTab,
       moveTab,
       splitTab,
@@ -174,6 +187,7 @@ export function useServiceLayout(serviceId: string): UseServiceLayoutResult {
       activate,
       addTerminal,
       closeTab,
+      openCommandLog,
       renameTab,
       moveTab,
       splitTab,

@@ -45,12 +45,13 @@ export function insertTabIntoGroup(
   groupId: string,
   tabId: string,
   insertIndex?: number,
+  activate = true,
 ): LayoutNode {
   return updateNode(node, groupId, (n) => {
     if (n.type !== 'group') return n;
     const at = insertIndex == null || insertIndex < 0 ? n.tabs.length : insertIndex;
     const tabs = [...n.tabs.slice(0, at), tabId, ...n.tabs.slice(at)];
-    return { ...n, tabs, activeTab: tabId };
+    return { ...n, tabs, activeTab: activate || n.activeTab == null ? tabId : n.activeTab };
   });
 }
 

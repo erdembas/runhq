@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ServiceLayout } from '@/components/layout/ServiceLayout';
-import { findGroupByTab } from '@/components/layout/layoutModel';
+import { activeCommandLogName } from '@/components/layout/layoutModel';
 import { useServiceLayout } from '@/components/layout/useServiceLayout';
 import { LogPanelBodyHosts } from '@/components/log-panel/LogPanelBodyHosts';
 import { LogPanelHeader } from '@/components/log-panel/LogPanelHeader';
 import { LogPanelOverlays } from '@/components/log-panel/LogPanelOverlays';
-import { EMPTY_LOGS, utf8ToBytes } from '@/components/log-panel/model';
+import {
+  useActiveServiceCommand,
+  useCommandLogs,
+  useServiceCommandNames,
+} from '@/components/log-panel/useCommandLogs';
 import { useDocumentThemeFlag } from '@/components/log-panel/useDocumentThemeFlag';
+import { useDocTerminalRunner } from '@/components/log-panel/useDocTerminalRunner';
+import { useLogAiContextMenu } from '@/components/log-panel/useLogAiContextMenu';
 import { useLogPanelSlots } from '@/components/log-panel/useLogPanelSlots';
+import { usePendingBodyTabRequest } from '@/components/log-panel/usePendingBodyTabRequest';
 import { useProjectDocsDiscovery } from '@/components/log-panel/useProjectDocsDiscovery';
 import { useRunningCommandFocus } from '@/components/log-panel/useRunningCommandFocus';
 import { registerServiceShortcuts } from '@/lib/serviceShortcutBus';
-import { useAppStore, logKey } from '@/store/useAppStore';
+import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import { localUrl } from '@/lib/url';
-import { runtimeFromTags, inferRuntimeFromCmds } from '@/lib/runtimes';
-import { buildLogChatPayload } from '@/lib/ai/logPayload';
 
 type PopoverKey = 'ports';
 
@@ -26,16 +31,13 @@ interface LogPanelProps {
 
 export function LogPanel({ serviceId }: LogPanelProps) {
   const selectedId = serviceId;
-  const [selectedCmdName, setSelectedCmdName] = useState<string | null>(null);
   const service = useAppStore((s) => s.services.find((x) => x.id === serviceId) ?? null);
   const status = useAppStore((s) => s.statuses[serviceId]);
   const ports = useAppStore((s) => s.ports);
-  const replaceLogs = useAppStore((s) => s.replaceLogs);
   const clearLogsLocal = useAppStore((s) => s.clearLogs);
   const openEditor = useAppStore((s) => s.openEditor);
   const removeServiceLocal = useAppStore((s) => s.removeService);
   const upsertService = useAppStore((s) => s.upsertService);
-  const openAiChat = useAppStore((s) => s.openAiChat);
 
   const projectMeta = useAppStore(
     (s) => s.overview?.projects.find((p) => p.service_id === serviceId) ?? null,
@@ -48,8 +50,6 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   const setOverviewScanning = useAppStore((s) => s.setOverviewScanning);
   const patchOverviewScan = useAppStore((s) => s.patchOverviewScan);
   const editors = useAppStore((s) => s.editors);
-  const pendingBodyTabRequest = useAppStore((s) => s.pendingServiceBodyTab[serviceId]);
-  const consumePendingBodyTab = useAppStore((s) => s.consumePendingServiceBodyTab);
   const runWorkspaceScan = useCallback(async () => {
     if (overviewScanning) return;
     setOverviewScanning(true);
@@ -72,99 +72,22 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     onConfirm: () => void;
   } | null>(null);
 
-  const layout = useServiceLayout(serviceId);
+  const commandNames = useServiceCommandNames(service);
+  const layout = useServiceLayout(serviceId, commandNames);
   const { bodySlots, onSlotRef } = useLogPanelSlots();
-
   const isDark = useDocumentThemeFlag();
-
-  const activeCmd = useMemo(() => {
-    if (!service) return null;
-    if (selectedCmdName && service.cmds.some((c) => c.name === selectedCmdName))
-      return selectedCmdName;
-    return service.cmds[0]?.name ?? null;
-  }, [service, selectedCmdName]);
-
-  const activeCmdEntry = useMemo(() => {
-    if (!service || !activeCmd) return null;
-    return service.cmds.find((c) => c.name === activeCmd) ?? null;
-  }, [service, activeCmd]);
-
-  const logK = activeCmd && selectedId ? logKey(selectedId, activeCmd) : '';
-  const logs = useAppStore((s) => (logK ? (s.logs[logK]?.lines ?? EMPTY_LOGS) : EMPTY_LOGS));
+  const activeLogCmd = useMemo(() => activeCommandLogName(layout.state), [layout.state]);
+  const activeCmd = useActiveServiceCommand(service, activeLogCmd);
+  const allLogsByCommand = useCommandLogs(selectedId, commandNames);
+  const handleLineContextMenu = useLogAiContextMenu({
+    allLogsByCommand,
+    filter,
+    service,
+  });
+  const runDocCommand = useDocTerminalRunner({ serviceId: selectedId, layout });
 
   useProjectDocsDiscovery({ selectedId, activeCmd, layout });
-
-  useEffect(() => {
-    if (!selectedId || !activeCmd) return;
-    let alive = true;
-    const key = logKey(selectedId, activeCmd);
-    (async () => {
-      try {
-        const lines = await ipc.getLogs(key, 0);
-        if (alive) replaceLogs(key, lines);
-      } catch (err) {
-        console.error('get_logs failed', err);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [selectedId, activeCmd, replaceLogs]);
-
-  const filtered = useMemo(() => {
-    if (!filter.trim()) return logs;
-    const q = filter.toLowerCase();
-    return logs.filter((l) => l.text.toLowerCase().includes(q));
-  }, [logs, filter]);
-
-  const handleLineContextMenu = useCallback(
-    (index: number) => {
-      const target = filtered[index];
-      if (!target) return;
-      const start = Math.max(0, index - 30);
-      const ctx = filtered.slice(start, index + 1).map((l) => l.text);
-      const runtime = service
-        ? (runtimeFromTags(service.tags) ?? inferRuntimeFromCmds(service.cmds))
-        : null;
-      const payload = buildLogChatPayload({
-        line: target.text,
-        contextLines: ctx,
-        runtime,
-        serviceName: service?.name ?? null,
-      });
-      void openAiChat({
-        origin: 'log',
-        title: payload.title,
-        context: payload.context,
-        draftPrompt: payload.draftPrompt,
-        contextSystemMessage: payload.contextSystemMessage,
-        autoSend: true,
-      });
-    },
-    [filtered, service, openAiChat],
-  );
-
-  const activateSingleton = useCallback(
-    (tabId: 'logs' | 'docs' | 'notes') => {
-      const group = findGroupByTab(layout.state.root, tabId);
-      if (group) layout.activate(group.id, tabId);
-    },
-    [layout],
-  );
-
-  useEffect(() => {
-    if (!pendingBodyTabRequest) return;
-    if (pendingBodyTabRequest === 'terminal') {
-      layout.ensureTerminal();
-    } else if (
-      pendingBodyTabRequest === 'logs' ||
-      pendingBodyTabRequest === 'docs' ||
-      pendingBodyTabRequest === 'notes'
-    ) {
-      activateSingleton(pendingBodyTabRequest);
-    }
-    consumePendingBodyTab(serviceId);
-  }, [pendingBodyTabRequest, consumePendingBodyTab, serviceId, layout, activateSingleton]);
+  usePendingBodyTabRequest({ serviceId, activeCommandName: activeCmd, layout });
 
   useEffect(() => {
     if (!serviceId) return;
@@ -175,25 +98,9 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     });
   }, [serviceId, layout]);
 
-  const runDocCommand = useCallback(
-    (command: string) => {
-      if (!selectedId) return;
-      const targetId = layout.ensureTerminal();
-      if (!targetId) return;
-      window.setTimeout(() => {
-        const bytes = utf8ToBytes(`${command}\r`);
-        void ipc.terminalWrite(targetId, bytes).catch((err) => {
-          console.warn('docs: terminal_write failed', err);
-        });
-      }, 250);
-    },
-    [selectedId, layout],
-  );
-
   useRunningCommandFocus({
     commands: status?.commands ?? [],
     layout,
-    setSelectedCmdName,
   });
 
   const currentStatus = status?.status ?? 'stopped';
@@ -252,7 +159,7 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   return (
     <div className="bg-surface relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <LogPanelHeader
-        activeCmd={activeCmd}
+        activeCmd={activeLogCmd}
         cmdStatuses={cmdStatuses}
         currentStatus={currentStatus}
         filter={filter}
@@ -294,7 +201,7 @@ export function LogPanel({ serviceId }: LogPanelProps) {
         onStart={() => void ipc.startService(service.id)}
         onRestart={() => void ipc.restartService(service.id)}
         onStop={() => void ipc.stopService(service.id)}
-        onSelectCommand={setSelectedCmdName}
+        onSelectCommand={layout.openCommandLog}
       />
 
       <ServiceLayout
@@ -309,11 +216,9 @@ export function LogPanel({ serviceId }: LogPanelProps) {
         selectedId={selectedId}
         cwd={service.cwd}
         serviceName={service.name}
-        activeCmd={activeCmd}
-        activeCmdEntry={activeCmdEntry}
-        filtered={filtered}
-        allLogs={logs}
-        logK={logK}
+        commands={service.cmds}
+        allLogsByCommand={allLogsByCommand}
+        filter={filter}
         showTimestamp={showTimestamp}
         setShowTimestamp={setShowTimestamp}
         follow={follow}

@@ -73,3 +73,16 @@ pub fn service_status(id: String, state: State<'_, AppState>) -> AppResult<Servi
     let svc = state.store.service(&id).ok_or(AppError::NotFound(id))?;
     Ok(state.supervisor.service_status(&svc))
 }
+
+#[tauri::command]
+pub fn resize_service_log_pty(
+    id: String,
+    cmd_name: String,
+    cols: u16,
+    rows: u16,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state
+        .supervisor
+        .resize_command_pty(&id, &cmd_name, cols, rows)
+}

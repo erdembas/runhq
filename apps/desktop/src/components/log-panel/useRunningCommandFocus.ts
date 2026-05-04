@@ -1,19 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { findGroupByTab } from '@/components/layout/layoutModel';
-import type { useServiceLayout } from '@/components/layout/useServiceLayout';
+import type { UseServiceLayoutResult } from '@/components/layout/useServiceLayout';
 import type { CommandStatus } from '@/types';
 
 interface UseRunningCommandFocusArgs {
   commands: CommandStatus[];
-  layout: ReturnType<typeof useServiceLayout>;
-  setSelectedCmdName: (name: string) => void;
+  layout: UseServiceLayoutResult;
 }
 
-export function useRunningCommandFocus({
-  commands,
-  layout,
-  setSelectedCmdName,
-}: UseRunningCommandFocusArgs) {
+export function useRunningCommandFocus({ commands, layout }: UseRunningCommandFocusArgs) {
   const runningCmdNames = useMemo(
     () =>
       commands
@@ -25,10 +19,6 @@ export function useRunningCommandFocus({
     () => runningCmdNames.slice().sort().join('\x1f'),
     [runningCmdNames],
   );
-  const layoutStateRef = useRef(layout.state);
-  useEffect(() => {
-    layoutStateRef.current = layout.state;
-  }, [layout.state]);
   const prevRunningCmdsRef = useRef<string[]>([]);
 
   useEffect(() => {
@@ -38,14 +28,7 @@ export function useRunningCommandFocus({
     const prevSet = new Set(prev);
     const newlyRunning = runningCmdNames.find((name) => !prevSet.has(name));
     if (!newlyRunning) return;
-    const cur = layoutStateRef.current;
-    const logsGroup = findGroupByTab(cur.root, 'logs');
-    if (logsGroup && logsGroup.activeTab !== 'logs') {
-      setSelectedCmdName(newlyRunning);
-      layout.activate(logsGroup.id, 'logs');
-    } else if (logsGroup) {
-      setSelectedCmdName(newlyRunning);
-    }
+    layout.openCommandLog(newlyRunning);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningCmdKey]);
 }

@@ -1,4 +1,3 @@
-import { CommandTabs } from './CommandTabs';
 import { LogPanelTitleBar } from './LogPanelTitleBar';
 import { LogPanelToolbar } from './LogPanelToolbar';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
@@ -24,7 +23,7 @@ interface LogPanelHeaderProps {
   onOpenPopoverChange: (open: boolean) => void;
   onOpenPort: (port: number) => void;
   onRestart: () => void;
-  onSelectCommand: (name: string | null) => void;
+  onSelectCommand: (name: string) => void;
   onSetFilter: (filter: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -73,6 +72,8 @@ export function LogPanelHeader({
       <LogPanelToolbar
         filter={filter}
         isServiceRunning={isServiceRunning}
+        activeCmd={activeCmd}
+        cmdStatuses={cmdStatuses}
         openPortsPopover={openPortsPopover}
         ports={ports}
         service={service}
@@ -82,13 +83,7 @@ export function LogPanelHeader({
         onStart={onStart}
         onRestart={onRestart}
         onStop={onStop}
-      />
-
-      <CommandTabs
-        activeCmd={activeCmd}
-        cmdStatuses={cmdStatuses}
-        service={service}
-        onSelect={onSelectCommand}
+        onSelectCommand={onSelectCommand}
       />
     </div>
   );

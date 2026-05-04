@@ -30,6 +30,7 @@ listeners = "0.5"
 tracing = "0.1"
 parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
+portable-pty = "0.8"
 
 # Base64 encoder used by the docs module to inline images referenced
 # from a project's README/CHANGELOG into `data:` URIs the webview can

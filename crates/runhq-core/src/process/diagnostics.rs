@@ -35,11 +35,12 @@ pub(super) async fn emit_launch_diagnostics(
             } else {
                 format!("({line_count} lines)")
             };
-            let line = logs.push(
-                &log_key,
+            let line = logs.push_with_detail(
+                log_key,
                 Stream::System,
                 format!("ℹ pre-command attached: {summary}"),
                 run_id.clone(),
+                Some(pre_trimmed.to_string()),
             );
             sink.emit_log(&svc.id, &entry.name, &line);
         }
@@ -98,7 +99,7 @@ pub(super) async fn emit_launch_diagnostics(
                         continue;
                     }
                     let line = logs.push(
-                        &log_key,
+                        log_key,
                         Stream::System,
                         format!("ℹ env: {trimmed}"),
                         run_id.clone(),

@@ -43,7 +43,6 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
   const suppressBranchSwitchRef = useRef<string | null>(null);
   const closePopover = useCallback(() => setOpen(false), []);
   const pos = useGitPopoverPosition({ open, confirm, anchorRef: wrapRef, onClose: closePopover });
-
   const recordEvent = useCallback(
     (type: TimelineEventType, description: string) => {
       const svc = useAppStore.getState().services.find((s) => s.id === serviceId);
@@ -51,7 +50,6 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
     },
     [serviceId],
   );
-
   const refreshStatus = useCallback(async () => {
     try {
       const latest = await ipc.gitStatus(serviceId);
@@ -76,7 +74,6 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
       clearInterval(id);
     };
   }, [refreshStatus]);
-
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -99,7 +96,6 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
       alive = false;
     };
   }, [open, serviceId, git?.branch, git?.head_short]);
-
   const run = useCallback(
     async (op: BusyOp, fn: () => Promise<unknown>) => {
       setBusy(op);
@@ -116,7 +112,6 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
     },
     [refreshStatus],
   );
-
   const runSync = useCallback(async () => {
     setBusy('sync');
     setErr(null);

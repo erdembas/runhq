@@ -46,6 +46,8 @@ export const serviceIpc = {
     invoke<ServiceStatus>('stop_service_cmd', { id, cmdName }),
   restartService: (id: ServiceId) => invoke<ServiceStatus>('restart_service', { id }),
   serviceStatus: (id: ServiceId) => invoke<ServiceStatus>('service_status', { id }),
+  resizeServiceLogPty: (id: ServiceId, cmdName: string, cols: number, rows: number) =>
+    invoke<void>('resize_service_log_pty', { id, cmdName, cols, rows }),
 
   getLogs: (id: string, sinceSeq = 0, limit = 2000) =>
     invoke<LogLine[]>('get_logs', { id, sinceSeq, limit }),

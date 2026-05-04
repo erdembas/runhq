@@ -6,28 +6,34 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ipc } from '@/lib/ipc';
 import { XTERM_SEARCH_DECORATIONS, xtermTheme } from '@/lib/xtermTheme';
+import { LogXtermDetailTooltip } from '@/components/log-xterm/LogXtermDetailTooltip';
 import { LogXtermEmptyState } from '@/components/log-xterm/LogXtermEmptyState';
 import { LogXtermSearchBar, type MatchInfo } from '@/components/log-xterm/LogXtermSearchBar';
-import { FONT_STACK } from '@/components/log-xterm/format';
-import { appendLineWithMarker, findLineIndexAtY } from '@/components/log-xterm/markers';
+import { FONT_STACK, collectFailedDockerStepIds } from '@/components/log-xterm/format';
+import { appendLineWithMarker } from '@/components/log-xterm/markers';
+import { isInsideRect, lineIndexFromPointer } from '@/components/log-xterm/pointer';
 import type { LogLine } from '@/types';
 
 interface Props {
+  commandName?: string | null;
   lines: LogLine[];
   totalLogs: number;
   showTimestamp: boolean;
   follow: boolean;
   isDark: boolean;
   onLineContextMenu: (index: number) => void;
+  serviceId?: string | null;
 }
 
 export function LogXtermView({
+  commandName,
   lines,
   totalLogs,
   showTimestamp,
   follow,
   isDark,
   onLineContextMenu,
+  serviceId,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termContainerRef = useRef<HTMLDivElement>(null);
@@ -38,7 +44,8 @@ export function LogXtermView({
 
   const markersRef = useRef<IMarker[]>([]);
   const writtenSeqsRef = useRef<number[]>([]);
-  const formatStateRef = useRef({ showTimestamp });
+  const formatStateRef = useRef({ failedDockerStepKey: '', showTimestamp });
+  const lastPtySizeRef = useRef('');
 
   const linesRef = useRef(lines);
   linesRef.current = lines;
@@ -48,6 +55,12 @@ export function LogXtermView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [matchInfo, setMatchInfo] = useState<MatchInfo | null>(null);
+  const [detailTooltip, setDetailTooltip] = useState<{
+    detail: string;
+    left: number;
+    title: string;
+    top: number;
+  } | null>(null);
 
   const runSearch = useCallback((query: string, direction: 'next' | 'prev') => {
     const search = searchRef.current;
@@ -82,10 +95,10 @@ export function LogXtermView({
       cursorBlink: true,
       cursorStyle: 'underline',
       disableStdin: true,
-      fontSize: 12.5,
+      fontSize: 14,
       fontFamily: FONT_STACK,
       letterSpacing: 0,
-      lineHeight: 1.35,
+      lineHeight: 1.25,
       scrollback: 10_000,
       allowProposedApi: true,
       allowTransparency: false,
@@ -122,6 +135,18 @@ export function LogXtermView({
 
     term.open(termContainerRef.current);
 
+    const syncServicePtySize = () => {
+      if (!serviceId || !commandName || term.cols <= 0 || term.rows <= 0) return;
+      const next = `${term.cols}x${term.rows}`;
+      if (lastPtySizeRef.current === next) return;
+      lastPtySizeRef.current = next;
+      void ipc
+        .resizeServiceLogPty(serviceId, commandName, term.cols, term.rows)
+        .catch((err: unknown) => {
+          console.warn('resizeServiceLogPty failed', err);
+        });
+    };
+
     term.attachCustomKeyEventHandler((event) => {
       const isFindShortcut =
         (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === 'f';
@@ -133,26 +158,20 @@ export function LogXtermView({
     });
 
     const containerEl = termContainerRef.current;
-    const onContextMenu = (e: MouseEvent) => {
-      const screen =
-        (containerEl.querySelector('.xterm-screen') as HTMLElement | null) ?? containerEl;
+    const screenForPointer = () =>
+      (containerEl.querySelector('.xterm-screen') as HTMLElement | null) ?? containerEl;
+
+    const lineIndexForEvent = (event: MouseEvent): number => {
+      const screen = screenForPointer();
       const rect = screen.getBoundingClientRect();
-      if (
-        e.clientX < rect.left ||
-        e.clientX > rect.right ||
-        e.clientY < rect.top ||
-        e.clientY > rect.bottom
-      ) {
-        return;
-      }
+      if (!isInsideRect(rect, event.clientX, event.clientY)) return -1;
       const t = termRef.current;
-      if (!t || rect.height <= 0) return;
-      const localY = e.clientY - rect.top;
-      const cellHeight = rect.height / Math.max(1, t.rows);
-      const localRow = Math.floor(localY / cellHeight);
-      if (localRow < 0 || localRow >= t.rows) return;
-      const absY = t.buffer.active.viewportY + localRow;
-      const idx = findLineIndexAtY(markersRef.current, absY);
+      if (!t) return -1;
+      return lineIndexFromPointer(t, markersRef.current, rect, event.clientY);
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      const idx = lineIndexForEvent(e);
       if (idx === -1) return;
       const candidate = linesRef.current[idx];
       if (!candidate || candidate.text.trim() === '') return;
@@ -160,7 +179,40 @@ export function LogXtermView({
       e.stopPropagation();
       onLineContextMenuRef.current(idx);
     };
+
+    const onMouseMove = (event: MouseEvent) => {
+      const idx = lineIndexForEvent(event);
+      const candidate = idx === -1 ? null : linesRef.current[idx];
+      const detail = candidate?.detail?.trim();
+      if (!candidate || !detail) {
+        setDetailTooltip(null);
+        return;
+      }
+
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      if (!containerRect) return;
+      const tooltipWidth = Math.min(560, Math.max(280, containerRect.width - 24));
+      const left = Math.min(
+        Math.max(12, event.clientX - containerRect.left + 14),
+        Math.max(12, containerRect.width - tooltipWidth - 12),
+      );
+      const top = Math.min(
+        Math.max(12, event.clientY - containerRect.top + 16),
+        Math.max(12, containerRect.height - 280),
+      );
+      setDetailTooltip({
+        detail,
+        left,
+        title: candidate.text.replace(/^\s*ℹ\s*/, ''),
+        top,
+      });
+    };
+
+    const onMouseLeave = () => setDetailTooltip(null);
+
     containerEl.addEventListener('contextmenu', onContextMenu);
+    containerEl.addEventListener('mousemove', onMouseMove);
+    containerEl.addEventListener('mouseleave', onMouseLeave);
 
     let alive = true;
     let resizeRaf = 0;
@@ -170,6 +222,7 @@ export function LogXtermView({
       if (!alive) return;
       try {
         fit.fit();
+        syncServicePtySize();
       } catch {
         // xterm can reject a fit while the pane is hidden or has zero dimensions.
       }
@@ -185,6 +238,7 @@ export function LogXtermView({
       if (!alive) return;
       try {
         fit.fit();
+        syncServicePtySize();
       } catch {
         // xterm can reject a fit while the pane is hidden or has zero dimensions.
       }
@@ -202,6 +256,8 @@ export function LogXtermView({
       }
       resizeObserver.disconnect();
       containerEl.removeEventListener('contextmenu', onContextMenu);
+      containerEl.removeEventListener('mousemove', onMouseMove);
+      containerEl.removeEventListener('mouseleave', onMouseLeave);
       for (const m of markersRef.current) {
         if (!m.isDisposed) m.dispose();
       }
@@ -228,7 +284,12 @@ export function LogXtermView({
     const term = termRef.current;
     if (!term) return;
 
-    const formatChanged = formatStateRef.current.showTimestamp !== showTimestamp;
+    const failedDockerStepIds = collectFailedDockerStepIds(lines);
+    const failedDockerStepKey = Array.from(failedDockerStepIds).sort().join('\x1f');
+    const formatOptions = { failedDockerStepIds, showTimestamp };
+    const formatChanged =
+      formatStateRef.current.showTimestamp !== showTimestamp ||
+      formatStateRef.current.failedDockerStepKey !== failedDockerStepKey;
     const written = writtenSeqsRef.current;
 
     const wipeAndRewrite = () => {
@@ -239,20 +300,20 @@ export function LogXtermView({
       term.reset();
       term.options.theme = xtermTheme(isDark);
       for (const line of lines) {
-        appendLineWithMarker(term, line, markersRef.current, { showTimestamp });
+        appendLineWithMarker(term, line, markersRef.current, formatOptions);
       }
       writtenSeqsRef.current = lines.map((l) => l.seq);
-      formatStateRef.current = { showTimestamp };
+      formatStateRef.current = { failedDockerStepKey, showTimestamp };
     };
 
     const appendTail = (fromIndex: number) => {
       for (let i = fromIndex; i < lines.length; i++) {
         const line = lines[i];
         if (!line) continue;
-        appendLineWithMarker(term, line, markersRef.current, { showTimestamp });
+        appendLineWithMarker(term, line, markersRef.current, formatOptions);
       }
       writtenSeqsRef.current = lines.map((l) => l.seq);
-      formatStateRef.current = { showTimestamp };
+      formatStateRef.current = { failedDockerStepKey, showTimestamp };
     };
 
     if (formatChanged) {
@@ -266,7 +327,7 @@ export function LogXtermView({
         term.reset();
         term.options.theme = xtermTheme(isDark);
         writtenSeqsRef.current = [];
-        formatStateRef.current = { showTimestamp };
+        formatStateRef.current = { failedDockerStepKey, showTimestamp };
       }
     } else if (written.length === 0) {
       appendTail(0);
@@ -343,6 +404,7 @@ export function LogXtermView({
     <div ref={containerRef} className="relative h-full w-full">
       <div ref={termContainerRef} className="h-full w-full" />
       {showEmptyState && <LogXtermEmptyState isDark={isDark} message={emptyMessage} />}
+      {detailTooltip && <LogXtermDetailTooltip {...detailTooltip} />}
       {searchOpen && (
         <LogXtermSearchBar
           inputRef={searchInputRef}

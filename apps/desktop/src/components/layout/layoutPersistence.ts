@@ -35,24 +35,27 @@ function key(serviceId: string): string {
  * if nothing's stored or the blob is malformed. Always returns a
  * valid state; never throws.
  */
-export function loadLayout(serviceId: string): LayoutState {
-  if (typeof window === 'undefined') return defaultLayoutState();
+export function loadLayout(serviceId: string, commandNames: string[] = []): LayoutState {
+  if (typeof window === 'undefined') return defaultLayoutState(commandNames);
   try {
     const raw = window.localStorage.getItem(key(serviceId));
-    if (!raw) return defaultLayoutState();
+    if (!raw) return defaultLayoutState(commandNames);
     const env = JSON.parse(raw) as Envelope;
     if (!env || env.version !== SCHEMA_VERSION || !env.state) {
-      return defaultLayoutState();
+      return defaultLayoutState(commandNames);
     }
     // Sanity-check the loaded state. A corrupted blob (root-less
     // tree, missing tabs table) silently falls back to default
     // rather than crashing the whole panel render.
     if (!env.state.root || !env.state.tabs || typeof env.state.nextTermIdx !== 'number') {
-      return defaultLayoutState();
+      return defaultLayoutState(commandNames);
     }
-    return env.state;
+    return {
+      ...env.state,
+      knownLogCommands: Array.isArray(env.state.knownLogCommands) ? env.state.knownLogCommands : [],
+    };
   } catch {
-    return defaultLayoutState();
+    return defaultLayoutState(commandNames);
   }
 }
 

@@ -9,6 +9,7 @@ use crate::resources::{ResourceSample, ResourceSampler};
 use crate::state::ServiceDef;
 use parking_lot::Mutex;
 
+use super::pty::{DEFAULT_SERVICE_PTY_COLS, DEFAULT_SERVICE_PTY_ROWS};
 use super::types::{process_key, Running, ServiceStatus};
 
 /// How often the supervisor samples per-service CPU + memory.
@@ -37,6 +38,7 @@ pub struct Supervisor {
     /// client treats those as orphan lines rather than misattributing
     /// them.
     pub(super) run_ids: Arc<Mutex<HashMap<String, String>>>,
+    pub(super) pty_sizes: Arc<Mutex<HashMap<String, (u16, u16)>>>,
 }
 
 impl Supervisor {
@@ -48,7 +50,34 @@ impl Supervisor {
             statuses: Arc::new(Mutex::new(HashMap::new())),
             last_resources: Arc::new(Mutex::new(HashMap::new())),
             run_ids: Arc::new(Mutex::new(HashMap::new())),
+            pty_sizes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn resize_command_pty(
+        &self,
+        service_id: &str,
+        cmd_name: &str,
+        cols: u16,
+        rows: u16,
+    ) -> AppResult<()> {
+        let key = process_key(service_id, cmd_name);
+        let size = (cols.max(20), rows.max(5));
+        self.pty_sizes.lock().insert(key.clone(), size);
+
+        let handle = self.running.lock().get(&key).and_then(|r| r.pty.clone());
+        if let Some(handle) = handle {
+            handle.resize(size.0, size.1)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn pty_size_for(&self, key: &str) -> (u16, u16) {
+        self.pty_sizes
+            .lock()
+            .get(key)
+            .copied()
+            .unwrap_or((DEFAULT_SERVICE_PTY_COLS, DEFAULT_SERVICE_PTY_ROWS))
     }
 
     /// Read the active run id for a service (if any). Cloning once under

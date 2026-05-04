@@ -6,6 +6,12 @@ export function utf8ToBytes(value: string): number[] {
   return Array.from(new TextEncoder().encode(value));
 }
 
+export function filterLogLines(lines: LogLine[], filter: string): LogLine[] {
+  const query = filter.trim().toLowerCase();
+  if (!query) return lines;
+  return lines.filter((line) => line.text.toLowerCase().includes(query));
+}
+
 export function badgeClass(name: string): string {
   const palette = [
     'bg-sky-500/15 text-sky-700 dark:text-sky-300',

@@ -7,9 +7,11 @@ import {
   splitTreeAroundGroup,
   updateNode,
 } from './layoutTree';
+import { openCommandLogTab, syncCommandLogTabs } from './commandLogLayout';
 import type { LayoutAction, LayoutState, Tab } from './layoutTypes';
 
 export { defaultLayoutState } from './layoutDefaults';
+export { activeCommandLogName, commandNameForLogTab, findCommandLogTabId } from './layoutLogTabs';
 export {
   findGroupByTab,
   listGroups,
@@ -34,7 +36,7 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
       return action.state;
 
     case 'reset':
-      return { ...defaultLayoutState(), includeDocs: state.includeDocs };
+      return { ...defaultLayoutState(action.commands ?? []), includeDocs: state.includeDocs };
 
     case 'set-include-docs':
       if (state.includeDocs === action.includeDocs) return state;
@@ -70,6 +72,12 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
       };
     }
 
+    case 'sync-command-log-tabs':
+      return syncCommandLogTabs(state, action.commands);
+
+    case 'open-command-log-tab':
+      return openCommandLogTab(state, action.commandName);
+
     case 'rename-tab': {
       const tab = state.tabs[action.tabId];
       if (!tab || tab.kind !== 'terminal') return state;
@@ -83,7 +91,9 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
 
     case 'close-tab': {
       const tab = state.tabs[action.tabId];
-      if (!tab || tab.kind !== 'terminal') return state;
+      if (!tab || (tab.kind !== 'terminal' && !(tab.kind === 'logs' && tab.commandName))) {
+        return state;
+      }
       const root1 = removeTabFromTree(state.root, action.tabId);
       const root2 = collapseEmptyGroups(root1);
       const { [action.tabId]: _removed, ...remainingTabs } = state.tabs;

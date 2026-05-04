@@ -1,40 +1,32 @@
 import type { ITheme } from '@xterm/xterm';
 import type { ISearchDecorationOptions } from '@xterm/addon-search';
 
-/** Shared xterm.js theme used by **both** the integrated terminal pane
- *  and the log view. Kept in one module so the two surfaces never drift
- *  out of sync — when they sit side-by-side in the split layout the
- *  user expects a single visual surface, not two terminals with
- *  different palettes.
- *
- *  The palette itself is RunHQ's brand-aligned dark — `#0c0c0c` body
- *  with a warm `#e8e4e0` foreground — rather than VS Code's "Dark
- *  Modern" defaults. We deliberately depart from VS Code here because
- *  the rest of the app (sidebar, toolbar, popovers) is already tuned
- *  to that warm palette; aligning the terminals to the host chrome
- *  feels more native than aligning them to a foreign editor. */
+/** Shared xterm.js theme used by both the integrated terminal pane
+ *  and the log view. The palette intentionally mirrors the VS Code
+ *  terminal in the reference screenshots, so CLI output colors stay
+ *  familiar when users compare RunHQ against their editor. */
 export const XTERM_DARK_THEME: ITheme = {
   background: '#0c0c0c',
-  foreground: '#e8e4e0',
-  cursor: '#e8e4e0',
+  foreground: '#abb2bf',
+  cursor: '#abb2bf',
   cursorAccent: '#0c0c0c',
-  selectionBackground: '#e8e4e033',
-  black: '#0c0c0c',
-  red: '#ef4444',
-  green: '#34d399',
-  yellow: '#fbbf24',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e8e4e0',
-  brightBlack: '#6c6560',
-  brightRed: '#f87171',
-  brightGreen: '#6ee7b7',
-  brightYellow: '#fcd34d',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#f5f5f4',
+  selectionBackground: '#3e4451',
+  black: '#282c34',
+  red: '#e06c75',
+  green: '#98c379',
+  yellow: '#e5c07b',
+  blue: '#61afef',
+  magenta: '#c678dd',
+  cyan: '#56b6c2',
+  white: '#abb2bf',
+  brightBlack: '#5c6370',
+  brightRed: '#e06c75',
+  brightGreen: '#98c379',
+  brightYellow: '#e5c07b',
+  brightBlue: '#61afef',
+  brightMagenta: '#c678dd',
+  brightCyan: '#56b6c2',
+  brightWhite: '#ffffff',
 };
 
 /** Light-mode counterpart — ivory body (`#faf8f6`), near-black ink

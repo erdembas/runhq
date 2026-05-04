@@ -821,30 +821,371 @@ The single biggest source of "it works on my machine" is undocumented local setu
 
 ---
 
+## 33. Data Import & Export
+
+**Priority:** Medium-High | **Effort:** Low-Medium | **Status:** Proposed
+
+RunHQ accumulates significant configuration and institutional knowledge across sessions: service definitions, stacks, AI provider profiles, per-project notes, conversation history, timeline events, dependency scan results, and preferences. Today, all of this lives in `~/.runhq/` and is machine-bound — switching laptops, onboarding a teammate, or recovering from a reinstall means starting from scratch.
+
+### Scope
+
+#### Export
+
+- **Full Export** — One-click export of all RunHQ data into a single portable `.runhq-bundle` archive (zipped JSON + SQLite snapshots). Includes: services, stacks, AI providers (key handling configurable — see below), notes, conversations, timeline, scan history, preferences, keyboard shortcuts, and project layout state.
+- **Selective Export** — Choose what to include via a checklist UI:
+  - **By scope**: config only, notes only, AI profiles only, conversations only, or any combination.
+  - **By project**: pick individual services/projects to export. Unselected projects are omitted from the bundle.
+  - **By time range**: export conversations/timeline from the last N days, or a custom date range. Keeps bundles small for partial transfers.
+- **Secret Handling** — Three modes on export:
+  - **Include** — API keys and tokens are included as-is (warn: bundle becomes sensitive).
+  - **Redact** — Keys are replaced with `••••••••` placeholders. On import, the user must re-enter them. This is the default.
+  - **Exclude** — Provider profiles are exported without any credential fields. Safest for sharing.
+- **Path Portability** — Detect absolute paths in service `cwd`, editor paths, and custom commands. Store them as-is in the bundle but annotate each with a `_pathHint` (OS + base directory pattern, e.g. `{os: "macos", base: "~/Projects"}`). On import, the path-remapping engine uses these hints for automatic resolution.
+- **Bundle Metadata** — Every bundle includes a `manifest.json` with: schema version (semver, for forward-compatible migration), export timestamp, source OS, source RunHQ version, included scopes, and a SHA-256 integrity hash of the payload.
+- **CLI** — `runhq export --output backup.runhq-bundle --scope config,notes --redact` for scripted/CI backup workflows.
+
+#### Import
+
+- **Drag-and-Drop / File Picker** — Drop a `.runhq-bundle` onto the RunHQ window or use Settings → Import. The import wizard opens.
+- **Schema Migration** — If the bundle's schema version is older than the current RunHQ version, run forward migrations before applying. If newer, warn: "this bundle was exported from RunHQ v0.12; you are running v0.10 — some fields may be unsupported". Never fail silently.
+- **Path Remapping Engine** — The core of cross-machine portability:
+  - **Auto-detect**: scan the bundle for all absolute paths; compare against the current machine's filesystem. If a path like `/Users/alice/projects/foo` doesn't exist but `/Users/bob/work/foo` does, propose the remap automatically.
+  - **Base directory mapping**: user maps the old base (`~/Projects`) to the new base (`~/Work`). All paths under the old base are rewritten relative to the new base.
+  - **Manual override**: any individual path can be overridden in the wizard before applying.
+  - **Unresolved paths**: paths that can't be auto-remapped are flagged with a warning chip. The service is imported in a "path unresolved" state — the user can fix it later or the scanner can re-detect the project on the next scan.
+- **Conflict Resolution** — When imported data collides with existing data:
+  - **Services**: if a service with the same `cwd` already exists, offer: Skip / Overwrite / Keep Both (with a disambiguating suffix).
+  - **AI Providers**: if a provider with the same name exists, offer: Skip / Overwrite / Rename imported.
+  - **Conversations**: merge by ID — skip duplicates, import new. No overwrite for conversations (data loss risk).
+  - **Notes**: if a note file exists with different content, show a diff and offer: Keep Local / Keep Imported / Merge (append imported under a separator).
+  - **Preferences**: offer: Keep Local / Apply Imported / Merge (imported overrides local for non-null fields).
+- **Dry Run** — Before applying, show a summary: "Will import 12 services, 3 AI profiles (2 new, 1 conflict), 47 conversations, 8 notes. 2 paths need manual resolution." User confirms before any writes.
+- **Rollback** — Before import, snapshot the current `~/.runhq/` state. If import fails mid-way or the user wants to undo, one-click rollback restores the pre-import state. Snapshot is kept for 24 hours then auto-cleaned.
+- **CLI** — `runhq import backup.runhq-bundle --base-remap ~/Old:~/New --conflict skip --dry-run`.
+
+#### Backup
+
+- **Scheduled Auto-Export** — Configurable interval (daily, weekly, on quit). Writes to a user-specified directory (default: `~/.runhq/backups/`). Retention policy (default: keep last 10). Uses the same bundle format with redacted secrets by default.
+- **Backup Health** — Settings shows last backup time, bundle size, and a "Verify" button that reads the bundle and checks the integrity hash + schema version.
+- **Restore from Backup** — Settings → Backups lists available backups with timestamp and size. One-click restore opens the import wizard pre-loaded with the selected backup.
+
+#### Sharing
+
+- **Team Template Export** — A lightweight export mode that produces a `runhq-template.json` (not a full bundle): service definitions (commands, ports, tags, runtime), notes, and recommended health-check config. No conversations, no timeline, no secrets. Complements `runhq.team.json` (#32) — the template is the "suggested setup", the team config is the "enforced setup".
+- **Shareable Link** — Optional: upload the (redacted) bundle to a user-provided S3 bucket / GCS bucket / Tailscale Serve endpoint. RunHQ never hosts or proxies the bundle — the user controls the transport. The shareable link is just a URL that `runhq import <url>` can fetch.
+
+### Technical Notes
+
+- **Bundle format**: a ZIP archive containing `manifest.json` (schema version, metadata, integrity hash), `config.json` (serialised RunHQ state), `conversations.db` (SQLite file copy), `timeline.db`, `dependency_scans.db`, `notes/` (markdown files), and `preferences.json`.
+- **Schema versioning**: `manifest.json` includes a `schema_version` field (e.g. `"1.0.0"`). Import reads this and applies a migration chain (`migrate_1_to_2`, `migrate_2_to_3`, …) before applying. Migrations are pure functions in `runhq-core::import_export::migrations`.
+- **Path remapping**: implemented as a `PathRemapper` struct in `runhq-core` that takes a mapping of old-base → new-base and rewrites all path fields in the deserialised config. The remapper is also used by Workspace Snapshots (#6) — shared infrastructure.
+- **Integrity**: SHA-256 hash of all payload files (excluding `manifest.json` itself) stored in `manifest.json.integrity`. Verified on import before any data is written.
+- **Rollback**: before import, copy the current `~/.runhq/` directory to `~/.runhq/.rollback/<timestamp>/`. On rollback, atomic swap (rename). Auto-cleanup after 24h via a startup check.
+- **SQLite import**: for conversations/timeline/scan history, use `INSERT OR IGNORE` on primary key to handle duplicates without data loss. For full overwrite scenarios, drop and recreate the target table before bulk insert.
+- **Frontend**: Settings → Data tab with Export / Import / Backups sub-tabs. Import wizard is a multi-step modal (select bundle → preview → resolve paths → resolve conflicts → apply). Export is a modal with scope checkboxes and secret-handling radio buttons.
+
+### Why
+
+RunHQ's value compounds with use — the longer you use it, the more institutional knowledge accumulates (notes, conversation history, custom profiles, scan baselines). Losing that on a machine switch or reinstall is a hard reset that discourages deep adoption. A portable, versioned, secret-aware import/export system turns RunHQ from "an app on this laptop" into "my development profile that follows me anywhere" — and makes team onboarding ("import the team template, you're running in 60 seconds") the killer workflow for enterprise adoption.
+
+---
+
+## 34. Native OS Notifications
+
+**Priority:** Medium-High | **Effort:** Low | **Status:** Proposed
+
+RunHQ knows when things go wrong — services crash, ports conflict, health checks fail, CVEs appear — but today the developer only finds out when they look at the app. Native OS notifications push critical events to the user's attention without requiring the app to be frontmost.
+
+### Scope
+
+- **Notification Triggers** — Configurable per-event-type, per-project:
+  - **Service crash / crash-loop** — Service exits non-zero or enters crash-loop state (#7).
+  - **Health check failure** — Service transitions from Healthy → Unhealthy (#7).
+  - **Port conflict** — Two services attempt to bind the same port.
+  - **Critical CVE** — New critical-severity advisory detected during a dependency scan (#1).
+  - **Deadline + risk** — Project with a near deadline and open CVEs (#20).
+  - **Long-running command exit** — A service that ran for > N minutes and just exited (likely unexpected).
+- **Notification Channels** —
+  - **macOS**: `UNUserNotificationCenter` via Tauri's notification plugin — banners, sound, action buttons.
+  - **Windows**: Windows Toast Notifications via the Tauri plugin.
+  - **Linux**: `libnotify` / `notify-send` via D-Bus.
+- **Action Buttons** — Notifications include context-aware actions:
+  - Crash: "View Logs" / "Restart Service".
+  - CVE: "View Advisory" / "Open in Editor".
+  - Port conflict: "Kill Other Process" / "Ignore".
+  - Clicking an action brings RunHQ to the foreground and navigates to the relevant view.
+- **Quiet Hours** — Configurable do-not-disturb schedule (e.g., 22:00–08:00). During quiet hours, notifications are suppressed but logged in an in-app notification center.
+- **Notification Center** — An in-app bell icon in the title bar showing the last 50 notifications with timestamp, project, event type, and current resolution state. Unread count badge.
+- **Per-Project Mute** — Right-click a project → "Mute notifications" to suppress all notifications for that project. Useful for intentionally-crashing services during development.
+- **Rate Limiting** — Maximum 1 notification per project per event-type per 5 minutes to prevent notification spam during crash-loops. Cooldown is configurable.
+
+### Technical Notes
+
+- Tauri v2 ships `tauri-plugin-notification` with cross-platform support. Minimal Rust-side code — just event → notification dispatch.
+- The existing `EventSink` trait is the natural integration point. Add a `NotificationSink` that filters events by user preferences and dispatches OS notifications.
+- Action buttons require the notification plugin's interaction API — verify support on all 3 platforms (macOS has full support, Windows has partial, Linux varies by DE).
+
+### Why
+
+A cockpit that requires you to stare at it isn't doing its job. The most impactful events (crashes, security vulnerabilities) are exactly the ones that happen when you're looking elsewhere. Native notifications close the feedback loop without requiring a behavioral change from the developer.
+
+---
+
+## 35. Cross-Project Search
+
+**Priority:** Medium-High | **Effort:** Medium | **Status:** Proposed
+
+RunHQ knows about every project on the machine — its files, notes, git state, dependencies, and logs. Today, each of these is siloed behind a project card. A unified search surface turns that fragmented knowledge into a queryable database.
+
+### Scope
+
+- **Global Search Entry** — A search bar in the title bar / sidebar header (or a `Cmd+Shift+F` shortcut) that searches across all projects simultaneously.
+- **Search Domains** — Toggle which domains to include:
+  - **File names** — `ripgrep`-based filename search across all project roots. Fast, respects `.gitignore`.
+  - **File contents** — `ripgrep` regex search across all project roots. Results grouped by project, with context lines.
+  - **Notes** — Full-text search in per-project notes (#19).
+  - **Conversations** — Search AI chat history (#10).
+  - **Git state** — Find projects with uncommitted changes, on a specific branch, with stashes, etc.
+  - **Dependencies** — Find projects using a specific package (e.g., "which projects depend on `react@18`?").
+  - **Logs** — Search current session logs across all services (in-memory ring buffers).
+- **Result UI** — Grouped by project, with domain badges (file / note / chat / git / dep / log). Click a result to navigate to the project and open the relevant view (editor at file:line, notes tab, chat history, etc.).
+- **Recent Searches** — Persisted per-domain. Quick-repeat common queries.
+- **Search Presets** — Save complex queries (e.g., "all projects with uncommitted changes depending on react") as named presets accessible from the sidebar.
+- **AI-Powered Natural Language** — When AI is enabled (#10), a "Ask about your workspace" mode interprets natural language queries ("which projects haven't been touched in a month?") by translating them into structured searches against the dashboard data. Falls back to keyword search when AI is off.
+
+### Technical Notes
+
+- **File search**: shell out to `rg` (ripgrep) for both filename and content search. `rg` is fast enough for interactive use across dozens of repos. If `rg` is not available, fall back to a Rust-native walker (`ignore` crate + `grep-regex`).
+- **Dependency search**: query the existing `dependency_scans.db` or re-scan on demand. No new infrastructure.
+- **Notes/conversations search**: SQLite `LIKE` or FTS5 on the existing databases.
+- **Debouncing**: 300ms debounce on keystrokes before firing search. Cancel in-flight searches on new input.
+
+### Why
+
+"Which project had that one config file?" / "Where did I see that error before?" / "Which projects are still on React 17?" — these are daily questions that currently require `find` + `grep` + opening 5 projects. A unified search surface is the difference between RunHQ being "a collection of project views" and "a knowledge base about your entire dev portfolio".
+
+---
+
+## 36. i18n / Multi-Language Support
+
+**Priority:** Low-Medium | **Effort:** Medium | **Status:** Proposed
+
+RunHQ's UI is English-only. Internationalization infrastructure opens the app to non-English-speaking developers and makes community translations possible.
+
+### Scope
+
+- **i18n Framework** — Integrate `i18next` + `react-i18next` on the frontend. All user-visible strings extracted into JSON locale files. Namespace per component group (dashboard, git, ai, settings, etc.).
+- **Locale Detection** — Auto-detect OS locale on first launch. User can override in Settings → Language.
+- **Locale Files** — Ship with English (`en.json`) as the default. Community-contributed locales stored in `~/.runhq/locales/<lang>.json`, overriding built-in translations. Fallback chain: user locale → English.
+- **RTL Support** — Layout direction derived from locale. CSS logical properties (`margin-inline-start` instead of `margin-left`) for Arabic, Hebrew, etc.
+- **Number / Date Formatting** — Use `Intl` APIs for locale-aware formatting of dates, times, numbers, and relative times ("3 days ago").
+- **AI Prompt Locale** — AI-generated content (commit messages, PR descriptions) respects a configurable output language, separate from the UI language. A Turkish-speaking developer can use an English UI but get Turkish commit messages.
+- **Translation Status** — Settings → Language shows available locales with translation completion percentage. "Help translate" link opens the GitHub repo's locale directory.
+- **Developer Mode** — A `?lng=dev` query param that shows translation keys instead of values, for contributor debugging.
+
+### Technical Notes
+
+- `i18next` with JSON backend is the standard React i18n solution. Bundle size impact is minimal (~15KB for the core).
+- String extraction can be automated with `i18next-parser` as a Vite plugin during build.
+- RTL: Tailwind CSS v4 supports logical properties natively via `rtl:` variants. Minimal CSS changes needed.
+- Rust-side strings (error messages, log prefixes) stay in English — they're developer-facing and not user-visible.
+
+### Why
+
+English proficiency is not a prerequisite for being a developer. An i18n-ready codebase is also a more disciplined codebase — extracting strings forces clear separation of logic and presentation, and makes future UI changes less error-prone.
+
+---
+
+## 37. Pre-Release / RC Channel
+
+**Priority:** Medium | **Effort:** Low-Medium | **Status:** Proposed
+
+RunHQ ships stable releases via the Tauri updater. There is no way for early adopters to opt into beta builds, and no way for the maintainer to validate changes against real-world usage before a stable release.
+
+### Scope
+
+- **Release Channels** — Two channels: `stable` (default) and `beta`. Each channel has its own `latest.json` endpoint for the Tauri updater.
+- **Channel Selection** — Settings → Updates → Channel dropdown. Switching from stable → beta downloads the latest beta immediately. Switching from beta → stable only takes effect on the next stable release (no downgrades).
+- **Beta Badge** — When running a beta build, a subtle "β" badge appears in the title bar and tray icon. The about dialog shows the channel and build hash.
+- **Beta Feedback** — A "Report Beta Issue" action in the tray menu that opens a GitHub issue template pre-filled with: RunHQ version, channel, OS, and a "beta" label. Lowers the friction for beta bug reports.
+- **Auto-Update Behavior** — Beta channel checks for updates on the same schedule as stable, but against the beta `latest.json`. Beta builds are signed with the same key — no additional signing infrastructure.
+- **Release Workflow** — Extend `release.yml` with a `beta` trigger. On push to a `beta` branch or manual workflow dispatch, build and publish to the beta channel. Stable releases continue via release-please as today.
+- **Rollback** — If a beta update breaks the user's workflow, they can "Roll back to last stable" from Settings → Updates. This requires keeping the previous stable binary on disk (Tauri updater already supports this pattern).
+
+### Technical Notes
+
+- The Tauri updater supports custom endpoints — just point the beta channel at a different `latest.json` URL (e.g., `updates.runhq.dev/beta/latest.json`).
+- No code signing changes needed — beta and stable use the same signing key. The beta `latest.json` just points to a different artifact.
+- The existing `release.yml` workflow is already parameterized. Adding a `beta` matrix is a small CI change.
+
+### Why
+
+Shipping a desktop app without a beta channel means every release is a leap of faith. A beta channel lets power users validate changes early, catches platform-specific regressions before stable, and reduces the blast radius of any given release. It's standard practice for every major desktop app (VS Code Insiders, Firefox Beta, Chrome Canary).
+
+---
+
+## 38. Test Infrastructure & Quality Gates
+
+**Priority:** High | **Effort:** Low-Medium | **Status:** Proposed
+
+RunHQ has 65+ React components, 60+ IPC commands, and 100+ Rust source files — but only Rust unit/integration tests for a subset of modules. The frontend has zero test coverage, there are no E2E tests for the Tauri shell, and CI doesn't run vulnerability audits. This is the single biggest quality gap.
+
+### Scope
+
+#### Frontend Tests
+
+- **Vitest Setup** — Add `vitest` + `@testing-library/react` + `@testing-library/jest-dom` + `jsdom` environment. Configured in `vite.config.ts` with path aliases matching the build config.
+- **Component Tests** — Priority targets (by impact):
+  1. **Store slices** — Zustand store logic is pure and easy to test. Start here.
+  2. **IPC bridges** — Mock `@tauri-apps/api` invoke; verify command names, argument shapes, and error propagation.
+  3. **AI streaming** — Test `useAIChat` hook with mocked SSE events. Verify token accumulation, cancellation, and error states.
+  4. **Diff parsing** — Pure functions in `lib/diffParser.ts` — ideal for unit tests.
+  5. **Dashboard components** — Render with mock data; verify filter, sort, and group behavior.
+- **Coverage Thresholds** — Enforce minimum coverage in CI: 60% statements, 50% branches initially. Raise as coverage improves.
+
+#### E2E Tests (Tauri)
+
+- **WebDriver / Playwright for Tauri** — Use `tauri-driver` + `playwright` to drive the native Tauri window. Test real IPC, real PTY, real filesystem.
+- **Critical Path E2E** —
+  1. App launch → tray icon visible → main window renders.
+  2. Scan directory → projects discovered → service cards appear.
+  3. Start service → logs stream → stop service → status updates.
+  4. AI chat → stream response → save conversation.
+  5. Import/Export (#33) → round-trip integrity.
+- **Platform Matrix** — Run E2E on macOS and Ubuntu in CI (Windows via manual release testing due to VM cost).
+- **Smoke Test Binary** — A separate `runhq-smoke` binary that launches the app, waits for the main window, and exits 0/1. Used as a post-build sanity check in the release pipeline.
+
+#### Rust Test Expansion
+
+- **Scanner Tests** — Expand `tests/scanner.rs` with providers for all 10 runtimes. Use fixture directories with minimal `package.json` / `Cargo.toml` / `go.mod` files.
+- **Process Supervisor Tests** — Integration tests for: start → running → stop → stopped, graceful shutdown timeout → SIGKILL, restart preserves config.
+- **IPC Layer Tests** — Test IPC command argument deserialization and error serialization without a Tauri runtime (pure function tests).
+- **AI Module Tests** — Expand `ai/tests/` with: streaming event parsing, token counting accuracy, redaction pipeline (verify `.env` values are stripped), provider routing logic.
+- **Property Tests** — `proptest` for: config serialization round-trips, path remapping idempotence, ring buffer invariants.
+
+#### CI Quality Gates
+
+- **`cargo audit`** — Run in CI on every push to main and weekly on a schedule. Fail on known vulnerabilities with CVSS ≥ 7.0 (configurable). Publish SARIF to GitHub Security tab.
+- **`npm audit`** — Run `pnpm audit` in CI. Fail on critical/high. Exclude audit from Dependabot auto-merge.
+- **Lockfile Lint** — Verify `pnpm-lock.yaml` and `Cargo.lock` are in sync with manifests. Catch accidental `npm install` / `cargo update` without manifest change.
+- **Bundle Size Check** — Track the Tauri bundle size per PR. Fail if it grows > 5% without an explicit opt-out comment (`// bundle-size: expected`).
+
+### Technical Notes
+
+- **Vitest** is the natural choice for a Vite project — shared config, fast transforms, native ESM. No Jest/Babel overhead.
+- **Tauri E2E**: `tauri-driver` exposes a WebDriver-compatible interface. Playwright connects to it. Test binary is the actual release build — no mocking of Tauri APIs.
+- **`cargo audit`**: uses the `rustsec` advisory database. Runs in < 10s. Add as a CI job, not a pre-commit hook (too slow for local).
+- **Coverage**: `vitest --coverage` with `istanbul` provider. Upload to Codecov or Code Climate for trend tracking.
+
+### Why
+
+A desktop app with zero frontend tests and no E2E coverage is a reliability gamble that gets worse with every feature. The Rust core's test discipline proves the team values correctness — extending that discipline to the frontend and the Tauri shell is the single highest-ROI investment in long-term velocity. Every hour spent on tests saves ten hours of manual regression hunting.
+
+---
+
+## 39. CI Vulnerability Scanning
+
+**Priority:** High | **Effort:** Low | **Status:** Proposed
+
+Dependabot alerts on GitHub, but RunHQ's CI pipeline doesn't actively scan for known vulnerabilities in its own dependencies. A vulnerable dependency in a desktop app that runs local processes and makes network requests is a high-severity supply chain risk.
+
+### Scope
+
+- **`cargo audit` in CI** — New CI job triggered on push to main and weekly schedule:
+  - Runs `cargo audit` against the workspace.
+  - Fails on any advisory with CVSS ≥ 7.0 (critical/high).
+  - Outputs SARIF format for GitHub Security tab integration.
+  - Ignores specific advisories via `audit.toml` ignore list (with expiry dates — forced review).
+- **`pnpm audit` in CI** — New CI job:
+  - Runs `pnpm audit --audit-level=high` against the workspace root and desktop app.
+  - Fails on critical/high vulnerabilities.
+  - Excluded from Dependabot auto-merge — audit failures require manual review.
+- **Schedule** — Both audits run on push to main (catch new deps immediately) and on a weekly cron (catch newly-disclosed CVEs in existing deps).
+- **Security Tab** — Upload SARIF results to GitHub Security → Code Scanning alerts. Provides a persistent vulnerability dashboard outside of CI logs.
+- **Rustsec Advisory DB** — `cargo audit` uses the Rustsec database by default. No custom configuration needed.
+- **npm Advisory Source** — `pnpm audit` uses the npm registry advisory source. No custom configuration needed.
+- **PR Integration** — On dependency PRs (Dependabot or manual), the audit runs as a required check. A PR that introduces a critical CVE cannot merge until the advisory is acknowledged in `audit.toml`.
+
+### Technical Notes
+
+- `cargo audit` runs in < 10 seconds. No meaningful CI time added.
+- `pnpm audit` runs in < 5 seconds.
+- SARIF upload uses `github/codeql-action/upload-sarif@v3`.
+- Ignore entries in `audit.toml` require an `advisory-id` + `reason` + `expired-at` date. Expired ignores cause audit failure — forces periodic re-review.
+
+### Why
+
+Dependabot creates PRs for dependency bumps but doesn't fail CI on known vulnerabilities in _existing_ dependencies. A weekly `cargo audit` + `npm audit` catches the "CVE was disclosed yesterday in a dep we pinned 6 months ago" scenario that Dependabot misses. For a desktop app with local process control and network access, this is a non-optional security practice.
+
+---
+
+## 40. Opt-in Anonymous Telemetry
+
+**Priority:** Low | **Effort:** Low-Medium | **Status:** Proposed
+
+RunHQ is proudly zero-telemetry today, and the default must stay that way. But product decisions are currently made blind — there is no signal about which features are used, which runtimes are popular, or where users struggle. An opt-in, anonymous, minimal telemetry system provides that signal without compromising the privacy promise.
+
+### Scope
+
+- **Opt-in Only** — On first launch (or in Settings → Privacy), a one-time prompt: "Help improve RunHQ by sharing anonymous usage data. No personal info, no project code, no secrets. [Learn exactly what we collect →]". Default is off. User can toggle at any time.
+- **What We Collect** — Only aggregate, non-identifying metrics:
+  - **Runtime distribution** — Count of projects per runtime (Node: 5, Rust: 2, Go: 1). No project names or paths.
+  - **Feature usage** — Boolean flags: used AI? used git integration? used stacks? used notes? used terminal? No content or context.
+  - **App performance** — Startup time, memory usage at steady state, crash count. No stack traces (unless user opts in to crash reports separately).
+  - **Platform** — OS, architecture, RunHQ version. No machine ID.
+  - **Session duration** — How long the app was open. No activity detail.
+- **What We Never Collect** — Project names, file paths, file contents, code, git URLs, environment variables, API keys, IP addresses, or any string that could identify a user or project.
+- **Transport** — Batched and sent every 24 hours (or on app quit, whichever is first). HTTPS POST to a self-hosted endpoint (e.g., `telemetry.runhq.dev`). Payload is a flat JSON array of events. Failed sends are silently dropped — no retry queue, no local accumulation beyond 48 hours.
+- **Transparency** — Settings → Privacy → Telemetry shows:
+  - Current opt-in status.
+  - Last send time and payload size.
+  - A "View last payload" button that shows the exact JSON that was sent. Full transparency.
+  - A "Export all collected data" button (GDPR-style data portability).
+  - A "Delete my data" button that sends a deletion request keyed by the anonymous installation ID.
+- **No User ID** — No installation ID, no machine fingerprint, no persistent identifier. Events are fire-and-forget aggregates. This means we can't track "how many unique users" — only "how many sessions". This is an intentional trade-off for privacy.
+- **Self-Hostable** — The telemetry endpoint is open-source. Users can point it at their own server. Enterprise users can satisfy data-residency requirements.
+- **Development Mode** — Telemetry is always disabled when `NODE_ENV=development` or `TAURI_ENV=dev`. No dev noise in production metrics.
+
+### Technical Notes
+
+- Implementation in `runhq-core::telemetry` — a `TelemetrySink` that implements `EventSink`. When telemetry is off, the sink is a no-op with zero overhead.
+- Batching: events accumulate in a `Vec<TelemetryEvent>` behind a `parking_lot::Mutex`. Flush on timer or on app quit. Max batch size: 100 events. Drop oldest on overflow.
+- The endpoint is a simple Axum handler that writes to ClickHouse or SQLite. No complex infrastructure.
+- GDPR compliance: no personal data collected, deletion is trivial (delete all events for the installation ID — but since we don't have one, deletion is a no-op).
+
+### Why
+
+Building a product without usage signal is building blind. The zero-telemetry default is correct — but an opt-in channel for users who _want_ to help is equally correct. The key is radical transparency: the user sees exactly what is sent, can delete it, can self-host, and can turn it off at any time. This is the model that earned Firefox Telemetry its community trust.
+
+---
+
 ## Implementation Order
 
 The suggested implementation sequence, balancing impact and dependencies:
 
-| Phase        | Features                                                                                               | Rationale                                                                                                                                                                                                           |
-| ------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase 1**  | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations                                                 | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness.                                                                                                                       |
-| **Phase 2**  | Quick .env Editor, Service Templates                                                                   | High daily value, relatively self-contained. Templates reduce setup friction on day one.                                                                                                                            |
-| **Phase 3**  | Internal Browser, ~~Git Diff Viewer~~ (shipped)                                                        | Rich UI features that require new embedded components.                                                                                                                                                              |
-| **Phase 4**  | Service Health Checks, Log Persistence, Docker Compose                                                 | Infrastructure improvements that other features can build on. Docker Compose closes the biggest gap in service coverage.                                                                                            |
-| **Phase 5**  | Hot Reload / Watch Mode, Service Run Profiles                                                          | Developer velocity — automate the edit-restart loop and make context switching effortless.                                                                                                                          |
-| **Phase 6**  | Historical Performance Charts, Workspace Snapshots                                                     | Diagnostics and convenience — turn RunHQ from a snapshot tool into a time-machine for your dev environment.                                                                                                         |
-| **Phase 7**  | AI Integration — Foundations + Commit Messages                                                         | Provider plumbing, secure keychain, redaction, streaming, and the smallest viable surface (commit message generator) so the rest can land iteratively without re-platforming.                                       |
-| **Phase 8**  | AI Integration — Diff & Log Triage, PR Drafting                                                        | Context-aware surfaces that ride on top of features already shipped (#5, #9). Reuses the foundations from Phase 7.                                                                                                  |
-| **Phase 9**  | AI Integration — Project & Cross-Project Q&A                                                           | The hardest surface (context assembly, retrieval) and the one that benefits most from the dashboard data already available (#1).                                                                                    |
-| **Phase 10** | Web UI Mode (`runhq serve`), CLI Interface                                                             | Reach — desktop app, browser, and terminal from the same codebase. Unlocks CI/CD, remote dev boxes, and headless environments.                                                                                      |
-| **Phase 11** | Remote Machine Management (SSH)                                                                        | The most ambitious — a universal control plane for all machines. Deferred to allow core and web infrastructure to stabilise first.                                                                                  |
-| **Phase 12** | Activity Timeline & Standup (#18), Per-Project Notes & Runbook (#19), Build Cache & Disk Hygiene (#26) | Quick-win phase. All three ride on infrastructure already shipped (`timeline.db`, scanner, AI hub) and unlock visible day-one value: "what did I do?", "how does this project work?", and "RunHQ just freed 27 GB". |
-| **Phase 13** | Embedded HTTP / API Client (#21), Tunnel & Public Share (#24), Deadline Awareness (#20)                | Surface coverage phase — closes the "alt-tab into Postman / ngrok / calendar" loop. Each item is small and self-contained; can ship in any order.                                                                   |
-| **Phase 14** | Monorepo & Workspace Topology (#25), Test Runner Panel (#23)                                           | Enterprise-fit phase. Monorepos and tests dominate professional workflows; the test runner's "affected mode" depends on topology, so they ship together.                                                            |
-| **Phase 15** | Secrets Manager (#28), Team Mode & Shared Config (#32), Supply Chain (#27)                             | Multi-developer & regulated-customer phase. Together these unlock fintech / medical / enterprise adoption that today bounces off the single-developer assumption.                                                   |
-| **Phase 16** | Database & Cache Inspector (#22), Crash Postmortem Generator (#29)                                     | Diagnostic-depth phase. Rides on #7 (health checks), #9 (log persistence), and the AI plumbing from Phases 7–9.                                                                                                     |
-| **Phase 17** | Plugin / Extension System (#30)                                                                        | Platform phase. Once the core surfaces are stable, opening them up to community extensions is the leverage move.                                                                                                    |
-| **Phase 18** | Mobile Companion (#31)                                                                                 | Reach phase. Builds on `runhq serve` (#12) for the optional relay; final step in the "cockpit is everywhere you are" arc.                                                                                           |
+| Phase        | Features                                                                                               | Rationale                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 0**  | Test Infrastructure & Quality Gates (#38), CI Vulnerability Scanning (#39)                             | Foundation. Every subsequent feature ships on top of a tested, audited codebase. Frontend tests, E2E, and cargo/npm audit are the highest-ROI investment in long-term velocity.                                            |
+| **Phase 1**  | ~~Cross-Project Dashboard~~ (shipped), Bulk Operations                                                 | Highest impact, lowest friction. Transform RunHQ from per-service to cross-project awareness.                                                                                                                              |
+| **Phase 2**  | Quick .env Editor, Service Templates                                                                   | High daily value, relatively self-contained. Templates reduce setup friction on day one.                                                                                                                                   |
+| **Phase 3**  | Internal Browser, ~~Git Diff Viewer~~ (shipped)                                                        | Rich UI features that require new embedded components.                                                                                                                                                                     |
+| **Phase 4**  | Service Health Checks, Log Persistence, Docker Compose                                                 | Infrastructure improvements that other features can build on. Docker Compose closes the biggest gap in service coverage.                                                                                                   |
+| **Phase 5**  | Hot Reload / Watch Mode, Service Run Profiles                                                          | Developer velocity — automate the edit-restart loop and make context switching effortless.                                                                                                                                 |
+| **Phase 6**  | Historical Performance Charts, Workspace Snapshots, Data Import & Export (#33)                         | Diagnostics and convenience — turn RunHQ from a snapshot tool into a time-machine for your dev environment. Import/Export shares the path-remapping engine with Snapshots and unlocks machine migration + team onboarding. |
+| **Phase 7**  | AI Integration — Foundations + Commit Messages                                                         | Provider plumbing, secure keychain, redaction, streaming, and the smallest viable surface (commit message generator) so the rest can land iteratively without re-platforming.                                              |
+| **Phase 8**  | AI Integration — Diff & Log Triage, PR Drafting                                                        | Context-aware surfaces that ride on top of features already shipped (#5, #9). Reuses the foundations from Phase 7.                                                                                                         |
+| **Phase 9**  | AI Integration — Project & Cross-Project Q&A                                                           | The hardest surface (context assembly, retrieval) and the one that benefits most from the dashboard data already available (#1).                                                                                           |
+| **Phase 10** | Web UI Mode (`runhq serve`), CLI Interface                                                             | Reach — desktop app, browser, and terminal from the same codebase. Unlocks CI/CD, remote dev boxes, and headless environments.                                                                                             |
+| **Phase 11** | Remote Machine Management (SSH)                                                                        | The most ambitious — a universal control plane for all machines. Deferred to allow core and web infrastructure to stabilise first.                                                                                         |
+| **Phase 12** | Activity Timeline & Standup (#18), Per-Project Notes & Runbook (#19), Build Cache & Disk Hygiene (#26) | Quick-win phase. All three ride on infrastructure already shipped (`timeline.db`, scanner, AI hub) and unlock visible day-one value: "what did I do?", "how does this project work?", and "RunHQ just freed 27 GB".        |
+| **Phase 13** | Embedded HTTP / API Client (#21), Tunnel & Public Share (#24), Deadline Awareness (#20)                | Surface coverage phase — closes the "alt-tab into Postman / ngrok / calendar" loop. Each item is small and self-contained; can ship in any order.                                                                          |
+| **Phase 14** | Monorepo & Workspace Topology (#25), Test Runner Panel (#23)                                           | Enterprise-fit phase. Monorepos and tests dominate professional workflows; the test runner's "affected mode" depends on topology, so they ship together.                                                                   |
+| **Phase 15** | Secrets Manager (#28), Team Mode & Shared Config (#32), Supply Chain (#27)                             | Multi-developer & regulated-customer phase. Together these unlock fintech / medical / enterprise adoption that today bounces off the single-developer assumption.                                                          |
+| **Phase 16** | Database & Cache Inspector (#22), Crash Postmortem Generator (#29)                                     | Diagnostic-depth phase. Rides on #7 (health checks), #9 (log persistence), and the AI plumbing from Phases 7–9.                                                                                                            |
+| **Phase 17** | Plugin / Extension System (#30)                                                                        | Platform phase. Once the core surfaces are stable, opening them up to community extensions is the leverage move.                                                                                                           |
+| **Phase 18** | Mobile Companion (#31)                                                                                 | Reach phase. Builds on `runhq serve` (#12) for the optional relay; final step in the "cockpit is everywhere you are" arc.                                                                                                  |
+| **Phase 19** | Native OS Notifications (#34), Cross-Project Search (#35), Pre-release / RC Channel (#37)              | Polish & reach phase. Notifications close the feedback loop, search turns RunHQ into a knowledge base, and the RC channel enables safe beta testing.                                                                       |
+| **Phase 20** | i18n / Multi-Language Support (#36), Opt-in Telemetry (#40)                                            | Global reach phase. i18n opens the app to non-English developers; telemetry (opt-in, transparent) provides the product signal needed to prioritise future work.                                                            |
 
 ---
 

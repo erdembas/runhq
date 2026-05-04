@@ -54,6 +54,7 @@ pub fn run() {
             ipc::stop_service_cmd,
             ipc::restart_service,
             ipc::service_status,
+            ipc::resize_service_log_pty,
             ipc::get_logs,
             ipc::clear_logs,
             ipc::list_ports,

@@ -4,6 +4,7 @@ export interface Tab {
   id: string;
   kind: TabKind;
   title: string;
+  commandName?: string;
 }
 
 export interface GroupNode {
@@ -29,12 +30,15 @@ export interface LayoutState {
   tabs: Record<string, Tab>;
   nextTermIdx: number;
   includeDocs: boolean;
+  knownLogCommands: string[];
 }
 
 export type LayoutAction =
   | { type: 'init'; state: LayoutState }
   | { type: 'activate-tab'; groupId: string; tabId: string }
   | { type: 'add-terminal'; groupId: string }
+  | { type: 'sync-command-log-tabs'; commands: string[] }
+  | { type: 'open-command-log-tab'; commandName: string }
   | { type: 'rename-tab'; tabId: string; title: string }
   | { type: 'close-tab'; tabId: string }
   | {
@@ -51,4 +55,4 @@ export type LayoutAction =
     }
   | { type: 'resize-split'; splitId: string; sizes: [number, number] }
   | { type: 'set-include-docs'; includeDocs: boolean }
-  | { type: 'reset' };
+  | { type: 'reset'; commands?: string[] };

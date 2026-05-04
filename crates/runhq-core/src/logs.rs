@@ -31,6 +31,10 @@ pub struct LogLine {
     pub ts_ms: i64,
     pub stream: Stream,
     pub text: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub raw: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     /// Deterministic correlation id for the *run* that produced this line.
     ///
     /// A run spans from a successful `start_all`/`start_cmd` through every
@@ -47,6 +51,10 @@ pub struct LogLine {
     /// on the client.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug)]
@@ -66,12 +74,39 @@ impl Ring {
     }
 
     fn push(&mut self, stream: Stream, text: String, run_id: Option<String>) -> LogLine {
+        self.push_with_options(stream, text, run_id, None, false)
+    }
+
+    fn push_with_detail(
+        &mut self,
+        stream: Stream,
+        text: String,
+        run_id: Option<String>,
+        detail: Option<String>,
+    ) -> LogLine {
+        self.push_with_options(stream, text, run_id, detail, false)
+    }
+
+    fn push_raw(&mut self, stream: Stream, text: String, run_id: Option<String>) -> LogLine {
+        self.push_with_options(stream, text, run_id, None, true)
+    }
+
+    fn push_with_options(
+        &mut self,
+        stream: Stream,
+        text: String,
+        run_id: Option<String>,
+        detail: Option<String>,
+        raw: bool,
+    ) -> LogLine {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let line = LogLine {
             seq,
             ts_ms: chrono::Utc::now().timestamp_millis(),
             stream,
             text,
+            raw,
+            detail,
             run_id,
         };
         if self.buf.len() == self.cap {
@@ -128,6 +163,35 @@ impl LogStore {
             .entry(service_id.to_string())
             .or_insert_with(|| Ring::new(DEFAULT_CAP));
         ring.push(stream, text, run_id)
+    }
+
+    pub fn push_with_detail(
+        &self,
+        service_id: &str,
+        stream: Stream,
+        text: String,
+        run_id: Option<String>,
+        detail: Option<String>,
+    ) -> LogLine {
+        let mut map = self.inner.lock();
+        let ring = map
+            .entry(service_id.to_string())
+            .or_insert_with(|| Ring::new(DEFAULT_CAP));
+        ring.push_with_detail(stream, text, run_id, detail)
+    }
+
+    pub fn push_raw(
+        &self,
+        service_id: &str,
+        stream: Stream,
+        text: String,
+        run_id: Option<String>,
+    ) -> LogLine {
+        let mut map = self.inner.lock();
+        let ring = map
+            .entry(service_id.to_string())
+            .or_insert_with(|| Ring::new(DEFAULT_CAP));
+        ring.push_raw(stream, text, run_id)
     }
 
     pub fn tail(&self, service_id: &str, since_seq: u64, limit: usize) -> Vec<LogLine> {
