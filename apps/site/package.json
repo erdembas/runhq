@@ -1,0 +1,30 @@
+{
+  "name": "@runhq/site",
+  "private": true,
+  "version": "0.0.0",
+  "description": "RunHQ marketing site (runhq.dev). Next.js 15 App Router with static export, deployed to Cloudflare Pages. Renders the real cockpit-ui components — not screenshots — fed with mock workspace fixtures.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev -p 4318",
+    "build": "next build",
+    "start": "next start -p 4318",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@runhq/cockpit-types": "workspace:*",
+    "@runhq/cockpit-ui": "workspace:*",
+    "next": "^15.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "tailwindcss": "^4",
+    "typescript": "^5.7.2"
+  }
+}

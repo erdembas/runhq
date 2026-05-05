@@ -1,0 +1,22 @@
+{
+  "name": "@runhq/cockpit-types",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Framework-agnostic TypeScript types shared between the RunHQ desktop app, the marketing site, and the cockpit-ui package.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

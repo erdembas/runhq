@@ -1,0 +1,168 @@
+@import 'tailwindcss';
+
+/*
+ * Tell Tailwind v4 to scan the cockpit-ui workspace package for class
+ * usage. v4's automatic content detection only walks the project tree,
+ * so without these @source hints any class that appears solely in
+ * @runhq/cockpit-ui (`bg-status-running`, `text-fg-muted`, …) would
+ * be silently tree-shaken to nothing and the marketing surface would
+ * render unstyled. Paths are resolved relative to this stylesheet, so
+ * `../../../../packages` walks from
+ *   apps/site/src/app/globals.css
+ * up to the monorepo root, then into packages/.
+ *
+ * Phase 4 / future: when cockpit-ui ships a precompiled css bundle we
+ * can drop these @source rules in favour of an `@import` of that
+ * bundle. For now we lean on JIT-from-source so cockpit-ui can iterate
+ * without a build step.
+ */
+@source '../../../../packages/cockpit-ui/src/**/*.{ts,tsx}';
+
+/*
+ * Pull in the shared design-token theme. Same file the desktop app
+ * uses (`apps/desktop/src/styles/theme.css`) so light/dark surfaces,
+ * accent palette, status colors, and severity tones stay in lockstep
+ * across the two surfaces.
+ */
+@import '@runhq/cockpit-ui/styles/theme.css';
+
+/*
+ * The marketing site renders against the dark cockpit theme by
+ * default — the docs/ legacy site committed to a single dark surface
+ * and we keep that contract on cutover. Adding `.dark` to <html>
+ * activates the `:root.dark` variable overrides in theme.css.
+ */
+html {
+  background: rgb(var(--surface));
+  color: rgb(var(--fg));
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: rgb(var(--surface));
+  color: rgb(var(--fg));
+}
+
+/*
+ * Anchor-jump offset. The marketing surface has a 56px sticky <Nav>;
+ * without `scroll-margin-top`, every `#section` jump (from the nav
+ * menu, from a sitemap deep-link, or from `window.location.hash`)
+ * lands the section heading *under* the nav. 6rem (96px) gives the
+ * nav 56px of clearance plus 40px of breathing room so the eyebrow
+ * + h2 pair lands cleanly inside the visible area.
+ *
+ * Applied to every section that carries an `id` so the rule is a
+ * single source of truth — adding a new anchored section
+ * automatically inherits the offset.
+ */
+section[id] {
+  scroll-margin-top: 6rem;
+}
+
+/*
+ * Tailwind v4 doesn't ship a default `rounded-app-sm` utility — the
+ * desktop app provides it via its own components.css. cockpit-ui uses
+ * the same name; expose a matching rule here so primitives render
+ * with the intended 6px corner.
+ */
+@layer utilities {
+  .rounded-app-sm {
+    border-radius: var(--radius-sm, 6px);
+  }
+  .rounded-app {
+    border-radius: var(--radius, 8px);
+  }
+  .rounded-app-lg {
+    border-radius: var(--radius-lg, 12px);
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  /*
+   * Terminal-style caret blink for the hero typewriter
+   * (HeroTypewriter.tsx). `step-end` timing makes the blink a hard
+   * on/off — same look the cockpit terminal mock uses, so the eye
+   * registers the cursor as "live shell" rather than "marketing
+   * pulse". Ratio is 50/50 (visible 525 ms, hidden 525 ms) to
+   * match the macOS Terminal default. */
+  @keyframes caret-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  .animate-caret-blink {
+    animation: caret-blink 1.05s step-end infinite;
+  }
+}
+
+/*
+ * Scroll-driven zoom utility. As the element enters the viewport, it
+ * scales from 0.94 → 1.00 + fades from 0.85 → 1, as if the camera is
+ * gliding toward it. Pure CSS via the View Timeline API (Chrome /
+ * Edge / Opera ≥ 115). Browsers that don't support it ignore
+ * `animation-timeline` and render the element in its natural final
+ * state — no janky fallback, no JS scroll listener, no layout
+ * thrash.
+ *
+ * Two ranges: `.scroll-zoom-in` for hero-like elements that should
+ * already be partly settled when the page loads, and
+ * `.scroll-zoom-in-late` for sections deeper in the page where we
+ * want the effect to play out as the user actually scrolls into
+ * them.
+ *
+ * `transform-origin: center` keeps the scale visually anchored so
+ * the element doesn't drift sideways while shrinking.
+ */
+@keyframes scroll-zoom-fade {
+  from {
+    transform: scale(0.94) translateY(28px);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@supports (animation-timeline: view()) {
+  .scroll-zoom-in,
+  .scroll-zoom-in-late {
+    animation: scroll-zoom-fade linear both;
+    animation-timeline: view();
+    transform-origin: center;
+    will-change: transform, opacity;
+  }
+  .scroll-zoom-in {
+    /* Plays from `entry 0%` (just appeared) → `cover 30%` (30% past
+       the edge into the viewport). Quick settle for above-the-fold
+       elements. */
+    animation-range: entry 0% cover 30%;
+  }
+  .scroll-zoom-in-late {
+    /* Slower, more cinematic — element keeps growing until the user
+       has it well within the viewport. */
+    animation-range: entry 10% cover 45%;
+  }
+}
+
+/* Reduced motion: never animate, just render in place. */
+@media (prefers-reduced-motion: reduce) {
+  .scroll-zoom-in,
+  .scroll-zoom-in-late {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}

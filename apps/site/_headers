@@ -1,0 +1,63 @@
+# Cloudflare Pages headers for the Next.js static-export build.
+#
+# Differences from the legacy `docs/_headers`:
+#   1. `connect-src` no longer needs `https://api.github.com` — the
+#      release version is resolved at build time in
+#      `apps/site/src/lib/release.ts`, so the page makes zero
+#      cross-origin requests at runtime.
+#   2. `/_next/static/*` (Next.js fingerprinted assets) gets the full
+#      `immutable` + 1-year cache treatment that the legacy
+#      `style.css` couldn't take. Filenames are content-hashed
+#      (`chunks/495ed1de-…js`) so a deploy-time edge cache can never
+#      serve stale code — the file simply has a new name.
+#   3. Stable filenames (`/icon.png`, `/dashboard.png`,
+#      `/RunHQ-web-version-final.mp4`) keep the legacy
+#      stale-while-revalidate policy so future content swaps still
+#      propagate without cache busting.
+#
+# Source-of-truth note: this file is the canonical CSP for runhq.dev
+# once Phase 4 cutover lands. The legacy `docs/_headers` stays in the
+# tree so a Cloudflare-side rollback (build output dir → `docs/`) can
+# return to the previous behaviour without touching git.
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self'; connect-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+
+# Next.js fingerprinted assets — safe to serve immutably for a year.
+# The build emits hashed filenames under /_next/static/, so a deploy
+# can never strand a cache entry on stale code.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Stable image / video filenames carried over from the legacy site.
+# Stale-while-revalidate means the edge serves the cached copy
+# instantly on first hit and refreshes in the background, so swapping
+# the file in a future deploy never blocks a visitor on revalidation.
+/icon.png
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/dashboard.png
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/RunHQ-web-version-final.mp4
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# Demo videos: the hero no longer has an inline loop, and the full
+# narrated walk-through is hosted on YouTube (see FullDemoSection.tsx
+# → LiteYouTube). No webm assets ship from this Pages deploy or from
+# cdn.runhq.dev anymore — the only third-party origin we now trust for
+# embedded media is youtube-nocookie.com (whitelisted in `frame-src`
+# above; the privacy-enhanced YouTube embed defers cookies until the
+# visitor presses play).
+
+# HTML pages — short TTL so a content swap propagates within minutes,
+# but with stale-while-revalidate so the edge keeps responding fast.
+/
+  Cache-Control: public, max-age=300, stale-while-revalidate=3600
+
+/*.html
+  Cache-Control: public, max-age=300, stale-while-revalidate=3600

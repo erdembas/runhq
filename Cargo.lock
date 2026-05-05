@@ -3787,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "runhq-core"
-version = "0.10.3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3814,7 +3814,7 @@ dependencies = [
 
 [[package]]
 name = "runhq-desktop"
-version = "0.10.3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -129,6 +129,54 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 ```
 
+### Repo layout
+
+This is a pnpm workspace with two apps and two shared packages:
+
+```
+runner-hq/
+├── apps/
+│   ├── desktop/         # Tauri + React desktop app (the product)
+│   └── site/            # Next.js marketing site (runhq.dev)
+└── packages/
+    ├── cockpit-ui/      # Presentational React layer — single source
+    │                    # of truth for every visual primitive in
+    │                    # both apps. See packages/cockpit-ui/README.md
+    └── cockpit-types/   # Shared TypeScript definitions for IPC,
+                         # services, scans, resources.
+```
+
+**Single source of truth rule:** every component used by both the
+desktop app and the marketing site lives in `@runhq/cockpit-ui`. The
+desktop app composes those primitives with Zustand + Tauri IPC
+wrappers; the marketing site composes them with mock fixtures from
+`apps/site/src/lib/fixtures/`. Edit cockpit-ui once, both surfaces
+re-render — no copy-paste, no version drift, no separate build step
+(pnpm `workspace:*` symlinks the package directly).
+
+If you're touching anything visual, start with
+[`packages/cockpit-ui/README.md`](./packages/cockpit-ui/README.md).
+
+### Marketing site (`runhq.dev`)
+
+The runhq.dev landing page lives in `apps/site/` (Next.js 15, App
+Router, static export). It mounts real `@runhq/cockpit-ui` React
+components — the same primitives the desktop app ships — fed mock
+workspace fixtures, so the demos are not screenshots but live
+renders. Cutover from the legacy `docs/index.html` to this build is
+documented in [`docs/CUTOVER.md`](./docs/CUTOVER.md).
+
+```bash
+pnpm site:dev          # Next dev server on http://localhost:4318
+pnpm site:build        # static export to apps/site/out/ + carry-over assets
+pnpm site:preview      # serve the production export locally
+```
+
+Cloudflare Pages build settings after cutover:
+
+- Build command: `pnpm install --frozen-lockfile && pnpm site:build`
+- Build output: `apps/site/out`
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md). The most useful contributions are runtime providers, scanner improvements, platform-specific fixes, and focused UX refinements.

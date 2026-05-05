@@ -1,0 +1,36 @@
+{
+  "name": "@runhq/cockpit-ui",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Presentational React layer extracted from the RunHQ desktop app. Pure props-in / callbacks-out — no Tauri, no Zustand, no IPC. Consumed by both apps/desktop (with store-binding wrappers) and apps/site (with mock fixtures).",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./styles/theme.css": "./styles/theme.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@runhq/cockpit-types": "workspace:*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,10 @@
+# Next.js build artifacts
+.next/
+out/
+
+# Cloudflare Pages local preview
+.wrangler/
+
+# Editor
+.idea/
+.vscode/

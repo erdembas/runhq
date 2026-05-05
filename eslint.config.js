@@ -97,4 +97,23 @@ export default [
       'no-restricted-globals': ['error', 'confirm', 'alert', 'prompt'],
     },
   },
+  {
+    // Next.js App Router file conventions.
+    //
+    // App Router pages, layouts and route handlers are *required* to
+    // export specific non-component values alongside the default
+    // component (`metadata`, `viewport`, `generateStaticParams`,
+    // `dynamic`, `revalidate`, etc.). The `react-refresh` plugin's
+    // `only-export-components` rule was designed for plain React +
+    // Vite's HMR contract, where mixing exports breaks fast refresh —
+    // App Router has its own module-graph contract and the rule
+    // doesn't apply. We mute it for files that live under
+    // `apps/site/src/app/**` so the canonical Next exports stop
+    // tripping the lint gate without disabling the rule for the rest
+    // of the workspace.
+    files: ['apps/site/src/app/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ];

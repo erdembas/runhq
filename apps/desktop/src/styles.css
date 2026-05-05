@@ -1,5 +1,18 @@
 @import '@xterm/xterm/css/xterm.css';
 @import 'tailwindcss';
+
+/*
+ * Tailwind v4 only auto-detects content inside the project tree. The
+ * primitives in `@runhq/cockpit-ui` ship raw .tsx that uses the same
+ * theme tokens declared in styles/theme.css below — without this
+ * @source the JIT engine would tree-shake every class that is unique
+ * to the workspace package (`bg-status-running`, `text-fg-muted`, …)
+ * and the cockpit-ui imports would render unstyled. Path is relative
+ * to this stylesheet: apps/desktop/src/styles.css → up to repo root
+ * → into packages/cockpit-ui.
+ */
+@source '../../../packages/cockpit-ui/src/**/*.{ts,tsx}';
+
 @import './styles/theme.css';
 @import './styles/base.css';
 @import './styles/interaction.css';
