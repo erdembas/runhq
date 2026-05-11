@@ -11,7 +11,7 @@ description = "Core domain logic for RunHQ: process supervision, port inspection
 name = "runhq_core"
 
 [dependencies]
-tokio = { version = "1.41", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 
 serde = { version = "1", features = ["derive"] }
@@ -79,4 +79,4 @@ windows = { version = "0.61", features = [
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1.41", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
