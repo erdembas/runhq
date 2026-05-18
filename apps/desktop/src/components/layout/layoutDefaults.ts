@@ -27,5 +27,6 @@ export function defaultLayoutState(commandNames: string[] = []): LayoutState {
     nextTermIdx: 2,
     includeDocs: false,
     knownLogCommands: commands,
+    closedKinds: [],
   };
 }

@@ -31,6 +31,7 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
     activate,
     addTerminal,
     closeTab,
+    restoreTab,
     renameTab,
     moveTab,
     splitTab,
@@ -99,6 +100,8 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
             onAddTerminal={() => addTerminal(node.id)}
             onAddTerminalToEmpty={() => onAddTerminalToEmpty(node.id)}
             onReset={isRoot ? reset : null}
+            closedKinds={state.closedKinds}
+            onRestore={isRoot ? restoreTab : null}
             onSlotRef={onSlotRef}
             dragActive={drag !== null}
             focused={focusedGroupId === node.id}
@@ -118,6 +121,7 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
       activate,
       addTerminal,
       closeTab,
+      restoreTab,
       drag,
       focusedGroupId,
       onAddTerminalToEmpty,
@@ -125,6 +129,7 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
       renameTab,
       reset,
       resizeSplit,
+      state.closedKinds,
       state.includeDocs,
       state.tabs,
     ],

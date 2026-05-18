@@ -18,6 +18,7 @@ import {
   type LayoutAction,
   type LayoutState,
   type SplitEdge,
+  type TabKind,
 } from './layoutModel';
 import { clearLayout, loadLayout, saveLayout } from './layoutPersistence';
 
@@ -33,6 +34,7 @@ export interface UseServiceLayoutResult {
   // ---- Tab lifecycle ------------------------------------------------------
   addTerminal: (groupId?: string) => string;
   closeTab: (tabId: string) => void;
+  restoreTab: (kind: TabKind) => void;
   openCommandLog: (commandName: string) => void;
   renameTab: (tabId: string, title: string) => void;
   // ---- Drag/drop ----------------------------------------------------------
@@ -116,6 +118,7 @@ export function useServiceLayout(
   );
 
   const closeTab = useCallback((tabId: string) => send({ type: 'close-tab', tabId }), [send]);
+  const restoreTab = useCallback((kind: TabKind) => send({ type: 'restore-tab', kind }), [send]);
   const openCommandLog = useCallback(
     (commandName: string) => send({ type: 'open-command-log-tab', commandName }),
     [send],
@@ -173,6 +176,7 @@ export function useServiceLayout(
       activate,
       addTerminal,
       closeTab,
+      restoreTab,
       openCommandLog,
       renameTab,
       moveTab,
@@ -187,6 +191,7 @@ export function useServiceLayout(
       activate,
       addTerminal,
       closeTab,
+      restoreTab,
       openCommandLog,
       renameTab,
       moveTab,

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { GroupTabStrip } from '../GroupTabStrip';
 import { PaneDropZones } from '../PaneDropZones';
-import type { GroupNode, Tab } from '../layoutModel';
+import type { GroupNode, Tab, TabKind } from '../layoutModel';
 import { BodySlot } from './BodySlot';
 import { EmptyPaneState } from './EmptyPaneState';
 
@@ -15,6 +15,8 @@ interface GroupPaneProps {
   onAddTerminal: () => void;
   onAddTerminalToEmpty: () => void;
   onReset: (() => void) | null;
+  closedKinds: TabKind[];
+  onRestore: ((kind: TabKind) => void) | null;
   onSlotRef: (tabId: string, el: HTMLDivElement | null) => void;
   dragActive: boolean;
   focused: boolean;
@@ -30,6 +32,8 @@ export function GroupPane({
   onAddTerminal,
   onAddTerminalToEmpty,
   onReset,
+  closedKinds,
+  onRestore,
   onSlotRef,
   dragActive,
   focused,
@@ -57,6 +61,8 @@ export function GroupPane({
         onRename={onRename}
         onAddTerminal={onAddTerminal}
         onReset={onReset}
+        closedKinds={closedKinds}
+        onRestore={onRestore}
         groupFocused={focused}
       />
       <div className="relative flex min-h-0 flex-1">

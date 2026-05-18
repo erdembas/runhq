@@ -3,12 +3,23 @@ import {
   collapseEmptyGroups,
   findGroup,
   insertTabIntoGroup,
+  listGroups,
   removeTabFromTree,
   splitTreeAroundGroup,
   updateNode,
 } from './layoutTree';
 import { openCommandLogTab, syncCommandLogTabs } from './commandLogLayout';
-import type { LayoutAction, LayoutState, Tab } from './layoutTypes';
+import { nextLogInsertIndex } from './layoutLogTabs';
+import type { LayoutAction, LayoutState, Tab, TabKind } from './layoutTypes';
+
+const RESTORABLE_TAB_DEFAULTS: Record<'docs' | 'notes', { id: string; title: string }> = {
+  docs: { id: 'docs', title: 'Docs' },
+  notes: { id: 'notes', title: 'Notes' },
+};
+
+function isRestorableKind(kind: TabKind): kind is 'docs' | 'notes' {
+  return kind === 'docs' || kind === 'notes';
+}
 
 export { defaultLayoutState } from './layoutDefaults';
 export { activeCommandLogName, commandNameForLogTab, findCommandLogTabId } from './layoutLogTabs';
@@ -91,14 +102,45 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
 
     case 'close-tab': {
       const tab = state.tabs[action.tabId];
-      if (!tab || (tab.kind !== 'terminal' && !(tab.kind === 'logs' && tab.commandName))) {
-        return state;
-      }
+      const isCloseable =
+        tab &&
+        (tab.kind === 'terminal' ||
+          (tab.kind === 'logs' && Boolean(tab.commandName)) ||
+          isRestorableKind(tab.kind));
+      if (!tab || !isCloseable) return state;
       const root1 = removeTabFromTree(state.root, action.tabId);
       const root2 = collapseEmptyGroups(root1);
       const { [action.tabId]: _removed, ...remainingTabs } = state.tabs;
       void _removed;
-      return { ...state, root: root2, tabs: remainingTabs };
+      const nextClosedKinds = isRestorableKind(tab.kind)
+        ? state.closedKinds.includes(tab.kind)
+          ? state.closedKinds
+          : [...state.closedKinds, tab.kind]
+        : state.closedKinds;
+      return { ...state, root: root2, tabs: remainingTabs, closedKinds: nextClosedKinds };
+    }
+
+    case 'restore-tab': {
+      if (!isRestorableKind(action.kind)) return state;
+      if (state.tabs[action.kind]) return state;
+      const defaults = RESTORABLE_TAB_DEFAULTS[action.kind];
+      const restored: Tab = { id: defaults.id, kind: action.kind, title: defaults.title };
+      const targetGroup = listGroups(state.root)[0];
+      if (!targetGroup) return state;
+      const insertIndex = nextLogInsertIndex(targetGroup, state.tabs);
+      const root = insertTabIntoGroup(
+        state.root,
+        targetGroup.id,
+        restored.id,
+        insertIndex,
+        /* activate */ false,
+      );
+      return {
+        ...state,
+        root,
+        tabs: { ...state.tabs, [restored.id]: restored },
+        closedKinds: state.closedKinds.filter((k) => k !== action.kind),
+      };
     }
 
     case 'move-tab': {

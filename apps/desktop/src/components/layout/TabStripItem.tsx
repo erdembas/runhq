@@ -33,7 +33,11 @@ export function TabStripItem({
   onClose,
   onRename,
 }: TabStripItemProps) {
-  const closeable = tab.kind === 'terminal' || (tab.kind === 'logs' && Boolean(tab.commandName));
+  const closeable =
+    tab.kind === 'terminal' ||
+    (tab.kind === 'logs' && Boolean(tab.commandName)) ||
+    tab.kind === 'docs' ||
+    tab.kind === 'notes';
   const renameable = tab.kind === 'terminal';
   const {
     attributes: dragAttrs,
