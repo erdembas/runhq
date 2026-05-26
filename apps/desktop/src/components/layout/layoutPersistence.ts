@@ -53,6 +53,7 @@ export function loadLayout(serviceId: string, commandNames: string[] = []): Layo
     return {
       ...env.state,
       knownLogCommands: Array.isArray(env.state.knownLogCommands) ? env.state.knownLogCommands : [],
+      closedKinds: Array.isArray(env.state.closedKinds) ? env.state.closedKinds : [],
     };
   } catch {
     return defaultLayoutState(commandNames);

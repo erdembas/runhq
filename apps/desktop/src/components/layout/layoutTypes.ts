@@ -31,6 +31,7 @@ export interface LayoutState {
   nextTermIdx: number;
   includeDocs: boolean;
   knownLogCommands: string[];
+  closedKinds: TabKind[];
 }
 
 export type LayoutAction =
@@ -55,4 +56,5 @@ export type LayoutAction =
     }
   | { type: 'resize-split'; splitId: string; sizes: [number, number] }
   | { type: 'set-include-docs'; includeDocs: boolean }
+  | { type: 'restore-tab'; kind: TabKind }
   | { type: 'reset'; commands?: string[] };

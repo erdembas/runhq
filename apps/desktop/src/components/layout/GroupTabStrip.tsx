@@ -6,12 +6,25 @@
  * which overlays each group's body during an active drag.
  */
 
-import { Plus, RotateCcw } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { BookOpen, FileText, Plus, RotateCcw, Undo2 } from 'lucide-react';
+
+import { FileContextMenu, type FileContextMenuEntry } from '@/components/ui/FileContextMenu';
 
 import { TabEndSlot } from './TabEndSlot';
 import { TabStripAction } from './TabStripAction';
 import { TabStripItem } from './TabStripItem';
-import type { GroupNode, Tab } from './layoutModel';
+import type { GroupNode, Tab, TabKind } from './layoutModel';
+
+const RESTORE_LABEL: Record<'docs' | 'notes', string> = {
+  docs: 'Docs',
+  notes: 'Notes',
+};
+
+const RESTORE_ICON: Record<'docs' | 'notes', typeof BookOpen> = {
+  docs: BookOpen,
+  notes: FileText,
+};
 
 interface Props {
   group: GroupNode;
@@ -27,6 +40,10 @@ interface Props {
    *  *root* group renders this affordance; passing `null` for the
    *  non-root groups suppresses the button. */
   onReset: (() => void) | null;
+  /** Tab kinds the user has explicitly closed (docs / notes). Only the
+   *  root group renders the restore affordance, mirroring `onReset`. */
+  closedKinds: TabKind[];
+  onRestore: ((kind: TabKind) => void) | null;
   /** This group's pane currently owns keyboard focus. Tabs in a
    *  focused pane render with a brighter accent fill so the user
    *  can locate "where my next keystroke goes" at a glance even
@@ -43,6 +60,8 @@ export function GroupTabStrip({
   onRename,
   onAddTerminal,
   onReset,
+  closedKinds,
+  onRestore,
   groupFocused,
 }: Props) {
   const visibleIds = group.tabs.filter((id) => {
@@ -50,6 +69,32 @@ export function GroupTabStrip({
     if (!t) return false;
     if (t.kind === 'docs' && !includeDocs) return false;
     return true;
+  });
+
+  const restoreBtnRef = useRef<HTMLDivElement | null>(null);
+  const [restoreMenuPos, setRestoreMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const restorableKinds = closedKinds.filter((k): k is 'docs' | 'notes' => {
+    if (k !== 'docs' && k !== 'notes') return false;
+    if (k === 'docs' && !includeDocs) return false;
+    return true;
+  });
+  const showRestore = onRestore !== null && restorableKinds.length > 0;
+
+  const openRestoreMenu = useCallback(() => {
+    const el = restoreBtnRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setRestoreMenuPos({ x: rect.left, y: rect.bottom + 4 });
+  }, []);
+
+  const restoreMenuItems: FileContextMenuEntry[] = restorableKinds.map((kind) => {
+    const Icon = RESTORE_ICON[kind];
+    return {
+      id: `restore-${kind}`,
+      label: `Restore ${RESTORE_LABEL[kind]}`,
+      icon: <Icon className="h-3.5 w-3.5" />,
+      onClick: () => onRestore?.(kind),
+    };
   });
 
   return (
@@ -92,6 +137,16 @@ export function GroupTabStrip({
           title="New terminal in this pane"
           onClick={onAddTerminal}
         />
+        {showRestore && (
+          <div ref={restoreBtnRef}>
+            <TabStripAction
+              icon={<Undo2 className="h-3 w-3" />}
+              label="Restore Tab"
+              title="Restore a closed tab"
+              onClick={openRestoreMenu}
+            />
+          </div>
+        )}
         {onReset && (
           <TabStripAction
             icon={<RotateCcw className="h-3 w-3" />}
@@ -101,6 +156,14 @@ export function GroupTabStrip({
           />
         )}
       </div>
+      {restoreMenuPos && (
+        <FileContextMenu
+          x={restoreMenuPos.x}
+          y={restoreMenuPos.y}
+          items={restoreMenuItems}
+          onClose={() => setRestoreMenuPos(null)}
+        />
+      )}
     </div>
   );
 }
