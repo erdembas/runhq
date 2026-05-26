@@ -226,6 +226,34 @@ export function TerminalPane({ id, cwd }: Props) {
     });
     resizeObserver.observe(containerRef.current);
 
+    let wasVisible = false;
+    let visibilityRaf = 0;
+    const visibilityObserver = new IntersectionObserver((entries) => {
+      if (!alive) return;
+      for (const entry of entries) {
+        const nowVisible = entry.isIntersecting && entry.intersectionRatio > 0;
+        if (nowVisible && !wasVisible) {
+          if (visibilityRaf !== 0) cancelAnimationFrame(visibilityRaf);
+          visibilityRaf = requestAnimationFrame(() => {
+            visibilityRaf = 0;
+            if (!alive) return;
+            try {
+              fit.fit();
+              term.refresh(0, term.rows - 1);
+              const { cols: c, rows: r } = term;
+              void ipc.terminalResize(id, c, r).catch((err: unknown) => {
+                console.warn('terminalResize failed', err);
+              });
+            } catch {
+              // empty
+            }
+          });
+        }
+        wasVisible = nowVisible;
+      }
+    });
+    visibilityObserver.observe(containerRef.current);
+
     return () => {
       alive = false;
       termRef.current = null;
@@ -235,7 +263,12 @@ export function TerminalPane({ id, cwd }: Props) {
         cancelAnimationFrame(resizeRaf);
         resizeRaf = 0;
       }
+      if (visibilityRaf !== 0) {
+        cancelAnimationFrame(visibilityRaf);
+        visibilityRaf = 0;
+      }
       resizeObserver.disconnect();
+      visibilityObserver.disconnect();
       void ipc.terminalDestroy(id).catch(() => undefined);
       term.dispose();
     };
