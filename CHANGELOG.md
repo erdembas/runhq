@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/erdembas/runhq/compare/v1.0.0...v1.1.0) (2026-05-05)
+
+
+### Features
+
+* **site:** migrate runhq.dev to Next.js + shared cockpit-ui packages ([49f27d4](https://github.com/erdembas/runhq/commit/49f27d4d6b9ca98d724f86cb788c6c95abd06bec))
+
+
+### Bug Fixes
+
+* **site:** declare lucide-react as a direct dependency ([9c9f917](https://github.com/erdembas/runhq/commit/9c9f9176bf10a6e103b168c09eb79d4aafdce027))
+
 ## [1.0.0](https://github.com/erdembas/runhq/compare/v0.10.3...v1.0.0) (2026-05-04)
 
 
