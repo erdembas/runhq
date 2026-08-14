@@ -29,6 +29,10 @@ pub(super) async fn run_timed(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
+    // npm.cmd / cargo.exe are console apps. The dashboard runs
+    // `npm outdated` / `cargo audit` in parallel per project; without
+    // CREATE_NO_WINDOW each one pops a black terminal.
+    crate::hide_console::tokio_command(&mut cmd);
 
     let child = match cmd.spawn() {
         Ok(c) => c,

@@ -80,6 +80,9 @@ fn configure_git_cmd(cmd: &mut Command, cwd: &Path) {
     for var in LEAKY_GIT_ENV {
         cmd.env_remove(var);
     }
+    // git.exe is a console-subsystem binary. Without CREATE_NO_WINDOW,
+    // the 15–30s git-status poller flashes a cmd window per project.
+    crate::hide_console::std_command(cmd);
 }
 
 /// Run `git` in `cwd`. Returns `(success, stdout, stderr)`.

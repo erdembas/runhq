@@ -89,6 +89,7 @@ pub(super) async fn emit_launch_diagnostics(
                 .args(&probe_args)
                 .current_dir(&svc.cwd)
                 .stdin(Stdio::null());
+            crate::hide_console::tokio_command(&mut probe_cmd);
             let current = std::env::var("PATH").unwrap_or_default();
             probe_cmd.env("PATH", format!("{}:{}", path_extra.trim(), current));
             if let Ok(out) = probe_cmd.output().await {
