@@ -18,17 +18,7 @@ pub(super) async fn run_timed(program: &str, args: &[&str], cwd: &Path) -> Optio
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
-    // Suppress the console window flash on Windows. Without this, a
-    // license scan would briefly pop a black `cmd.exe`-style window
-    // every time the user clicked Rescan — jarring inside a windowed
-    // Tauri shell. CREATE_NO_WINDOW = 0x08000000. `tokio::process::
-    // Command` exposes `creation_flags` directly on Windows, so we
-    // don't need the `std::os::windows::process::CommandExt` import
-    // (which clippy flags as unused under -D warnings).
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x0800_0000);
-    }
+    crate::hide_console::tokio_command(&mut cmd);
 
     let child = match cmd.spawn() {
         Ok(c) => c,
