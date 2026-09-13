@@ -29,6 +29,7 @@ pub mod editors;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod hide_console;
 pub mod license;
 pub mod logs;
 pub mod notes;

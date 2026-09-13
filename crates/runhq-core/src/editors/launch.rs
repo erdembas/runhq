@@ -30,10 +30,14 @@ pub async fn open_in_editor(command: &str, path: &Path) -> AppResult<()> {
 
 async fn spawn_with_path(exe: PathBuf, path: &Path) -> AppResult<()> {
     let display = exe.display().to_string();
-    let mut child = tokio::process::Command::new(&exe)
-        .arg(path)
+    let mut cmd = tokio::process::Command::new(&exe);
+    cmd.arg(path)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // `code.cmd` / similar editor shims are console scripts; hide the
+    // brief cmd flash when opening a project from the dashboard.
+    crate::hide_console::tokio_command(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Other(format!("failed to launch '{display}': {e}")))?;
 
