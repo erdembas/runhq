@@ -9,9 +9,7 @@ import type { ConversationOrigin } from '@/types';
  * owns the dispatch — the backend never sees these.
  */
 export type AiActionHook =
-  | { kind: 'use_as_commit'; service_id: string }
-  | { kind: 'insert_standup' }
-  | { kind: 'none' };
+  { kind: 'use_as_commit'; service_id: string } | { kind: 'insert_standup' } | { kind: 'none' };
 
 export interface AiDraft {
   /** Conversation this draft is tied to. The panel picks the draft

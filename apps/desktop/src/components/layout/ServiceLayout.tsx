@@ -44,8 +44,7 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const data = event.active.data.current as
-      | { kind: 'tab'; tabId: string; sourceGroupId: string }
-      | undefined;
+      { kind: 'tab'; tabId: string; sourceGroupId: string } | undefined;
     if (data?.kind !== 'tab') return;
     setDrag({ tabId: data.tabId, sourceGroupId: data.sourceGroupId });
   }, []);
@@ -54,8 +53,7 @@ export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props
     (event: DragEndEvent) => {
       setDrag(null);
       const active = event.active.data.current as
-        | { kind: 'tab'; tabId: string; sourceGroupId: string }
-        | undefined;
+        { kind: 'tab'; tabId: string; sourceGroupId: string } | undefined;
       const over = event.over?.data.current as
         | { kind: 'tab-slot'; groupId: string; insertIndex: number }
         | { kind: 'pane-edge'; groupId: string; edge: SplitEdge }

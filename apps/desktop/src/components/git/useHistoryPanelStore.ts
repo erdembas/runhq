@@ -22,8 +22,7 @@ interface HistoryPanelState {
 }
 
 type HistoryPanelPatch =
-  | Partial<HistoryPanelState>
-  | ((state: HistoryPanelStore) => Partial<HistoryPanelState>);
+  Partial<HistoryPanelState> | ((state: HistoryPanelStore) => Partial<HistoryPanelState>);
 
 interface HistoryPanelActions {
   patch: (patch: HistoryPanelPatch) => void;

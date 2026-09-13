@@ -48,8 +48,7 @@ interface CommitPanelState {
 }
 
 type CommitPanelPatch =
-  | Partial<CommitPanelState>
-  | ((state: CommitPanelStore) => Partial<CommitPanelState>);
+  Partial<CommitPanelState> | ((state: CommitPanelStore) => Partial<CommitPanelState>);
 
 interface CommitPanelActions {
   patch: (patch: CommitPanelPatch) => void;

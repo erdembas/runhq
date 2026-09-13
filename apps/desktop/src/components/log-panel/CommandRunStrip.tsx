@@ -17,7 +17,7 @@ export function CommandRunStrip({
   if (service.cmds.length <= 1) return null;
 
   return (
-    <div className="scrollbar-none flex max-w-[48vw] min-w-0 items-center gap-1 overflow-x-auto">
+    <div className="flex max-w-[48vw] min-w-0 scrollbar-none items-center gap-1 overflow-x-auto">
       {service.cmds.map((entry) => {
         const commandStatus = cmdStatuses.find((command) => command.name === entry.name);
         return (

@@ -8,13 +8,7 @@
  *  - Default-select the README on first open.
  */
 export type DocKind =
-  | 'readme'
-  | 'changelog'
-  | 'contributing'
-  | 'architecture'
-  | 'license'
-  | 'doc'
-  | 'other';
+  'readme' | 'changelog' | 'contributing' | 'architecture' | 'license' | 'doc' | 'other';
 
 // ---- Per-project Notes ----------------------------------------------------
 
