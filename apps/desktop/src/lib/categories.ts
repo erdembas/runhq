@@ -6,13 +6,7 @@
  * Users can still type any value — unknown tags fall through to "other".
  */
 export type CategoryKey =
-  | 'frontend'
-  | 'backend'
-  | 'database'
-  | 'infra'
-  | 'worker'
-  | 'tooling'
-  | 'other';
+  'frontend' | 'backend' | 'database' | 'infra' | 'worker' | 'tooling' | 'other';
 
 export interface Category {
   key: CategoryKey;

@@ -232,14 +232,7 @@ export type SectionId = string;
 /** A fixed palette keeps colors harmonised with the theme and avoids the
  *  accessibility pitfalls of free-form color pickers. */
 export type SectionColor =
-  | 'blue'
-  | 'green'
-  | 'orange'
-  | 'purple'
-  | 'pink'
-  | 'cyan'
-  | 'yellow'
-  | 'slate';
+  'blue' | 'green' | 'orange' | 'purple' | 'pink' | 'cyan' | 'yellow' | 'slate';
 
 /** Purely organisational grouping in the sidebar. Unlike stacks, a section
  *  carries no runtime semantics — it is a visual folder that can hold both

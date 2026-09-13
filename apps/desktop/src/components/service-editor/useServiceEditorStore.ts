@@ -41,8 +41,7 @@ interface ServiceEditorState {
 }
 
 type ServiceEditorPatch =
-  | Partial<ServiceEditorState>
-  | ((state: ServiceEditorStore) => Partial<ServiceEditorState>);
+  Partial<ServiceEditorState> | ((state: ServiceEditorStore) => Partial<ServiceEditorState>);
 
 interface ServiceEditorActions {
   patch: (patch: ServiceEditorPatch) => void;

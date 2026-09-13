@@ -12,14 +12,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
  */
 
 type Dir =
-  | 'North'
-  | 'South'
-  | 'East'
-  | 'West'
-  | 'NorthEast'
-  | 'NorthWest'
-  | 'SouthEast'
-  | 'SouthWest';
+  'North' | 'South' | 'East' | 'West' | 'NorthEast' | 'NorthWest' | 'SouthEast' | 'SouthWest';
 
 function startResize(dir: Dir) {
   return (e: React.PointerEvent) => {

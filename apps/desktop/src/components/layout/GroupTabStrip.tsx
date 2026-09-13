@@ -102,7 +102,7 @@ export function GroupTabStrip({
       className="border-border/60 bg-surface flex shrink-0 items-stretch border-b"
       data-group-id={group.id}
     >
-      <div className="scrollbar-none flex flex-1 items-stretch overflow-x-auto">
+      <div className="flex flex-1 scrollbar-none items-stretch overflow-x-auto">
         {visibleIds.map((tabId, idx) => {
           const tab = tabs[tabId]!;
           return (

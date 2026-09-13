@@ -18,8 +18,7 @@ interface BranchesPanelState {
 }
 
 type BranchesPanelPatch =
-  | Partial<BranchesPanelState>
-  | ((state: BranchesPanelStore) => Partial<BranchesPanelState>);
+  Partial<BranchesPanelState> | ((state: BranchesPanelStore) => Partial<BranchesPanelState>);
 
 interface BranchesPanelActions {
   patch: (patch: BranchesPanelPatch) => void;
