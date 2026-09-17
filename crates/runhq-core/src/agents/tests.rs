@@ -277,22 +277,12 @@ setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},30)
     };
     manager.start(input()).await.unwrap();
     manager.start(input()).await.unwrap(); // idempotent retry, not another process
-    let request = tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            if let Some(r) = manager
-                .snapshot(&session.id, None)
-                .unwrap()
-                .session
-                .pending
-                .first()
-            {
-                break r.clone();
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    let waiting = wait_for_session(&manager, &session.id, "a pending question", |session| {
+        !session.pending.is_empty()
     })
     .await
     .unwrap();
+    let request = &waiting.pending[0];
     manager
         .answer(
             &session.id,
@@ -301,18 +291,7 @@ setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},30)
         )
         .await
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while manager
-            .snapshot(&session.id, None)
-            .unwrap()
-            .session
-            .active()
-        {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+    wait_inactive(&manager, &session.id).await;
     let snapshot = manager.snapshot(&session.id, None).unwrap();
     assert_eq!(snapshot.session.status, "completed");
     assert_eq!(snapshot.session.native_id.as_deref(), Some("native-one"));
@@ -342,14 +321,53 @@ fn turn_input(session: &AgentSession) -> AgentTurnInput {
         agent: None,
     }
 }
-async fn wait_inactive(manager: &AgentManager, id: &str) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while manager.snapshot(id, None).unwrap().session.active() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+async fn wait_for_session(
+    manager: &AgentManager,
+    id: &str,
+    expected: &str,
+    ready: impl Fn(&AgentSession) -> bool,
+) -> Result<AgentSession, String> {
+    // Hosted Windows runners can take several seconds to start a fresh Node
+    // process while parallel tests initialize databases. Poll metadata only;
+    // reloading transcripts here adds unrelated disk work to that startup.
+    let diagnostic = || match manager.session(id) {
+        Ok(session) => format!(
+            "status={}, last_error={:?}, native_id={:?}, pending={}",
+            session.status,
+            session.last_error,
+            session.native_id,
+            session.pending.len()
+        ),
+        Err(error) => error.to_string(),
+    };
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let session = manager.session(id).map_err(|error| error.to_string())?;
+            if ready(&session) {
+                return Ok(session);
+            }
+            if !session.active() {
+                return Err(format!(
+                    "Session {id} ended before {expected}: {}",
+                    diagnostic()
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| {
+        Err(format!(
+            "Timed out after 30s waiting for {expected} in session {id}: {}",
+            diagnostic()
+        ))
+    })
+}
+
+async fn wait_inactive(manager: &AgentManager, id: &str) {
+    wait_for_session(manager, id, "the turn to end", |session| !session.active())
+        .await
+        .unwrap();
 }
 #[tokio::test]
 async fn checkout_lease_rejects_parallel_writers_and_releases_after_stop() {
@@ -394,7 +412,17 @@ async fn abnormal_bridge_exit_marks_failure_and_releases_checkout() {
     )
     .unwrap();
     manager.start(turn_input(&session)).await.unwrap();
-    wait_inactive(&manager, &session.id).await;
+    let failure = wait_for_session(&manager, &session.id, "a pending question", |session| {
+        !session.pending.is_empty()
+    })
+    .await
+    .unwrap_err();
+    assert!(
+        failure.contains("ended before a pending question"),
+        "{failure}"
+    );
+    assert!(failure.contains("status=failed"), "{failure}");
+    assert!(failure.contains("disconnected"), "{failure}");
     let snapshot = manager.snapshot(&session.id, None).unwrap();
     assert_eq!(snapshot.session.status, "failed");
     assert!(snapshot
