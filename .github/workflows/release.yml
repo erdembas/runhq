@@ -179,137 +179,53 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      # Publish version-less aliases (e.g. `runhq_amd64.deb`,
-      # `runhq_arm64-setup.exe`, `runhq_aarch64.dmg`) alongside the
-      # `tauri-action`-produced versioned bundles. The docs install
-      # snippets and the auto-detect on docs/index.html point at these
-      # stable names through the
-      # `https://github.com/erdembas/runhq/releases/latest/download/<name>`
-      # redirect — without the alias the redirect 404s onto an HTML
-      # page and curl writes that HTML to disk under the binary name,
-      # which dpkg/msiexec/Finder then reject with "magic number"
-      # errors.
+      # Stable names power the website's latest/download fallback links.
+      # The helper requires every format and handles Cargo workspace paths.
       - name: Publish stable asset aliases
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           FAMILY: ${{ matrix.family }}
           ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/publish-release-aliases.sh
+
+  verify:
+    name: Verify release assets and updater
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify complete published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-
-          # When `--target <triple>` is passed, tauri writes bundles
-          # under `target/<triple>/release/bundle/<format>/`. With no
-          # explicit target it falls back to `target/release/...`.
-          # Probe both so the script doesn't have to care.
-          bundle_a="apps/desktop/src-tauri/target/${TARGET}/release/bundle"
-          bundle_b="apps/desktop/src-tauri/target/release/bundle"
-
-          find_first() {
-            local subdir=$1
-            local glob=$2
-            for root in "$bundle_a" "$bundle_b"; do
-              if [ -d "$root/$subdir" ]; then
-                local hit
-                hit=$(find "$root/$subdir" -maxdepth 1 -name "$glob" -print -quit 2>/dev/null || true)
-                if [ -n "$hit" ]; then
-                  printf '%s' "$hit"
-                  return
-                fi
-              fi
-            done
-          }
-
-          uploads=()
-
-          case "$FAMILY" in
-            linux)
-              # Each Linux bundler picks its own arch vocabulary:
-              #   .deb       → Debian: `amd64` / `arm64`
-              #   .rpm       → RPM:    `x86_64` / `aarch64`
-              #   .AppImage  → upstream: `amd64` / `aarch64`
-              # We surface all three as `runhq_<arch>.<ext>` using
-              # Debian's vocabulary (`amd64` / `arm64`) because that's
-              # the most common one developers grep for and it lets
-              # docs/index.html use a single arch token across every
-              # format chip.
-              if [ "$ARCH" = "amd64" ]; then
-                deb_glob='RunHQ_*_amd64.deb'
-                rpm_glob='RunHQ-*-1.x86_64.rpm'
-                appimage_glob='RunHQ_*_amd64.AppImage'
-              else
-                deb_glob='RunHQ_*_arm64.deb'
-                rpm_glob='RunHQ-*-1.aarch64.rpm'
-                appimage_glob='RunHQ_*_aarch64.AppImage'
-              fi
-              deb_src=$(find_first deb "$deb_glob")
-              if [ -n "$deb_src" ]; then
-                cp "$deb_src" "runhq_${ARCH}.deb"
-                uploads+=("runhq_${ARCH}.deb")
-              fi
-              rpm_src=$(find_first rpm "$rpm_glob")
-              if [ -n "$rpm_src" ]; then
-                cp "$rpm_src" "runhq_${ARCH}.rpm"
-                uploads+=("runhq_${ARCH}.rpm")
-              fi
-              appimage_src=$(find_first appimage "$appimage_glob")
-              if [ -n "$appimage_src" ]; then
-                cp "$appimage_src" "runhq_${ARCH}.AppImage"
-                uploads+=("runhq_${ARCH}.AppImage")
-              fi
-              ;;
-            windows)
-              # NSIS produces `RunHQ_<v>_<arch>-setup.exe`; WiX
-              # produces `RunHQ_<v>_<arch>_<lang>.msi` where lang
-              # defaults to en-US. We expose the NSIS installer as
-              # the primary `runhq_<arch>-setup.exe` and the MSI as a
-              # fallback for managed deployments.
-              nsis_src=$(find_first nsis "RunHQ_*_${ARCH}-setup.exe")
-              if [ -n "$nsis_src" ]; then
-                cp "$nsis_src" "runhq_${ARCH}-setup.exe"
-                uploads+=("runhq_${ARCH}-setup.exe")
-              fi
-              msi_src=$(find_first msi "RunHQ_*_${ARCH}_*.msi")
-              if [ -n "$msi_src" ]; then
-                cp "$msi_src" "runhq_${ARCH}.msi"
-                uploads+=("runhq_${ARCH}.msi")
-              fi
-              ;;
-            macos)
-              # DMGs ship as `RunHQ_<v>_<arch>.dmg` where <arch> is
-              # `aarch64` or `x64`; we mirror that vocabulary in the
-              # alias so the docs auto-detect doesn't have to remap.
-              if [ "$ARCH" = "aarch64" ]; then
-                dmg_glob='RunHQ_*_aarch64.dmg'
-              else
-                dmg_glob='RunHQ_*_x64.dmg'
-              fi
-              dmg_src=$(find_first dmg "$dmg_glob")
-              if [ -n "$dmg_src" ]; then
-                cp "$dmg_src" "runhq_${ARCH}.dmg"
-                uploads+=("runhq_${ARCH}.dmg")
-              fi
-              ;;
-          esac
-
-          if [ "${#uploads[@]}" -eq 0 ]; then
-            echo "::warning::No bundles found to alias for ${FAMILY}/${ARCH}"
-            exit 0
-          fi
-
-          # `--clobber` is required because tauri-action drafted the
-          # release in an earlier step and on retries the alias may
-          # already exist.
-          gh release upload "${{ github.ref_name }}" "${uploads[@]}" \
-            --clobber --repo "${{ github.repository }}"
+          verification_dir="$RUNNER_TEMP/release-verification"
+          mkdir -p "$verification_dir"
+          gh release view "$RELEASE_TAG" --repo "$GH_REPO" \
+            --json tagName,isDraft,isPrerelease,assets > "$verification_dir/release.json"
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" \
+            --pattern latest.json --dir "$verification_dir" --clobber
+          node scripts/verify-release.mjs \
+            "$verification_dir/release.json" "$verification_dir/latest.json" \
+            "$RELEASE_TAG" "$GH_REPO"
 
   # Sync the Homebrew Cask only after every matrix job has uploaded its
-  # DMGs. Running this as a `release: published` trigger races the Tauri
+  # DMGs and the full release has passed verification. A published trigger races the Tauri
   # build and 404s on the download URLs (see docs/RELEASING.md).
   homebrew:
     name: Update Homebrew Cask
-    needs: release
+    needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/homebrew-tap.yml
     with:

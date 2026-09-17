@@ -27,6 +27,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm agent:test
       - run: node --test apps/desktop/tests/*.test.mjs
+      - run: node --test scripts/release-assets.test.mjs
       - run: pnpm build
 
   core:
