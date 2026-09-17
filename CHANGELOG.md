@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/erdembas/runhq/compare/v1.1.0...v2.0.0) (2026-09-17)
+
+RunHQ 2.0 brings coding agents into the project workspace, alongside services, terminals and development tools.
+
+### Agent workspace
+
+- Persistent Codex, OpenCode and Claude sessions, Cursor ACP support, and configurable ACP/terminal tools.
+- Global and per-project task views, Mission Control, editable task templates, questions and approvals, worktree isolation, terminal access and diff review.
+- Agent-supported planning modes, editable plan review, **Build this plan**, and a follow-up queue that preserves each message's settings.
+- RunHQ Canvas for HTML, SVG and Markdown artifacts, with interactive previews, source editing and local file export.
+- Automatic CLI discovery across PATH and standard install locations, clear setup/authentication states, shared model discovery and recovery from invalid model choices.
+
+### Performance and reliability
+
+- Hidden views pause background polling and subscriptions while preserving drafts and terminal sessions.
+- Streaming transcripts preserve unchanged message references; concurrent workspace and model requests share results.
+- Bounded log replay and terminal output backpressure reduce pending work without dropping terminal data.
+- Terminal lifecycle and input ordering prevent stale writes after a restart. Git, filesystem and database work runs away from the UI execution thread.
+- Worktree Git commands clear inherited repository/index variables, including when invoked from Git hooks.
+
+### Agent setup
+
+Agent integrations require Node.js 22 or newer, the selected provider's CLI and its normal authentication. Models and modes depend on the connected provider. RunHQ Canvas renders response artifacts; it does not synchronize Cursor-hosted canvases. See the [workspace guide](docs/AGENT_WORKSPACE.md) and [tool setup guide](docs/AGENT_TOOLS.md).
+
+
+### Features
+
+* **agents:** bring agent orchestration into the project workspace ([63f9f4d](https://github.com/erdembas/runhq/commit/63f9f4d0047ade975d19182c7ff7a5d69fa8d8f1))
+
+
+### Bug Fixes
+
+* **release:** verify platform downloads before updating Homebrew ([bb076e4](https://github.com/erdembas/runhq/commit/bb076e4f361f3f734c17d103deed80691662d25b))
+* **updater:** deploy the update proxy and refresh release links ([5662d3d](https://github.com/erdembas/runhq/commit/5662d3dfc193a4eb41f9d82b999c8f50643674b9))
+* **windows:** hide helper process console windows ([#132](https://github.com/erdembas/runhq/issues/132)) ([f1b2c60](https://github.com/erdembas/runhq/commit/f1b2c606a97abbd13f4daf5104bbf635648fa856))
+
 ## [1.1.0](https://github.com/erdembas/runhq/compare/v1.0.0...v1.1.0) (2026-05-05)
 
 
