@@ -15,12 +15,7 @@ import type { ServiceId } from '@/types';
  * tab strip can dedup and React can use it as a list key.
  */
 export type MainTabKind =
-  | 'dashboard'
-  | 'service'
-  | 'stack'
-  | 'settings'
-  | 'release-notes'
-  | 'agents';
+  'dashboard' | 'service' | 'stack' | 'settings' | 'release-notes' | 'agents';
 export interface MainTab {
   kind: MainTabKind;
   refId: string;

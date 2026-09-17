@@ -207,19 +207,23 @@ Release Please reacts to the merge by:
 
 ### 4. Binary build & publish
 
-The published GitHub Release triggers `release.yml`:
+The tag pushed by Release Please triggers `release.yml`:
 
-1. Builds in parallel: **macOS** (aarch64 + x86_64), **Linux** (amd64), **Windows**.
+1. Builds all six targets in parallel: **macOS** (aarch64 + x86_64), **Linux** (amd64 + arm64), and **Windows** (x64 + arm64).
 2. Uploads the installers to the same GitHub Release:
    - `RunHQ_{ver}_aarch64.dmg`, `RunHQ_{ver}_x64.dmg`
-   - `RunHQ_{ver}_x64_en-US.msi`, `RunHQ_{ver}_x64-setup.exe`
-   - `RunHQ_{ver}_amd64.deb`, `RunHQ_{ver}_amd64.AppImage`
+   - Windows `.msi` and `-setup.exe` installers for x64 and arm64
+   - Linux `.deb`, `.rpm` and `.AppImage` packages for amd64 and arm64
 3. Generates and signs `latest.json` (the Tauri updater manifest) and attaches it.
-4. Pushes the updated Cask to `erdembas/homebrew-tap`.
+4. Uploads stable `runhq_<arch>` aliases used by the website's `releases/latest/download` fallback links. The helper reads the root Cargo workspace's `target` directory and requires the exact tagged version; a missing format fails the job.
+5. Verifies the published release, all installers and stable aliases, and the six updater platforms with their referenced files and signatures. Optional format-specific updater entries are validated when present.
+6. Pushes the updated Cask to `erdembas/homebrew-tap` only after verification succeeds.
 
 Once assets are uploaded, installed apps on user machines pick up the update through the [Auto-Update System](#auto-update-system) on their next launch.
 
-> 💡 If you want to sanity-check before users see the release, you can toggle `"draft": true` in `.github/release-please-config.json`. In that mode the Release is created as a draft and you must click **Publish** manually in the GitHub UI.
+The website resolves release links at build time. Trigger its next deployment after the assets are published so it picks up the new version. Release helpers have regression coverage in `node --test scripts/release-assets.test.mjs`.
+
+> 💡 If you want to sanity-check before users see the release, you can toggle `"draft": true` in `.github/release-please-config.json`. In that mode the Release is created as a draft. Publish it after all assets have uploaded, then rerun the verification/Homebrew jobs; the verification gate intentionally rejects unpublished releases.
 
 ---
 
