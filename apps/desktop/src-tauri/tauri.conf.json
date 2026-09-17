@@ -67,7 +67,8 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://runhq.dev/api/updates/latest"
+        "https://runhq.dev/api/updates/latest",
+        "https://github.com/erdembas/runhq/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBMEYzQzM5M0M5RTE3REEKUldUYUY1NDhPVHdQcW5ja3JrQXlXdy91Tzd2aERuOUdLQW5JdTBIOFFRZTdETmNQZTR3M0Y2clQK"
     }

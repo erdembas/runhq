@@ -22,8 +22,10 @@
  * Pages re-builds on every push, so the next deploy will refresh.
  */
 
+import packageInfo from '../../../../package.json';
+
 const ENDPOINT = 'https://api.github.com/repos/erdembas/runhq/releases/latest';
-const FALLBACK_VERSION = 'v0.10.0';
+const FALLBACK_VERSION = `v${packageInfo.version}`;
 
 export interface ReleaseAsset {
   /** Raw asset filename, e.g. `RunHQ_0.10.1_aarch64.dmg`. */
@@ -57,10 +59,10 @@ export async function getReleaseInfo(): Promise<ReleaseInfo> {
   try {
     const res = await fetch(ENDPOINT, {
       headers: { Accept: 'application/vnd.github+json' },
-      // Cache for 1h so re-invocations within a CI window don't waste
-      // the 60-req anonymous quota; Cloudflare Pages builds run on
-      // single-worker images so this is per-build effectively.
-      next: { revalidate: 3600 },
+      // A post-release build must not reuse the previous deployment's
+      // GitHub response from Cloudflare's restored Next.js build cache.
+      // The module cache above still deduplicates page renders.
+      cache: 'no-store',
     });
     if (!res.ok) throw new Error(`release fetch ${res.status}`);
     const data = (await res.json()) as RawRelease;

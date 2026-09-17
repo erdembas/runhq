@@ -8,15 +8,15 @@ settings change with a 30-second rollback path.
 
 ## What changed
 
-| Area             | Legacy (`docs/`)                       | New (`apps/site/`)                                                |
-| ---------------- | -------------------------------------- | ----------------------------------------------------------------- |
-| Source           | hand-rolled `index.html` + `style.css` | Next.js 15 App Router (`output: 'export'`)                        |
-| Cockpit demos    | `.lc-*` mocks built from inline JS     | real `@runhq/cockpit-ui` React components fed mock fixtures       |
-| Release version  | runtime fetch of api.github.com        | build-time fetch in `apps/site/src/lib/release.ts` (no runtime)   |
-| Headers          | `docs/_headers`                        | `apps/site/_headers` — drops `connect-src https://api.github.com` |
-| Pages Functions  | `docs/functions/api/updates`           | unchanged — `scripts/site-postbuild.mjs` carries them over        |
-| CI build command | none (static)                          | `pnpm install && pnpm site:build`                                 |
-| CI output dir    | `docs/`                                | `apps/site/out/`                                                  |
+| Area             | Legacy (`docs/`)                       | New (`apps/site/`)                                                     |
+| ---------------- | -------------------------------------- | ---------------------------------------------------------------------- |
+| Source           | hand-rolled `index.html` + `style.css` | Next.js 15 App Router (`output: 'export'`)                             |
+| Cockpit demos    | `.lc-*` mocks built from inline JS     | real `@runhq/cockpit-ui` React components fed mock fixtures            |
+| Release version  | runtime fetch of api.github.com        | build-time fetch in `apps/site/src/lib/release.ts` (no runtime)        |
+| Headers          | `docs/_headers`                        | `apps/site/_headers` — drops `connect-src https://api.github.com`      |
+| Pages Functions  | `docs/functions/api/updates`           | repository-root `functions/api/updates/latest.js` re-exports the proxy |
+| CI build command | none (static)                          | `pnpm install && pnpm site:build`                                      |
+| CI output dir    | `docs/`                                | `apps/site/out/`                                                       |
 
 ## Cloudflare Pages settings change
 
@@ -37,11 +37,24 @@ After the next deploy succeeds, browse runhq.dev and verify:
 - The hero loads with the cockpit-ui sidebar + service cards (not the
   legacy `.lc-*` mock).
 - View source on the rendered HTML — the version pill should be inlined
-  (e.g. `v0.10.1`), not the `v0.9.0` build-time fallback.
+  and match the latest published release. Offline builds use the root
+  `package.json` version as their fallback.
 - `_headers` (via `curl -I`) shows
   `Content-Security-Policy: ... connect-src 'self'; ...` — no api.github.com.
-- `/api/updates` still returns the Tauri updater manifest (Cloudflare
-  Pages Functions kept working).
+- `/api/updates/latest` returns HTTP 200 with the Tauri updater manifest
+  and `x-runhq-proxy: cf-pages`; its version matches the published release.
+
+Pages Functions must live in the project root, **outside** `apps/site/out`.
+The root entrypoint imports the shared implementation in `docs/functions/`.
+Do not copy Functions into static output: Pages does not discover them there.
+`apps/site/public/_routes.json` limits Function invocations to `/api/updates/*`.
+See [Cloudflare's Functions setup](https://developers.cloudflare.com/pages/functions/get-started/).
+
+Release metadata is resolved during `pnpm site:build`, so publishing a GitHub
+release alone does not refresh the landing page. After all release assets are
+published, trigger another production build. Verify the new commit's Cloudflare
+Pages check, the deployed version label, all twelve download links, and the
+updater endpoint before considering the site refresh complete.
 
 ## Rollback (≤ 30 seconds)
 

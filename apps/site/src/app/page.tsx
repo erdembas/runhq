@@ -12,6 +12,10 @@ import { Nav } from '@/components/site/Nav';
 import { RuntimeStrip } from '@/components/site/RuntimeStrip';
 import { WhySection } from '@/components/site/WhySection';
 
+// Resolve uncached release metadata at build time while keeping this route
+// compatible with Cloudflare Pages' static export.
+export const dynamic = 'force-static';
+
 /**
  * Landing page composition.
  *

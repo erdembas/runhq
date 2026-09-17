@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * Post-build glue between `next build` (apps/site/out/) and Cloudflare
- * Pages (which serves whatever directory we point its build settings
- * at, plus `_headers`, `_redirects`, and `functions/`).
+ * Pages (which serves the configured output directory plus `_headers`
+ * and `_redirects`). Pages discovers Functions separately from the
+ * repository-root `functions/` directory.
  *
  * Next's static export does not know about:
  *   - `_headers` / `_redirects` (Cloudflare Pages metadata)
- *   - `functions/` (Pages Functions — currently `/api/updates`)
  *   - the legacy static binaries we still link from the marketing
  *     copy (`dashboard.png`, `RunHQ-web-version-final.mp4`, the
  *     manifest favicon, robots/sitemap)
@@ -64,7 +64,6 @@ const carryOver = [
   // payload means the static export stays under the per-deploy
   // 25 MB soft cap and the visitor pulls media from a CDN that's
   // tuned for byte-range video traffic.
-  { src: 'functions', dest: 'functions', recursive: true },
 ];
 
 async function exists(p) {
@@ -115,6 +114,10 @@ async function main() {
         `Run \`pnpm --filter @runhq/site build\` first.`,
     );
   }
+
+  // Old exports copied server source here, where Pages could only
+  // serve it as a static file. Functions now have a root entrypoint.
+  await fs.rm(path.join(outDir, 'functions'), { recursive: true, force: true });
 
   const results = await Promise.all(carryOver.map(copyEntry));
   const copied = results.filter((r) => !r.skipped);
