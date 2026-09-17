@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0](https://github.com/erdembas/runhq/compare/v1.1.0...v2.0.0) (2026-09-17)
 
+RunHQ 2.0 brings coding agents into the project workspace, alongside services, terminals and development tools.
+
+### Agent workspace
+
+- Persistent Codex, OpenCode and Claude sessions, Cursor ACP support, and configurable ACP/terminal tools.
+- Global and per-project task views, Mission Control, editable task templates, questions and approvals, worktree isolation, terminal access and diff review.
+- Agent-supported planning modes, editable plan review, **Build this plan**, and a follow-up queue that preserves each message's settings.
+- RunHQ Canvas for HTML, SVG and Markdown artifacts, with interactive previews, source editing and local file export.
+- Automatic CLI discovery across PATH and standard install locations, clear setup/authentication states, shared model discovery and recovery from invalid model choices.
+
+### Performance and reliability
+
+- Hidden views pause background polling and subscriptions while preserving drafts and terminal sessions.
+- Streaming transcripts preserve unchanged message references; concurrent workspace and model requests share results.
+- Bounded log replay and terminal output backpressure reduce pending work without dropping terminal data.
+- Terminal lifecycle and input ordering prevent stale writes after a restart. Git, filesystem and database work runs away from the UI execution thread.
+- Worktree Git commands clear inherited repository/index variables, including when invoked from Git hooks.
+
+### Agent setup
+
+Agent integrations require Node.js 22 or newer, the selected provider's CLI and its normal authentication. Models and modes depend on the connected provider. RunHQ Canvas renders response artifacts; it does not synchronize Cursor-hosted canvases. See the [workspace guide](docs/AGENT_WORKSPACE.md) and [tool setup guide](docs/AGENT_TOOLS.md).
+
 
 ### Features
 
