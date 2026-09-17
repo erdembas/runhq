@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/erdembas/runhq/compare/v1.1.0...v2.0.0) (2026-09-17)
+
+
+### Features
+
+* **agents:** bring agent orchestration into the project workspace ([63f9f4d](https://github.com/erdembas/runhq/commit/63f9f4d0047ade975d19182c7ff7a5d69fa8d8f1))
+
+
+### Bug Fixes
+
+* **release:** verify platform downloads before updating Homebrew ([bb076e4](https://github.com/erdembas/runhq/commit/bb076e4f361f3f734c17d103deed80691662d25b))
+* **updater:** deploy the update proxy and refresh release links ([5662d3d](https://github.com/erdembas/runhq/commit/5662d3dfc193a4eb41f9d82b999c8f50643674b9))
+* **windows:** hide helper process console windows ([#132](https://github.com/erdembas/runhq/issues/132)) ([f1b2c60](https://github.com/erdembas/runhq/commit/f1b2c606a97abbd13f4daf5104bbf635648fa856))
+
 ## [1.1.0](https://github.com/erdembas/runhq/compare/v1.0.0...v1.1.0) (2026-05-05)
 
 
