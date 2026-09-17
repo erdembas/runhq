@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Terminal, type IMarker } from '@xterm/xterm';
+import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -10,7 +10,8 @@ import { LogXtermDetailTooltip } from '@/components/log-xterm/LogXtermDetailTool
 import { LogXtermEmptyState } from '@/components/log-xterm/LogXtermEmptyState';
 import { LogXtermSearchBar, type MatchInfo } from '@/components/log-xterm/LogXtermSearchBar';
 import { FONT_STACK, collectFailedDockerStepIds } from '@/components/log-xterm/format';
-import { appendLineWithMarker } from '@/components/log-xterm/markers';
+import { appendLineWithMarker, type LogLineMarker } from '@/components/log-xterm/markers';
+import { queueTerminalWrites } from '@/components/log-panel/terminalWriteQueue';
 import { isInsideRect, lineIndexFromPointer } from '@/components/log-xterm/pointer';
 import type { LogLine } from '@/types';
 
@@ -23,6 +24,7 @@ interface Props {
   isDark: boolean;
   onLineContextMenu: (index: number) => void;
   serviceId?: string | null;
+  visible: boolean;
 }
 
 export function LogXtermView({
@@ -34,6 +36,7 @@ export function LogXtermView({
   isDark,
   onLineContextMenu,
   serviceId,
+  visible,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termContainerRef = useRef<HTMLDivElement>(null);
@@ -42,11 +45,13 @@ export function LogXtermView({
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const markersRef = useRef<IMarker[]>([]);
+  const markersRef = useRef<LogLineMarker[]>([]);
   const writtenSeqsRef = useRef<number[]>([]);
   const formatStateRef = useRef({ failedDockerStepKey: '', showTimestamp });
   const lastPtySizeRef = useRef('');
 
+  const followRef = useRef(follow);
+  followRef.current = follow;
   const linesRef = useRef(lines);
   linesRef.current = lines;
   const onLineContextMenuRef = useRef(onLineContextMenu);
@@ -167,7 +172,14 @@ export function LogXtermView({
       if (!isInsideRect(rect, event.clientX, event.clientY)) return -1;
       const t = termRef.current;
       if (!t) return -1;
-      return lineIndexFromPointer(t, markersRef.current, rect, event.clientY);
+      return lineIndexFromPointer(
+        t,
+        markersRef.current,
+        writtenSeqsRef.current,
+        linesRef.current,
+        rect,
+        event.clientY,
+      );
     };
 
     const onContextMenu = (e: MouseEvent) => {
@@ -219,7 +231,7 @@ export function LogXtermView({
 
     const flushResize = () => {
       resizeRaf = 0;
-      if (!alive) return;
+      if (!alive || containerEl.clientWidth === 0 || containerEl.clientHeight === 0) return;
       try {
         fit.fit();
         syncServicePtySize();
@@ -235,7 +247,7 @@ export function LogXtermView({
     resizeObserver.observe(termContainerRef.current);
 
     requestAnimationFrame(() => {
-      if (!alive) return;
+      if (!alive || containerEl.clientWidth === 0 || containerEl.clientHeight === 0) return;
       try {
         fit.fit();
         syncServicePtySize();
@@ -259,7 +271,7 @@ export function LogXtermView({
       containerEl.removeEventListener('mousemove', onMouseMove);
       containerEl.removeEventListener('mouseleave', onMouseLeave);
       for (const m of markersRef.current) {
-        if (!m.isDisposed) m.dispose();
+        if (m && !m.isDisposed) m.dispose();
       }
       markersRef.current = [];
       writtenSeqsRef.current = [];
@@ -282,92 +294,91 @@ export function LogXtermView({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term) return;
+    if (!term || !visible) return;
 
-    const failedDockerStepIds = collectFailedDockerStepIds(lines);
-    const failedDockerStepKey = Array.from(failedDockerStepIds).sort().join('\x1f');
-    const formatOptions = { failedDockerStepIds, showTimestamp };
-    const formatChanged =
-      formatStateRef.current.showTimestamp !== showTimestamp ||
-      formatStateRef.current.failedDockerStepKey !== failedDockerStepKey;
-    const written = writtenSeqsRef.current;
+    let cancelled = false;
+    let cancelWrites = () => {};
+    // Let activation paint first, and drain the previous (bounded) batch before
+    // resetting or realigning markers after a filter or visibility change.
+    const timer = setTimeout(() => {
+      term.write('', () => {
+        if (cancelled) return;
+        const failedDockerStepIds = collectFailedDockerStepIds(lines);
+        const failedDockerStepKey = Array.from(failedDockerStepIds).sort().join('\x1f');
+        const formatOptions = { failedDockerStepIds, showTimestamp };
+        const formatChanged =
+          formatStateRef.current.showTimestamp !== showTimestamp ||
+          formatStateRef.current.failedDockerStepKey !== failedDockerStepKey;
+        const written = writtenSeqsRef.current;
+        let fromIndex = 0;
+        let reset = formatChanged || (lines.length === 0 && written.length > 0);
 
-    const wipeAndRewrite = () => {
-      for (const m of markersRef.current) {
-        if (!m.isDisposed) m.dispose();
-      }
-      markersRef.current = [];
-      term.reset();
-      term.options.theme = xtermTheme(isDark);
-      for (const line of lines) {
-        appendLineWithMarker(term, line, markersRef.current, formatOptions);
-      }
-      writtenSeqsRef.current = lines.map((l) => l.seq);
-      formatStateRef.current = { failedDockerStepKey, showTimestamp };
-    };
-
-    const appendTail = (fromIndex: number) => {
-      for (let i = fromIndex; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line) continue;
-        appendLineWithMarker(term, line, markersRef.current, formatOptions);
-      }
-      writtenSeqsRef.current = lines.map((l) => l.seq);
-      formatStateRef.current = { failedDockerStepKey, showTimestamp };
-    };
-
-    if (formatChanged) {
-      wipeAndRewrite();
-    } else if (lines.length === 0) {
-      if (written.length > 0) {
-        for (const m of markersRef.current) {
-          if (!m.isDisposed) m.dispose();
-        }
-        markersRef.current = [];
-        term.reset();
-        term.options.theme = xtermTheme(isDark);
-        writtenSeqsRef.current = [];
-        formatStateRef.current = { failedDockerStepKey, showTimestamp };
-      }
-    } else if (written.length === 0) {
-      appendTail(0);
-    } else {
-      const lastWrittenSeq = written[written.length - 1]!;
-      let lastIdx = -1;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (lines[i]!.seq === lastWrittenSeq) {
-          lastIdx = i;
-          break;
-        }
-      }
-      if (lastIdx === -1) {
-        wipeAndRewrite();
-      } else {
-        const offset = lastIdx - (written.length - 1);
-        const structurallyAppendable =
-          !(offset > 0) && !(offset < 0 && lines.length < written.length);
-        let aligned = structurallyAppendable;
-        if (aligned) {
-          const start = Math.max(0, -offset);
-          for (let i = start; i < written.length; i++) {
-            if (written[i] !== lines[i + offset]?.seq) {
-              aligned = false;
+        if (!reset && written.length > 0 && lines.length > 0) {
+          const lastWrittenSeq = written[written.length - 1]!;
+          let lastIdx = -1;
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i]!.seq === lastWrittenSeq) {
+              lastIdx = i;
               break;
             }
           }
+          const offset = lastIdx - (written.length - 1);
+          let aligned =
+            lastIdx !== -1 && offset <= 0 && !(offset < 0 && lines.length < written.length);
+          if (aligned) {
+            for (let i = Math.max(0, -offset); i < written.length; i++) {
+              if (written[i] !== lines[i + offset]?.seq) {
+                aligned = false;
+                break;
+              }
+            }
+          }
+          if (aligned) {
+            if (offset < 0) {
+              for (const marker of markersRef.current.splice(0, -offset)) {
+                if (marker && !marker.isDisposed) marker.dispose();
+              }
+            }
+            fromIndex = lastIdx + 1;
+          } else {
+            reset = true;
+          }
         }
-        if (aligned) {
-          appendTail(lastIdx + 1);
-        } else {
-          wipeAndRewrite();
-        }
-      }
-    }
 
-    if (follow) {
-      term.scrollToBottom();
-    }
-  }, [lines, showTimestamp, follow, isDark]);
+        if (reset) {
+          for (const marker of markersRef.current) {
+            if (marker && !marker.isDisposed) marker.dispose();
+          }
+          markersRef.current = [];
+          term.reset();
+        }
+        // Only record entries actually queued. A cancelled catch-up resumes at
+        // its last submitted entry rather than skipping the remaining backlog.
+        writtenSeqsRef.current = lines.slice(0, fromIndex).map((line) => line.seq);
+        formatStateRef.current = { failedDockerStepKey, showTimestamp };
+        cancelWrites = queueTerminalWrites({
+          from: fromIndex,
+          to: lines.length,
+          append: (index) => {
+            const line = lines[index]!;
+            appendLineWithMarker(term, line, markersRef.current, formatOptions);
+            writtenSeqsRef.current.push(line.seq);
+            return line.text.length;
+          },
+          drain: (done) => term.write('', done),
+          onDrain: () => {
+            if (followRef.current) term.scrollToBottom();
+          },
+        });
+      });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      cancelWrites();
+    };
+  }, [lines, showTimestamp, visible]);
 
   useEffect(() => {
     if (follow) termRef.current?.scrollToBottom();

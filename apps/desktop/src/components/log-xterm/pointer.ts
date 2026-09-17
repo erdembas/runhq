@@ -1,5 +1,6 @@
-import type { IMarker, Terminal } from '@xterm/xterm';
-import { findLineIndexAtY } from './markers';
+import type { Terminal } from '@xterm/xterm';
+import type { LogLine } from '@/types';
+import { findLineIndexAtY, type LogLineMarker } from './markers';
 
 interface RectLike {
   bottom: number;
@@ -17,16 +18,25 @@ export function isInsideRect(rect: RectLike, clientX: number, clientY: number): 
 
 export function lineIndexFromPointer(
   term: Terminal,
-  markers: IMarker[],
+  markers: LogLineMarker[],
+  writtenSeqs: readonly number[],
+  lines: readonly Pick<LogLine, 'seq'>[],
   rect: RectLike,
   clientY: number,
 ): number {
-  if (rect.height <= 0) return -1;
+  if (rect.height <= 0 || term.buffer.active.type === 'alternate') return -1;
   const localY = clientY - rect.top;
   const cellHeight = rect.height / Math.max(1, term.rows);
   const localRow = Math.floor(localY / cellHeight);
   if (localRow < 0 || localRow >= term.rows) return -1;
 
   const absY = term.buffer.active.viewportY + localRow;
-  return findLineIndexAtY(markers, absY);
+  const markerIndex = findLineIndexAtY(markers, absY);
+  const sequence = writtenSeqs[markerIndex];
+  if (sequence === undefined) return -1;
+  // The source buffer can advance before the next asynchronous write batch
+  // realigns markers. Resolve by sequence so a context action never targets a
+  // different entry after retention trimming or filtering.
+  if (lines[markerIndex]?.seq === sequence) return markerIndex;
+  return lines.findIndex((line) => line.seq === sequence);
 }

@@ -9,9 +9,12 @@ import { Sparkline } from '@/components/Sparkline';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
+import { useVisibleStore } from '@/lib/useVisibleStore';
 import { cn } from '@/lib/cn';
 import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtimes';
-import type { ProjectOverview, ServiceDef, Status } from '@/types';
+import type { LogLine, ProjectOverview, ServiceDef } from '@/types';
+
+const EMPTY_LOGS: LogLine[] = [];
 
 /**
  * The card's render is heavy: it pulls live status, resources, git
@@ -43,12 +46,14 @@ import type { ProjectOverview, ServiceDef, Status } from '@/types';
  */
 export const ServiceCard = memo(function ServiceCard({
   svc,
+  visible = true,
   draggable: cardDraggable,
   projectMeta,
   onOpenDetail,
   onOpenOverlay,
 }: {
   svc: ServiceDef;
+  visible?: boolean;
   draggable?: boolean;
   /**
    * Cross-project overview slice for this service (stale flag, outdated
@@ -81,21 +86,39 @@ export const ServiceCard = memo(function ServiceCard({
     message: string;
     onConfirm: () => void;
   } | null>(null);
-  const statuses = useAppStore((s) => s.statuses);
+  const st = useVisibleStore(useAppStore, (s) => s.statuses[svc.id]?.status ?? 'stopped', visible);
   const setSelected = useAppStore((s) => s.setSelected);
-  const logs = useAppStore((s) => s.logs);
-  const resourceSample = useAppStore((s) => s.resources[svc.id]);
-  const resourceHistory = useAppStore((s) => s.resourceHistory[svc.id]);
-  const overviewScanning = useAppStore((s) => s.overviewScanning);
+  const firstCommand = svc.cmds[0]?.name;
+  const logLines = useVisibleStore(
+    useAppStore,
+    (s) =>
+      firstCommand ? (s.logs[logKey(svc.id, firstCommand)]?.lines ?? EMPTY_LOGS) : EMPTY_LOGS,
+    visible,
+  );
+  const resourceSample = useVisibleStore(useAppStore, (s) => s.resources[svc.id], visible);
+  const resourceHistory = useVisibleStore(useAppStore, (s) => s.resourceHistory[svc.id], visible);
+  const overviewScanning = useVisibleStore(useAppStore, (s) => s.overviewScanning, visible);
   // Per-project scan freshness & duration come from the
   // store-side maps that mirror the SQLite scan history. Selecting
   // each service's slot directly keeps the re-render scope tight —
   // unrelated cards don't re-render when one project's scan
   // finishes.
-  const scanFreshness = useAppStore((s) => s.scanFreshnessByService.get(svc.id));
-  const scanDuration = useAppStore((s) => s.scanDurationByService.get(svc.id));
-  const scanDelta = useAppStore((s) => s.scanDeltasByService.get(svc.id));
-  const isRescanningThis = useAppStore((s) => s.scanningServiceIds.has(svc.id));
+  const scanFreshness = useVisibleStore(
+    useAppStore,
+    (s) => s.scanFreshnessByService.get(svc.id),
+    visible,
+  );
+  const scanDuration = useVisibleStore(
+    useAppStore,
+    (s) => s.scanDurationByService.get(svc.id),
+    visible,
+  );
+  const scanDelta = useVisibleStore(useAppStore, (s) => s.scanDeltasByService.get(svc.id), visible);
+  const isRescanningThis = useVisibleStore(
+    useAppStore,
+    (s) => s.scanningServiceIds.has(svc.id),
+    visible,
+  );
   const patchScanEntry = useAppStore((s) => s.patchScanEntry);
   const setScanningService = useAppStore((s) => s.setScanningService);
 
@@ -123,10 +146,7 @@ export const ServiceCard = memo(function ServiceCard({
       setScanningService(svc.id, false);
     }
   };
-  const st: Status = statuses[svc.id]?.status ?? 'stopped';
   const isRunning = st === 'running' || st === 'starting';
-  const logLines =
-    svc.cmds.length > 0 ? (logs[logKey(svc.id, svc.cmds[0]!.name)]?.lines ?? []) : [];
   const tail = logLines.slice(-3);
 
   const runtimeKey = runtimeFromTags(svc.tags) ?? inferRuntimeFromCmds(svc.cmds);
@@ -252,6 +272,7 @@ export const ServiceCard = memo(function ServiceCard({
       </div>
 
       <ServiceCardHealthStrip
+        visible={visible}
         serviceId={svc.id}
         projectMeta={projectMeta}
         overviewScanning={overviewScanning}

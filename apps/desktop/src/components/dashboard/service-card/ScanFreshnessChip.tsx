@@ -16,6 +16,7 @@ function scanAgeLabel(scannedAtMs: number, now: number): string {
 }
 
 interface ScanFreshnessChipProps {
+  visible?: boolean;
   scannedAtMs: number;
   durationMs: number | null;
   rescanning: boolean;
@@ -23,6 +24,7 @@ interface ScanFreshnessChipProps {
 }
 
 export function ScanFreshnessChip({
+  visible = true,
   scannedAtMs,
   durationMs,
   rescanning,
@@ -30,9 +32,11 @@ export function ScanFreshnessChip({
 }: ScanFreshnessChipProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!visible) return;
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [visible]);
 
   const age = now - scannedAtMs;
   const tone =

@@ -2,26 +2,17 @@ import { useCallback } from 'react';
 import { buildLogChatPayload } from '@/lib/ai/logPayload';
 import { inferRuntimeFromCmds, runtimeFromTags } from '@/lib/runtimes';
 import { useAppStore } from '@/store/useAppStore';
-import type { ServiceDef } from '@/types';
-import { EMPTY_LOGS, filterLogLines } from './model';
-import type { LogsByCommand } from './useCommandLogs';
+import type { LogLine, ServiceDef } from '@/types';
 
 interface UseLogAiContextMenuArgs {
-  allLogsByCommand: LogsByCommand;
-  filter: string;
   service: ServiceDef | null;
 }
 
-export function useLogAiContextMenu({
-  allLogsByCommand,
-  filter,
-  service,
-}: UseLogAiContextMenuArgs) {
+export function useLogAiContextMenu({ service }: UseLogAiContextMenuArgs) {
   const openAiChat = useAppStore((s) => s.openAiChat);
 
   return useCallback(
-    (commandName: string, index: number) => {
-      const filtered = filterLogLines(allLogsByCommand[commandName] ?? EMPTY_LOGS, filter);
+    (filtered: LogLine[], index: number) => {
       const target = filtered[index];
       if (!target) return;
 
@@ -44,6 +35,6 @@ export function useLogAiContextMenu({
         autoSend: true,
       });
     },
-    [allLogsByCommand, filter, service, openAiChat],
+    [service, openAiChat],
   );
 }

@@ -46,8 +46,10 @@ export function StackRow({
         setDragging(false);
       }}
       className={cn(
-        'rounded-app-sm group relative cursor-grab py-1.5 pr-2 pl-0.5 transition active:cursor-grabbing',
-        active ? 'bg-accent/10 text-fg' : 'text-fg-muted hover:bg-surface-overlay/60 hover:text-fg',
+        'group relative cursor-grab rounded-lg py-1.5 pr-2 pl-0.5 transition-colors active:cursor-grabbing',
+        active
+          ? 'bg-accent/8 text-fg ring-accent/15 ring-1 ring-inset'
+          : 'text-fg-muted hover:bg-fg/4 hover:text-fg',
         dragging && 'opacity-40',
       )}
     >

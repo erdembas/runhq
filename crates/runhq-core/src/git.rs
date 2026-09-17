@@ -21,7 +21,8 @@ pub use diff::{
     diff, diff_all_raw, diff_branches, diff_file, diff_file_staged, diff_staged, diff_staged_raw,
 };
 pub use history::{diff_commit_file, log, show_commit, CommitSummary};
-pub use status::{current_commit_short, is_repo, status};
+pub(crate) use runner::configure_git_cmd;
+pub use status::{common_directory, current_commit_short, is_repo, status};
 pub use types::{CommitInfo, DiffSummary, FileDiff, FileDiffStatus, GitStatus};
 pub use working_tree::{
     amend_commit_message, commit, discard_file, push, stage_all, stage_file, stash, stash_pop,

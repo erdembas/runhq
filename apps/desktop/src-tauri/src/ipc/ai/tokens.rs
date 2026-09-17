@@ -28,9 +28,11 @@ pub struct CountTokensOutput {
 /// debounced at ~100ms by the caller.
 #[tauri::command]
 pub async fn ai_count_tokens(input: CountTokensInput) -> AppResult<CountTokensOutput> {
-    // The tokeniser does its own thread-safe lazy init, so we can
-    // call it directly from the async context without spawning to
-    // a blocking pool. Empty inputs short-circuit inside `count_tokens`.
-    let tokens = runhq_core::tokens::count_tokens_many(&input.texts);
-    Ok(CountTokensOutput { tokens })
+    // Tokenizer initialization and large transcripts are CPU-bound. Keep both
+    // off the async workers that deliver process output and agent responses.
+    super::super::blocking(move || {
+        let tokens = runhq_core::tokens::count_tokens_many(&input.texts);
+        Ok(CountTokensOutput { tokens })
+    })
+    .await
 }

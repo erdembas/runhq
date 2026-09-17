@@ -1,10 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { ipc } from '@/lib/ipc';
 import { logKey, useAppStore } from '@/store/useAppStore';
 import type { LogLine, ServiceDef } from '@/types';
 import { EMPTY_LOGS } from './model';
-
-export type LogsByCommand = Record<string, LogLine[]>;
 
 export function useServiceCommandNames(service: ServiceDef | null): string[] {
   return useMemo(() => service?.cmds.map((command) => command.name) ?? [], [service]);
@@ -23,8 +21,24 @@ export function useActiveServiceCommand(
   }, [service, activeLogCommand]);
 }
 
-export function useCommandLogs(serviceId: string, commandNames: string[]): LogsByCommand {
-  const logsStore = useAppStore((s) => s.logs);
+export function useCommandLogs(
+  serviceId: string,
+  commandName: string | null,
+  visible: boolean,
+): LogLine[] {
+  const snapshot = useRef<LogLine[]>(EMPTY_LOGS);
+  const logs = useAppStore((s) =>
+    visible && commandName
+      ? (s.logs[logKey(serviceId, commandName)]?.lines ?? EMPTY_LOGS)
+      : snapshot.current,
+  );
+  snapshot.current = logs;
+  return logs;
+}
+
+// Fetch once per service/command list. Streaming updates are consumed directly
+// by visible command bodies so log traffic cannot rerender the entire panel.
+export function useLoadCommandLogs(serviceId: string, commandNames: string[]): void {
   const replaceLogs = useAppStore((s) => s.replaceLogs);
   const commandKey = useMemo(() => commandNames.join('\x1f'), [commandNames]);
 
@@ -46,12 +60,4 @@ export function useCommandLogs(serviceId: string, commandNames: string[]): LogsB
       alive = false;
     };
   }, [serviceId, commandKey, commandNames, replaceLogs]);
-
-  return useMemo(() => {
-    const next: LogsByCommand = {};
-    for (const commandName of commandNames) {
-      next[commandName] = logsStore[logKey(serviceId, commandName)]?.lines ?? EMPTY_LOGS;
-    }
-    return next;
-  }, [commandNames, logsStore, serviceId]);
 }

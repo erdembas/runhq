@@ -1,7 +1,10 @@
 **/dist/
+**/.next/
+apps/site/out/
 **/node_modules/
 **/src-tauri/target/
 **/src-tauri/gen/
+**/src-tauri/resources/agent-runtime/
 pnpm-lock.yaml
 CHANGELOG.md
 

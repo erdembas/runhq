@@ -6,6 +6,7 @@ import {
   licenseContaminationCount,
 } from '@/components/dashboard/healthChips';
 import { EditorDropdown } from '@/components/EditorDropdown';
+import { ProjectAgentButton } from '@/components/agents/AgentNavigation';
 import { IconButton } from '@/components/ui/IconButton';
 import { StatusDot, StatusPill } from '@/components/ui/StatusDot';
 import { TagChip } from '@/components/ui/TagChip';
@@ -73,6 +74,7 @@ export function LogPanelTitleBar({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <ProjectAgentButton serviceId={service.id} />
         <IconButton
           label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
           icon={service.hide_dashboard ? <EyeOff /> : <Eye />}

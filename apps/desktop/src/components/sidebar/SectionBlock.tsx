@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { WorkspaceGroupHeader } from '@runhq/cockpit-ui';
 import { SectionOverflowMenu } from '../SectionMenus';
 import { useAppStore } from '@/store/useAppStore';
-import { cn } from '@/lib/cn';
 import { sectionColor } from '@/lib/sectionColors';
 import { readDrag, endDrag, getActiveDrag } from './dnd';
 import { useDragActive } from './useDragActive';
@@ -85,7 +84,7 @@ export function SectionBlock({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="animate-slide-in relative mx-1 rounded-[8px]"
+      className="animate-slide-in relative mx-2 my-2 rounded-xl"
       style={{
         outline: '1px dashed',
         outlineOffset: '-2px',
@@ -93,38 +92,23 @@ export function SectionBlock({
         transition: 'outline-color 150ms',
       }}
     >
-      <header
-        onClick={onToggle}
-        className="hover:bg-surface-overlay/40 group sticky top-0 z-10 flex cursor-pointer items-center gap-2 bg-transparent pt-2.5 pr-2 pb-1 pl-2 backdrop-blur-[2px]"
-      >
-        <ChevronDown
-          className={cn('text-fg-dim h-3 w-3 transition-transform', collapsed && '-rotate-90')}
-        />
-        <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: meta.solid }}
-          aria-hidden
-        />
-        <span className="text-fg min-w-0 flex-1 truncate text-[11.5px] font-semibold tracking-wide">
-          {section.name}
-        </span>
-        {total > 0 && (
-          <span
-            className={cn(
-              'rounded-app-sm inline-flex h-[18px] min-w-[22px] shrink-0 items-center justify-center px-1 text-[10px] leading-none tabular-nums',
-              running > 0
-                ? 'bg-status-running/15 text-status-running'
-                : 'bg-surface-muted text-fg-dim',
-            )}
-          >
-            {running > 0 ? `${running}/${total}` : total}
-          </span>
-        )}
-        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <SectionOverflowMenu section={section} />
+      <WorkspaceGroupHeader
+        name={section.name}
+        color={meta.solid}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        count={total}
+        running={running}
+        actions={<SectionOverflowMenu section={section} />}
+      />
+      {!collapsed && (
+        <div
+          className="ml-3 border-l pb-1 pl-1"
+          style={{ borderColor: `color-mix(in srgb, ${meta.solid} 18%, transparent)` }}
+        >
+          {children}
         </div>
-      </header>
-      {!collapsed && <div className="pb-1">{children}</div>}
+      )}
     </section>
   );
 }

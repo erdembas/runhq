@@ -5,6 +5,8 @@
 //! submodules and are re-exported here so the public `ipc::...` paths
 //! used by Tauri stay stable.
 
+mod agent_canvas;
+mod agents;
 mod ai;
 mod app_info;
 mod conversations;
@@ -24,6 +26,8 @@ mod stacks;
 mod system;
 mod timeline;
 
+pub use agent_canvas::*;
+pub use agents::*;
 pub use ai::*;
 pub use app_info::*;
 pub use conversations::*;
@@ -49,6 +53,31 @@ use runhq_core::error::{AppError, AppResult};
 use tauri::State;
 
 use crate::AppState;
+
+/// Keep filesystem, SQLite and subprocess work off both the window event loop
+/// and Tokio's async workers. Commands move owned inputs into this worker pool.
+pub(super) async fn blocking<T: Send + 'static>(
+    task: impl FnOnce() -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| AppError::other(format!("Background command failed: {error}")))?
+}
+
+/// Preserve ordering for storage that relied on synchronous IPC serialization.
+/// Wait outside the worker pool; once started, the worker owns the lock even
+/// when its caller is cancelled before the underlying I/O finishes.
+pub(super) async fn serialized_blocking<T: Send + 'static>(
+    gate: &'static tokio::sync::Mutex<()>,
+    task: impl FnOnce() -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    let guard = gate.lock().await;
+    blocking(move || {
+        let _guard = guard;
+        task()
+    })
+    .await
+}
 
 pub(crate) fn resolve_cwd(id: &str, state: &State<'_, AppState>) -> AppResult<PathBuf> {
     state

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowLeft,
   FileText,
@@ -17,6 +18,8 @@ import { EditorDropdown } from '@/components/EditorDropdown';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAppStore, logKey } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
+import { useVisibleStore } from '@/lib/useVisibleStore';
+import { mergeRecentLogLines } from '@/components/stackLogs';
 import { cn } from '@/lib/cn';
 import { localUrl } from '@/lib/url';
 import type { LogLine, ServiceDef, Status } from '@/types';
@@ -34,13 +37,33 @@ interface StackDetailProps {
    * system is designed for.
    */
   stackId: string;
+  visible?: boolean;
 }
 
-export function StackDetail({ stackId }: StackDetailProps) {
-  const stacks = useAppStore((s) => s.stacks);
-  const services = useAppStore((s) => s.services);
-  const statuses = useAppStore((s) => s.statuses);
-  const logs = useAppStore((s) => s.logs);
+export function StackDetail({ stackId, visible = true }: StackDetailProps) {
+  const stack = useVisibleStore(
+    useAppStore,
+    (s) => s.stacks.find((candidate) => candidate.id === stackId) ?? null,
+    visible,
+  );
+  const stackServices = useVisibleStore(
+    useAppStore,
+    useShallow((s) =>
+      stack
+        ? stack.service_ids
+            .map((id) => s.services.find((service) => service.id === id))
+            .filter((service): service is ServiceDef => !!service)
+        : [],
+    ),
+    visible,
+  );
+  const statuses = useVisibleStore(
+    useAppStore,
+    useShallow((s) =>
+      Object.fromEntries(stackServices.map((svc) => [svc.id, s.statuses[svc.id]?.status])),
+    ),
+    visible,
+  );
   const setSelected = useAppStore((s) => s.setSelected);
   const setSelectedStack = useAppStore((s) => s.setSelectedStack);
   const removeStack = useAppStore((s) => s.removeStack);
@@ -53,37 +76,36 @@ export function StackDetail({ stackId }: StackDetailProps) {
     onConfirm: () => void;
   } | null>(null);
 
-  const stack = stacks.find((s) => s.id === stackId) ?? null;
-
-  const stackServices = useMemo(
-    () =>
-      stack
-        ? (stack.service_ids
-            .map((sid) => services.find((s) => s.id === sid))
-            .filter(Boolean) as ServiceDef[])
-        : [],
-    [stack, services],
+  const logsVisible = visible && tab === 'logs';
+  const logs = useVisibleStore(
+    useAppStore,
+    useShallow((s) =>
+      Object.fromEntries(
+        stackServices.flatMap((svc) =>
+          svc.cmds.map((cmd) => {
+            const key = logKey(svc.id, cmd.name);
+            return [key, s.logs[key]];
+          }),
+        ),
+      ),
+    ),
+    logsVisible,
   );
-
   const perServiceLogs = useMemo(() => {
     const map = new Map<string, LogLine[]>();
+    if (tab !== 'logs') return map;
     for (const svc of stackServices) {
-      const lines: LogLine[] = [];
-      for (const cmd of svc.cmds) {
-        const buf = logs[logKey(svc.id, cmd.name)];
-        if (buf) lines.push(...buf.lines);
-      }
-      lines.sort((a, b) => a.seq - b.seq);
-      map.set(svc.id, lines.slice(-200));
+      const buffers = svc.cmds.map((cmd) => logs[logKey(svc.id, cmd.name)]?.lines ?? []);
+      map.set(svc.id, mergeRecentLogLines(buffers, 200));
     }
     return map;
-  }, [stackServices, logs]);
+  }, [stackServices, logs, tab]);
 
   const runningCount = stackServices.filter(
-    (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'running',
+    (svc) => (statuses[svc.id] ?? 'stopped') === 'running',
   ).length;
   const failedCount = stackServices.filter(
-    (svc) => (statuses[svc.id]?.status ?? 'stopped') === 'crashed',
+    (svc) => (statuses[svc.id] ?? 'stopped') === 'crashed',
   ).length;
   const anyRunning = runningCount > 0;
   const allRunning = stackServices.length > 0 && runningCount === stackServices.length;
@@ -228,7 +250,7 @@ export function StackDetail({ stackId }: StackDetailProps) {
         {tab === 'services' && (
           <div className="flex flex-col gap-2">
             {stackServices.map((svc) => {
-              const st: Status = statuses[svc.id]?.status ?? 'stopped';
+              const st: Status = statuses[svc.id] ?? 'stopped';
               const isRunning = st === 'running' || st === 'starting';
               const cmdSummary =
                 svc.cmds.length === 1 ? svc.cmds[0]?.cmd : `${svc.cmds.length} commands`;
@@ -336,7 +358,7 @@ export function StackDetail({ stackId }: StackDetailProps) {
               : stackServices
             ).map((svc) => {
               const svcLines = perServiceLogs.get(svc.id) ?? [];
-              const st: Status = statuses[svc.id]?.status ?? 'stopped';
+              const st: Status = statuses[svc.id] ?? 'stopped';
               return (
                 <div key={svc.id} className="glass flex flex-col overflow-hidden">
                   <div className="border-border/20 flex items-center gap-2 border-b px-4 py-1.5">

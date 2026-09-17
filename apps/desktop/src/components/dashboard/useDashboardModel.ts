@@ -5,6 +5,7 @@ import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
 import { buildWorkspaceFacts } from '@/lib/ai/workspaceSummary';
 import { buildWorkspaceReportChatPayload } from '@/lib/ai/workspaceReportPayload';
 import { ipc } from '@/lib/ipc';
+import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAppStore } from '@/store/useAppStore';
 import type { ProjectOverview, ServiceDef, StackDef } from '@/types';
 import { buildDashboardGroups } from './grouping';
@@ -22,38 +23,42 @@ import {
   type ServiceOverlayKind,
 } from './model';
 
-export function useDashboardModel(onScan: () => void) {
-  const allServices = useAppStore((s) => s.services);
-  const showHidden = useAppStore((s) => s.dashboardShowHidden);
+export function useDashboardModel(onScan: () => void, visible = true) {
+  const allServices = useVisibleStore(useAppStore, (s) => s.services, visible);
+  const showHidden = useVisibleStore(useAppStore, (s) => s.dashboardShowHidden, visible);
   const setShowHidden = useAppStore((s) => s.setDashboardShowHidden);
-  const servicesLoaded = useAppStore((s) => s.servicesLoaded);
-  const statuses = useAppStore((s) => s.statuses);
-  const resources = useAppStore((s) => s.resources);
-  const ports = useAppStore((s) => s.ports);
-  const appVersion = useAppStore((s) => s.appVersion);
+  const servicesLoaded = useVisibleStore(useAppStore, (s) => s.servicesLoaded, visible);
+  const statuses = useVisibleStore(useAppStore, (s) => s.statuses, visible);
+  const resources = useVisibleStore(useAppStore, (s) => s.resources, visible);
+  const ports = useVisibleStore(useAppStore, (s) => s.ports, visible);
+  const appVersion = useVisibleStore(useAppStore, (s) => s.appVersion, visible);
   const openEditor = useAppStore((s) => s.openEditor);
-  const stacks = useAppStore((s) => s.stacks);
+  const stacks = useVisibleStore(useAppStore, (s) => s.stacks, visible);
   const removeStack = useAppStore((s) => s.removeStack);
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const setSelectedStack = useAppStore((s) => s.setSelectedStack);
   const openServiceWithBodyTab = useAppStore((s) => s.openServiceWithBodyTab);
   const upsertStack = useAppStore((s) => s.upsertStack);
-  const git = useAppStore((s) => s.git);
-  const groupBy = useAppStore((s) => s.dashboardGroupBy);
+  const git = useVisibleStore(useAppStore, (s) => s.git, visible);
+  const groupBy = useVisibleStore(useAppStore, (s) => s.dashboardGroupBy, visible);
   const setGroupBy = useAppStore((s) => s.setDashboardGroupBy);
-  const sortBy = useAppStore((s) => s.dashboardSortBy);
+  const sortBy = useVisibleStore(useAppStore, (s) => s.dashboardSortBy, visible);
   const setSortBy = useAppStore((s) => s.setDashboardSortBy);
-  const sections = useAppStore((s) => s.sections);
-  const serviceSection = useAppStore((s) => s.serviceSection);
-  const overview = useAppStore((s) => s.overview);
-  const overviewScanning = useAppStore((s) => s.overviewScanning);
+  const sections = useVisibleStore(useAppStore, (s) => s.sections, visible);
+  const serviceSection = useVisibleStore(useAppStore, (s) => s.serviceSection, visible);
+  const overview = useVisibleStore(useAppStore, (s) => s.overview, visible);
+  const overviewScanning = useVisibleStore(useAppStore, (s) => s.overviewScanning, visible);
   const setOverviewScanning = useAppStore((s) => s.setOverviewScanning);
   const patchOverviewScan = useAppStore((s) => s.patchOverviewScan);
   const patchScanEntry = useAppStore((s) => s.patchScanEntry);
   const setScanningService = useAppStore((s) => s.setScanningService);
-  const scanFreshnessByService = useAppStore((s) => s.scanFreshnessByService);
-  const lastScanAt = useAppStore((s) => s.lastScanAt);
-  const editors = useAppStore((s) => s.editors);
+  const scanFreshnessByService = useVisibleStore(
+    useAppStore,
+    (s) => s.scanFreshnessByService,
+    visible,
+  );
+  const lastScanAt = useVisibleStore(useAppStore, (s) => s.lastScanAt, visible);
+  const editors = useVisibleStore(useAppStore, (s) => s.editors, visible);
 
   const services = useMemo(
     () => (showHidden ? allServices : allServices.filter((s) => !s.hide_dashboard)),
@@ -66,10 +71,11 @@ export function useDashboardModel(onScan: () => void) {
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (lastScanAt == null) return;
+    if (!visible || lastScanAt == null) return;
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
-  }, [lastScanAt]);
+  }, [lastScanAt, visible]);
 
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all');
@@ -86,6 +92,7 @@ export function useDashboardModel(onScan: () => void) {
   const effectiveQuery = committedQuery;
 
   useEffect(() => {
+    if (!visible) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
@@ -99,7 +106,7 @@ export function useDashboardModel(onScan: () => void) {
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [visible]);
 
   const [detail, setDetail] = useState<{ serviceId: string; tab: DetailTab } | null>(null);
   const openDetail = useCallback((serviceId: string, tab: DetailTab) => {
@@ -329,6 +336,7 @@ export function useDashboardModel(onScan: () => void) {
   }, []);
 
   return {
+    visible,
     allServices,
     appVersion,
     attentionFilter,

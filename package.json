@@ -29,7 +29,9 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,html}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,html}\"",
     "prepare": "husky",
-    "lint:workflows": "actionlint -color"
+    "lint:workflows": "actionlint -color",
+    "agent:build": "pnpm --filter @runhq/agent-runtime build",
+    "agent:test": "pnpm --filter @runhq/agent-runtime test"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

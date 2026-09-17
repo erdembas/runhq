@@ -1,4 +1,4 @@
-import { LayoutDashboard, Layers, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import { Bot, LayoutDashboard, Layers, Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import type { MainTab } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import type { Status } from '@/types';
@@ -18,6 +18,8 @@ export function resolveTabMeta(
   stacks: AppState['stacks'],
   statuses: AppState['statuses'],
 ): TabMeta {
+  if (tab.kind === 'agents')
+    return { label: 'Agents', icon: <Bot className="h-3 w-3" />, closable: true };
   if (tab.kind === 'dashboard') {
     return {
       label: 'Dashboard',

@@ -1,3 +1,4 @@
+import { matchesWorkspaceSearch, serviceSearchText, stackMatchesSearch } from './sidebarSearch';
 import { useMemo } from 'react';
 import { categoryForTags, CATEGORIES } from '@/lib/categories';
 import { inferRuntimeFromCmds, runtimeFromTags, runtimeMeta, RUNTIMES } from '@/lib/runtimes';
@@ -56,9 +57,8 @@ export function useSidebarRailModel({
         if (rt == null || !runtimeFilter.includes(rt)) return false;
       }
       if (q) {
-        const hay =
-          `${svc.name} ${svc.cmds.map((c) => c.cmd).join(' ')} ${svc.tags.join(' ')}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!matchesWorkspaceSearch(q, serviceSearchText(svc, sections, serviceSection[svc.id])))
+          return false;
       }
       return true;
     });
@@ -70,6 +70,8 @@ export function useSidebarRailModel({
     runtimeFilter,
     search,
     serviceIdsInAnyStack,
+    sections,
+    serviceSection,
   ]);
 
   const itemsBySection = useMemo(() => {
@@ -81,6 +83,7 @@ export function useSidebarRailModel({
       else buckets.set(bucket, [item]);
     };
     for (const stack of stacks) {
+      if (!stackMatchesSearch(stack, search, services, sections, stackSection[stack.id])) continue;
       const assigned = stackSection[stack.id];
       const bucket = assigned && validIds.has(assigned) ? assigned : UNASSIGNED;
       push(bucket, { kind: 'stack', ref: stack });
@@ -108,7 +111,16 @@ export function useSidebarRailModel({
       });
     }
     return buckets;
-  }, [filteredServices, stacks, serviceSection, stackSection, sections, sectionItemOrder]);
+  }, [
+    filteredServices,
+    stacks,
+    serviceSection,
+    stackSection,
+    sections,
+    sectionItemOrder,
+    search,
+    services,
+  ]);
 
   const totalsBySection = useMemo(() => {
     const out = new Map<SectionId, { running: number; total: number }>();

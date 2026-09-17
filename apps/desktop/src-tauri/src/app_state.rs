@@ -59,6 +59,7 @@ impl EventSink for TauriEventSink {
 
 /// Shared Tauri-managed state.
 pub struct AppState {
+    pub agents: Arc<runhq_core::agents::AgentManager>,
     pub store: Arc<Store>,
     pub supervisor: Arc<Supervisor>,
     pub terminals: TerminalManager,

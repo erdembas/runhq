@@ -11,6 +11,8 @@ mod pipeline;
 mod shell;
 mod types;
 
-pub use commands::{terminal_create, terminal_destroy, terminal_resize, terminal_write};
+pub use commands::{
+    terminal_acknowledge, terminal_create, terminal_destroy, terminal_resize, terminal_write,
+};
 pub use manager::TerminalManager;
 pub use types::TerminalOutput;

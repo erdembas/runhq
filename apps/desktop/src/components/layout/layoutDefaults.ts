@@ -15,11 +15,12 @@ export function defaultLayoutState(commandNames: string[] = []): LayoutState {
     root: {
       type: 'group',
       id: 'root',
-      tabs: [...logTabIds, 'docs', 'notes', firstTermId],
+      tabs: [...logTabIds, 'agents', 'docs', 'notes', firstTermId],
       activeTab: logTabIds[0] ?? 'docs',
     },
     tabs: {
       ...logTabsById,
+      agents: { id: 'agents', kind: 'agents', title: 'Agents' },
       docs: { id: 'docs', kind: 'docs', title: 'Docs' },
       notes: { id: 'notes', kind: 'notes', title: 'Notes' },
       [firstTermId]: { id: firstTermId, kind: 'terminal', title: 'Terminal 1' },

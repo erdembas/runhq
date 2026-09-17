@@ -10,6 +10,7 @@ export default [
       '**/dist/**',
       '**/src-tauri/target/**',
       '**/src-tauri/gen/**',
+      '**/src-tauri/resources/agent-runtime/**',
       '**/node_modules/**',
       '**/vite.config.ts',
     ],

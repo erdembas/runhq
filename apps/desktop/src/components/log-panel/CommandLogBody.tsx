@@ -1,3 +1,4 @@
+import { memo, useDeferredValue, useMemo } from 'react';
 import { Eraser } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import { LogXtermView } from '@/components/LogXtermView';
@@ -5,18 +6,18 @@ import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
 import { logKey } from '@/store/useAppStore';
-import type { CommandEntry } from '@/types';
-import { EMPTY_LOGS, badgeClass, filterLogLines } from './model';
-import type { LogsByCommand } from './useCommandLogs';
+import type { CommandEntry, LogLine } from '@/types';
+import { badgeClass, filterLogLines } from './model';
+import { useCommandLogs } from './useCommandLogs';
 
 interface CommandLogBodyProps {
-  allLogsByCommand: LogsByCommand;
+  visible: boolean;
   clearLogsLocal: (key: string) => void;
   commands: CommandEntry[];
   filter: string;
   follow: boolean;
   isDark: boolean;
-  onLineContextMenu: (commandName: string, index: number) => void;
+  onLineContextMenu: (lines: LogLine[], index: number) => void;
   selectedId: string;
   setFollow: (value: boolean) => void;
   setShowTimestamp: (value: boolean) => void;
@@ -24,8 +25,8 @@ interface CommandLogBodyProps {
   tab: LayoutTab;
 }
 
-export function CommandLogBody({
-  allLogsByCommand,
+export const CommandLogBody = memo(function CommandLogBody({
+  visible,
   clearLogsLocal,
   commands,
   filter,
@@ -42,8 +43,12 @@ export function CommandLogBody({
   const commandEntry = commandName
     ? (commands.find((command) => command.name === commandName) ?? null)
     : null;
-  const allLogs = commandName ? (allLogsByCommand[commandName] ?? EMPTY_LOGS) : EMPTY_LOGS;
-  const filtered = filterLogLines(allLogs, filter);
+  const allLogs = useCommandLogs(selectedId, commandName, visible);
+  const deferredFilter = useDeferredValue(filter);
+  const filtered = useMemo(
+    () => filterLogLines(allLogs, deferredFilter),
+    [allLogs, deferredFilter],
+  );
   const key = commandName ? logKey(selectedId, commandName) : '';
 
   return (
@@ -98,6 +103,7 @@ export function CommandLogBody({
         <LogXtermView
           key={`${selectedId}::${commandName ?? '__none__'}`}
           serviceId={selectedId}
+          visible={visible}
           commandName={commandName}
           lines={filtered}
           totalLogs={allLogs.length}
@@ -105,10 +111,10 @@ export function CommandLogBody({
           follow={follow}
           isDark={isDark}
           onLineContextMenu={(index) => {
-            if (commandName) onLineContextMenu(commandName, index);
+            onLineContextMenu(filtered, index);
           }}
         />
       </div>
     </div>
   );
-}
+});

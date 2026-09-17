@@ -3917,6 +3917,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "libc",
  "open",
  "parking_lot",
  "portable-pty",

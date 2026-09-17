@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { BookOpen, FileText, Plus, RotateCcw, Undo2 } from 'lucide-react';
+import { Bot, BookOpen, FileText, Plus, RotateCcw, Undo2 } from 'lucide-react';
 
 import { FileContextMenu, type FileContextMenuEntry } from '@/components/ui/FileContextMenu';
 
@@ -16,12 +16,14 @@ import { TabStripAction } from './TabStripAction';
 import { TabStripItem } from './TabStripItem';
 import type { GroupNode, Tab, TabKind } from './layoutModel';
 
-const RESTORE_LABEL: Record<'docs' | 'notes', string> = {
+const RESTORE_LABEL: Record<'docs' | 'notes' | 'agents', string> = {
+  agents: 'Agents',
   docs: 'Docs',
   notes: 'Notes',
 };
 
-const RESTORE_ICON: Record<'docs' | 'notes', typeof BookOpen> = {
+const RESTORE_ICON: Record<'docs' | 'notes' | 'agents', typeof BookOpen> = {
+  agents: Bot,
   docs: BookOpen,
   notes: FileText,
 };
@@ -73,8 +75,8 @@ export function GroupTabStrip({
 
   const restoreBtnRef = useRef<HTMLDivElement | null>(null);
   const [restoreMenuPos, setRestoreMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const restorableKinds = closedKinds.filter((k): k is 'docs' | 'notes' => {
-    if (k !== 'docs' && k !== 'notes') return false;
+  const restorableKinds = closedKinds.filter((k): k is 'docs' | 'notes' | 'agents' => {
+    if (k !== 'docs' && k !== 'notes' && k !== 'agents') return false;
     if (k === 'docs' && !includeDocs) return false;
     return true;
   });

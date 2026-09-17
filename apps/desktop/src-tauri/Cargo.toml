@@ -51,6 +51,9 @@ open = "5"
 # `atob` only understands the standard alphabet.
 base64 = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 

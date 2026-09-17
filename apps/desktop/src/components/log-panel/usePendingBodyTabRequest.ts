@@ -31,7 +31,14 @@ export function usePendingBodyTabRequest({
 
   useEffect(() => {
     if (!pendingBodyTabRequest) return;
-    if (pendingBodyTabRequest === 'terminal') {
+    if (pendingBodyTabRequest === 'agents') {
+      const group = findGroupByTab(layout.state.root, 'agents');
+      if (!group) {
+        layout.restoreTab('agents');
+        return; // Activate only after the restored tab is present in the next render.
+      }
+      layout.activate(group.id, 'agents');
+    } else if (pendingBodyTabRequest === 'terminal') {
       layout.ensureTerminal();
     } else if (
       pendingBodyTabRequest === 'logs' ||

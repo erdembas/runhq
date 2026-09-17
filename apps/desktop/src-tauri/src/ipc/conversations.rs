@@ -8,11 +8,14 @@ use tauri::State;
 
 use crate::AppState;
 
+// Message upserts compute their next sequence across multiple SQL statements.
+// Keep those transactions ordered when several chat windows save at once.
+static CONVERSATIONS_IO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // ---- Conversations (AI chat history) -------------------------------------
 
-fn open_conversations_db(state: &State<'_, AppState>) -> AppResult<ConversationsDb> {
-    let db_path = state
-        .store
+fn open_conversations_db(store: &runhq_core::state::Store) -> AppResult<ConversationsDb> {
+    let db_path = store
         .path()
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
@@ -38,42 +41,58 @@ pub struct ListConversationsInput {
 }
 
 #[tauri::command]
-pub fn list_conversations(
+pub async fn list_conversations(
     input: ListConversationsInput,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<ConversationSummary>> {
-    let db = open_conversations_db(&state)?;
-    let lim = input.limit.unwrap_or(200).min(2000);
-    db.list_conversations(
-        lim,
-        input.include_archived,
-        input.favorites_only,
-        input.query.as_deref(),
-    )
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        let lim = input.limit.unwrap_or(200).min(2000);
+        db.list_conversations(
+            lim,
+            input.include_archived,
+            input.favorites_only,
+            input.query.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn get_conversation(id: String, state: State<'_, AppState>) -> AppResult<Conversation> {
-    let db = open_conversations_db(&state)?;
-    db.get_conversation(&id)
+pub async fn get_conversation(id: String, state: State<'_, AppState>) -> AppResult<Conversation> {
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.get_conversation(&id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn create_conversation(
+pub async fn create_conversation(
     input: CreateConversationInput,
     state: State<'_, AppState>,
 ) -> AppResult<String> {
-    let db = open_conversations_db(&state)?;
-    db.create_conversation(input)
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.create_conversation(input)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn append_conversation_message(
+pub async fn append_conversation_message(
     input: AppendMessageInput,
     state: State<'_, AppState>,
 ) -> AppResult<String> {
-    let db = open_conversations_db(&state)?;
-    db.append_message(input)
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.append_message(input)
+    })
+    .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,12 +102,16 @@ pub struct RenameConversationInput {
 }
 
 #[tauri::command]
-pub fn rename_conversation(
+pub async fn rename_conversation(
     input: RenameConversationInput,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let db = open_conversations_db(&state)?;
-    db.rename_conversation(&input.id, &input.title)
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.rename_conversation(&input.id, &input.title)
+    })
+    .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,9 +121,16 @@ pub struct PinConversationInput {
 }
 
 #[tauri::command]
-pub fn pin_conversation(input: PinConversationInput, state: State<'_, AppState>) -> AppResult<()> {
-    let db = open_conversations_db(&state)?;
-    db.pin_conversation(&input.id, input.pinned)
+pub async fn pin_conversation(
+    input: PinConversationInput,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.pin_conversation(&input.id, input.pinned)
+    })
+    .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,12 +140,16 @@ pub struct FavoriteConversationInput {
 }
 
 #[tauri::command]
-pub fn favorite_conversation(
+pub async fn favorite_conversation(
     input: FavoriteConversationInput,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let db = open_conversations_db(&state)?;
-    db.favorite_conversation(&input.id, input.favorite)
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.favorite_conversation(&input.id, input.favorite)
+    })
+    .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,18 +159,26 @@ pub struct ArchiveConversationInput {
 }
 
 #[tauri::command]
-pub fn archive_conversation(
+pub async fn archive_conversation(
     input: ArchiveConversationInput,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let db = open_conversations_db(&state)?;
-    db.archive_conversation(&input.id, input.archived)
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.archive_conversation(&input.id, input.archived)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_conversation(id: String, state: State<'_, AppState>) -> AppResult<()> {
-    let db = open_conversations_db(&state)?;
-    db.delete_conversation(&id)
+pub async fn delete_conversation(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let store = state.store.clone();
+    super::serialized_blocking(&CONVERSATIONS_IO, move || {
+        let db = open_conversations_db(&store)?;
+        db.delete_conversation(&id)
+    })
+    .await
 }
 
 // Force module-use so the unused-import lint stays happy when the

@@ -59,6 +59,7 @@ It does not replace your IDE, Docker, tmux, or terminal. It sits above them so y
 - **Opens the right tool fast** with editor launch, project actions, global quick actions, and a cross-project command palette.
 - **Keeps logs usable** with terminal-grade ANSI rendering, search, follow mode, copy, and AI triage.
 - **Lets AI reason across the workspace** through your own OpenAI-compatible endpoint, local or cloud.
+- **Brings coding agents into each project** with Codex, OpenCode, Claude and Cursor sessions, task boards, plan review, canvas previews, questions and permissions, model selection, worktrees, terminal and diff review. See the [agent workspace guide](docs/AGENT_WORKSPACE.md) for setup and provider support.
 
 ## Install
 

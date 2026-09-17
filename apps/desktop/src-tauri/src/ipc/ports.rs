@@ -4,11 +4,11 @@ use runhq_core::ports::{self as core_ports, ListeningPort};
 // ---- Ports ---------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_ports() -> AppResult<Vec<ListeningPort>> {
-    core_ports::list()
+pub async fn list_ports() -> AppResult<Vec<ListeningPort>> {
+    super::blocking(core_ports::list).await
 }
 
 #[tauri::command]
-pub fn kill_port(port: u16) -> AppResult<Vec<u32>> {
-    core_ports::kill_port(port)
+pub async fn kill_port(port: u16) -> AppResult<Vec<u32>> {
+    super::blocking(move || core_ports::kill_port(port)).await
 }

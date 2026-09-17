@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import type { ServiceDef, StackDef } from '@/types';
+import { AgentNavigation } from './agents/AgentNavigation';
 
 import {
   WorkspaceHeader,
@@ -27,6 +29,7 @@ export function SidebarRail() {
   const sidebarStatusFilter = useAppStore((s) => s.sidebarStatusFilter);
   const groupBy = useAppStore((s) => s.sidebarGroupBy);
   const search = useAppStore((s) => s.search);
+  const setSearch = useAppStore((s) => s.setSearch);
   const setSelected = useAppStore((s) => s.setSelected);
   const removeServiceLocal = useAppStore((s) => s.removeService);
   const openEditor = useAppStore((s) => s.openEditor);
@@ -95,7 +98,7 @@ export function SidebarRail() {
     sectionItemOrder,
   });
   const currentWidth = expanded ? width : COLLAPSED_W;
-  const onHomeSelected = selectedServiceId === null && selectedStackId === null;
+  const onHomeSelected = useAppStore((s) => s.activeMainTabKey === 'dashboard:dashboard');
   const useSectionLayout = groupBy === 'none';
   const hasSections = sections.length > 0;
 
@@ -139,7 +142,7 @@ export function SidebarRail() {
 
   return (
     <div
-      className="chrome-gradient border-border/70 bg-surface-raised relative flex h-full shrink-0 flex-col border-r transition-all duration-200"
+      className="chrome-gradient border-border/70 bg-surface-raised relative flex h-full shrink-0 flex-col border-r"
       style={{ width: currentWidth }}
       onMouseEnter={() => {
         if (!pinned) setHovered(true);
@@ -159,6 +162,7 @@ export function SidebarRail() {
         onTogglePinned={() => setPinned(!pinned)}
       />
 
+      <AgentNavigation expanded={expanded} />
       <div className="overlay-scroll min-h-0 flex-1 overflow-x-hidden">
         {expanded && (
           <WorkspaceHeader
@@ -166,6 +170,35 @@ export function SidebarRail() {
             runningCount={runningCount}
             stacksCount={stacks.length}
           />
+        )}
+
+        {expanded && (
+          <div className="border-border/70 bg-surface/50 focus-within:border-accent/30 mx-3 mb-3 flex items-center gap-2 rounded-lg border px-2.5">
+            <Search className="text-fg-dim h-3.5 w-3.5 shrink-0" />
+            <input
+              aria-label="Search workspace"
+              placeholder="Find projects, groups…"
+              className="text-fg placeholder:text-fg-dim min-w-0 flex-1 bg-transparent py-2 text-[11.5px] outline-none"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.stopPropagation();
+                  setSearch('');
+                }
+              }}
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label="Clear workspace search"
+                className="text-fg-dim hover:text-fg p-0.5"
+                onClick={() => setSearch('')}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         )}
 
         {expanded && hiddenCount > 0 && (
@@ -194,7 +227,7 @@ export function SidebarRail() {
         {expanded && !useSectionLayout && (
           <GroupedServiceList
             groups={flatGroups}
-            collapsedGroups={collapsedGroups}
+            collapsedGroups={search.trim() ? new Set() : collapsedGroups}
             statuses={statuses}
             selectedServiceId={selectedServiceId}
             serviceSection={serviceSection}
@@ -207,6 +240,7 @@ export function SidebarRail() {
 
         {expanded && useSectionLayout && (
           <SidebarSectionLayout
+            searching={!!search.trim()}
             sections={sections}
             itemsBySection={itemsBySection}
             hasSections={hasSections}

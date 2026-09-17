@@ -7,6 +7,8 @@ dist-ssr/
 
 # Rust / Tauri
 target/
+apps/desktop/src-tauri/resources/agent-runtime/*.cjs
+apps/desktop/src-tauri/resources/agent-runtime/*.mjs
 **/*.rs.bk
 
 # OS

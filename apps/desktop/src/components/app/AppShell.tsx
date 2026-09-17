@@ -1,4 +1,8 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { memo, useEffect } from 'react';
+import { AgentToolsHub } from '@/components/agents/AgentToolsHub';
+import { AgentWorkspace } from '@/components/agents/AgentWorkspace';
+import { connectAgents } from '@/store/useAgentStore';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { SidebarRail } from '@/components/SidebarRail';
 import { LogPanel } from '@/components/LogPanel';
@@ -22,7 +26,7 @@ import { DiffViewer } from '@/components/DiffViewer';
 import { CrossProjectDiffViewer } from '@/components/CrossProjectDiffViewer';
 import { GlobalTooltip } from '@/components/ui/GlobalTooltip';
 import { ipc } from '@/lib/ipc';
-import { useAppStore, mainTabKey } from '@/store/useAppStore';
+import { useAppStore, mainTabKey, type MainTab } from '@/store/useAppStore';
 import { useShellUiStore } from '@/store/useShellUiStore';
 
 interface AppShellProps {
@@ -31,13 +35,95 @@ interface AppShellProps {
 }
 
 export function AppShell({ contextMenu, startScan }: AppShellProps) {
+  useEffect(() => {
+    void connectAgents();
+  }, []);
+
+  return (
+    <div className="bg-surface text-fg relative flex h-screen flex-col overflow-hidden">
+      <WorkspaceChrome startScan={startScan} />
+      <AgentToolsHub />
+      <AppOverlays />
+      <ResizeHandles />
+      {contextMenu}
+      <GlobalTooltip />
+    </div>
+  );
+}
+
+// Modal and context-menu state must not reconcile every mounted editor/terminal.
+const WorkspaceChrome = memo(function WorkspaceChrome({
+  startScan,
+}: Pick<AppShellProps, 'startScan'>) {
+  const openPortManager = useShellUiStore((s) => s.openPortManager);
+  return (
+    <>
+      <TitleBar />
+      <div className="flex min-h-0 flex-1">
+        <SidebarRail />
+        <main className="flex min-w-0 flex-1 flex-col">
+          <MainTabBar />
+          <MainTabPanels startScan={startScan} />
+        </main>
+        <RightSidePanel />
+        <RightActivityBar />
+      </div>
+      <UpdateBanner />
+      <StatusBar
+        onOpenPortManager={openPortManager}
+        onOpenSettings={() => useAppStore.getState().openSettings('shortcuts')}
+        onOpenAiSettings={() => useAppStore.getState().openSettings('ai')}
+        onToggleAiChat={() => useAppStore.getState().toggleRightPanel('ai')}
+      />
+    </>
+  );
+});
+
+function MainTabPanels({ startScan }: Pick<AppShellProps, 'startScan'>) {
   const mainTabs = useAppStore((s) => s.mainTabs);
-  const activeMainTabKey = useAppStore((s) => s.activeMainTabKey);
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      {mainTabs.map((tab) => (
+        <MainTabPanel key={mainTabKey(tab)} tab={tab} startScan={startScan} />
+      ))}
+    </div>
+  );
+}
+
+// Switching a tab updates only the previous and next panels. All other mounted
+// panels retain their DOM, local state and terminal sessions without a render.
+const MainTabPanel = memo(function MainTabPanel({
+  tab,
+  startScan,
+}: Pick<AppShellProps, 'startScan'> & { tab: MainTab }) {
+  const key = mainTabKey(tab);
+  const isActive = useAppStore((s) => s.activeMainTabKey === key);
+  return (
+    <div
+      role="tabpanel"
+      aria-hidden={!isActive}
+      className={isActive ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}
+    >
+      {tab.kind === 'dashboard' && <Dashboard onScan={startScan} visible={isActive} />}
+      {tab.kind === 'agents' && <AgentWorkspace visible={isActive} />}
+      {tab.kind === 'service' && <LogPanel serviceId={tab.refId} isActive={isActive} />}
+      {tab.kind === 'stack' && <StackDetail stackId={tab.refId} visible={isActive} />}
+      {tab.kind === 'settings' && <SettingsView onReplayTour={replayTour} />}
+      {tab.kind === 'release-notes' && <ReleaseNotes />}
+    </div>
+  );
+});
+
+function replayTour() {
+  useAppStore.getState().closeSettings();
+  useShellUiStore.getState().openTourReplay();
+}
+
+function AppOverlays() {
   const editorService = useAppStore((s) => s.editorService);
   const closeEditor = useAppStore((s) => s.closeEditor);
   const editorStack = useAppStore((s) => s.editorStack);
   const closeStackEditor = useAppStore((s) => s.closeStackEditor);
-  const toggleRightPanel = useAppStore((s) => s.toggleRightPanel);
   const diffViewerOpen = useAppStore((s) => s.diffViewerOpen);
   const diffViewerServiceId = useAppStore((s) => s.diffViewerServiceId);
   const closeDiffViewer = useAppStore((s) => s.closeDiffViewer);
@@ -46,69 +132,16 @@ export function AppShell({ contextMenu, startScan }: AppShellProps) {
   const whatsNewOpen = useAppStore((s) => s.whatsNewOpen);
   const whatsNewVersion = useAppStore((s) => s.whatsNewVersion);
   const closeWhatsNew = useAppStore((s) => s.closeWhatsNew);
-  const openSettings = useAppStore((s) => s.openSettings);
   const scanPath = useShellUiStore((s) => s.scanPath);
   const setScanPath = useShellUiStore((s) => s.setScanPath);
   const portManagerOpen = useShellUiStore((s) => s.portManagerOpen);
-  const openPortManager = useShellUiStore((s) => s.openPortManager);
   const closePortManager = useShellUiStore((s) => s.closePortManager);
   const paletteOpen = useShellUiStore((s) => s.paletteOpen);
   const tourState = useShellUiStore((s) => s.tourState);
-  const openTourReplay = useShellUiStore((s) => s.openTourReplay);
   const closeTour = useShellUiStore((s) => s.closeTour);
 
   return (
-    <div className="bg-surface text-fg relative flex h-screen flex-col overflow-hidden">
-      <TitleBar />
-      <div className="flex min-h-0 flex-1">
-        <SidebarRail />
-        <main className="flex min-w-0 flex-1 flex-col">
-          <MainTabBar />
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            {mainTabs.map((tab) => {
-              const key = mainTabKey(tab);
-              const isActive = key === activeMainTabKey;
-              const style: CSSProperties = isActive
-                ? { display: 'flex', flex: '1 1 auto', minHeight: 0 }
-                : { display: 'none' };
-
-              return (
-                <div
-                  key={key}
-                  role="tabpanel"
-                  aria-hidden={!isActive}
-                  className="flex-col overflow-hidden"
-                  style={style}
-                >
-                  {tab.kind === 'dashboard' && <Dashboard onScan={startScan} />}
-                  {tab.kind === 'service' && <LogPanel serviceId={tab.refId} />}
-                  {tab.kind === 'stack' && <StackDetail stackId={tab.refId} />}
-                  {tab.kind === 'settings' && (
-                    <SettingsView
-                      onReplayTour={() => {
-                        useAppStore.getState().closeSettings();
-                        openTourReplay();
-                      }}
-                    />
-                  )}
-                  {tab.kind === 'release-notes' && <ReleaseNotes />}
-                </div>
-              );
-            })}
-          </div>
-        </main>
-        <RightSidePanel />
-        <RightActivityBar />
-      </div>
-
-      <UpdateBanner />
-      <StatusBar
-        onOpenPortManager={openPortManager}
-        onOpenSettings={() => openSettings('shortcuts')}
-        onOpenAiSettings={() => openSettings('ai')}
-        onToggleAiChat={() => toggleRightPanel('ai')}
-      />
-
+    <>
       {editorService !== undefined && (
         <ServiceEditor service={editorService} onClose={closeEditor} />
       )}
@@ -123,17 +156,13 @@ export function AppShell({ contextMenu, startScan }: AppShellProps) {
       {whatsNewOpen && whatsNewVersion && (
         <WhatsNewModal version={whatsNewVersion} onClose={closeWhatsNew} />
       )}
-      <ResizeHandles />
-
       {paletteOpen && (
         <div
           aria-hidden
-          className="pointer-events-auto fixed inset-0 z-[60] bg-black/40 backdrop-blur-[2px] transition-opacity duration-150"
+          className="pointer-events-auto fixed inset-0 z-[60] bg-black/40"
           onClick={() => void ipc.hideQuickAction().catch(() => {})}
         />
       )}
-      {contextMenu}
-      <GlobalTooltip />
-    </div>
+    </>
   );
 }

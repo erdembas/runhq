@@ -12,10 +12,11 @@ import { useDashboardModel } from './useDashboardModel';
 
 interface Props {
   onScan: () => void;
+  visible?: boolean;
 }
 
-export function Dashboard({ onScan }: Props) {
-  const model = useDashboardModel(onScan);
+export function Dashboard({ onScan, visible = true }: Props) {
+  const model = useDashboardModel(onScan, visible);
 
   if (!model.servicesLoaded) return <DashboardSkeleton />;
 

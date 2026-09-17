@@ -99,7 +99,7 @@ export function Drawer({ children, onClose, ariaLabel, size = 'md', side = 'righ
     >
       <div
         aria-hidden
-        className="motion-safe:animate-in motion-safe:fade-in absolute inset-0 bg-black/40 backdrop-blur-[2px] motion-safe:duration-200"
+        className="motion-safe:animate-in motion-safe:fade-in absolute inset-0 bg-black/40 motion-safe:duration-200"
       />
       <aside
         onClick={(e) => e.stopPropagation()}

@@ -20,7 +20,7 @@ export interface BodyProps {
    * Ordered, interleaved rows for this bucket. The bucket itself is
    * identified by {@link bucketId}; items are arranged in the order
    * the user (or the alphabetical fallback) put them in. Empty
-   * arrays render the "Drag services or stacks here" placeholder.
+   * arrays render the "Drop services or stacks here" placeholder.
    */
   items: SidebarItem[];
   /**
@@ -64,8 +64,8 @@ export function SectionBody({
 }: BodyProps) {
   if (items.length === 0) {
     return (
-      <div className="border-border/60 mx-2 my-1 rounded-[6px] border border-dashed px-3 py-4 text-center">
-        <p className="text-fg-dim text-[10.5px] leading-tight">Drag services or stacks here</p>
+      <div className="border-border/60 mx-2 my-1 rounded-lg border border-dashed px-3 py-2.5 text-center">
+        <p className="text-fg-dim text-[10.5px] leading-tight">Drop services or stacks here</p>
       </div>
     );
   }
@@ -80,7 +80,7 @@ export function SectionBody({
   const reorderEnabled = bucketId != null;
 
   return (
-    <ul className="mx-2 space-y-0.5">
+    <ul className="mx-1 space-y-0.5">
       {items.map((item, idx) => {
         const key = itemKey(item.kind, item.ref.id);
         const rowContent =

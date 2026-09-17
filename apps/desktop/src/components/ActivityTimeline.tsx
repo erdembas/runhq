@@ -33,6 +33,7 @@ export function ActivityTimeline({
   onClose,
   variant = 'overlay',
   embedded = false,
+  visible = true,
 }: ActivityTimelineProps) {
   const store = useActivityTimelineStoreRef();
   const state = useActivityTimelineStore(store, (timeline) => timeline);
@@ -42,6 +43,7 @@ export function ActivityTimeline({
   const { ansi, isDark } = useTimelineAnsi();
   const chrome = useTimelineChrome(store);
   const refresh = useActivityTimelineData(store, {
+    visible,
     isInline,
     collapsed: state.collapsed,
     hoverOpen: state.hoverOpen,
@@ -49,6 +51,7 @@ export function ActivityTimeline({
   const standup = useActivityStandup(state.markStandupCopied);
 
   useActivityKeyboard(store, {
+    visible,
     isInline,
     collapsed: state.collapsed,
     hoverOpen: state.hoverOpen,

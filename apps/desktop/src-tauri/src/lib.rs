@@ -7,6 +7,7 @@
 //! 2. Implementing [`runhq_core::EventSink`] on top of Tauri's event bus.
 //! 3. Exposing the IPC command surface ([`ipc`]) that the React UI talks to.
 
+mod agent_canvas;
 mod app_state;
 pub mod ipc;
 mod quick_action;
@@ -40,6 +41,23 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(setup_app)
         .invoke_handler(tauri::generate_handler![
+            ipc::agent_canvas_url,
+            ipc::agent_canvas_save,
+            ipc::agent_projects,
+            ipc::agent_add_project,
+            ipc::agent_sessions,
+            ipc::agent_snapshot,
+            ipc::agent_backends,
+            ipc::agent_save_tool,
+            ipc::agent_catalog,
+            ipc::agent_create,
+            ipc::agent_start,
+            ipc::agent_answer,
+            ipc::agent_interrupt,
+            ipc::agent_steer,
+            ipc::agent_update,
+            ipc::agent_delete,
+            ipc::agent_workspace_diff,
             ipc::app_info,
             ipc::list_services,
             ipc::add_service,
@@ -149,6 +167,7 @@ pub fn run() {
             ipc::scan_licenses,
             ipc::generate_third_party_notices,
             ipc::write_third_party_notices,
+            terminal::commands::terminal_acknowledge,
             terminal::commands::terminal_create,
             terminal::commands::terminal_write,
             terminal::commands::terminal_resize,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -19,9 +19,10 @@ import {
 interface Props {
   id: string;
   cwd: string;
+  toolId?: string;
 }
 
-export function TerminalPane({ id, cwd }: Props) {
+export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const termRef = useRef<Terminal | null>(null);
@@ -176,16 +177,37 @@ export function TerminalPane({ id, cwd }: Props) {
     });
 
     let alive = true;
+    let ready = false;
+    let lastSize = '';
+    const container = containerRef.current;
+    const isVisible = () => container.clientWidth > 0 && container.clientHeight > 0;
 
     requestAnimationFrame(() => {
       if (!alive) return;
-      fit.fit();
+      if (isVisible()) fit.fit();
       const { cols, rows } = term;
+      lastSize = `${cols}x${rows}`;
       ipc
-        .terminalCreate(id, cwd, cols, rows, (chunk) => {
-          if (!alive) return;
-          const bytes = decodeBase64(chunk.data);
-          term.write(bytes);
+        .terminalCreate(
+          id,
+          cwd,
+          cols,
+          rows,
+          (chunk) => {
+            if (!alive) return;
+            const bytes = decodeBase64(chunk.data);
+            term.write(bytes, () => {
+              if (!alive) return;
+              void ipc.terminalAcknowledge(id, chunk.stream_id, bytes.length).catch((err) => {
+                if (alive) console.warn('terminalAcknowledge failed', err);
+              });
+            });
+          },
+          toolId,
+        )
+        .then(() => {
+          ready = true;
+          if (alive) scheduleResize();
         })
         .catch((err: unknown) => {
           if (!alive) return;
@@ -193,7 +215,7 @@ export function TerminalPane({ id, cwd }: Props) {
           console.error('terminalCreate failed', err);
           writeError(term, `Failed to start terminal: ${message}`);
         });
-      term.focus();
+      if (isVisible()) term.focus();
     });
 
     term.onData((data) => {
@@ -206,11 +228,15 @@ export function TerminalPane({ id, cwd }: Props) {
     let resizeRaf = 0;
     const flushResize = () => {
       resizeRaf = 0;
-      if (!alive) return;
+      if (!alive || !ready || !isVisible()) return;
       try {
         fit.fit();
         const { cols: c, rows: r } = term;
+        const size = `${c}x${r}`;
+        if (lastSize === size) return;
+        lastSize = size;
         void ipc.terminalResize(id, c, r).catch((err: unknown) => {
+          lastSize = '';
           console.warn('terminalResize failed', err);
         });
       } catch {
@@ -219,38 +245,15 @@ export function TerminalPane({ id, cwd }: Props) {
         // resize will recompute correctly.
       }
     };
-    const resizeObserver = new ResizeObserver(() => {
-      if (!alive) return;
-      if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
+    const scheduleResize = () => {
+      if (!alive || resizeRaf !== 0) return;
       resizeRaf = requestAnimationFrame(flushResize);
-    });
+    };
+    const resizeObserver = new ResizeObserver(scheduleResize);
     resizeObserver.observe(containerRef.current);
 
-    let wasVisible = false;
-    let visibilityRaf = 0;
     const visibilityObserver = new IntersectionObserver((entries) => {
-      if (!alive) return;
-      for (const entry of entries) {
-        const nowVisible = entry.isIntersecting && entry.intersectionRatio > 0;
-        if (nowVisible && !wasVisible) {
-          if (visibilityRaf !== 0) cancelAnimationFrame(visibilityRaf);
-          visibilityRaf = requestAnimationFrame(() => {
-            visibilityRaf = 0;
-            if (!alive) return;
-            try {
-              fit.fit();
-              term.refresh(0, term.rows - 1);
-              const { cols: c, rows: r } = term;
-              void ipc.terminalResize(id, c, r).catch((err: unknown) => {
-                console.warn('terminalResize failed', err);
-              });
-            } catch {
-              // empty
-            }
-          });
-        }
-        wasVisible = nowVisible;
-      }
+      if (entries.some((entry) => entry.isIntersecting)) scheduleResize();
     });
     visibilityObserver.observe(containerRef.current);
 
@@ -262,10 +265,6 @@ export function TerminalPane({ id, cwd }: Props) {
       if (resizeRaf !== 0) {
         cancelAnimationFrame(resizeRaf);
         resizeRaf = 0;
-      }
-      if (visibilityRaf !== 0) {
-        cancelAnimationFrame(visibilityRaf);
-        visibilityRaf = 0;
       }
       resizeObserver.disconnect();
       visibilityObserver.disconnect();
@@ -283,7 +282,7 @@ export function TerminalPane({ id, cwd }: Props) {
     // escape hatch for hung foreground processes (e.g. an `opencode`
     // wedge that ignored Ctrl+C).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, cwd, restartNonce]);
+  }, [id, cwd, toolId, restartNonce]);
 
   // Live-search as the user types. Debouncing isn't worth the
   // complexity — `findNext` is sub-millisecond on a 10 K-line buffer,
@@ -414,4 +413,4 @@ export function TerminalPane({ id, cwd }: Props) {
       )}
     </div>
   );
-}
+});

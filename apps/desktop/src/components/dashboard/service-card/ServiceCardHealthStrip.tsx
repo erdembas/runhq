@@ -13,6 +13,7 @@ import { WhyAskButton } from './WhyAskButton';
 import { countAttentionFlags, staleLabel } from './health';
 
 interface ServiceCardHealthStripProps {
+  visible?: boolean;
   serviceId: ServiceId;
   projectMeta?: ProjectOverview | null;
   overviewScanning: boolean;
@@ -26,6 +27,7 @@ interface ServiceCardHealthStripProps {
 }
 
 export function ServiceCardHealthStrip({
+  visible = true,
   serviceId,
   projectMeta,
   overviewScanning,
@@ -148,6 +150,7 @@ export function ServiceCardHealthStrip({
           )}
           {showFreshness && (
             <ScanFreshnessChip
+              visible={visible}
               scannedAtMs={scanFreshness}
               durationMs={scanDuration ?? null}
               rescanning={isRescanning}

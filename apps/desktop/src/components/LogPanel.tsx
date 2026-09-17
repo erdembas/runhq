@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ServiceLayout } from '@/components/layout/ServiceLayout';
-import { activeCommandLogName } from '@/components/layout/layoutModel';
+import { activeCommandLogName, listGroups } from '@/components/layout/layoutModel';
 import { useServiceLayout } from '@/components/layout/useServiceLayout';
 import { LogPanelBodyHosts } from '@/components/log-panel/LogPanelBodyHosts';
 import { LogPanelHeader } from '@/components/log-panel/LogPanelHeader';
 import { LogPanelOverlays } from '@/components/log-panel/LogPanelOverlays';
 import {
   useActiveServiceCommand,
-  useCommandLogs,
+  useLoadCommandLogs,
   useServiceCommandNames,
 } from '@/components/log-panel/useCommandLogs';
 import { useDocumentThemeFlag } from '@/components/log-panel/useDocumentThemeFlag';
@@ -27,9 +27,10 @@ type PopoverKey = 'ports';
 
 interface LogPanelProps {
   serviceId: string;
+  isActive: boolean;
 }
 
-export function LogPanel({ serviceId }: LogPanelProps) {
+export function LogPanel({ serviceId, isActive }: LogPanelProps) {
   const selectedId = serviceId;
   const service = useAppStore((s) => s.services.find((x) => x.id === serviceId) ?? null);
   const status = useAppStore((s) => s.statuses[serviceId]);
@@ -74,16 +75,28 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 
   const commandNames = useServiceCommandNames(service);
   const layout = useServiceLayout(serviceId, commandNames);
+  const visibleTabIds = useMemo(
+    () =>
+      new Set(
+        listGroups(layout.state.root).flatMap((group) => {
+          const visible = group.tabs.filter(
+            (id) =>
+              layout.state.tabs[id] &&
+              (layout.state.tabs[id]!.kind !== 'docs' || layout.state.includeDocs),
+          );
+          const active =
+            group.activeTab && visible.includes(group.activeTab) ? group.activeTab : visible[0];
+          return active ? [active] : [];
+        }),
+      ),
+    [layout.state],
+  );
   const { bodySlots, onSlotRef } = useLogPanelSlots();
   const isDark = useDocumentThemeFlag();
   const activeLogCmd = useMemo(() => activeCommandLogName(layout.state), [layout.state]);
   const activeCmd = useActiveServiceCommand(service, activeLogCmd);
-  const allLogsByCommand = useCommandLogs(selectedId, commandNames);
-  const handleLineContextMenu = useLogAiContextMenu({
-    allLogsByCommand,
-    filter,
-    service,
-  });
+  useLoadCommandLogs(selectedId, commandNames);
+  const handleLineContextMenu = useLogAiContextMenu({ service });
   const runDocCommand = useDocTerminalRunner({ serviceId: selectedId, layout });
 
   useProjectDocsDiscovery({ selectedId, activeCmd, layout });
@@ -108,7 +121,7 @@ export function LogPanel({ serviceId }: LogPanelProps) {
   const cmdStatuses = status?.commands ?? [];
 
   useEffect(() => {
-    if (!isServiceRunning || !service || !selectedId) return;
+    if (!isActive || !isServiceRunning || !service || !selectedId) return;
     const handler = (e: KeyboardEvent) => {
       if (
         e.ctrlKey &&
@@ -132,7 +145,7 @@ export function LogPanel({ serviceId }: LogPanelProps) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isServiceRunning, selectedId, activeCmd, service]);
+  }, [isActive, isServiceRunning, selectedId, activeCmd, service]);
 
   if (!service || !selectedId) {
     return (
@@ -212,12 +225,13 @@ export function LogPanel({ serviceId }: LogPanelProps) {
 
       <LogPanelBodyHosts
         tabs={layout.state.tabs}
+        isActive={isActive}
+        visibleTabIds={visibleTabIds}
         bodySlots={bodySlots}
         selectedId={selectedId}
         cwd={service.cwd}
         serviceName={service.name}
         commands={service.cmds}
-        allLogsByCommand={allLogsByCommand}
         filter={filter}
         showTimestamp={showTimestamp}
         setShowTimestamp={setShowTimestamp}

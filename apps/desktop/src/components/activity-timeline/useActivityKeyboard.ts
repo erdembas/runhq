@@ -5,6 +5,7 @@ import {
 } from './useActivityTimelineStore';
 
 interface ActivityKeyboardOptions {
+  visible: boolean;
   isInline: boolean;
   collapsed: boolean;
   hoverOpen: boolean;
@@ -14,7 +15,7 @@ interface ActivityKeyboardOptions {
 
 export function useActivityKeyboard(
   store: ActivityTimelineStoreApi,
-  { isInline, collapsed, hoverOpen, onClose, searchInputRef }: ActivityKeyboardOptions,
+  { visible, isInline, collapsed, hoverOpen, onClose, searchInputRef }: ActivityKeyboardOptions,
 ) {
   const modalEventId = useActivityTimelineStore(store, (state) => state.modalEventId);
   const selectedId = useActivityTimelineStore(store, (state) => state.selectedId);
@@ -22,7 +23,7 @@ export function useActivityKeyboard(
 
   useEffect(() => {
     const panelVisible = isInline ? !collapsed || hoverOpen : true;
-    if (!panelVisible) return;
+    if (!visible || !panelVisible) return;
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const editable =
@@ -50,5 +51,15 @@ export function useActivityKeyboard(
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isInline, collapsed, hoverOpen, modalEventId, selectedId, onClose, patch, searchInputRef]);
+  }, [
+    visible,
+    isInline,
+    collapsed,
+    hoverOpen,
+    modalEventId,
+    selectedId,
+    onClose,
+    patch,
+    searchInputRef,
+  ]);
 }

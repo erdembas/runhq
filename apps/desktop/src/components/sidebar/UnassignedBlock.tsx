@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { WorkspaceGroupHeader } from '@runhq/cockpit-ui';
 import { useAppStore } from '@/store/useAppStore';
-import { cn } from '@/lib/cn';
 import { readDrag, endDrag, getActiveDrag } from './dnd';
 import { useDragActive } from './useDragActive';
 
@@ -65,7 +64,7 @@ export function UnassignedBlock({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="animate-slide-in relative mx-1 rounded-[8px]"
+      className="animate-slide-in relative mx-2 my-2 rounded-xl"
       style={{
         outline: '1px dashed',
         outlineOffset: '-2px',
@@ -73,24 +72,13 @@ export function UnassignedBlock({
         transition: 'outline-color 150ms',
       }}
     >
-      <header
-        onClick={onToggle}
-        className="hover:bg-surface-overlay/40 sticky top-0 z-10 flex cursor-pointer items-center gap-2 bg-transparent pt-2.5 pr-4 pb-1 pl-2 backdrop-blur-[2px]"
-      >
-        <ChevronDown
-          className={cn('text-fg-dim h-3 w-3 transition-transform', collapsed && '-rotate-90')}
-        />
-        <span className="bg-fg-dim/40 h-2 w-2 shrink-0 rounded-full" aria-hidden />
-        <span className="text-fg-muted min-w-0 flex-1 truncate text-[11.5px] font-semibold tracking-wide">
-          Unassigned
-        </span>
-        {total > 0 && (
-          <span className="bg-surface-muted text-fg-dim rounded-app-sm inline-flex h-[18px] min-w-[22px] shrink-0 items-center justify-center px-1 text-[10px] leading-none tabular-nums">
-            {total}
-          </span>
-        )}
-      </header>
-      {!collapsed && <div className="pb-1">{children}</div>}
+      <WorkspaceGroupHeader
+        name="Unassigned"
+        collapsed={collapsed}
+        onToggle={onToggle}
+        count={total}
+      />
+      {!collapsed && <div className="border-border/60 ml-3 border-l pb-1 pl-1">{children}</div>}
     </section>
   );
 }

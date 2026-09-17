@@ -1,8 +1,9 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, memo, Suspense, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TerminalPane } from '@/components/TerminalPane';
 import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
 import type { CommandEntry, LogLine } from '@/types';
+import { ProjectAgentsTab } from '@/components/agents/ProjectAgentsTab';
 import { CommandLogBody } from './CommandLogBody';
 
 const ProjectDocsTab = lazy(() =>
@@ -14,13 +15,12 @@ const ProjectNotesTab = lazy(() =>
 );
 
 interface TabBodyHostProps {
-  allLogsByCommand: Record<string, LogLine[]>;
   clearLogsLocal: (key: string) => void;
   commands: CommandEntry[];
   cwd: string;
   filter: string;
   follow: boolean;
-  handleLineContextMenu: (commandName: string, index: number) => void;
+  handleLineContextMenu: (lines: LogLine[], index: number) => void;
   isDark: boolean;
   onRunCommand: (command: string) => void;
   selectedId: string;
@@ -29,11 +29,11 @@ interface TabBodyHostProps {
   setShowTimestamp: (value: boolean) => void;
   showTimestamp: boolean;
   slot: HTMLDivElement;
+  visible: boolean;
   tab: LayoutTab;
 }
 
-export function TabBodyHost({
-  allLogsByCommand,
+export const TabBodyHost = memo(function TabBodyHost({
   clearLogsLocal,
   commands,
   cwd,
@@ -48,14 +48,18 @@ export function TabBodyHost({
   setShowTimestamp,
   showTimestamp,
   slot,
+  visible,
   tab,
 }: TabBodyHostProps) {
   let body: ReactNode = null;
   switch (tab.kind) {
+    case 'agents':
+      body = <ProjectAgentsTab key={cwd} cwd={cwd} name={serviceName} visible={visible} />;
+      break;
     case 'logs': {
       body = (
         <CommandLogBody
-          allLogsByCommand={allLogsByCommand}
+          visible={visible}
           clearLogsLocal={clearLogsLocal}
           commands={commands}
           filter={filter}
@@ -107,4 +111,4 @@ export function TabBodyHost({
   }
 
   return createPortal(body, slot);
-}
+});

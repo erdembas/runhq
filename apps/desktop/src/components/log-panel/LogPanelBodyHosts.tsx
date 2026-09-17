@@ -3,14 +3,13 @@ import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
 import type { CommandEntry, LogLine } from '@/types';
 
 interface LogPanelBodyHostsProps {
-  allLogsByCommand: Record<string, LogLine[]>;
   bodySlots: Map<string, HTMLDivElement>;
   clearLogsLocal: (key: string) => void;
   commands: CommandEntry[];
   cwd: string;
   filter: string;
   follow: boolean;
-  handleLineContextMenu: (commandName: string, index: number) => void;
+  handleLineContextMenu: (lines: LogLine[], index: number) => void;
   onRunCommand: (command: string) => void;
   selectedId: string;
   serviceName: string;
@@ -19,10 +18,11 @@ interface LogPanelBodyHostsProps {
   showTimestamp: boolean;
   tabs: Record<string, LayoutTab>;
   isDark: boolean;
+  isActive: boolean;
+  visibleTabIds: Set<string>;
 }
 
 export function LogPanelBodyHosts({
-  allLogsByCommand,
   bodySlots,
   clearLogsLocal,
   commands,
@@ -38,6 +38,8 @@ export function LogPanelBodyHosts({
   setShowTimestamp,
   showTimestamp,
   tabs,
+  isActive,
+  visibleTabIds,
 }: LogPanelBodyHostsProps) {
   return (
     <>
@@ -49,11 +51,11 @@ export function LogPanelBodyHosts({
             key={tab.id}
             tab={tab}
             slot={slot}
+            visible={isActive && visibleTabIds.has(tab.id)}
             selectedId={selectedId}
             cwd={cwd}
             serviceName={serviceName}
             commands={commands}
-            allLogsByCommand={allLogsByCommand}
             filter={filter}
             showTimestamp={showTimestamp}
             setShowTimestamp={setShowTimestamp}

@@ -75,14 +75,13 @@ pub fn service_status(id: String, state: State<'_, AppState>) -> AppResult<Servi
 }
 
 #[tauri::command]
-pub fn resize_service_log_pty(
+pub async fn resize_service_log_pty(
     id: String,
     cmd_name: String,
     cols: u16,
     rows: u16,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    state
-        .supervisor
-        .resize_command_pty(&id, &cmd_name, cols, rows)
+    let supervisor = state.supervisor.clone();
+    super::blocking(move || supervisor.resize_command_pty(&id, &cmd_name, cols, rows)).await
 }

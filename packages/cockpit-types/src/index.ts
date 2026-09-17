@@ -6,3 +6,4 @@ export * from './summaryTypes';
 export * from './diffTypes';
 export * from './licenseTypes';
 export * from './docsTypes';
+export * from './agentTypes';

@@ -14,7 +14,13 @@ import type { ServiceId } from '@/types';
  * Tabs are addressed by a stable composite key `${kind}:${refId}` so the
  * tab strip can dedup and React can use it as a list key.
  */
-export type MainTabKind = 'dashboard' | 'service' | 'stack' | 'settings' | 'release-notes';
+export type MainTabKind =
+  | 'dashboard'
+  | 'service'
+  | 'stack'
+  | 'settings'
+  | 'release-notes'
+  | 'agents';
 export interface MainTab {
   kind: MainTabKind;
   refId: string;

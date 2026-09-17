@@ -1,4 +1,4 @@
-export type TabKind = 'logs' | 'docs' | 'notes' | 'terminal';
+export type TabKind = 'logs' | 'docs' | 'notes' | 'agents' | 'terminal';
 
 export interface Tab {
   id: string;

@@ -156,6 +156,7 @@ function ServiceCardSlot({
   return (
     <CardSearchSlot hidden={hidden}>
       <ServiceCard
+        visible={model.visible && !hidden}
         svc={svc}
         draggable={draggable}
         projectMeta={model.projectMetaById.get(svc.id) ?? null}

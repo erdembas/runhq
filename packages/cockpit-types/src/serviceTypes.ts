@@ -96,6 +96,7 @@ export interface LogEvent {
  * that, so interactive REPL echo still feels instant.
  */
 export interface TerminalOutput {
+  stream_id: string;
   /** Base64-encoded raw bytes from the PTY master. Standard alphabet
    *  (NOT URL-safe) — the renderer decodes with `atob`. */
   data: string;

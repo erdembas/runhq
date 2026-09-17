@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { BookOpen, FileText, ScrollText, TerminalSquare, X } from 'lucide-react';
+import { Bot, BookOpen, FileText, ScrollText, TerminalSquare, X } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 import type { Tab, TabKind } from './layoutModel';
 
 const TAB_ICON: Record<TabKind, ComponentType<{ className?: string }>> = {
+  agents: Bot,
   logs: ScrollText,
   docs: BookOpen,
   notes: FileText,
@@ -37,7 +38,8 @@ export function TabStripItem({
     tab.kind === 'terminal' ||
     (tab.kind === 'logs' && Boolean(tab.commandName)) ||
     tab.kind === 'docs' ||
-    tab.kind === 'notes';
+    tab.kind === 'notes' ||
+    tab.kind === 'agents';
   const renameable = tab.kind === 'terminal';
   const {
     attributes: dragAttrs,

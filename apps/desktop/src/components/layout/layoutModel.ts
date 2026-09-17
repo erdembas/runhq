@@ -12,13 +12,15 @@ import { openCommandLogTab, syncCommandLogTabs } from './commandLogLayout';
 import { nextLogInsertIndex } from './layoutLogTabs';
 import type { LayoutAction, LayoutState, Tab, TabKind } from './layoutTypes';
 
-const RESTORABLE_TAB_DEFAULTS: Record<'docs' | 'notes', { id: string; title: string }> = {
-  docs: { id: 'docs', title: 'Docs' },
-  notes: { id: 'notes', title: 'Notes' },
-};
+const RESTORABLE_TAB_DEFAULTS: Record<'docs' | 'notes' | 'agents', { id: string; title: string }> =
+  {
+    agents: { id: 'agents', title: 'Agents' },
+    docs: { id: 'docs', title: 'Docs' },
+    notes: { id: 'notes', title: 'Notes' },
+  };
 
-function isRestorableKind(kind: TabKind): kind is 'docs' | 'notes' {
-  return kind === 'docs' || kind === 'notes';
+function isRestorableKind(kind: TabKind): kind is 'docs' | 'notes' | 'agents' {
+  return kind === 'docs' || kind === 'notes' || kind === 'agents';
 }
 
 export { defaultLayoutState } from './layoutDefaults';

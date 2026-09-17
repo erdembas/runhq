@@ -51,7 +51,7 @@ export function preferredLogGroup(state: LayoutState): GroupNode | null {
     groups.find((group) =>
       group.tabs.some((tabId) => {
         const kind = state.tabs[tabId]?.kind;
-        return kind === 'logs' || kind === 'docs' || kind === 'notes';
+        return kind === 'logs' || kind === 'agents' || kind === 'docs' || kind === 'notes';
       }),
     ) ??
     groups[0] ??
@@ -69,7 +69,7 @@ export function nextLogInsertIndex(group: GroupNode, tabs: Record<string, Tab>):
 
   const firstStaticIndex = group.tabs.findIndex((tabId) => {
     const kind = tabs[tabId]?.kind;
-    return kind === 'docs' || kind === 'notes' || kind === 'terminal';
+    return kind === 'agents' || kind === 'docs' || kind === 'notes' || kind === 'terminal';
   });
   return firstStaticIndex >= 0 ? firstStaticIndex : group.tabs.length;
 }

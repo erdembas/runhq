@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="referrer" content="no-referrer" />
+    <title>RunHQ canvas</title>
+  </head>
+  <body>
+    <script>
+      (() => {
+        try {
+          const encoded = window.location.hash.slice(1);
+          if (!encoded || encoded.length > 1500000)
+            throw new Error('Canvas source is missing or too large.');
+          const source = decodeURIComponent(encoded);
+          if (source.length > 500000) throw new Error('Canvas source is too large to preview.');
+          // The response policy and sandbox persist across document.write. No host API is exposed.
+          document.open();
+          document.write(source);
+          document.close();
+        } catch (error) {
+          document.body.textContent =
+            error instanceof Error ? error.message : 'Could not render this canvas.';
+        }
+      })();
+    </script>
+  </body>
+</html>

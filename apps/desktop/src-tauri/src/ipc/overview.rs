@@ -96,8 +96,8 @@ pub async fn scan_project_dependency_for_service(
 /// after each scan so the freshness clock resets in place.
 #[tauri::command]
 pub async fn list_persisted_scans(state: State<'_, AppState>) -> AppResult<Vec<PersistedScan>> {
-    let db = open_scan_history_db(&state)?;
-    db.list_all()
+    let path = scan_history_db_path(&state);
+    super::blocking(move || ScanHistoryDb::open(&path)?.list_all()).await
 }
 
 /// Drop the cached scan row for one project. Used by the per-project
@@ -109,14 +109,14 @@ pub async fn delete_persisted_scan(
     service_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let db = open_scan_history_db(&state)?;
-    db.delete_by_service(&service_id)
+    let path = scan_history_db_path(&state);
+    super::blocking(move || ScanHistoryDb::open(&path)?.delete_by_service(&service_id)).await
 }
 
 /// Wipe every persisted scan row. Returns the number of rows that were
 /// dropped so the UI can show a confirmation toast.
 #[tauri::command]
 pub async fn clear_persisted_scans(state: State<'_, AppState>) -> AppResult<usize> {
-    let db = open_scan_history_db(&state)?;
-    db.clear_all()
+    let path = scan_history_db_path(&state);
+    super::blocking(move || ScanHistoryDb::open(&path)?.clear_all()).await
 }

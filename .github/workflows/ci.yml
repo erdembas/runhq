@@ -25,6 +25,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm agent:test
+      - run: node --test apps/desktop/tests/*.test.mjs
       - run: pnpm build
 
   core:

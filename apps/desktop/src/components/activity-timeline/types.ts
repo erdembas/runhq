@@ -7,6 +7,7 @@ export interface ActivityTimelineProps {
   onClose?: () => void;
   variant?: 'overlay' | 'inline';
   embedded?: boolean;
+  visible?: boolean;
 }
 
 export interface TimelineSize {

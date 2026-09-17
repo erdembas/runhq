@@ -45,3 +45,50 @@ export { HelloCockpit } from './HelloCockpit';
 export { cn } from './lib/cn';
 export { formatBytes, formatPercent } from './lib/format';
 export { cpuToneClass, memoryToneClass } from './lib/resourceTone';
+export { AgentStatusBadge } from './components/AgentStatusBadge';
+export { AGENT_STATUS_LABELS, agentIsActive } from './components/agentStatus';
+export { AgentRequestCard } from './components/AgentRequestCard';
+export { AgentComposer } from './components/AgentComposer';
+export { AgentProviderLogo } from './components/AgentProviderLogo';
+export { AgentProviderPicker } from './components/AgentProviderPicker';
+export { AgentModelControls } from './components/AgentModelControls';
+export { agentProviderNames } from './components/agentProviders';
+export { SearchableSelect } from './components/SearchableSelect';
+export type { SearchableOption } from './lib/selectSearch';
+export { WorkspaceGroupHeader } from './components/WorkspaceGroupHeader';
+
+export { AgentEffortPicker } from './components/AgentEffortPicker';
+export { AgentTaskSettings } from './components/AgentTaskSettings';
+export { AgentMessageQueue } from './components/AgentMessageQueue';
+export { AgentPlanReview } from './components/AgentPlanReview';
+export { collectAgentPlans, agentPlanDocument, buildAgentPlanPrompt } from './lib/agentPlans';
+export type { AgentPlanDocument, AgentPlanStep } from './lib/agentPlans';
+export { AgentCanvas } from './components/AgentCanvas';
+export type { AgentCanvasProps } from './components/AgentCanvas';
+export {
+  extractAgentCanvasArtifacts,
+  agentCanvasStorageKey,
+  readAgentCanvasEdit,
+  buildAgentCanvasDocument,
+  agentCanvasDownloadName,
+} from './lib/agentCanvas';
+export type { AgentCanvasArtifact, AgentCanvasKind } from './lib/agentCanvas';
+export { AgentMissionControl } from './components/AgentMissionControl';
+export { AgentTaskTemplates } from './components/AgentTaskTemplates';
+export { AGENT_TASK_TEMPLATES } from './lib/agentTaskTemplates';
+export type { AgentTaskTemplate } from './components/AgentTaskTemplates';
+export { agentTaskLane, groupAgentTasks } from './lib/agentMissionControl';
+export type { AgentTaskLane } from './lib/agentMissionControl';
+export { AgentConnectionStatus, AgentProviderChips } from './components/AgentConnectionStatus';
+export {
+  agentDetectionStatus,
+  enabledAgentBackends,
+  chooseAgentBackend,
+  agentConnectionState,
+} from './lib/agentDiscovery';
+export type { AgentConnectionState } from './lib/agentDiscovery';
+export {
+  AgentDiscoverySummary,
+  AgentToolDetectionBadge,
+  AgentToolDetectionDetails,
+} from './components/AgentToolDiscovery';

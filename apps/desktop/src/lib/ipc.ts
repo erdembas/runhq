@@ -1,4 +1,6 @@
 import { aiIpc } from './ipc/aiIpc';
+import { agentIpc } from './ipc/agentIpc';
+import { agentCanvasIpc } from './ipc/agentCanvasIpc';
 import { conversationIpc } from './ipc/conversationIpc';
 import { docsIpc } from './ipc/docsIpc';
 import { gitIpc } from './ipc/gitIpc';
@@ -18,6 +20,8 @@ export { events } from './ipc/events';
  * `ipc.methodName(...)` contract used throughout the app.
  */
 export const ipc = {
+  ...agentIpc,
+  ...agentCanvasIpc,
   ...serviceIpc,
   ...terminalIpc,
   ...gitIpc,

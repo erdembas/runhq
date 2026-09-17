@@ -69,13 +69,16 @@ const LEAKY_GIT_ENV: &[&str] = &[
     "GIT_INTERNAL_GETTEXT_TEST_FALLBACKS",
 ];
 
-fn configure_git_cmd(cmd: &mut Command, cwd: &Path) {
+pub(crate) fn configure_git_cmd(cmd: &mut Command, cwd: &Path) {
     cmd.current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // Keep git's own output stable regardless of the user's locale.
         .env("LC_ALL", "C")
+        // Background status/diff readers must not compete with explicit
+        // staging and commit operations for an optional index refresh lock.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0");
     for var in LEAKY_GIT_ENV {
         cmd.env_remove(var);

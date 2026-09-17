@@ -7,6 +7,41 @@ fn non_repo_returns_none() {
     assert!(status(td.path()).is_none());
     assert!(current_commit_short(td.path()).is_none());
     assert_eq!(list_branches(td.path()).unwrap(), Vec::<String>::new());
+    assert!(common_directory(td.path()).is_err());
+}
+
+#[test]
+fn repository_identity_matches_subdirectories_and_linked_worktrees() {
+    let td = tempfile::tempdir().unwrap();
+    init_repo(td.path());
+    write_file(td.path(), "a.txt", "initial");
+    run_git(td.path(), &["add", "."]).unwrap();
+    run_git(td.path(), &["commit", "-q", "-m", "initial"]).unwrap();
+    let nested = td.path().join("packages/service");
+    std::fs::create_dir_all(&nested).unwrap();
+    let key = common_directory(td.path()).unwrap();
+    assert_eq!(key, common_directory(&nested).unwrap());
+
+    let worktree = tempfile::tempdir().unwrap();
+    let (ok, _, error) = run_git(
+        td.path(),
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            worktree.path().to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+    assert!(ok, "{error}");
+    assert_eq!(key, common_directory(worktree.path()).unwrap());
+
+    #[cfg(unix)]
+    {
+        let alias = td.path().join("alias");
+        std::os::unix::fs::symlink(&nested, &alias).unwrap();
+        assert_eq!(key, common_directory(&alias).unwrap());
+    }
 }
 
 #[test]

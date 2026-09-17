@@ -5,6 +5,7 @@ import { UNASSIGNED } from './dnd';
 import type { Section, SectionId, ServiceDef, ServiceStatus, StackDef } from '@/types';
 
 interface SidebarSectionLayoutProps {
+  searching?: boolean;
   sections: Section[];
   itemsBySection: Map<SectionId, SidebarItem[]>;
   hasSections: boolean;
@@ -26,6 +27,7 @@ interface SidebarSectionLayoutProps {
 }
 
 export function SidebarSectionLayout({
+  searching = false,
   sections,
   itemsBySection,
   hasSections,
@@ -63,7 +65,7 @@ export function SidebarSectionLayout({
     return (
       <FlatItems
         items={itemsBySection.get(UNASSIGNED) ?? []}
-        bucketId={UNASSIGNED}
+        bucketId={searching ? null : UNASSIGNED}
         emptyMessage={emptyMessage}
         {...commonProps}
       />
@@ -74,36 +76,51 @@ export function SidebarSectionLayout({
   const stacksCount = unassignedItems.filter((item) => item.kind === 'stack').length;
   const servicesCount = unassignedItems.length - stacksCount;
 
+  if (searching && ![...itemsBySection.values()].some((items) => items.length))
+    return (
+      <p className="text-fg-dim px-4 py-6 text-center text-[12px]">
+        No matching projects or stacks.
+      </p>
+    );
+
   return (
     <>
-      {sections.map((section) => {
-        const totals = totalsBySection.get(section.id) ?? { running: 0, total: 0 };
-        return (
-          <SectionBlock
-            key={section.id}
-            section={section}
-            collapsed={!!collapsedSections[section.id]}
-            onToggle={() => onToggleSection(section.id)}
-            running={totals.running}
-            total={totals.total}
-          >
-            <SectionBody
-              items={itemsBySection.get(section.id) ?? []}
-              bucketId={section.id}
-              {...commonProps}
-            />
-          </SectionBlock>
-        );
-      })}
+      {sections
+        .filter((section) => !searching || (itemsBySection.get(section.id)?.length ?? 0) > 0)
+        .map((section) => {
+          const totals = totalsBySection.get(section.id) ?? { running: 0, total: 0 };
+          return (
+            <SectionBlock
+              key={section.id}
+              section={section}
+              collapsed={!searching && !!collapsedSections[section.id]}
+              onToggle={() => onToggleSection(section.id)}
+              running={totals.running}
+              total={totals.total}
+            >
+              <SectionBody
+                items={itemsBySection.get(section.id) ?? []}
+                bucketId={searching ? null : section.id}
+                {...commonProps}
+              />
+            </SectionBlock>
+          );
+        })}
 
-      <UnassignedBlock
-        collapsed={!!collapsedSections[UNASSIGNED]}
-        onToggle={() => onToggleSection(UNASSIGNED)}
-        stacksCount={stacksCount}
-        servicesCount={servicesCount}
-      >
-        <SectionBody items={unassignedItems} bucketId={UNASSIGNED} {...commonProps} />
-      </UnassignedBlock>
+      {(!searching || unassignedItems.length > 0) && (
+        <UnassignedBlock
+          collapsed={!searching && !!collapsedSections[UNASSIGNED]}
+          onToggle={() => onToggleSection(UNASSIGNED)}
+          stacksCount={stacksCount}
+          servicesCount={servicesCount}
+        >
+          <SectionBody
+            items={unassignedItems}
+            bucketId={searching ? null : UNASSIGNED}
+            {...commonProps}
+          />
+        </UnassignedBlock>
+      )}
     </>
   );
 }

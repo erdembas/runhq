@@ -110,12 +110,15 @@ export const createMainTabSlice: AppStoreSlice = (set, get, api) => ({
       get().setSelectedStack(tab.refId);
       return;
     }
-    set({
+    set((s) => ({
+      mainTabs: s.mainTabs.some((t) => mainTabKey(t) === key)
+        ? s.mainTabs
+        : insertTabRespectingPin(s.mainTabs, tab, new Set(s.pinnedMainTabKeys)),
       activeMainTabKey: key,
       selectedServiceId: null,
       selectedStackId: null,
       selectedCmdName: null,
-    });
+    }));
   },
   closeMainTab: (key) =>
     set((s) => {

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { appendLogBatch, createLogBatcher } from '@/store/runtime/logBatcher';
 import type { AppStore } from '@/store/appStoreTypes';
 import { DASHBOARD_TAB_KEY, mainTabKey } from '@/store/appStoreTypes';
 
@@ -132,24 +133,28 @@ export const useAppStore = create<AppStore>()(
           statuses: { ...s.statuses, [status.id]: status },
         })),
 
-      appendLog: (key, line) =>
-        set((s) => {
-          const current = s.logs[key] ?? { lines: [], lastSeq: 0 };
-          if (line.seq <= current.lastSeq) return s;
-          const nextLines =
-            current.lines.length >= MAX_UI_LOG_LINES
-              ? [...current.lines.slice(current.lines.length - MAX_UI_LOG_LINES + 1), line]
-              : [...current.lines, line];
-          return { logs: { ...s.logs, [key]: { lines: nextLines, lastSeq: line.seq } } };
-        }),
+      appendLog: (key, line) => pendingLogs.append(key, line),
 
       replaceLogs: (key, lines) =>
         set((s) => {
           const lastSeq = lines.length ? (lines[lines.length - 1]?.seq ?? 0) : 0;
-          return { logs: { ...s.logs, [key]: { lines, lastSeq } } };
+          const current = s.logs[key];
+          const merged = [
+            ...lines,
+            ...(current?.lines.filter((line) => line.seq > lastSeq) ?? []),
+          ].slice(-MAX_UI_LOG_LINES);
+          return {
+            logs: {
+              ...s.logs,
+              [key]: { lines: merged, lastSeq: Math.max(lastSeq, current?.lastSeq ?? 0) },
+            },
+          };
         }),
 
-      clearLogs: (key) => set((s) => ({ logs: { ...s.logs, [key]: { lines: [], lastSeq: 0 } } })),
+      clearLogs: (key) => {
+        pendingLogs.drop(key);
+        set((s) => ({ logs: { ...s.logs, [key]: { lines: [], lastSeq: 0 } } }));
+      },
 
       setPorts: (ports) => set({ ports }),
       setEditors: (editors) => set({ editors }),
@@ -242,3 +247,19 @@ export const useAppStore = create<AppStore>()(
       ...createUiSlice(set, get, api),
     }) as AppStore,
 );
+
+const pendingLogs = createLogBatcher((batch) => {
+  useAppStore.setState((state) => {
+    const logs = { ...state.logs };
+    let changed = false;
+    for (const [key, incoming] of Object.entries(batch)) {
+      const current = logs[key] ?? { lines: [], lastSeq: 0 };
+      const next = appendLogBatch(current, incoming, MAX_UI_LOG_LINES);
+      if (next !== current) {
+        logs[key] = next;
+        changed = true;
+      }
+    }
+    return changed ? { logs } : state;
+  });
+}, MAX_UI_LOG_LINES);

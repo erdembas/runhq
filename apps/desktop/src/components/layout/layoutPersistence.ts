@@ -16,7 +16,7 @@
  * worth the few extra bytes.
  */
 
-import { defaultLayoutState, type LayoutState } from './layoutModel';
+import { defaultLayoutState, layoutReducer, type LayoutState } from './layoutModel';
 
 const SCHEMA_VERSION = 1;
 const KEY_PREFIX = `runhq:layout:v${SCHEMA_VERSION}:`;
@@ -50,11 +50,15 @@ export function loadLayout(serviceId: string, commandNames: string[] = []): Layo
     if (!env.state.root || !env.state.tabs || typeof env.state.nextTermIdx !== 'number') {
       return defaultLayoutState(commandNames);
     }
-    return {
+    const state: LayoutState = {
       ...env.state,
       knownLogCommands: Array.isArray(env.state.knownLogCommands) ? env.state.knownLogCommands : [],
       closedKinds: Array.isArray(env.state.closedKinds) ? env.state.closedKinds : [],
     };
+    // Add the new project tab without resetting existing split panes or user-closed tabs.
+    return !state.tabs.agents && !state.closedKinds.includes('agents')
+      ? layoutReducer(state, { type: 'restore-tab', kind: 'agents' })
+      : state;
   } catch {
     return defaultLayoutState(commandNames);
   }
