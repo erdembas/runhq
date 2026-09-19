@@ -240,9 +240,16 @@ impl AgentManager {
 
     pub fn workspace_save(&self, key: String, value: Option<Value>) -> AppResult<()> {
         if key.len() > 160
-            || !["recipe:", "memory:", "context:", "preferences:", "link:"]
-                .iter()
-                .any(|prefix| key.starts_with(prefix))
+            || ![
+                "recipe:",
+                "memory:",
+                "context:",
+                "preferences:",
+                "link:",
+                "schedule:",
+            ]
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
         {
             return Err(invalid("Unknown workspace record type"));
         }

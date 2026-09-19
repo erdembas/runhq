@@ -1088,6 +1088,24 @@ fn workspace_records_and_literal_history_search_preserve_project_scope() {
     assert!(manager
         .workspace_save("unknown:key".into(), Some(json!({})))
         .is_err());
+    // A saved recipe schedule is a workspace record like any other; rejecting its prefix would
+    // leave the scheduling screen unable to store anything it accepts from the user.
+    manager
+        .workspace_save(
+            "schedule:example".into(),
+            Some(json!({
+                "id":"s1","recipeId":"example","projectId":session.project_id,
+                "cadence":{"kind":"interval","hours":6},"enabled":true
+            })),
+        )
+        .unwrap();
+    assert!(manager
+        .workspace_record("schedule:example")
+        .unwrap()
+        .is_some());
+    manager
+        .workspace_save("schedule:example".into(), None)
+        .unwrap();
     assert!(manager
         .workspace_save("preferences:capacity".into(), Some(json!({"global":0})))
         .is_err());
