@@ -245,8 +245,17 @@ immediately; the first run waits for the next occurrence. Occurrences that passe
 closed are reported and collapsed into a single run rather than replayed, because there is no
 background runner. A run that cannot proceed — the tool is disabled, execution slots are full, the
 project is gone — records why instead of retrying every tick, and the creation id is reserved before
-launching so a retry after a lost acknowledgement cannot create the task twice. Triggers other than
-time are not implemented.
+launching so a retry after a lost acknowledgement cannot create the task twice. A blocking reason is
+only judged once the workspace has actually been read, because an unloaded store is not evidence
+that a project was removed, and a blocked occurrence counts as used. Triggers other than time are
+not implemented.
+
+**Verified end to end (2026-09-19):** a due schedule was observed starting a real task on an
+installed provider CLI in a live desktop build — the tick launched the recipe, the provider answered,
+the session completed with a measured turn, and the schedule recorded its outcome. The run exposed
+two defects that this pass fixes: schedule records were rejected by the workspace store, so no
+schedule could be saved or written back at all, and the first tick after start judged schedules
+against stores that had not loaded yet.
 
 **Acceptance:** repeat a workflow in another project with visible parameter substitutions and the
 same intended setup/checks. Multi-step recipes build on A6; scheduled execution is later work.

@@ -10,7 +10,7 @@ import {
   agentOccupiedSlots,
 } from '../agents/agentCapacity';
 import { parseRecipe } from '../agents/agentLibraryModel';
-import { parseSchedule, type AgentSchedule } from '../agents/agentSchedule';
+import { agentScheduleTickState, parseSchedule, type AgentSchedule } from '../agents/agentSchedule';
 import { runDueSchedules } from '../agents/agentScheduleRunner';
 import { createAgentTaskLauncher } from '../agents/agentTaskLauncher';
 
@@ -36,13 +36,25 @@ export function useAgentSchedules() {
       running = true;
       try {
         const library = useAgentLibraryStore.getState();
-        if (!library.ready) return;
+        const agents = useAgentStore.getState();
+        const state = agentScheduleTickState({
+          libraryReady: library.ready,
+          agentsReady: agents.ready,
+          toolsReady: agents.toolsReady,
+          workspaceError: !!agents.error,
+          projectCount: agents.projects.length,
+          toolCount: agents.tools.length,
+        });
+        if (state === 'hydrate') {
+          void useAgentLibraryStore.getState().refresh();
+          return;
+        }
+        if (state === 'wait') return;
         const schedules = Object.entries(library.records)
           .filter(([key]) => key.startsWith('schedule:'))
           .map(([, stored]) => record(stored.value, parseSchedule))
           .filter((schedule): schedule is AgentSchedule => !!schedule);
         if (!schedules.length) return;
-        const agents = useAgentStore.getState();
         const queues = useAgentQueueStore.getState().queues;
         const capacity = agentCapacityPreferences(library.records['preferences:capacity']?.value);
         const occupied = agentOccupiedSlots(agents.sessions, queues);

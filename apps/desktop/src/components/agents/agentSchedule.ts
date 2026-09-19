@@ -83,6 +83,38 @@ export function nextScheduledRun(cadence: AgentCadence, after: number): number {
   return next.getTime();
 }
 
+export interface AgentScheduleWorkspace {
+  /** Saved recipes and schedules have been read from the workspace at least once. */
+  libraryReady: boolean;
+  /** Projects and sessions have been read at least once. */
+  agentsReady: boolean;
+  /** Connections have been probed at least once. */
+  toolsReady: boolean;
+  /** The last workspace read failed, so its contents say nothing about what exists. */
+  workspaceError: boolean;
+  projectCount: number;
+  toolCount: number;
+}
+
+/**
+ * What a tick may do with what it currently knows.
+ *
+ * `hydrate` asks for the library again: a failed first read otherwise leaves it unready for the
+ * rest of the session and silently stops every schedule until someone opens the Library screen.
+ *
+ * `wait` covers a workspace that has not answered yet or whose read failed. An empty store is not
+ * evidence that a project was removed or a connection disabled, and the runner records a blocked
+ * occurrence as run — so judging a schedule too early swallows it for a whole cadence.
+ */
+export function agentScheduleTickState(
+  workspace: AgentScheduleWorkspace,
+): 'hydrate' | 'wait' | 'run' {
+  if (!workspace.libraryReady) return 'hydrate';
+  if (!workspace.agentsReady || !workspace.toolsReady || workspace.workspaceError) return 'wait';
+  if (!workspace.projectCount || !workspace.toolCount) return 'wait';
+  return 'run';
+}
+
 export interface AgentScheduleDecision {
   schedule: AgentSchedule;
   due: boolean;

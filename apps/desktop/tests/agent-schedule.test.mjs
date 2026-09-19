@@ -15,9 +15,14 @@ function load(path) {
   );
   return exports;
 }
-const { parseSchedule, parseCadence, nextScheduledRun, scheduleDecision, describeCadence } = load(
-  '../src/components/agents/agentSchedule.ts',
-);
+const {
+  parseSchedule,
+  parseCadence,
+  nextScheduledRun,
+  scheduleDecision,
+  describeCadence,
+  agentScheduleTickState,
+} = load('../src/components/agents/agentSchedule.ts');
 const base = { id: 's1', recipeId: 'r1', projectId: 'p1', enabled: true };
 const at = (iso) => new Date(iso).getTime();
 
@@ -104,4 +109,30 @@ test('a cadence describes itself in words a person can check', () => {
   assert.equal(describeCadence({ kind: 'interval', hours: 6 }), 'Every 6 hours');
   assert.equal(describeCadence({ kind: 'daily', time: '07:30' }), 'Every day at 07:30');
   assert.equal(describeCadence({ kind: 'weekly', day: 1, time: '09:00' }), 'Every Monday at 09:00');
+});
+
+test('a tick judges schedules only against a workspace that actually loaded', () => {
+  const loaded = {
+    libraryReady: true,
+    agentsReady: true,
+    toolsReady: true,
+    workspaceError: false,
+    projectCount: 1,
+    toolCount: 2,
+  };
+  assert.equal(agentScheduleTickState(loaded), 'run');
+  // A library that never hydrated is asked again rather than left dead for the session.
+  assert.equal(agentScheduleTickState({ ...loaded, libraryReady: false }), 'hydrate');
+  for (const unloaded of [
+    { agentsReady: false },
+    { toolsReady: false },
+    { workspaceError: true },
+    { projectCount: 0 },
+    { toolCount: 0 },
+  ])
+    assert.equal(
+      agentScheduleTickState({ ...loaded, ...unloaded }),
+      'wait',
+      `${JSON.stringify(unloaded)} must not be read as a removed project or a disabled tool`,
+    );
 });
