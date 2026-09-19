@@ -29,6 +29,19 @@ pub struct WorkflowPreview {
     pub patch: String,
     pub conflict: Option<String>,
 }
+/// Where reviewed work lands. The default keeps the previous behaviour — the patch is applied to the
+/// destination working tree and left for the user to commit — while `branch` carries it onto a new
+/// branch and commits it there. Pushing and opening a pull request stay outside RunHQ.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum WorkflowDestination {
+    #[default]
+    WorkingTree,
+    Branch {
+        branch: String,
+        message: String,
+    },
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowTransfer {
     pub path: String,
@@ -85,6 +98,12 @@ pub struct AgentWorkflow {
     pub generation: u64,
     #[serde(default)]
     pub transferred_files: Vec<WorkflowTransfer>,
+    /// Set when integration created a branch and commit, so the result names where the work went
+    /// instead of only saying it was applied.
+    #[serde(default)]
+    pub integration_branch: Option<String>,
+    #[serde(default)]
+    pub integration_commit: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct CreateAgentWorkflow {
@@ -377,6 +396,8 @@ impl AgentManager {
             auto_progress: input.auto_progress,
             generation: 0,
             transferred_files: vec![],
+            integration_branch: None,
+            integration_commit: None,
         };
         if !w.setup_commands.is_empty() {
             w.stage = "setup_ready".into();
@@ -732,7 +753,11 @@ impl AgentManager {
         }
         Ok(())
     }
-    pub async fn workflow_integrate(&self, id: &str) -> AppResult<AgentWorkflow> {
+    pub async fn workflow_integrate(
+        &self,
+        id: &str,
+        destination: WorkflowDestination,
+    ) -> AppResult<AgentWorkflow> {
         let _gate = self.workflow_gate.lock().await;
         let mut w = self.workflow(id)?;
         self.reconcile_workflow(&mut w).await?;
@@ -765,11 +790,40 @@ impl AgentManager {
         // Recompute from Git objects, never trust a client-submitted patch or destination.
         let patch = self.workflow_patch(&w, &preview.source_fingerprint).await?;
         apply_patch(Path::new(&w.target), &patch, true).await?;
+        if let WorkflowDestination::Branch { branch, message } = &destination {
+            validate_branch_request(branch, message)?;
+            if git_output(
+                Path::new(&w.target),
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ],
+            )
+            .await
+            .is_ok()
+            {
+                return Err(invalid(format!(
+                    "Branch {branch} already exists in the destination"
+                )));
+            }
+        }
         w.stage = "integrating".into();
         self.save_workflow(&mut w)?;
-        match apply_patch(Path::new(&w.target), &patch, false).await {
-            Ok(_) => {
+        let outcome = match &destination {
+            WorkflowDestination::WorkingTree => apply_patch(Path::new(&w.target), &patch, false)
+                .await
+                .map(|_| (None, None)),
+            WorkflowDestination::Branch { branch, message } => {
+                self.integrate_on_branch(&w, &patch, branch, message).await
+            }
+        };
+        match outcome {
+            Ok((integration_branch, integration_commit)) => {
                 w.stage = "integrated".into();
+                w.integration_branch = integration_branch;
+                w.integration_commit = integration_commit;
                 w.error = None;
             }
             Err(error) => {
@@ -779,6 +833,60 @@ impl AgentManager {
         }
         self.save_workflow(&mut w)?;
         Ok(w)
+    }
+    /// Apply the reviewed change onto a new branch and commit it there. The destination was
+    /// verified clean, so a failure rolls back to the branch the user was on and removes the branch
+    /// this created rather than leaving them somewhere they did not ask to be.
+    async fn integrate_on_branch(
+        &self,
+        w: &AgentWorkflow,
+        patch: &str,
+        branch: &str,
+        message: &str,
+    ) -> AppResult<(Option<String>, Option<String>)> {
+        let target = Path::new(&w.target);
+        let original = git_output(target, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .await?
+            .trim()
+            .to_string();
+        git_output(target, &["checkout", "-b", branch]).await?;
+        let carried = async {
+            apply_patch(target, patch, false).await?;
+            git_output(target, &["add", "--all"]).await?;
+            git_output(
+                target,
+                &["-c", "commit.gpgsign=false", "commit", "--message", message],
+            )
+            .await?;
+            Ok::<String, AppError>(
+                git_output(target, &["rev-parse", "HEAD"])
+                    .await?
+                    .trim()
+                    .to_string(),
+            )
+        }
+        .await;
+        match carried {
+            Ok(commit) => Ok((Some(branch.to_string()), Some(commit))),
+            Err(error) => {
+                // Discard what this attempt wrote before returning; anything the patch added as an
+                // untracked file is reported instead of being deleted silently.
+                let restored = async {
+                    git_output(target, &["reset", "--hard"]).await?;
+                    git_output(target, &["checkout", "--force", &original]).await?;
+                    git_output(target, &["branch", "-D", branch]).await
+                }
+                .await;
+                Err(match restored {
+                    Ok(_) => AppError::other(format!(
+                        "{error}. The destination was restored to {original}; new files the patch added may remain untracked."
+                    )),
+                    Err(rollback) => AppError::other(format!(
+                        "{error}. The destination could not be restored automatically ({rollback}); it may still be on {branch}."
+                    )),
+                })
+            }
+        }
     }
     pub async fn workflow_cleanup(&self, id: &str) -> AppResult<AgentWorkflow> {
         let _gate = self.workflow_gate.lock().await;
@@ -1496,6 +1604,78 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         (temp, manager, workflow)
     }
     #[tokio::test]
+    async fn integrating_onto_a_branch_commits_there_and_leaves_the_original_branch_untouched() {
+        let (_temp, manager, workflow) = prepared().await;
+        let target = Path::new(&workflow.target).to_path_buf();
+        let original = git_output(&target, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .await
+            .unwrap()
+            .trim()
+            .to_string();
+        manager
+            .workflow_commands(&workflow.id, false)
+            .await
+            .unwrap();
+        manager.workflow_preview(&workflow.id).await.unwrap();
+
+        let branch = |name: &str| WorkflowDestination::Branch {
+            branch: name.into(),
+            message: "Apply reviewed change".into(),
+        };
+        // A name Git would refuse is reported in RunHQ's words before anything is touched.
+        assert!(manager
+            .workflow_integrate(&workflow.id, branch("bad name"))
+            .await
+            .is_err());
+        assert_eq!(
+            git_output(&target, &["rev-parse", "--abbrev-ref", "HEAD"])
+                .await
+                .unwrap()
+                .trim(),
+            original,
+            "a rejected request does not move the destination"
+        );
+
+        let applied = manager
+            .workflow_integrate(&workflow.id, branch("runhq/reviewed"))
+            .await
+            .unwrap();
+        assert_eq!(applied.stage, "integrated");
+        assert_eq!(
+            applied.integration_branch.as_deref(),
+            Some("runhq/reviewed")
+        );
+        let commit = applied.integration_commit.clone().unwrap();
+        assert_ne!(commit, workflow.base_revision, "the work is committed");
+        assert_eq!(
+            git_output(&target, &["rev-parse", "runhq/reviewed"])
+                .await
+                .unwrap()
+                .trim(),
+            commit
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.join("new.txt")).unwrap(),
+            "new file\n"
+        );
+        assert_eq!(
+            git_output(&target, &["status", "--porcelain"])
+                .await
+                .unwrap()
+                .trim(),
+            "",
+            "the commit leaves nothing uncommitted behind"
+        );
+        // The original branch still points at the revision the work started from.
+        assert_eq!(
+            git_output(&target, &["rev-parse", &original])
+                .await
+                .unwrap()
+                .trim(),
+            workflow.base_revision
+        );
+    }
+    #[tokio::test]
     async fn reviewed_workflow_records_checks_previews_and_explicitly_applies_new_files() {
         let (_temp, manager, workflow) = prepared().await;
         let checked = manager
@@ -1510,7 +1690,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             checked.review_fingerprint.clone().unwrap()
         );
         assert!(
-            manager.workflow_integrate(&workflow.id).await.is_err(),
+            manager
+                .workflow_integrate(&workflow.id, WorkflowDestination::WorkingTree)
+                .await
+                .is_err(),
             "preview is required"
         );
         let preview = manager.workflow_preview(&workflow.id).await.unwrap();
@@ -1519,7 +1702,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             !Path::new(&workflow.target).join("new.txt").exists(),
             "preview is read-only"
         );
-        let applied = manager.workflow_integrate(&workflow.id).await.unwrap();
+        let applied = manager
+            .workflow_integrate(&workflow.id, WorkflowDestination::WorkingTree)
+            .await
+            .unwrap();
         assert_eq!(applied.stage, "integrated");
         assert_eq!(
             std::fs::read_to_string(Path::new(&workflow.target).join("new.txt")).unwrap(),
@@ -1556,7 +1742,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             "changed after checking\n",
         )
         .unwrap();
-        assert!(manager.workflow_integrate(&workflow.id).await.is_err());
+        assert!(manager
+            .workflow_integrate(&workflow.id, WorkflowDestination::WorkingTree)
+            .await
+            .is_err());
         let saved = manager.workflow(&workflow.id).unwrap();
         assert_eq!(saved.stage, "review_ready");
         assert!(saved.preview.is_none());
@@ -1581,7 +1770,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             .conflict
             .unwrap()
             .contains("local changes"));
-        assert!(manager.workflow_integrate(&workflow.id).await.is_err());
+        assert!(manager
+            .workflow_integrate(&workflow.id, WorkflowDestination::WorkingTree)
+            .await
+            .is_err());
         assert_eq!(
             std::fs::read_to_string(Path::new(&workflow.target).join("local.txt")).unwrap(),
             "my local changes"
@@ -2169,7 +2361,10 @@ mod handoff_tests {
             .await
             .unwrap();
         manager.workflow_preview(&workflow.id).await.unwrap();
-        manager.workflow_integrate(&workflow.id).await.unwrap();
+        manager
+            .workflow_integrate(&workflow.id, WorkflowDestination::WorkingTree)
+            .await
+            .unwrap();
         let id = uuid::Uuid::new_v4().to_string();
         let target = manager
             .handoff_create(&workflow.implementation_session_id, input(&workflow, &id))
@@ -2190,4 +2385,34 @@ mod handoff_tests {
                 .cleaned
         );
     }
+}
+
+/// A branch name and message that Git and a later reader can both work with. Git itself rejects most
+/// malformed names, but checking here keeps the failure in RunHQ's own words.
+fn validate_branch_request(branch: &str, message: &str) -> AppResult<()> {
+    let name = branch.trim();
+    if name.is_empty() || name.len() > 200 {
+        return Err(invalid("Enter a branch name"));
+    }
+    if name != branch {
+        return Err(invalid("A branch name cannot start or end with whitespace"));
+    }
+    if name.starts_with('-')
+        || name.ends_with('/')
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("//")
+        || name
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
+    {
+        return Err(invalid(format!("{branch} is not a usable branch name")));
+    }
+    if message.trim().is_empty() {
+        return Err(invalid("Enter a commit message"));
+    }
+    if message.len() > 5000 {
+        return Err(invalid("The commit message is too long"));
+    }
+    Ok(())
 }

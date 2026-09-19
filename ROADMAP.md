@@ -149,18 +149,21 @@ provider turn ended; it does not prove the requested work passed checks or was a
 command, working directory, exit status, output and the tested fingerprint, and results are marked
 stale when sources change afterwards. Independent read-only review runs on the same baseline,
 optionally through another provider, and integration previews conflicts and new files before an
-explicit apply. Cherry-pick, merge and draft-PR destinations are not implemented; integration
-applies to the configured target.
+explicit apply. Reviewed work is then either applied to the destination working tree or committed
+onto a new branch there. Cherry-pick, merge and draft-PR destinations are not implemented.
 
 **Delivered since:** an ordinary task records the commit its checkout was on when it was created and
 the tracked files that were already modified at that moment. **Changes** names the starting revision
 and lists those files instead of claiming the whole working tree as the agent's work. A directory
 that is not a repository reports no starting revision rather than an empty one.
 
-**Next:**
-
-- Carry reviewed work to a branch, commit or draft pull request through the existing Git surfaces,
-  instead of stopping at an applied patch in the destination checkout.
+**Delivered since:** integration asks where the reviewed change should land. The default still
+applies the patch to the destination working tree and leaves it uncommitted; the new option creates
+a branch in the destination and commits there, recording the branch and commit on the workflow. A
+branch name Git would refuse is rejected in RunHQ's words before anything is touched, and a failure
+part-way restores the branch the user was on and removes the branch RunHQ created, saying so when it
+cannot. Pushing and opening a pull request stay outside RunHQ: they are outward-facing actions that
+belong to the user's own remote and credentials.
 
 **Acceptance:** a user can tell what changed, which checks actually ran, whether their results still
 apply, and what will be integrated. An agent's statement that tests passed is not a recorded check.

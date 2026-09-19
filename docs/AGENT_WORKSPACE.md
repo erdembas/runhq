@@ -68,7 +68,7 @@ Görsel ekleme sağlayıcı yeteneğine bağlıdır: Codex ve Claude görsel kab
 
 Bağımsız inceleme aynı temel revizyon üzerinde salt okunur çalışır ve istenirse başka bir sağlayıcıya verilir. Kontroller komutu, çalışma dizinini, çıkış kodunu, çıktıyı ve test edilen parmak izini kaydeder; kaynaklar sonradan değişirse sonuç bayat olarak işaretlenir ve entegrasyon önizlemesi geçersiz olur.
 
-Entegrasyon açıktır: hedefteki değişiklik önce önizlenir, çakışmalar ve yeni dosyalar gösterilir, ardından uygulanır. Uygulama commit atmaz, push etmez ve hedefte yerel değişiklik varsa reddedilir. Cherry-pick, merge ve draft-PR hedefleri bu sürümde yoktur.
+Entegrasyon açıktır: hedefteki değişiklik önce önizlenir, çakışmalar ve yeni dosyalar gösterilir, ardından hedef seçilir. **Apply to the working tree** değişikliği commit'lemeden bırakır. **Commit on a new branch** hedefte yeni bir dal açar, değişikliği oraya commit'ler ve dal ile commit'i iş akışına kaydeder; hedef checkout bu dala geçer. Git'in kabul etmeyeceği bir dal adı hiçbir şeye dokunulmadan reddedilir; commit sırasında hata olursa kullanıcının bulunduğu dala geri dönülür ve açılan dal silinir, geri dönülemezse durum açıkça bildirilir. Hedefte yerel değişiklik varsa entegrasyon reddedilir. RunHQ push etmez ve pull request açmaz; cherry-pick ve merge hedefleri bu sürümde yoktur.
 
 **Hand off** bir oturumdan bağlantılı yeni görev oluşturur; hedef ve değişiklik temeli aktarılır, sağlayıcıya özel oturum durumu ve izinler kaynak sağlayıcıda kalır.
 

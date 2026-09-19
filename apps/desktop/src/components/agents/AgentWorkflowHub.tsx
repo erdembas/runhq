@@ -103,6 +103,9 @@ export function AgentWorkflowHub({
   const [checks, setChecks] = useState(initialRecipe?.checkCommands?.join('\n') ?? '');
   const [findings, setFindings] = useState<AgentItem[]>([]);
   const [accepted, setAccepted] = useState(false);
+  const [destination, setDestination] = useState<'working_tree' | 'branch'>('working_tree');
+  const [branchName, setBranchName] = useState('');
+  const [commitMessage, setCommitMessage] = useState('');
   const [transferPaths, setTransferPaths] = useState('');
   const [inventory, setInventory] = useState<WorkflowWorktree[] | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -764,13 +767,79 @@ export function AgentWorkflowHub({
                         I reviewed the findings and this diff and accept applying it to the
                         displayed destination.
                       </label>
+                      <SearchableSelect
+                        label="Integration destination"
+                        searchable={false}
+                        className="w-full"
+                        value={destination}
+                        options={[
+                          {
+                            value: 'working_tree',
+                            label: 'Apply to the working tree',
+                            description: 'Leaves the change uncommitted for you to review in Git',
+                          },
+                          {
+                            value: 'branch',
+                            label: 'Commit on a new branch',
+                            description: 'Creates the branch in the destination and commits there',
+                          },
+                        ]}
+                        onChange={(value) => setDestination(value as 'working_tree' | 'branch')}
+                      />
+                      {destination === 'branch' && (
+                        <div className="grid gap-2">
+                          <label className="text-fg-muted text-xs">
+                            Branch name
+                            <input
+                              className={field}
+                              value={branchName}
+                              onChange={(e) => setBranchName(e.target.value)}
+                              placeholder="runhq/reviewed-change"
+                            />
+                          </label>
+                          <label className="text-fg-muted text-xs">
+                            Commit message
+                            <input
+                              className={field}
+                              value={commitMessage}
+                              onChange={(e) => setCommitMessage(e.target.value)}
+                              placeholder={current.title}
+                            />
+                          </label>
+                          <p className="text-fg-dim text-[11px]">
+                            The destination checkout is switched to this branch. RunHQ does not push
+                            or open a pull request.
+                          </p>
+                        </div>
+                      )}
                       <button
                         type="button"
                         className={`${button} bg-accent/10 text-accent`}
-                        disabled={busy || !accepted || !!current.preview.conflict}
-                        onClick={() => void action(() => agentWorkflowIpc.integrate(current.id))}
+                        disabled={
+                          busy ||
+                          !accepted ||
+                          !!current.preview.conflict ||
+                          (destination === 'branch' &&
+                            (!branchName.trim() || !commitMessage.trim()))
+                        }
+                        onClick={() =>
+                          void action(() =>
+                            agentWorkflowIpc.integrate(
+                              current.id,
+                              destination === 'branch'
+                                ? {
+                                    mode: 'branch',
+                                    branch: branchName.trim(),
+                                    message: commitMessage.trim(),
+                                  }
+                                : { mode: 'working_tree' },
+                            ),
+                          )
+                        }
                       >
-                        Apply reviewed changes
+                        {destination === 'branch'
+                          ? 'Commit reviewed changes on the branch'
+                          : 'Apply reviewed changes'}
                       </button>
                     </>
                   )}
@@ -778,8 +847,13 @@ export function AgentWorkflowHub({
               )}
               {current.stage === 'integrated' && (
                 <p className="text-success text-xs">
-                  Changes were applied to {current.target}. Review and commit them from the project
-                  Git view. The workflow evidence remains available.
+                  {current.integration_branch
+                    ? `Committed on ${current.integration_branch} in ${current.target}${
+                        current.integration_commit
+                          ? ` as ${current.integration_commit.slice(0, 7)}`
+                          : ''
+                      }. Nothing was pushed. The workflow evidence remains available.`
+                    : `Changes were applied to ${current.target}. Review and commit them from the project Git view. The workflow evidence remains available.`}
                 </p>
               )}
               {busy && (

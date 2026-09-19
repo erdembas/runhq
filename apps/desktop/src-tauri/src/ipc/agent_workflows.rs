@@ -1,6 +1,6 @@
 use crate::AppState;
 use runhq_core::{
-    agents::{AgentWorkflow, CreateAgentWorkflow},
+    agents::{AgentWorkflow, CreateAgentWorkflow, WorkflowDestination},
     AppResult,
 };
 use tauri::State;
@@ -54,9 +54,13 @@ pub async fn agent_workflow_preview(
 #[tauri::command]
 pub async fn agent_workflow_integrate(
     id: String,
+    destination: Option<WorkflowDestination>,
     state: State<'_, AppState>,
 ) -> AppResult<AgentWorkflow> {
-    state.agents.workflow_integrate(&id).await
+    state
+        .agents
+        .workflow_integrate(&id, destination.unwrap_or_default())
+        .await
 }
 #[tauri::command]
 pub async fn agent_workflow_cancel(

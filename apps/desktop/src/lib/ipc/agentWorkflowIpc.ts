@@ -52,7 +52,13 @@ export interface AgentWorkflow {
     captured_at: number;
     digest: string;
   }[];
+  /** Set when integration created a branch and commit instead of leaving the patch uncommitted. */
+  integration_branch: string | null;
+  integration_commit: string | null;
 }
+/** Where reviewed work lands. Pushing and opening a pull request stay outside RunHQ. */
+export type WorkflowDestination =
+  { mode: 'working_tree' } | { mode: 'branch'; branch: string; message: string };
 export interface WorkflowWorktree {
   workflow_id: string | null;
   session_id: string;
@@ -89,7 +95,8 @@ export const agentWorkflowIpc = {
   setup: (id: string) => invoke<AgentWorkflow>('agent_workflow_setup', { id }),
   checks: (id: string) => invoke<AgentWorkflow>('agent_workflow_checks', { id }),
   preview: (id: string) => invoke<AgentWorkflow>('agent_workflow_preview', { id }),
-  integrate: (id: string) => invoke<AgentWorkflow>('agent_workflow_integrate', { id }),
+  integrate: (id: string, destination: WorkflowDestination = { mode: 'working_tree' }) =>
+    invoke<AgentWorkflow>('agent_workflow_integrate', { id, destination }),
   cancel: (id: string) => invoke<AgentWorkflow>('agent_workflow_cancel', { id }),
   cleanup: (id: string) => invoke<AgentWorkflow>('agent_workflow_cleanup', { id }),
   transferFiles: (id: string, paths: string[]) =>
