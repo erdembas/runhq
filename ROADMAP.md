@@ -19,7 +19,7 @@ verified live or included in a published release. **Partial** identifies an exis
 specific gaps. **Planned** is prioritized work; **Later** has no delivery commitment. Phase order
 expresses dependencies rather than release dates.
 
-A1-A9 below are implemented in the repository. They are covered by unit/integration tests and a
+A1-A10 below are implemented in the repository. They are covered by unit/integration tests and a
 fixture-driven UI walkthrough of the shared Agents surfaces; live runs against every provider and
 platform are a separate, ongoing verification effort.
 
@@ -58,7 +58,7 @@ outside those locks.
 | A7  | Reusable task recipes                       | P2       | Implemented | Repeat a known workflow with saved settings and validation steps.                  |
 | A8  | Usage and execution capacity                | P2       | Implemented | Understand reported usage and why work is waiting.                                 |
 | A9  | Searchable agent history and project memory | P2       | Implemented | Reuse prior decisions and results across conversations.                            |
-| A10 | Provider accounts and limit-aware routing   | P1       | Partial     | Run more work by spreading it over the accounts you already pay for.               |
+| A10 | Provider accounts and limit-aware routing   | P1       | Implemented | Run more work by spreading it over the accounts you already pay for.               |
 | A11 | Composable multi-provider workflows         | P1       | Planned     | Assign each step of a task to the agent and model that suit it.                    |
 
 ### A1. Durable Queues and Task Recovery
@@ -350,8 +350,23 @@ including model discovery and the installation probe. `PATH` and `RUNHQ_` names 
 RunHQ owns them, the environment is bounded, and a rejected edit leaves the stored connection
 untouched. A session snapshots the account it was created with, so repointing a connection never
 moves a running conversation onto another identity. Slots, concurrency limits and usage thresholds
-were already counted per connection and therefore apply per account without further work. Pools,
-routing and cool-downs are the remaining scope.
+were already counted per connection and therefore apply per account without further work.
+
+**Delivered since:** interchangeable accounts can be grouped into a named pool, and a task aimed at
+a pool starts on one account and keeps it, because provider-native resume belongs to the account
+that opened the conversation. Three signals choose it and stay apart. Capability fit is declared by
+the adapter and deterministic, so plan work never goes to a connection whose modes are only
+advertised once it runs. A rate or usage failure the provider actually returned puts that account on
+a visible cool-down; nothing else starts one, no remaining allowance is inferred, and the cool-down
+is labelled as RunHQ's own backoff rather than a reset the provider reported. Load is the execution
+slots already counted per connection, so the account with the most free slots wins and the pool's
+order breaks a tie. Every start records which account ran it and why, and a plain connection routes
+as a pool of one so a single account gains the same reporting. Taking over after a limit still means
+a new session through the A6 handoff, never switching identity under a running conversation.
+
+**Verified end to end (2026-09-19):** with two accounts for the same product and the first on a
+cool-down from a reported limit, a due scheduled recipe started on the second account against a real
+provider CLI and recorded why it chose it.
 
 **Acceptance:** register two accounts for the same provider, watch queued work move to the second
 when the first reports a limit, and see for every turn which account ran it and why. Checkout locks

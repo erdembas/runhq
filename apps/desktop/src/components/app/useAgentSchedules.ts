@@ -118,7 +118,20 @@ export function useAgentSchedules() {
       }
     };
     const timer = window.setInterval(() => void tick(), TICK_MS);
+    // The first tick usually runs before the workspace has answered, and an overdue schedule should
+    // not wait out a whole interval for that. Run again the moment the stores become readable —
+    // a window the OS has throttled may not get its next interval for a long time.
+    const watchAgents = useAgentStore.subscribe((state, previous) => {
+      if (state.ready !== previous.ready || state.toolsReady !== previous.toolsReady) void tick();
+    });
+    const watchLibrary = useAgentLibraryStore.subscribe((state, previous) => {
+      if (state.ready !== previous.ready) void tick();
+    });
     void tick();
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      watchAgents();
+      watchLibrary();
+    };
   }, []);
 }
