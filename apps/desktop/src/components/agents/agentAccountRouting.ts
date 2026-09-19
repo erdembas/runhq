@@ -366,3 +366,38 @@ export function handoffAccountAfterLimit(input: {
     }).accountId ?? ''
   );
 }
+
+/**
+ * The connection a composer should open on for a target that may name a pool.
+ *
+ * The task composer works in connections: it discovers one account's models and modes, and a pool
+ * advertises none of its own. Resolving here keeps the pool a property of the saved recipe while
+ * the screen still shows the identity the task will actually run as. An empty string means the
+ * person chooses, which is the right answer when no account in the pool can take the work — they
+ * are present, unlike a scheduled run.
+ */
+export function composerAccountForTarget(input: {
+  target: string;
+  pool: (id: string) => AgentAccountPool | null;
+  accounts: AgentAccountCandidate[];
+  need?: AgentAccountNeed;
+  cooldowns: AgentAccountCooldowns;
+  capacity: AgentCapacityPreferences;
+  occupied: ReturnType<typeof agentOccupiedSlots>;
+  now: number;
+}): string {
+  if (!isPoolTarget(input.target)) return input.target;
+  const pool = input.pool(input.target.slice(POOL_TARGET_PREFIX.length));
+  if (!pool) return '';
+  return (
+    chooseAgentAccount({
+      pool,
+      accounts: input.accounts,
+      need: input.need,
+      cooldowns: input.cooldowns,
+      capacity: input.capacity,
+      occupied: input.occupied,
+      now: input.now,
+    }).accountId ?? ''
+  );
+}

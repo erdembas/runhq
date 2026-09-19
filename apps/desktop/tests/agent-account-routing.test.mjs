@@ -32,6 +32,7 @@ const {
   resolveAccountPool,
   poolTarget,
   handoffAccountAfterLimit,
+  composerAccountForTarget,
   ACCOUNT_COOLDOWN_MS,
 } = load('../src/components/agents/agentAccountRouting.ts', (name) =>
   name === '@runhq/cockpit-ui' ? attachments : {},
@@ -262,6 +263,40 @@ test('a handoff after a limit starts on another account, and otherwise suggests 
       ...shared,
       sourceAccountId: 'a',
       cooldowns: startCooldown(limited, 'b', 'usage limit reached', now),
+    }),
+    '',
+  );
+});
+
+test('a pool target becomes a real connection before it reaches the composer', () => {
+  const stored = { id: 'team', name: 'Claude accounts', accounts: ['a', 'b'] };
+  const shared = {
+    pool: (id) => (id === 'team' ? stored : null),
+    accounts: [account('a'), account('b')],
+    cooldowns: {},
+    capacity,
+    occupied: idle,
+    now,
+  };
+  // A plain connection passes through untouched, including "choose at launch".
+  assert.equal(composerAccountForTarget({ ...shared, target: 'a' }), 'a');
+  assert.equal(composerAccountForTarget({ ...shared, target: '' }), '');
+  assert.equal(composerAccountForTarget({ ...shared, target: poolTarget('team') }), 'a');
+  assert.equal(
+    composerAccountForTarget({
+      ...shared,
+      target: poolTarget('team'),
+      cooldowns: startCooldown({}, 'a', 'usage limit reached', now - 1),
+    }),
+    'b',
+  );
+  // Nothing free and nothing to point at: the person picks, rather than the screen guessing.
+  assert.equal(composerAccountForTarget({ ...shared, target: poolTarget('gone') }), '');
+  assert.equal(
+    composerAccountForTarget({
+      ...shared,
+      target: poolTarget('team'),
+      accounts: [account('a', { enabled: false }), account('b', { available: false })],
     }),
     '',
   );

@@ -122,6 +122,26 @@ const items = [
     created_at: now - 150000,
   },
 ];
+// A saved recipe that targets the pool, so drafting it shows which account it resolves to.
+const pooledRecipe = {
+  key: 'recipe:pooled',
+  updated_at: now,
+  value: {
+    id: 'pooled',
+    name: 'Nightly dependency sweep',
+    prompt: 'Update {{dependency}} and report the affected usage.',
+    backend: 'pool:claude',
+    model: '',
+    effort: '',
+    mode: 'default',
+    agent: '',
+    isolated: true,
+    acceptance: '',
+    setupCommands: '',
+    checkCommands: '',
+    version: 1,
+  },
+};
 const wf = {
   id: 'wf',
   project_id: 'qa-project',
@@ -216,6 +236,7 @@ useAgentLibraryStore.setState({
         },
       },
     },
+    'recipe:pooled': pooledRecipe,
     'memory:qa': {
       key: 'memory:qa',
       updated_at: now,
