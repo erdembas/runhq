@@ -316,10 +316,10 @@ impl AgentManager {
             return Err(invalid("Independent review requires Codex read-only sandbox or Claude plan mode. This provider does not expose a supported read-only review mode."));
         }
         let project = self.state.lock().db.project(&input.project_id)?;
-        let target = git_output(Path::new(&project.path), &["rev-parse", "--show-toplevel"])
+        let target = git_toplevel(Path::new(&project.path))
             .await?
-            .trim()
-            .to_string();
+            .to_string_lossy()
+            .into_owned();
         let base_ref = if input.base_ref.trim().is_empty() {
             "HEAD"
         } else {
@@ -360,10 +360,10 @@ impl AgentManager {
                 &revision,
             )
             .await?;
-        let root = git_output(Path::new(&session.cwd), &["rev-parse", "--show-toplevel"])
+        let root = git_toplevel(Path::new(&session.cwd))
             .await?
-            .trim()
-            .to_string();
+            .to_string_lossy()
+            .into_owned();
         let mut w = AgentWorkflow {
             id: uuid::Uuid::new_v4().to_string(),
             project_id: input.project_id,
@@ -1983,10 +1983,9 @@ impl AgentManager {
             if !cwd.is_dir() {
                 continue;
             }
-            let Ok(root) = git_output(&cwd, &["rev-parse", "--show-toplevel"]).await else {
+            let Ok(root) = git_toplevel(&cwd).await else {
                 continue;
             };
-            let root = PathBuf::from(root.trim());
             let Ok(managed) = self.home.join("worktrees").canonicalize() else {
                 continue;
             };

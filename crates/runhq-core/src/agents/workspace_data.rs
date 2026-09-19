@@ -176,11 +176,9 @@ impl AgentManager {
         )
         .canonicalize()
         .map_err(|_| invalid("The saved handoff workspace is missing"))?;
-        let root = super::git_output(&cwd, &["rev-parse", "--show-toplevel"])
+        let root = super::git_toplevel(&cwd)
             .await
-            .ok()
-            .map(|s| std::path::PathBuf::from(s.trim()))
-            .unwrap_or(cwd.clone());
+            .unwrap_or_else(|_| cwd.clone());
         // Includes every task sharing a checkout, and excludes workflow checks and
         // cleanup until both the new session and provenance link are committed.
         let _lease = self.workflow_lease(&root)?;

@@ -395,8 +395,7 @@ impl AgentManager {
         let mut cwd = original.clone();
         let mut branch = None;
         if input.isolated {
-            let root = git_output(&original, &["rev-parse", "--show-toplevel"]).await?;
-            let root = PathBuf::from(root.trim()).canonicalize()?;
+            let root = git_toplevel(&original).await?;
             let relative = original
                 .strip_prefix(&root)
                 .map_err(|_| invalid("Project is outside its Git repository"))?;
@@ -587,11 +586,7 @@ impl AgentManager {
         self.tool(&previous.backend)?;
         let cwd = PathBuf::from(&previous.cwd).canonicalize()?;
         // Serialize writers by actual checkout root, including monorepo service subdirectories.
-        let lease_path = git_output(&cwd, &["rev-parse", "--show-toplevel"])
-            .await
-            .ok()
-            .and_then(|p| PathBuf::from(p.trim()).canonicalize().ok())
-            .unwrap_or(cwd.clone());
+        let lease_path = git_toplevel(&cwd).await.unwrap_or_else(|_| cwd.clone());
         let mut cmd = self.bridge_command().await?;
         if let Some(path) = agent_command_path(Path::new(&previous.executable)) {
             cmd.env("PATH", path);
@@ -1098,6 +1093,14 @@ fn resolve_executable(backend: &str, path: &str) -> AppResult<String> {
         None => Err(invalid(format!("Executable not found: {selected}"))),
     }
 }
+/// The repository root as std paths spell it. Git prints its own style — forward slashes, and no
+/// verbatim prefix on Windows — while every path this code compares it against comes from
+/// `canonicalize`. Normalizing here keeps `starts_with` and `strip_prefix` meaningful on Windows.
+pub(super) async fn git_toplevel(cwd: &Path) -> AppResult<PathBuf> {
+    let printed = git_output(cwd, &["rev-parse", "--show-toplevel"]).await?;
+    Ok(PathBuf::from(printed.trim()).canonicalize()?)
+}
+
 async fn git_output(cwd: &Path, args: &[&str]) -> AppResult<String> {
     let mut command = Command::new("git");
     command.args(args).kill_on_drop(true);
