@@ -11,6 +11,7 @@ import { AppShell } from '@/components/app/AppShell';
 import { useSupervisorEvents } from '@/components/app/useSupervisorEvents';
 import { useTrayHint } from '@/components/app/useTrayHint';
 import { useWhatsNewAutoOpen } from '@/components/app/useWhatsNewAutoOpen';
+import { useAgentNotifications } from '@/components/app/useAgentNotifications';
 import { useAppStore } from '@/store/useAppStore';
 import { useShellUiStore } from '@/store/useShellUiStore';
 import { useContextMenu } from '@/lib/context-menu';
@@ -51,6 +52,7 @@ export default function App() {
   useTrayHint();
   useWhatsNewAutoOpen();
   useAppKeyboardShortcuts();
+  useAgentNotifications();
 
   return <AppShell contextMenu={contextMenu} startScan={startScan} />;
 }

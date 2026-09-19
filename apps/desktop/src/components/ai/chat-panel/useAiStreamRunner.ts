@@ -1,7 +1,10 @@
-import { useCallback, useRef } from 'react';
+import type { AiChatProvider } from './aiChatProviders';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import { ipc } from '@/lib/ipc';
-import type { AiProvider, StreamChunk } from '@/types';
+import type { AgentSession, StreamChunk } from '@/types';
+import { isCliChatProvider } from './aiChatProviders';
+import { runCliChat } from './cliChatStream';
 import type { Turn } from '../chatPanelTypes';
 import { handleDone, handleStreamError, safeDebugFlag } from './streamHandlers';
 import type { RunStreamFn } from './useAiChatState';
@@ -11,7 +14,8 @@ interface Args {
   bumpRequestId: (convId: string) => number;
   getPersistedSet: (convId: string) => Set<string>;
   inFlightConvsRef: MutableRefObject<Set<string>>;
-  provider: AiProvider | null;
+  provider: AiChatProvider | null;
+  resolveCliProject: () => Promise<string>;
   requestIdsRef: MutableRefObject<Map<string, number>>;
   runStreamRef: MutableRefObject<RunStreamFn | null>;
   setProviderError: (value: string | null) => void;
@@ -25,12 +29,22 @@ export function useAiStreamRunner({
   getPersistedSet,
   inFlightConvsRef,
   provider,
+  resolveCliProject,
   requestIdsRef,
   runStreamRef,
   setProviderError,
   setTurnsForConv,
   startedAtRef,
 }: Args) {
+  const cliRunsRef = useRef(new Map<string, InstanceType<typeof globalThis.AbortController>>());
+  const [cliSessions, setCliSessions] = useState<Record<string, AgentSession>>({});
+  useEffect(() => {
+    const runs = cliRunsRef.current;
+    return () => {
+      for (const controller of runs.values()) controller.abort();
+      runs.clear();
+    };
+  }, []);
   const persistAssistantTurnRef = useRef<((turn: Turn, convId: string) => Promise<void>) | null>(
     null,
   );
@@ -78,6 +92,14 @@ export function useAiStreamRunner({
   const cancelFor = useCallback(
     (convId: string | null) => {
       if (!convId) return;
+      cliRunsRef.current.get(convId)?.abort();
+      cliRunsRef.current.delete(convId);
+      setCliSessions((previous) => {
+        if (!previous[convId]) return previous;
+        const next = { ...previous };
+        delete next[convId];
+        return next;
+      });
       bumpRequestId(convId);
       inFlightConvsRef.current.delete(convId);
       setTurnsForConv(convId, (prev) =>
@@ -248,6 +270,75 @@ export function useAiStreamRunner({
       };
 
       try {
+        if (isCliChatProvider(activeProvider)) {
+          const controller = new globalThis.AbortController();
+          cliRunsRef.current.set(targetConvId, controller);
+          const baseContent = { value: '' };
+          // A continuation appends exactly once; snapshots replace the current CLI
+          // response because providers can revise a message after its first delta.
+          let capturedBase = false;
+          try {
+            const projectId = await resolveCliProject();
+            if (!isStillCurrent() || controller.signal.aborted) return;
+            const result = await runCliChat({
+              client: ipc,
+              backend: activeProvider.cli,
+              projectId,
+              history,
+              signal: controller.signal,
+              onStopError: setProviderError,
+              onSnapshot: (snapshot, content, reasoning) => {
+                if (!isStillCurrent()) return;
+                setCliSessions((previous) => ({ ...previous, [targetConvId]: snapshot.session }));
+                setTurnsForConv(targetConvId, (previous) =>
+                  previous.map((turn) => {
+                    if (turn.id !== targetTurnId) return turn;
+                    if (!capturedBase) {
+                      baseContent.value = appendOnly ? turn.content : '';
+                      capturedBase = true;
+                    }
+                    return {
+                      ...turn,
+                      content: baseContent.value + content,
+                      reasoning: appendOnly ? turn.reasoning : reasoning || undefined,
+                    };
+                  }),
+                );
+              },
+            });
+            if (result && isStillCurrent()) {
+              // CLI runs are never automatically replayed on short answers or errors.
+              // Their tools may have side effects even when the request is interrupted.
+              inFlightConvsRef.current.delete(targetConvId);
+              setTurnsForConv(targetConvId, (previous) =>
+                previous.map((turn) => {
+                  if (turn.id !== targetTurnId) return turn;
+                  const next: Turn = {
+                    ...turn,
+                    content: baseContent.value + result.content,
+                    reasoning: appendOnly ? turn.reasoning : result.reasoning || undefined,
+                    reasoningEndedAtMs: Date.now(),
+                    streaming: false,
+                    finishReason: result.status === 'completed' ? 'stop' : result.status,
+                    partial: result.status !== 'completed',
+                  };
+                  void Promise.resolve().then(() => persistAssistantTurn(next, targetConvId));
+                  return next;
+                }),
+              );
+            }
+          } finally {
+            if (cliRunsRef.current.get(targetConvId) === controller) {
+              cliRunsRef.current.delete(targetConvId);
+              setCliSessions((previous) => {
+                const next = { ...previous };
+                delete next[targetConvId];
+                return next;
+              });
+            }
+          }
+          return;
+        }
         await ipc.aiChatCompletionStream(
           { provider_id: activeProvider.id, messages: history, options: { temperature: 0.4 } },
           onChunk,
@@ -272,6 +363,8 @@ export function useAiStreamRunner({
       bumpRequestId,
       inFlightConvsRef,
       provider,
+      resolveCliProject,
+      persistAssistantTurn,
       requestIdsRef,
       runStreamRef,
       setProviderError,
@@ -281,5 +374,12 @@ export function useAiStreamRunner({
   );
   runStreamRef.current = runStream;
 
-  return { cancel, cancelFor, persistAssistantTurn, persistUserMessage, runStream };
+  return {
+    cancel,
+    cancelFor,
+    cliSession: activeConversationId ? cliSessions[activeConversationId] : undefined,
+    persistAssistantTurn,
+    persistUserMessage,
+    runStream,
+  };
 }

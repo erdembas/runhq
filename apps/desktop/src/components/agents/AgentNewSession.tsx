@@ -32,6 +32,13 @@ import { useAgentCatalog } from './useAgentCatalog';
 import { useAgentDiscovery } from './useAgentDiscovery';
 import { createAgentTaskLauncher } from './agentTaskLauncher';
 import { useVisibleStore } from '@/lib/useVisibleStore';
+import { AgentContextTray } from './AgentContextTray';
+import { useAgentContext } from './useAgentContext';
+import { agentContextImages, buildAgentContextPrompt, type AgentRecipe } from './agentLibraryModel';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
+import { initialAgentTaskRecovery } from './agentSendRecovery';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export function AgentNewSession({
   onClose,
@@ -39,20 +46,25 @@ export function AgentNewSession({
   project,
   visible = true,
   initialTemplate,
+  initialRecipe,
 }: {
   onClose: () => void;
   onCreated?: (session: AgentSession) => void;
   project?: AgentProject;
   visible?: boolean;
   initialTemplate?: AgentTaskTemplate;
+  initialRecipe?: AgentRecipe;
 }) {
   const storedProjects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
   const projects = project ? [project] : storedProjects;
   const projectOptions = useAgentProjectOptions(storedProjects, visible);
   const firstProjectId = projects[0]?.id ?? '';
   const filter = useVisibleStore(useAgentStore, (s) => s.projectFilter, visible);
-  const [projectId, setProjectId] = useState(project?.id || filter || projects[0]?.id || '');
+  const [projectId, setProjectId] = useState(
+    project?.id || initialRecipe?.projectId || filter || projects[0]?.id || '',
+  );
   const draftKey = `new-task:${projectId}`;
+  const context = useAgentContext(draftKey, projectId);
   const input = useVisibleStore(useAgentStore, (s) => s.drafts[draftKey] ?? '', visible);
   const setInput = (text: string) => useAgentStore.getState().setDraft(draftKey, text);
   const [backend, setBackend] = useState<AgentBackendId>('');
@@ -69,21 +81,34 @@ export function AgentNewSession({
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forgetLaunch, setForgetLaunch] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTaskTemplate['id']>();
   const [templateMode, setTemplateMode] = useState<'default' | 'plan' | null>(null);
   const templateApplied = useRef(false);
+  const recipeApplied = useRef(false);
   const mounted = useRef(false);
   const launcher = useRef(
     createAgentTaskLauncher({
-      create: ipc.agentCreate,
+      create: (input, sourceSessionId) =>
+        sourceSessionId
+          ? agentWorkspaceIpc.handoffCreate(sourceSessionId, input)
+          : ipc.agentCreate(input),
       start: ipc.agentStart,
+      recovery: initialAgentTaskRecovery,
       created: (session, text) => {
         useAgentStore.getState().merge(session);
         useAgentStore.getState().setDraft(session.id, text);
       },
     }),
   );
-  const locked = busy || !!launcher.current.session;
+  let restorationError: string | null = null;
+  try {
+    launcher.current.restore(projectId);
+  } catch (error) {
+    restorationError = String(error);
+  }
+  const recovered = launcher.current.recovery;
+  const locked = busy || !!launcher.current.session || !!recovered || !!restorationError;
   const found = backends.find((entry) => entry.id === backend);
   const canDiscover =
     !!found &&
@@ -117,7 +142,11 @@ export function AgentNewSession({
     ).length,
   });
   const canSend =
-    !busy && !!projectId && !!input.trim() && (!!launcher.current.session || connection.canStart);
+    !busy &&
+    !restorationError &&
+    !!projectId &&
+    (!!recovered ||
+      (context.ready && (!!input.trim() || context.entries.length > 0) && connection.canStart));
   const selectBackend = (value: string) => {
     if (locked) return;
     userSelectedBackend.current = true;
@@ -142,13 +171,34 @@ export function AgentNewSession({
     setTemplateMode(template.mode);
   };
   useEffect(() => {
-    if (!initialTemplate || templateApplied.current) return;
+    if (!initialTemplate || templateApplied.current || launcher.current.recovery) return;
     templateApplied.current = true;
     useAgentStore.getState().setDraft(draftKey, initialTemplate.prompt);
     setTitle(initialTemplate.title);
     setSelectedTemplate(initialTemplate.id);
     setTemplateMode(initialTemplate.mode);
   }, [draftKey, initialTemplate]);
+  useEffect(() => {
+    if (!initialRecipe || recipeApplied.current || launcher.current.recovery) return;
+    recipeApplied.current = true;
+    useAgentStore
+      .getState()
+      .setDraft(
+        draftKey,
+        initialRecipe.prompt +
+          (initialRecipe.acceptance ? `\n\nAcceptance criteria:\n${initialRecipe.acceptance}` : ''),
+      );
+    setTitle(initialRecipe.name);
+    if (initialRecipe.backend) {
+      userSelectedBackend.current = true;
+      setBackend(initialRecipe.backend);
+    }
+    setModel(initialRecipe.model);
+    setEffort(initialRecipe.effort);
+    setAgent(initialRecipe.agent);
+    setIsolated(initialRecipe.isolated);
+    setTemplateMode(initialRecipe.mode);
+  }, [draftKey, initialRecipe]);
   useEffect(() => {
     if (templateMode === null || locked) return;
     // Wait for the selected provider's capabilities before enabling its plan mode.
@@ -187,6 +237,19 @@ export function AgentNewSession({
   useEffect(() => {
     if (!projectId && firstProjectId) setProjectId(firstProjectId);
   }, [firstProjectId, projectId]);
+  useEffect(() => {
+    const saved = launcher.current.recovery;
+    if (!saved) return;
+    userSelectedBackend.current = true;
+    setBackend(saved.input.backend);
+    setExecutable(saved.input.executable);
+    setModel(saved.input.model);
+    setEffort(saved.input.effort);
+    setMode(saved.input.mode === 'plan' ? 'plan' : 'default');
+    setAgent(saved.input.agent);
+    setTitle(saved.input.title);
+    setIsolated(saved.input.isolated);
+  }, [projectId, recovered?.creationRequestId]);
   const openSession = (session: AgentSession) => {
     if (onCreated) onCreated(session);
     else useAgentStore.getState().select(session.id);
@@ -197,8 +260,13 @@ export function AgentNewSession({
     setBusy(true);
     setError(null);
     try {
+      const saved = launcher.current.recovery;
+      const draftText = saved?.draftText ?? input;
+      const prompt = saved?.text ?? buildAgentContextPrompt(input, context.entries);
+      const images = saved?.attachments ?? agentContextImages(context.entries);
+      const sourceSessionId = saved?.sourceSessionId ?? initialRecipe?.sourceSessionId;
       const session = await launcher.current.send(
-        {
+        saved?.input ?? {
           project_id: projectId,
           backend,
           executable,
@@ -209,14 +277,33 @@ export function AgentNewSession({
           agent,
           isolated,
         },
-        input,
+        prompt,
+        images,
+        { sourceSessionId, draftText },
       );
       useAgentStore.getState().merge(session);
+      if (sourceSessionId)
+        await useAgentLibraryStore.getState().save(`link:${session.id}`, {
+          sourceSessionId,
+          targetSessionId: session.id,
+          kind: 'handoff',
+          createdAt: Date.now(),
+        });
+      if (
+        context.ready &&
+        buildAgentContextPrompt(draftText, context.entries) === prompt &&
+        JSON.stringify(agentContextImages(context.entries)) === JSON.stringify(images)
+      )
+        await context.clear();
       // Another view may have edited either draft while this request was in flight.
       for (const key of [session.id, draftKey]) {
-        if (useAgentStore.getState().drafts[key] === input)
+        if (useAgentStore.getState().drafts[key] === (key === session.id ? prompt : draftText))
           useAgentStore.getState().setDraft(key, '');
       }
+      useAgentStore.getState().retryDraftPersistence();
+      if (useAgentStore.getState().persistenceError)
+        throw new Error(useAgentStore.getState().persistenceError!);
+      launcher.current.complete();
       if (mounted.current) openSession(session);
     } catch (e) {
       if (mounted.current) setError(String(e));
@@ -229,6 +316,25 @@ export function AgentNewSession({
       aria-label="New agent task"
       className="overlay-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 py-8 lg:px-8"
     >
+      {forgetLaunch && (
+        <ConfirmDialog
+          title="Forget this saved launch?"
+          message="Any task or worktree already created will stay available. If creation was interrupted, review your existing tasks first. Forgetting this record lets you start a separate new task."
+          confirmLabel="Forget saved launch"
+          onCancel={() => setForgetLaunch(false)}
+          onConfirm={() => {
+            try {
+              if (launcher.current.recovery) launcher.current.complete();
+              else initialAgentTaskRecovery.save(null, projectId);
+              setForgetLaunch(false);
+              setError(null);
+            } catch (error) {
+              setError(String(error));
+              setForgetLaunch(false);
+            }
+          }}
+        />
+      )}
       <div className="mx-auto my-auto w-full max-w-3xl py-6">
         <div className="mb-7 space-y-3">
           <div className="text-accent flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
@@ -250,7 +356,44 @@ export function AgentNewSession({
             />
           </div>
         </div>
-        {!launcher.current.session && (
+        {(recovered || restorationError) && (
+          <div className="border-border bg-accent/5 text-fg-muted mb-4 space-y-2 rounded-xl border p-3 text-[12px]">
+            <p>
+              {restorationError ||
+                (recovered?.phase === 'accepted'
+                  ? 'Your first message was accepted. Continue to finish saving this task; the message will not be sent again.'
+                  : 'A saved first message is waiting. Continue with its original workspace, model and context. A repeated request uses the same task and message IDs.')}
+            </p>
+            {recovered && (
+              <details>
+                <summary className="cursor-pointer">Review saved first message</summary>
+                <pre className="mt-2 max-h-40 overflow-auto text-[11px] whitespace-pre-wrap">
+                  {recovered.text}
+                </pre>
+              </details>
+            )}
+            <div className="flex gap-3">
+              {launcher.current.session && (
+                <button
+                  type="button"
+                  className="text-accent underline"
+                  onClick={() => openSession(launcher.current.session!)}
+                >
+                  Open existing task
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                className="text-fg-dim underline"
+                onClick={() => setForgetLaunch(true)}
+              >
+                Forget saved launch
+              </button>
+            </div>
+          </div>
+        )}
+        {!launcher.current.session && !recovered && !restorationError && (
           <AgentConnectionStatus
             state={connection}
             refreshing={discovery.loading || loading}
@@ -284,6 +427,7 @@ export function AgentNewSession({
               options={projectOptions}
               searchPlaceholder="Find a project or group…"
               onChange={(value) => {
+                if (initialRecipe?.sourceSessionId) return;
                 setProjectId(value);
                 setAgent('');
               }}
@@ -292,7 +436,7 @@ export function AgentNewSession({
           <span className="bg-border mx-1 h-3 w-px" />
           <button
             type="button"
-            disabled={locked}
+            disabled={locked || !!initialRecipe?.sourceSessionId}
             onClick={() => setIsolated(!isolated)}
             aria-pressed={isolated}
             title={
@@ -303,15 +447,19 @@ export function AgentNewSession({
             className="hover:text-fg flex min-w-0 items-center gap-1.5 disabled:opacity-40"
           >
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            {isolated ? 'Isolated worktree' : 'Local workspace'}
+            {initialRecipe?.sourceSessionId
+              ? 'Source task workspace'
+              : isolated
+                ? 'Isolated worktree'
+                : 'Local workspace'}
           </button>
         </div>
         <AgentComposer
-          value={input}
+          value={recovered?.draftText ?? input}
           onChange={setInput}
           onSend={() => void send()}
           busy={busy}
-          disabled={!!launcher.current.session}
+          disabled={locked}
           placeholder="Ask your agent to build, fix, or explore…"
           controls={
             <>
@@ -364,7 +512,13 @@ export function AgentNewSession({
           action={
             <button
               type="button"
-              aria-label={launcher.current.session ? 'Retry first message' : 'Send message'}
+              aria-label={
+                recovered
+                  ? 'Continue saved first message'
+                  : launcher.current.session
+                    ? 'Retry first message'
+                    : 'Send message'
+              }
               title={
                 canSend
                   ? 'Send · ⌘ / Ctrl + Enter'
@@ -384,6 +538,18 @@ export function AgentNewSession({
             </button>
           }
         >
+          <AgentContextTray
+            draftKey={draftKey}
+            projectId={projectId}
+            adapter={found?.adapter || backend}
+            disabled={locked}
+          />
+          {initialRecipe && (initialRecipe.setupCommands || initialRecipe.checkCommands) && (
+            <p className="text-fg-dim px-4 pb-3 text-[11px]">
+              This recipe includes setup/check commands. Launch it from Library → Create workflow to
+              run and record those steps.
+            </p>
+          )}
           {advanced && (
             <AgentTaskSettings
               title={title}
@@ -398,7 +564,9 @@ export function AgentNewSession({
                 setAgent('');
               }}
               isolated={isolated}
-              onIsolated={setIsolated}
+              onIsolated={(value) => {
+                if (!initialRecipe?.sourceSessionId) setIsolated(value);
+              }}
               backend={backend}
               detected={found}
               connectionError={executable.trim() ? catalogError : undefined}

@@ -1,8 +1,8 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Settings, Sparkles } from 'lucide-react';
+import { Check, Settings, Sparkles, TerminalSquare } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import type { AiProvider } from '@/types';
+import { isCliChatProvider, type AiChatProvider } from './chat-panel/aiChatProviders';
 
 /**
  * Floating popover that anchors below a trigger element and lets
@@ -20,15 +20,15 @@ import type { AiProvider } from '@/types';
  * Used internally by `useAiSurfaceTrigger` — call sites should reach
  * for the hook, not this component directly.
  */
-export function ModelChooserPopover<T extends HTMLElement>({
+export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvider>({
   anchorRef,
   providers,
   onSelect,
   onDismiss,
 }: {
   anchorRef: RefObject<T>;
-  providers: AiProvider[];
-  onSelect: (p: AiProvider) => void;
+  providers: P[];
+  onSelect: (p: P) => void;
   onDismiss: () => void;
 }) {
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -125,12 +125,14 @@ export function ModelChooserPopover<T extends HTMLElement>({
               className={cn(
                 'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors',
                 'hover:bg-fg/5',
-                p.default && 'bg-accent/8',
+                p.default && 'bg-fg/5',
               )}
             >
-              <Sparkles
-                className={cn('h-3 w-3 shrink-0', p.default ? 'text-accent' : 'text-fg-dim/70')}
-              />
+              {isCliChatProvider(p) ? (
+                <TerminalSquare className="text-fg-dim h-3 w-3 shrink-0" />
+              ) : (
+                <Sparkles className="text-fg-dim h-3 w-3 shrink-0" />
+              )}
               <div className="min-w-0 flex-1">
                 <div
                   className={cn(
@@ -140,8 +142,10 @@ export function ModelChooserPopover<T extends HTMLElement>({
                 >
                   {p.name}
                 </div>
-                {p.model && (
-                  <div className="text-fg-dim/70 truncate font-mono text-[10px]">{p.model}</div>
+                {(p.model || isCliChatProvider(p)) && (
+                  <div className="text-fg-dim/70 truncate text-[10px]">
+                    {isCliChatProvider(p) ? 'CLI · Default model' : p.model}
+                  </div>
                 )}
               </div>
               {p.default && <Check className="text-accent h-3 w-3 shrink-0" />}

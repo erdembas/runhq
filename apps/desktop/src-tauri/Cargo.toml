@@ -50,6 +50,7 @@ open = "5"
 # `Vec<u8>` as a JSON number array. STANDARD (not URL_SAFE) — webview
 # `atob` only understands the standard alphabet.
 base64 = "0.22"
+tauri-plugin-notification = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

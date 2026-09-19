@@ -5,17 +5,21 @@ import { test } from 'node:test';
 import { URL } from 'node:url';
 import ts from 'typescript';
 
-function setup(ipc = {}) {
+function setup(ipc = {}, persisted = new Map()) {
   const exports = {};
   const listeners = new Map();
   const updates = [];
+  const localStorage = {
+    getItem: (key) => persisted.get(key) ?? null,
+    setItem: (key, value) => persisted.set(key, value),
+  };
   const code = ts.transpileModule(
     readFileSync(new URL('../src/store/useAgentStore.ts', import.meta.url), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
   ).outputText;
   runInNewContext(code, {
     exports,
-    window: { setInterval() {} },
+    window: { setInterval() {}, localStorage },
     require(name) {
       if (name === 'zustand')
         return {
@@ -45,6 +49,15 @@ function setup(ipc = {}) {
         };
       if (name === './useAppStore') return { useAppStore: { getState: () => ({}) } };
       if (name === '@/lib/agentLocalArtifacts') return { clearAgentLocalArtifacts() {} };
+      if (name === '@/lib/agentRecoveryPersistence') {
+        const recovery = {};
+        const code = ts.transpileModule(
+          readFileSync(new URL('../src/lib/agentRecoveryPersistence.ts', import.meta.url), 'utf8'),
+          { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+        ).outputText;
+        runInNewContext(code, { exports: recovery, window: { localStorage } });
+        return recovery;
+      }
       throw new Error(name);
     },
   });
@@ -69,6 +82,41 @@ test('successful deletion clears selection and draft and rejects late snapshots'
   assert.equal(state.drafts.a, undefined);
   assert.equal(state.drafts.b, 'keep');
   assert.equal(state.sessions.b.id, 'b');
+});
+
+test('conversation and new-task drafts survive reload, clearing and session deletion', async () => {
+  const persisted = new Map();
+  const first = setup({}, persisted).useAgentStore;
+  first.getState().setDraft('conversation', 'Keep this prompt');
+  first.getState().setDraft('new-task:project', 'Plan the project');
+  const reopened = setup({ agentDelete: async () => {} }, persisted).useAgentStore;
+  assert.equal(reopened.getState().drafts.conversation, 'Keep this prompt');
+  assert.equal(reopened.getState().drafts['new-task:project'], 'Plan the project');
+  assert.equal(reopened.getState().recoveredDraftCount, 2);
+  await reopened.getState().deleteSession('conversation');
+  const next = setup({}, persisted).useAgentStore;
+  assert.equal(next.getState().drafts.conversation, undefined);
+  assert.equal(next.getState().drafts['new-task:project'], 'Plan the project');
+  next.getState().setDraft('new-task:project', '');
+  assert.equal(Object.keys(setup({}, persisted).useAgentStore.getState().drafts).length, 0);
+});
+
+test('waiting time survives restart and stale snapshots cannot remove the live pending request', async () => {
+  const persisted = new Map();
+  const request = { id: 'request' };
+  const session = { id: 'a', revision: 3, updated_at: 100, pending: [request] };
+  const first = setup({}, persisted).useAgentStore;
+  first.getState().merge(session);
+  const key = JSON.stringify(['a', 'request']);
+  const reopened = setup(
+    { agentSessions: async () => [{ ...session, revision: 1, pending: [] }] },
+    persisted,
+  ).useAgentStore;
+  reopened.getState().merge({ ...session, updated_at: 500 });
+  await reopened.getState().refresh();
+  assert.equal(reopened.getState().pendingSince[key], 100);
+  reopened.getState().merge({ ...session, revision: 4, pending: [] });
+  assert.equal(reopened.getState().pendingSince[key], undefined);
 });
 
 test('failed deletion preserves history, selection and drafts', async () => {

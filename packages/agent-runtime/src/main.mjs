@@ -3,6 +3,7 @@ import { runCodex } from './codex.mjs';
 import { runOpenCode } from './opencode.mjs';
 import { runClaude } from './claude.mjs';
 import { runAcp } from './acp.mjs';
+import { validateAttachments } from './attachments.mjs';
 
 let context;
 let started = false;
@@ -36,6 +37,8 @@ const emit = (event) => process.stdout.write(JSON.stringify(event) + '\n');
 async function run(config) {
   context = new Context(config, emit);
   try {
+    if (config.operation !== 'catalog')
+      validateAttachments(config.attachments, config.adapter || config.backend);
     const adapter = { codex: runCodex, opencode: runOpenCode, claude: runClaude, acp: runAcp }[
       config.adapter || config.backend
     ];

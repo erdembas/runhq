@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
     let dir = tempfile::tempdir().unwrap();
@@ -17,6 +18,7 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         adapter: "codex".into(),
         backend_name: "Codex".into(),
         args: vec![],
+        env: Default::default(),
         executable: "codex".into(),
         title: "Task".into(),
         model: String::new(),
@@ -34,7 +36,13 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         isolated: false,
         branch: None,
         usage: Value::Null,
+        base_revision: None,
+        pre_existing_paths: vec![],
+        turn_started_at: None,
+        last_turn_ms: None,
+        total_run_ms: 0,
         runtime_state: Value::Null,
+        workflow_read_only: false,
         pending: vec![],
     };
     {
@@ -171,6 +179,12 @@ fn restart_does_not_replay_turns_or_restore_stale_approvals() {
             json!({"type":"request","request":{"id":"1","kind":"approval","title":"Execute?"}}),
         )
         .unwrap();
+    manager
+        .mutate(&session.id, |s, _| {
+            s.turn_started_at = Some(now() - 60_000);
+            Ok(())
+        })
+        .unwrap();
     drop(manager);
     let reopened =
         AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
@@ -179,6 +193,11 @@ fn restart_does_not_replay_turns_or_restore_stale_approvals() {
     assert!(s.pending.is_empty());
     assert!(s.unread);
     assert_eq!(s.native_id.as_deref(), Some("native-session"));
+    // The turn's real end is unknown after a crash, so the measurement is dropped rather than
+    // guessed from the last activity timestamp.
+    assert_eq!(s.turn_started_at, None);
+    assert_eq!(s.total_run_ms, 0);
+    assert_eq!(s.last_turn_ms, None);
 }
 
 #[test]
@@ -274,6 +293,7 @@ setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},30)
         effort: String::new(),
         mode: None,
         agent: None,
+        attachments: vec![],
     };
     manager.start(input()).await.unwrap();
     manager.start(input()).await.unwrap(); // idempotent retry, not another process
@@ -319,7 +339,83 @@ fn turn_input(session: &AgentSession) -> AgentTurnInput {
         effort: String::new(),
         mode: None,
         agent: None,
+        attachments: vec![],
     }
+}
+
+#[tokio::test]
+async fn image_attachments_reach_runtime_without_persisting_image_bytes_in_transcript() {
+    let (dir, manager, session) = setup();
+    std::fs::write(
+        dir.path().join("bridge.cjs"),
+        r#"
+const assert = require('node:assert/strict');
+const readline = require('node:readline');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const command=JSON.parse(line); if(command.type!=='start') return;
+ assert.deepEqual(command.config.attachments,[{name:'screenshot.png',mime_type:'image/png',data:'aGVsbG8='}]);
+ assert.equal(command.config.read_only_review,false);
+ assert.equal(command.config.prompt,'Inspect screenshot');
+ process.stdout.write(JSON.stringify({type:'finished',status:'completed'})+'\n',()=>process.exit(0));
+});
+"#,
+    ).unwrap();
+    let mut input = turn_input(&session);
+    input.prompt = "Inspect screenshot".into();
+    input.attachments = vec![AgentAttachment {
+        name: "screenshot.png".into(),
+        mime_type: "image/png".into(),
+        data: "aGVsbG8=".into(),
+    }];
+    manager.start(input).await.unwrap();
+    let completed = wait_for_session(
+        &manager,
+        &session.id,
+        "an image turn completion",
+        |session| session.status == "completed",
+    )
+    .await
+    .unwrap();
+    assert!(completed.last_error.is_none());
+    let snapshot = manager.snapshot(&session.id, None).unwrap();
+    assert!(snapshot
+        .items
+        .iter()
+        .any(|item| item.text == "Inspect screenshot"));
+    assert!(!serde_json::to_string(&snapshot)
+        .unwrap()
+        .contains("aGVsbG8="));
+}
+
+#[tokio::test]
+async fn invalid_image_turn_is_retryable_and_never_reserves_or_persists_a_request() {
+    let (_dir, manager, session) = setup();
+    let mut input = turn_input(&session);
+    let request_id = input.request_id.clone();
+    input.attachments = vec![AgentAttachment {
+        name: "screenshot.png".into(),
+        mime_type: "image/png".into(),
+        data: "invalid".into(),
+    }];
+    assert!(manager
+        .start(input)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("Image data is invalid"));
+    assert_eq!(manager.session(&session.id).unwrap().status, "idle");
+    assert!(manager
+        .state
+        .lock()
+        .db
+        .request_owner(&request_id)
+        .unwrap()
+        .is_none());
+    assert!(manager
+        .snapshot(&session.id, None)
+        .unwrap()
+        .items
+        .is_empty());
 }
 async fn wait_for_session(
     manager: &AgentManager,
@@ -489,7 +585,8 @@ async fn isolated_worktree_preserves_original_uncommitted_files() {
     std::fs::write(dir.path().join("tracked.txt"), "local edit").unwrap();
     let created = manager
         .create(CreateAgentSession {
-            project_id: session.project_id,
+            creation_request_id: None,
+            project_id: session.project_id.clone(),
             backend: "codex".into(),
             executable: executable("git").unwrap().to_string_lossy().into(),
             title: "Isolated task".into(),
@@ -510,6 +607,29 @@ async fn isolated_worktree_preserves_original_uncommitted_files() {
         std::fs::read_to_string(dir.path().join("tracked.txt")).unwrap(),
         "local edit"
     );
+    // The isolated checkout starts from committed HEAD, so nothing there predates the task.
+    assert!(created.base_revision.is_some());
+    assert!(created.pre_existing_paths.is_empty());
+
+    // A task on the local workspace inherits the edit that was already there, and says so, rather
+    // than letting Changes present it as the agent's work.
+    let local = manager
+        .create(CreateAgentSession {
+            creation_request_id: None,
+            project_id: session.project_id,
+            backend: "codex".into(),
+            executable: executable("git").unwrap().to_string_lossy().into(),
+            title: "Local task".into(),
+            model: String::new(),
+            effort: String::new(),
+            mode: "default".into(),
+            agent: String::new(),
+            isolated: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(local.base_revision, created.base_revision);
+    assert_eq!(local.pre_existing_paths, vec!["tracked.txt".to_string()]);
 }
 #[test]
 fn newer_database_version_is_not_downgraded() {
@@ -547,6 +667,7 @@ fn tool_registry_persists_disabled_and_custom_tools_without_losing_defaults() {
         adapter: "terminal".into(),
         executable: "test-agent".into(),
         args: vec!["a value with spaces".into()],
+        env: Default::default(),
         enabled: true,
     };
     manager.save_tool(tool.clone()).unwrap();
@@ -571,6 +692,69 @@ fn tool_registry_persists_disabled_and_custom_tools_without_losing_defaults() {
     assert!(manager.save_tool(invalid).is_err());
 }
 
+#[test]
+fn connection_environment_selects_an_account_without_shadowing_runhq_or_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager =
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
+    let account = |env: BTreeMap<String, String>| AgentTool {
+        id: "codex-second-account".into(),
+        name: "Codex (second account)".into(),
+        adapter: "codex".into(),
+        executable: "codex".into(),
+        args: vec![],
+        env,
+        enabled: true,
+    };
+    // A second account for the same product is an ordinary connection with its own config home.
+    let valid = account(BTreeMap::from([(
+        "CODEX_HOME".into(),
+        "/fixture/second".into(),
+    )]));
+    manager.save_tool(valid.clone()).unwrap();
+    assert_eq!(
+        manager.tool("codex-second-account").unwrap().env,
+        valid.env,
+        "the configured account survives a save"
+    );
+
+    // RunHQ resolves executables and owns its bridge variables, so these cannot be taken over.
+    for reserved in ["PATH", "RUNHQ_AGENT_PROCESS_GROUP"] {
+        assert!(manager
+            .save_tool(account(BTreeMap::from([(
+                reserved.into(),
+                "/somewhere".into()
+            )])))
+            .is_err());
+    }
+    for bad_name in ["", "2HOME", "WITH SPACE", "WITH-DASH"] {
+        assert!(manager
+            .save_tool(account(BTreeMap::from([(bad_name.into(), "value".into())])))
+            .is_err());
+    }
+    assert!(manager
+        .save_tool(account(BTreeMap::from([(
+            "CODEX_HOME".into(),
+            "bad\0value".into()
+        )])))
+        .is_err());
+    assert!(
+        manager
+            .save_tool(account(
+                (0..33)
+                    .map(|i| (format!("VAR_{i}"), "value".into()))
+                    .collect()
+            ))
+            .is_err(),
+        "a connection cannot carry an unbounded environment"
+    );
+    assert_eq!(
+        manager.tool("codex-second-account").unwrap().env,
+        valid.env,
+        "a rejected edit leaves the stored account untouched"
+    );
+}
+
 #[tokio::test]
 #[cfg(unix)]
 async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
@@ -582,11 +766,13 @@ async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
         adapter: "acp".into(),
         executable: "/bin/echo".into(),
         args: vec!["--acp".into()],
+        env: BTreeMap::from([("ACP_HOME".into(), "/fixture/account-one".into())]),
         enabled: true,
     };
     manager.save_tool(tool.clone()).unwrap();
     let session = manager
         .create(CreateAgentSession {
+            creation_request_id: None,
             project_id: project.id,
             backend: tool.id.clone(),
             executable: String::new(),
@@ -599,12 +785,22 @@ async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
         })
         .await
         .unwrap();
+    assert_eq!(
+        session.env,
+        BTreeMap::from([("ACP_HOME".into(), "/fixture/account-one".into())]),
+        "a session records the account it was opened with"
+    );
     tool.args = vec!["changed".into()];
+    tool.env = BTreeMap::from([("ACP_HOME".into(), "/fixture/account-two".into())]);
     tool.enabled = false;
     manager.save_tool(tool).unwrap();
+    let snapshot = manager.snapshot(&session.id, None).unwrap().session;
+    assert_eq!(snapshot.args, vec!["--acp"]);
+    // Provider-native resume belongs to the account that opened the conversation, so repointing the
+    // connection at another account must not move a live session onto it.
     assert_eq!(
-        manager.snapshot(&session.id, None).unwrap().session.args,
-        vec!["--acp"]
+        snapshot.env,
+        BTreeMap::from([("ACP_HOME".into(), "/fixture/account-one".into())])
     );
     assert_eq!(session.adapter, "acp");
     let error = manager
@@ -616,6 +812,7 @@ async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
             effort: String::new(),
             mode: None,
             agent: None,
+            attachments: vec![],
         })
         .await
         .unwrap_err();
@@ -777,6 +974,7 @@ async fn discovery_preserves_found_paths_and_distinguishes_missing_blocked_and_a
         adapter: "codex".into(),
         executable: script.to_string_lossy().into_owned(),
         args: vec![],
+        env: Default::default(),
         enabled: true,
     };
     let missing = detect_tool(Some(tool.clone()), &Some("Agent runtime is missing".into()))
@@ -837,6 +1035,7 @@ async fn explicit_cli_resolution_matches_detection_catalog_creation_and_terminal
     let terminal = manager.terminal_tool("codex").unwrap();
     let created = manager
         .create(CreateAgentSession {
+            creation_request_id: None,
             project_id: project.id.clone(),
             backend: "codex".into(),
             executable: String::new(),
@@ -874,4 +1073,247 @@ async fn explicit_cli_resolution_matches_detection_catalog_creation_and_terminal
     assert!(
         resolve_executable("codex", dir.path().join("missing-codex").to_str().unwrap()).is_err()
     );
+}
+
+#[test]
+fn workspace_records_and_literal_history_search_preserve_project_scope() {
+    let (dir, manager, session) = setup();
+    manager
+        .workspace_save(
+            "recipe:example".into(),
+            Some(json!({"name":"Review","prompt":"Check changes"})),
+        )
+        .unwrap();
+    assert_eq!(manager.workspace_records().unwrap().len(), 1);
+    assert!(manager
+        .workspace_save("unknown:key".into(), Some(json!({})))
+        .is_err());
+    assert!(manager
+        .workspace_save("preferences:capacity".into(), Some(json!({"global":0})))
+        .is_err());
+    manager
+        .workspace_save(
+            "preferences:capacity".into(),
+            Some(json!({"global":2,"providers":{"codex":1}})),
+        )
+        .unwrap();
+    {
+        let state = manager.state.lock();
+        assert_eq!(
+            AgentManager::capacity_limits(&state.db.conn, "codex").unwrap(),
+            (2, 1)
+        );
+        state
+            .db
+            .item(
+                &session.id,
+                &AgentItem {
+                    id: "literal".into(),
+                    kind: "assistant".into(),
+                    title: "Result".into(),
+                    text: "Fixed 100% of _edge_ cases".into(),
+                    status: "completed".into(),
+                    created_at: now(),
+                },
+            )
+            .unwrap();
+    }
+    let query = |project_id| AgentHistoryQuery {
+        query: "100%".into(),
+        project_id,
+        backend: Some("codex".into()),
+        status: None,
+        before: None,
+        from_date: None,
+        to_date: None,
+    };
+    assert_eq!(
+        manager
+            .history_search(query(Some(session.project_id.clone())))
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut dated = query(None);
+    dated.from_date = Some(now() + 60_000);
+    assert!(manager.history_search(dated).unwrap().is_empty());
+    std::fs::create_dir(dir.path().join("other")).unwrap();
+    let other = manager
+        .add_project("Other".into(), dir.path().join("other"))
+        .unwrap();
+    assert!(manager
+        .history_search(query(Some(other.id)))
+        .unwrap()
+        .is_empty());
+    manager
+        .workspace_save("recipe:example".into(), None)
+        .unwrap();
+    assert!(manager
+        .workspace_record("recipe:example")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn history_retention_protects_memory_and_checks_preview_revision() {
+    let (_dir, manager, session) = setup();
+    let archived = manager
+        .update(&session.id, None, Some(true), false)
+        .unwrap();
+    let cutoff = now() + 60_000;
+    assert_eq!(
+        manager
+            .history_retention_preview(None, cutoff)
+            .unwrap()
+            .len(),
+        1
+    );
+    manager
+        .workspace_save(
+            "memory:evidence".into(),
+            Some(json!({"sourceSessionId":session.id})),
+        )
+        .unwrap();
+    assert!(manager
+        .history_retention_preview(None, cutoff)
+        .unwrap()
+        .is_empty());
+    assert!(manager
+        .history_retention_remove(&session.id, archived.revision)
+        .is_err());
+    manager
+        .workspace_save("memory:evidence".into(), None)
+        .unwrap();
+    let current = manager
+        .update(&session.id, Some("Retain revised task".into()), None, false)
+        .unwrap();
+    assert!(manager
+        .history_retention_remove(&session.id, archived.revision)
+        .is_err());
+    manager
+        .history_retention_remove(&session.id, current.revision)
+        .unwrap();
+    manager
+        .history_retention_remove(&session.id, current.revision)
+        .unwrap();
+    assert!(manager.session(&session.id).is_err());
+}
+
+#[tokio::test]
+async fn imported_history_is_archived_and_cannot_execute() {
+    let (_dir, manager, session) = setup();
+    manager
+        .state
+        .lock()
+        .db
+        .item(
+            &session.id,
+            &AgentItem {
+                id: "result".into(),
+                kind: "assistant".into(),
+                title: "Result".into(),
+                text: "Verified fix".into(),
+                status: "completed".into(),
+                created_at: now(),
+            },
+        )
+        .unwrap();
+    let archive = manager
+        .history_export(Some(session.project_id.clone()))
+        .unwrap();
+    assert_eq!(archive.conversations.len(), 1);
+    assert!(archive.conversations[0].session.native_id.is_none());
+    assert!(archive.conversations[0].session.executable.is_empty());
+    assert_eq!(
+        manager
+            .history_import(&session.project_id, archive)
+            .unwrap(),
+        1
+    );
+    let imported = manager
+        .sessions()
+        .into_iter()
+        .find(|s| s.id != session.id)
+        .unwrap();
+    assert!(imported.archived);
+    assert_eq!(
+        manager.snapshot(&imported.id, None).unwrap().items[0].text,
+        "Verified fix"
+    );
+    manager
+        .update(&imported.id, None, Some(false), false)
+        .unwrap();
+    let error = manager
+        .start(AgentTurnInput {
+            session_id: imported.id,
+            request_id: uuid::Uuid::new_v4().to_string(),
+            prompt: "run".into(),
+            model: String::new(),
+            effort: String::new(),
+            mode: None,
+            agent: None,
+            attachments: vec![],
+        })
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Imported history"));
+}
+
+#[test]
+fn project_context_is_bounded_and_rejects_parent_traversal() {
+    let (dir, manager, session) = setup();
+    std::fs::write(dir.path().join("source.txt"), "hello").unwrap();
+    assert_eq!(
+        manager
+            .context_file(&session.project_id, None, "source.txt")
+            .unwrap()
+            .content,
+        "hello"
+    );
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    assert!(manager
+        .context_file(&session.project_id, None, &outside.path().to_string_lossy())
+        .is_err());
+    std::fs::write(dir.path().join("large.txt"), vec![b'a'; 193 * 1024]).unwrap();
+    assert!(manager
+        .context_file(&session.project_id, None, "large.txt")
+        .is_err());
+    assert!(manager
+        .context_file(&session.project_id, Some("missing"), "source.txt")
+        .is_err());
+}
+
+#[tokio::test]
+async fn creation_request_replays_after_restart_without_duplicate_sessions() {
+    let (dir, manager, session) = setup();
+    let id = uuid::Uuid::new_v4().to_string();
+    let input = || CreateAgentSession {
+        creation_request_id: Some(id.clone()),
+        project_id: session.project_id.clone(),
+        backend: "codex".into(),
+        executable: std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        title: "Recoverable task".into(),
+        model: String::new(),
+        effort: String::new(),
+        mode: "default".into(),
+        agent: String::new(),
+        isolated: false,
+    };
+    let created = manager.create(input()).await.unwrap();
+    assert_eq!(created.id, id);
+    assert_eq!(manager.create(input()).await.unwrap().id, id);
+    let mut changed = input();
+    changed.title = "Different task".into();
+    assert!(manager.create(changed).await.is_err());
+    drop(manager);
+    let reopened = Arc::new(
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap(),
+    );
+    assert_eq!(reopened.create(input()).await.unwrap().id, id);
+    assert_eq!(reopened.sessions().len(), 2);
+    reopened.delete_session(&id).unwrap();
+    assert!(reopened.create(input()).await.is_err());
 }

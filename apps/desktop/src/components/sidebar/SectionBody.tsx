@@ -158,6 +158,7 @@ function StackRowSlotInner({
   return (
     <StackRow
       stackId={stack.id}
+      serviceIds={stack.service_ids}
       currentSectionId={currentSectionId}
       name={stack.name}
       total={stack.service_ids.length}

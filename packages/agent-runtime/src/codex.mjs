@@ -6,6 +6,7 @@ import {
   elicitationView,
   elicitationResponse,
 } from './protocol.mjs';
+import { codexImageInput } from './attachments.mjs';
 
 export function codexRequest(method, params) {
   if (method === 'item/tool/requestUserInput') {
@@ -86,6 +87,7 @@ export function codexRequest(method, params) {
 
 export async function runCodex(ctx, catalog = false) {
   const cfg = ctx.config;
+  const input = catalog ? [] : codexImageInput(cfg.prompt, cfg.attachments);
   let finish;
   const completed = new Promise((resolve) => {
     finish = resolve;
@@ -220,7 +222,7 @@ export async function runCodex(ctx, catalog = false) {
     cwd: cfg.cwd,
     approvalPolicy: 'on-request',
     approvalsReviewer: 'user',
-    sandbox: cfg.mode === 'plan' ? 'read-only' : 'workspace-write',
+    sandbox: cfg.read_only_review || cfg.mode === 'plan' ? 'read-only' : 'workspace-write',
     model: cfg.model || undefined,
   };
   const started = await rpc.call(cfg.native_id ? 'thread/resume' : 'thread/start', {
@@ -244,7 +246,7 @@ export async function runCodex(ctx, catalog = false) {
   if (ctx.cancelled) return { status: 'cancelled' };
   const startedTurn = await rpc.call('turn/start', {
     threadId,
-    input: [{ type: 'text', text: cfg.prompt }],
+    input,
     model: cfg.model || undefined,
     effort: cfg.effort || undefined,
     collaborationMode: {

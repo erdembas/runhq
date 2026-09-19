@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Rpc, pretty } from './protocol.mjs';
 import { cursorExtension, requireCursorAcp } from './cursor.mjs';
+import { validateAttachments } from './attachments.mjs';
 
 class AcpRpc extends Rpc {
   send(message) {
@@ -46,6 +47,7 @@ export function acpCatalog(session, capabilities = {}) {
 
 export async function runAcp(ctx, catalog = false) {
   const cfg = ctx.config;
+  if (!catalog) validateAttachments(cfg.attachments, 'acp');
   if (cfg.backend === 'cursor') await requireCursorAcp(ctx);
   if (ctx.cancelled) return { status: 'cancelled' };
   const child = ctx.child(cfg.executable, cfg.args ?? []);

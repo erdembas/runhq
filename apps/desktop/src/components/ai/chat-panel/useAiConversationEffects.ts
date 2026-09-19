@@ -1,12 +1,14 @@
+import type { AiChatProvider } from './aiChatProviders';
 import { useEffect } from 'react';
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react';
 import { ipc } from '@/lib/ipc';
 import { useAppStore, type AiActionHook, type AiDraft } from '@/store/useAppStore';
-import type { AiProvider, Conversation } from '@/types';
+import type { Conversation } from '@/types';
 import type { Turn } from '../chatPanelTypes';
+import { canUseChatProvider, isCliChatProvider, rememberChatProvider } from './aiChatProviders';
 
 type SendRef = RefObject<
-  ((overrideText?: string, providerOverride?: AiProvider) => Promise<void>) | null
+  ((overrideText?: string, providerOverride?: AiChatProvider) => Promise<void>) | null
 >;
 
 interface Args {
@@ -18,15 +20,15 @@ interface Args {
   loadedConversationIdRef: MutableRefObject<string | null>;
   pendingAutoSendPromptRef: MutableRefObject<string | null>;
   pendingAutoSendRef: MutableRefObject<boolean>;
-  providers: AiProvider[];
+  providers: AiChatProvider[];
   providersLoaded: boolean;
   sendRef: SendRef;
   setAwaitingAutoSend: (value: boolean) => void;
   setInput: (value: string) => void;
   setPickerOpen: (value: boolean) => void;
-  setProvider: (provider: AiProvider) => void;
+  setProvider: (provider: AiChatProvider) => void;
   setProviderError: (value: string | null) => void;
-  setProviders: Dispatch<SetStateAction<AiProvider[]>>;
+  setProviders: Dispatch<SetStateAction<AiChatProvider[]>>;
   setTurnsForConv: (convId: string, updater: Turn[] | ((prev: Turn[]) => Turn[])) => void;
   surfaceContextByConvRef: MutableRefObject<Map<string, string>>;
   turnFromMessage: (message: Conversation['messages'][number]) => Turn;
@@ -126,25 +128,28 @@ function useConsumeDraft({
     const forcedProviderId = aiDraft.forcedProviderId ?? null;
     const prompt = aiDraft.draftPrompt;
     clearAiDraft();
-    if (!shouldAutoSend || providers.length === 0) return;
+    const availableProviders = providers.filter(canUseChatProvider);
+    if (!shouldAutoSend || availableProviders.length === 0) return;
 
     if (forcedProviderId) {
-      const forced = providers.find((p) => p.id === forcedProviderId);
+      const forced = availableProviders.find((p) => p.id === forcedProviderId);
       if (forced) {
         setProvider(forced);
-        void ipc
-          .setDefaultAiProvider(forced.id)
-          .then(() =>
-            setProviders((prev) => prev.map((x) => ({ ...x, default: x.id === forced.id }))),
-          )
-          .catch(() => {});
+        rememberChatProvider(forced);
+        if (!isCliChatProvider(forced))
+          void ipc
+            .setDefaultAiProvider(forced.id)
+            .then(() =>
+              setProviders((prev) => prev.map((x) => ({ ...x, default: x.id === forced.id }))),
+            )
+            .catch(() => {});
         void sendRef.current?.(prompt, forced);
         return;
       }
     }
 
-    if (providers.length === 1) {
-      void sendRef.current?.(prompt);
+    if (availableProviders.length === 1) {
+      void sendRef.current?.(prompt, availableProviders[0]);
       return;
     }
     pendingAutoSendRef.current = true;

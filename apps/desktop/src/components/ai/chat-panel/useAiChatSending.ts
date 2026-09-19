@@ -1,7 +1,8 @@
+import type { AiChatProvider } from './aiChatProviders';
 import { useCallback } from 'react';
 import type { MutableRefObject } from 'react';
 import { ipc } from '@/lib/ipc';
-import type { AiProvider, ChatMessage } from '@/types';
+import type { ChatMessage } from '@/types';
 import type { Turn } from '../chatPanelTypes';
 import { CONTINUE_PROMPT, NUDGE_FINAL_ANSWER_PROMPT, SYSTEM_PROMPT } from './constants';
 
@@ -14,17 +15,17 @@ interface Args {
   input: string;
   loadedConversationIdRef: MutableRefObject<string | null>;
   persistUserMessage: (turn: Turn, conversationId: string) => Promise<void>;
-  provider: AiProvider | null;
+  provider: AiChatProvider | null;
   runStream: (args: {
     targetTurnId: string;
     targetConvId: string;
     history: ChatMessage[];
     appendOnly: boolean;
     retryAttempt?: number;
-    providerOverride?: AiProvider;
+    providerOverride?: AiChatProvider;
   }) => Promise<void>;
   sendRef: MutableRefObject<
-    ((overrideText?: string, providerOverride?: AiProvider) => Promise<void>) | null
+    ((overrideText?: string, providerOverride?: AiChatProvider) => Promise<void>) | null
   >;
   setActiveConversation: (id: string | null) => void;
   setInput: (value: string) => void;
@@ -36,7 +37,7 @@ interface Args {
 
 export function useAiChatSending(args: Args) {
   const send = useCallback(
-    async (overrideText?: string, providerOverride?: AiProvider) => {
+    async (overrideText?: string, providerOverride?: AiChatProvider) => {
       const text = (overrideText ?? args.input).trim();
       if (!text) return;
       const activeProvider = providerOverride ?? args.provider;

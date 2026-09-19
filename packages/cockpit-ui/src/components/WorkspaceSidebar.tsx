@@ -100,12 +100,11 @@ function ServiceRow({ service, status, sample, runtime, selected, onSelect }: Ro
   return (
     <button
       type="button"
+      aria-pressed={!!selected}
       onClick={onSelect}
       className={cn(
         'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition',
-        selected
-          ? 'bg-accent/12 text-accent'
-          : 'text-fg-muted hover:bg-surface-muted hover:text-fg',
+        selected ? 'bg-fg/6 text-fg' : 'text-fg-muted hover:bg-surface-muted hover:text-fg',
       )}
     >
       <StatusDot status={status} size="xs" />
@@ -154,6 +153,7 @@ function SectionBlock({
     <div className="flex flex-col">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="text-fg-muted hover:text-fg group flex items-center gap-1.5 px-1.5 py-1.5 text-[11.5px] font-semibold tracking-[0.04em] uppercase"
       >
@@ -168,9 +168,7 @@ function SectionBlock({
           <span
             className={cn(
               'rounded-md px-1.5 py-0.5 font-mono text-[9.5px] tracking-normal normal-case',
-              count.running > 0
-                ? 'bg-status-running/12 text-status-running'
-                : 'bg-surface-muted text-fg-dim',
+              count.running > 0 ? 'text-status-running' : 'bg-surface-muted text-fg-dim',
             )}
           >
             {count.total === count.running || count.running === 0
@@ -298,20 +296,16 @@ export function WorkspaceSidebar({
                   <li key={stack.id}>
                     <button
                       type="button"
+                      aria-pressed={isSelected}
                       onClick={() => onSelectStack?.(stack.id)}
                       className={cn(
                         'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition',
                         isSelected
-                          ? 'bg-accent/12 text-accent'
+                          ? 'bg-fg/6 text-fg'
                           : 'text-fg-muted hover:bg-surface-muted hover:text-fg',
                       )}
                     >
-                      <Layers
-                        className={cn(
-                          'h-3.5 w-3.5 shrink-0',
-                          isSelected ? 'text-accent' : 'text-fg-dim',
-                        )}
-                      />
+                      <Layers className="text-fg-dim h-3.5 w-3.5 shrink-0" />
                       <span className="truncate font-medium">{stack.name}</span>
                       <span className="text-fg-dim ml-auto text-[10.5px] tabular-nums">
                         {running}/{total}

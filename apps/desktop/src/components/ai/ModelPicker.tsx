@@ -1,7 +1,9 @@
-import { Check, Settings, Sparkles } from 'lucide-react';
+import type { AiChatProvider } from './chat-panel/aiChatProviders';
+import { Check, Settings, Sparkles, TerminalSquare, Wrench } from 'lucide-react';
+import { useAgentStore } from '@/store/useAgentStore';
+import { canUseChatProvider, isCliChatProvider } from './chat-panel/aiChatProviders';
 
 import { cn } from '@/lib/cn';
-import type { AiProvider } from '@/types';
 
 /**
  * Floating model picker shown above the composer's pill button.
@@ -31,9 +33,9 @@ export function ModelPicker({
   onManage,
   awaitingAutoSend = false,
 }: {
-  providers: AiProvider[];
-  activeId: string;
-  onSelect: (p: AiProvider) => void;
+  providers: AiChatProvider[];
+  activeId: string | null;
+  onSelect: (p: AiChatProvider) => void;
   onManage: () => void;
   /** When true, the picker was opened by a surface-triggered draft
    *  (Why? / Diff Explain / etc) with `autoSend: true` and 2+
@@ -67,22 +69,24 @@ export function ModelPicker({
         ) : (
           providers.map((p) => {
             const isActive = p.id === activeId;
+            const cli = isCliChatProvider(p) ? p.cli : null;
+            const Icon = cli ? TerminalSquare : Sparkles;
             return (
               <button
                 key={p.id}
                 type="button"
                 role="option"
                 aria-selected={isActive}
+                disabled={!canUseChatProvider(p)}
+                title={cli?.error ?? undefined}
                 onClick={() => onSelect(p)}
                 className={cn(
                   'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors',
-                  'hover:bg-fg/5',
-                  isActive && 'bg-accent/8',
+                  'hover:bg-fg/5 disabled:cursor-not-allowed disabled:opacity-45',
+                  isActive && 'bg-fg/5',
                 )}
               >
-                <Sparkles
-                  className={cn('h-3 w-3 shrink-0', isActive ? 'text-accent' : 'text-fg-dim/70')}
-                />
+                <Icon className="text-fg-dim h-3 w-3 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div
                     className={cn(
@@ -92,8 +96,14 @@ export function ModelPicker({
                   >
                     {p.name}
                   </div>
-                  {p.model && (
-                    <div className="text-fg-dim/70 truncate font-mono text-[10px]">{p.model}</div>
+                  {(p.model || cli) && (
+                    <div className="text-fg-dim/70 truncate text-[10px]">
+                      {cli
+                        ? cli.available
+                          ? 'CLI · Default model'
+                          : cli.error || 'CLI not found'
+                        : p.model}
+                    </div>
                   )}
                 </div>
                 {isActive && <Check className="text-accent h-3 w-3 shrink-0" />}
@@ -105,6 +115,14 @@ export function ModelPicker({
       <div className="border-border/60 border-t">
         <button
           type="button"
+          onClick={() => useAgentStore.setState({ toolsOpen: true })}
+          className="text-fg-dim hover:bg-fg/5 hover:text-fg flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition-colors"
+        >
+          <Wrench className="h-3 w-3" />
+          <span>Manage CLI tools…</span>
+        </button>
+        <button
+          type="button"
           onClick={onManage}
           className={cn(
             'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors',
@@ -112,7 +130,7 @@ export function ModelPicker({
           )}
         >
           <Settings className="h-3 w-3" />
-          <span>Manage providers…</span>
+          <span>Manage API providers…</span>
         </button>
       </div>
     </div>

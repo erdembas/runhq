@@ -1,7 +1,8 @@
+import type { AiChatProvider } from './aiChatProviders';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { AiActionHook } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
-import type { AiProvider, ChatMessage, ConversationMessage } from '@/types';
+import type { ChatMessage, ConversationMessage } from '@/types';
 import type { Turn } from '../chatPanelTypes';
 
 export type RunStreamFn = (args: {
@@ -10,15 +11,15 @@ export type RunStreamFn = (args: {
   history: ChatMessage[];
   appendOnly: boolean;
   retryAttempt?: number;
-  providerOverride?: AiProvider;
+  providerOverride?: AiChatProvider;
 }) => Promise<void>;
 
 export function useAiChatState() {
   const [turnsByConv, setTurnsByConv] = useState<Map<string, Turn[]>>(() => new Map());
   const [input, setInput] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [providers, setProviders] = useState<AiProvider[]>([]);
-  const [provider, setProvider] = useState<AiProvider | null>(null);
+  const [providers, setProviders] = useState<AiChatProvider[]>([]);
+  const [provider, setProvider] = useState<AiChatProvider | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [providersLoaded, setProvidersLoaded] = useState(false);

@@ -6,6 +6,10 @@ export interface AgentTool {
   adapter: AgentAdapter;
   executable: string;
   args: string[];
+  /** Environment for this connection's processes. Two connections for the same product become
+   * separate accounts by pointing at different provider configuration homes. RunHQ never creates or
+   * stores credentials; these only select a home the user authenticated themselves. */
+  env?: Record<string, string>;
   enabled: boolean;
 }
 export type AgentStatus =
@@ -60,6 +64,16 @@ export interface AgentSession {
   adapter?: AgentAdapter;
   backend_name?: string;
   args?: string[];
+  /** The connection environment captured when this session was created. */
+  env?: Record<string, string>;
+  /** The commit this task started from, and the tracked files already modified at that moment, so
+   * Changes can separate the agent's edits from what was there before. */
+  base_revision?: string | null;
+  pre_existing_paths?: string[];
+  /** RunHQ's own turn timing in milliseconds; providers report tokens, not duration. */
+  turn_started_at?: number | null;
+  last_turn_ms?: number | null;
+  total_run_ms?: number;
   title: string;
   model: string;
   effort: string;
@@ -76,6 +90,7 @@ export interface AgentSession {
   isolated: boolean;
   branch: string | null;
   usage: unknown;
+  runtime_state?: unknown;
   pending: AgentRequest[];
 }
 export interface AgentSnapshot {
@@ -94,6 +109,9 @@ export interface AgentBackend {
   enabled?: boolean;
   command?: string;
   args?: string[];
+  /** The account environment of the underlying connection, so the tools screen can toggle or edit a
+   * connection without dropping the account it points at. */
+  env?: Record<string, string>;
   detection_status?: 'available' | 'not_found' | 'blocked';
   detection_source?: 'path' | 'known_location' | 'explicit';
 }
@@ -114,6 +132,7 @@ export interface AgentCatalog {
   connection?: string;
 }
 export interface CreateAgentSession {
+  creation_request_id?: string;
   project_id: string;
   backend: AgentBackendId;
   executable: string;
@@ -132,4 +151,13 @@ export interface AgentTurnInput {
   effort: string;
   mode?: 'default' | 'plan';
   agent?: string;
+  attachments?: AgentAttachment[];
+}
+
+/** An inline image selected by the user, sent as native provider image content. */
+export interface AgentAttachment {
+  name: string;
+  mime_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+  /** Base64 bytes only, without a data-URL prefix. */
+  data: string;
 }

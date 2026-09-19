@@ -1,4 +1,4 @@
-import type { Ref, RefObject } from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
 import { EmptyState } from '../AiChatEmptyState';
 import { TurnView } from '../AiChatTurnView';
 import type { Turn } from '../chatPanelTypes';
@@ -7,9 +7,10 @@ interface Props {
   turns: Turn[];
   scrollRef: RefObject<HTMLDivElement | null>;
   onContinue: () => void;
+  children?: ReactNode;
 }
 
-export function AiChatMessageList({ turns, scrollRef, onContinue }: Props) {
+export function AiChatMessageList({ turns, scrollRef, onContinue, children }: Props) {
   return (
     <div
       ref={scrollRef as Ref<HTMLDivElement>}
@@ -26,6 +27,7 @@ export function AiChatMessageList({ turns, scrollRef, onContinue }: Props) {
               onContinue={isLastResumable(turns, turn, idx) ? onContinue : undefined}
             />
           ))}
+          {children}
         </div>
       )}
     </div>

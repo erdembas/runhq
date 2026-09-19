@@ -1,7 +1,12 @@
 import { type ReactNode, type RefObject, useCallback, useRef, useState } from 'react';
 import { ipc } from '@/lib/ipc';
 import { useAppStore, type OpenAiChatInput } from '@/store/useAppStore';
-import type { AiProvider } from '@/types';
+import { useAgentStore } from '@/store/useAgentStore';
+import {
+  canUseChatProvider,
+  cliChatProviders,
+  type AiChatProvider,
+} from './chat-panel/aiChatProviders';
 import { ModelChooserPopover } from './ModelChooserPopover';
 
 /**
@@ -79,7 +84,7 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   const openAiChat = useAppStore((s) => s.openAiChat);
   const triggerRef = useRef<T>(null) as RefObject<T>;
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const [providers, setProviders] = useState<AiProvider[] | null>(null);
+  const [providers, setProviders] = useState<AiChatProvider[] | null>(null);
 
   // We re-fetch the provider list at every click so newly added /
   // deleted models are reflected without a refresh — the IPC is a
@@ -87,9 +92,18 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   // round-trip latency before the popover opens (a few ms locally),
   // subsequent clicks open instantly because providers are cached
   // in state and re-fetched in the background to catch updates.
-  const fetchProviders = useCallback(async (): Promise<AiProvider[]> => {
+  const fetchProviders = useCallback(async (): Promise<AiChatProvider[]> => {
     try {
-      const list = await ipc.listAiProviders();
+      const [apiResult] = await Promise.allSettled([
+        ipc.listAiProviders(),
+        useAgentStore.getState().toolsReady
+          ? Promise.resolve()
+          : useAgentStore.getState().refreshTools(),
+      ]);
+      const list = [
+        ...(apiResult.status === 'fulfilled' ? apiResult.value : []),
+        ...cliChatProviders(useAgentStore.getState().tools).filter(canUseChatProvider),
+      ];
       setProviders(list);
       return list;
     } catch {
@@ -122,7 +136,7 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   > | null>(null);
 
   const dispatch = useCallback(
-    async (forced?: AiProvider) => {
+    async (forced?: AiChatProvider) => {
       const promise = pendingPayloadRef.current ?? Promise.resolve(buildPayloadRef.current());
       pendingPayloadRef.current = null;
       const payload = await promise;
@@ -137,7 +151,7 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   );
 
   const onClick = useCallback(async () => {
-    const list = providers ?? (await fetchProviders());
+    const list = await fetchProviders();
     if (list.length <= 1) {
       // 0 or 1 providers — fire payload + dispatch sequentially.
       // For zero providers we still open the panel (with payload)
@@ -152,12 +166,11 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
     pendingPayloadRef.current = Promise.resolve(buildPayloadRef.current());
     // Refresh in background while the popover is up so a model
     // added between clicks shows up without dismiss-and-retry.
-    void fetchProviders();
     setPopoverOpen(true);
-  }, [providers, fetchProviders, dispatch]);
+  }, [fetchProviders, dispatch]);
 
   const handleSelect = useCallback(
-    (p: AiProvider) => {
+    (p: AiChatProvider) => {
       setPopoverOpen(false);
       void dispatch(p);
     },

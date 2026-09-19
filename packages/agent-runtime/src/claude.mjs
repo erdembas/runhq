@@ -7,9 +7,11 @@ import {
   elicitationView,
   elicitationResponse,
 } from './protocol.mjs';
+import { claudeImageInput, validateAttachments } from './attachments.mjs';
 
 export async function runClaude(ctx, catalog = false, queryProvider = query) {
   const cfg = ctx.config;
+  const attachments = catalog ? [] : validateAttachments(cfg.attachments, 'claude');
   const controller = new AbortController();
   // SDK integrations use supported API authentication; do not copy CLI OAuth tokens.
   const env = { ...process.env };
@@ -21,7 +23,10 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     includePartialMessages: true,
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    permissionMode: cfg.mode === 'plan' ? 'plan' : 'default',
+    permissionMode: cfg.read_only_review || cfg.mode === 'plan' ? 'plan' : 'default',
+    ...(cfg.read_only_review
+      ? { disallowedTools: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'Agent', 'Task'] }
+      : {}),
     model: cfg.model || undefined,
     effort: cfg.effort || undefined,
     resume: cfg.native_id || undefined,
@@ -50,6 +55,26 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     canUseTool: async (name, input, context) =>
       new Promise((resolve, reject) => {
         const id = context.toolUseID ?? randomUUID();
+        if (
+          cfg.read_only_review &&
+          ![
+            'Read',
+            'Glob',
+            'Grep',
+            'LS',
+            'WebFetch',
+            'WebSearch',
+            'ToolSearch',
+            'AskUserQuestion',
+          ].includes(name)
+        ) {
+          resolve({
+            behavior: 'deny',
+            message:
+              'Workflow reviewers can inspect files but cannot change the workspace or run commands.',
+          });
+          return;
+        }
         const isQuestion = name === 'AskUserQuestion';
         const questions = isQuestion ? questionsFrom(input.questions) : [];
         const onAbort = () => {
@@ -107,7 +132,14 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
       releaseInput = resolve;
     });
   }
-  const q = queryProvider({ prompt: catalog ? emptyInput() : cfg.prompt, options });
+  const q = queryProvider({
+    prompt: catalog
+      ? emptyInput()
+      : attachments.length
+        ? claudeImageInput(cfg.prompt, attachments)
+        : cfg.prompt,
+    options,
+  });
   ctx.interrupt = async () => {
     ctx.cancelled = true;
     controller.abort();

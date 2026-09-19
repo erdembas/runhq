@@ -11,7 +11,14 @@ function load(path) {
   const source = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  runInNewContext(source, { exports });
+  runInNewContext(source, {
+    exports,
+    require(name) {
+      if (name === '@runhq/cockpit-ui')
+        return load('../../../packages/cockpit-ui/src/lib/agentAttachments.ts');
+      throw new Error(name);
+    },
+  });
   return exports;
 }
 const { createAgentTurnQueue } = load('../src/components/agents/agentTurnQueue.ts');
