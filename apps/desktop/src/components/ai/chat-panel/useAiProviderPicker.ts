@@ -1,7 +1,15 @@
+import type { AiChatProvider } from './aiChatProviders';
 import { useCallback, useEffect } from 'react';
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react';
 import { ipc } from '@/lib/ipc';
-import type { AiProvider } from '@/types';
+import { useAgentStore } from '@/store/useAgentStore';
+import {
+  canUseChatProvider,
+  cliChatProviders,
+  isCliChatProvider,
+  rememberChatProvider,
+  selectedChatProviderId,
+} from './aiChatProviders';
 
 interface Args {
   isOpen: boolean;
@@ -10,13 +18,13 @@ interface Args {
   pickerOpen: boolean;
   pickerRef: RefObject<HTMLDivElement | null>;
   sendRef: RefObject<
-    ((overrideText?: string, providerOverride?: AiProvider) => Promise<void>) | null
+    ((overrideText?: string, providerOverride?: AiChatProvider) => Promise<void>) | null
   >;
   setAwaitingAutoSend: (value: boolean) => void;
   setPickerOpen: Dispatch<SetStateAction<boolean>>;
-  setProvider: Dispatch<SetStateAction<AiProvider | null>>;
+  setProvider: Dispatch<SetStateAction<AiChatProvider | null>>;
   setProviderError: (value: string | null) => void;
-  setProviders: Dispatch<SetStateAction<AiProvider[]>>;
+  setProviders: Dispatch<SetStateAction<AiChatProvider[]>>;
   setProvidersLoaded: (value: boolean) => void;
 }
 
@@ -34,19 +42,52 @@ export function useAiProviderPicker({
   setProviders,
   setProvidersLoaded,
 }: Args) {
+  const tools = useAgentStore((state) => state.tools);
+  useEffect(() => {
+    const cliProviders = cliChatProviders(tools);
+    setProviders((previous) => [
+      ...previous.filter((provider) => !isCliChatProvider(provider)),
+      ...cliProviders,
+    ]);
+    setProvider((previous) => {
+      if (!previous || !isCliChatProvider(previous)) return previous;
+      return (
+        cliProviders.find(
+          (provider) => provider.id === previous.id && canUseChatProvider(provider),
+        ) ?? null
+      );
+    });
+  }, [tools, setProvider, setProviders]);
+
   const reloadProviders = useCallback(async () => {
     try {
-      const list = await ipc.listAiProviders();
+      const [apiResult, cliResult] = await Promise.allSettled([
+        ipc.listAiProviders(),
+        useAgentStore.getState().refreshTools(),
+      ]);
+      const list = [
+        ...(apiResult.status === 'fulfilled' ? apiResult.value : []),
+        ...cliChatProviders(useAgentStore.getState().tools),
+      ];
       setProviders(list);
       setProvider((current) => {
-        if (current) {
-          const stillExists = list.find((p) => p.id === current.id);
+        const previousId = current?.id ?? selectedChatProviderId();
+        if (previousId) {
+          const stillExists = list.find((p) => p.id === previousId && canUseChatProvider(p));
           if (stillExists) return stillExists;
         }
-        return list.find((p) => p.default) ?? list[0] ?? null;
+        return (
+          list.find((p) => p.default && canUseChatProvider(p)) ??
+          list.find(canUseChatProvider) ??
+          null
+        );
       });
       setProviderError(
-        list.length === 0 ? 'No AI provider configured. Add one from Settings → AI.' : null,
+        list.some(canUseChatProvider)
+          ? null
+          : apiResult.status === 'rejected' && cliResult.status === 'rejected'
+            ? 'Could not load AI providers. Reopen the panel to try again.'
+            : 'Connect a CLI in Agent tools or add an API provider in Settings → AI.',
       );
     } catch (e) {
       setProviderError(e instanceof Error ? e.message : String(e));
@@ -96,8 +137,11 @@ export function useAiProviderPicker({
   ]);
 
   const selectProvider = useCallback(
-    async (provider: AiProvider) => {
+    async (provider: AiChatProvider) => {
+      if (!canUseChatProvider(provider)) return;
+      rememberChatProvider(provider);
       setProvider(provider);
+      setProviderError(null);
       setPickerOpen(false);
       if (pendingAutoSendRef.current) {
         pendingAutoSendRef.current = false;
@@ -105,10 +149,11 @@ export function useAiProviderPicker({
         pendingAutoSendPromptRef.current = null;
         setAwaitingAutoSend(false);
         requestAnimationFrame(() => {
-          sendRef.current?.(prompt);
+          sendRef.current?.(prompt, provider);
         });
       }
       try {
+        if (isCliChatProvider(provider)) return;
         await ipc.setDefaultAiProvider(provider.id);
         setProviders((prev) => prev.map((x) => ({ ...x, default: x.id === provider.id })));
       } catch {
@@ -122,6 +167,7 @@ export function useAiProviderPicker({
       setAwaitingAutoSend,
       setPickerOpen,
       setProvider,
+      setProviderError,
       setProviders,
     ],
   );

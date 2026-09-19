@@ -3,6 +3,11 @@ import { listen } from '@tauri-apps/api/event';
 import type { AgentBackend, AgentProject, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { clearAgentLocalArtifacts } from '@/lib/agentLocalArtifacts';
+import {
+  createAgentRecoveryPersistence,
+  isStringRecord,
+  isNumberRecord,
+} from '@/lib/agentRecoveryPersistence';
 import { useAppStore } from './useAppStore';
 
 export interface AgentStore {
@@ -16,10 +21,15 @@ export interface AgentStore {
   sessions: Record<string, AgentSession>;
   projects: AgentProject[];
   selectedId: string | null;
+  navigationRevision: number;
   projectFilter: string;
   error: string | null;
   ready: boolean;
   drafts: Record<string, string>;
+  persistenceError: string | null;
+  recoveredDraftCount: number;
+  retryDraftPersistence: () => void;
+  pendingSince: Record<string, number>;
   deletedIds: Record<string, true>;
   remove: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
@@ -31,6 +41,34 @@ export interface AgentStore {
 }
 let toolsRefresh: Promise<void> | null = null;
 let workspaceRefresh: Promise<void> | null = null;
+const draftPersistence = createAgentRecoveryPersistence('runhq.agent-drafts.v1', isStringRecord);
+const recoveredDrafts = draftPersistence.load({});
+const requestPersistence = createAgentRecoveryPersistence(
+  'runhq.agent-request-times.v1',
+  isNumberRecord,
+);
+const recoveredRequests = requestPersistence.load({});
+const requestKey = (sessionId: string, requestId: string) => JSON.stringify([sessionId, requestId]);
+function requestTimes(sessions: AgentSession[], previous: Record<string, number>) {
+  let next = previous;
+  for (const session of sessions) {
+    const keys = new Set(
+      (session.pending ?? []).map((request) => requestKey(session.id, request.id)),
+    );
+    for (const key of keys) {
+      if (next[key] !== undefined) continue;
+      if (next === previous) next = { ...previous };
+      next[key] = Math.min(Date.now(), session.updated_at || Date.now());
+    }
+    for (const key of Object.keys(previous)) {
+      if (!key.startsWith(`[${JSON.stringify(session.id)},`) || keys.has(key)) continue;
+      if (next === previous) next = { ...previous };
+      delete next[key];
+    }
+  }
+  if (next !== previous) requestPersistence.save(next);
+  return next;
+}
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
   tools: [],
@@ -68,10 +106,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   sessions: {},
   projects: [],
   selectedId: null,
+  navigationRevision: 0,
   projectFilter: '',
   error: null,
   ready: false,
-  drafts: {},
+  drafts: recoveredDrafts.data,
+  persistenceError: recoveredDrafts.error,
+  recoveredDraftCount: Object.values(recoveredDrafts.data).filter(Boolean).length,
+  retryDraftPersistence: () => set({ persistenceError: draftPersistence.save(get().drafts) }),
+  pendingSince: recoveredRequests.data,
   deletedIds: {},
   remove: (id) =>
     set((state) => {
@@ -84,9 +127,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const drafts = { ...state.drafts };
       delete sessions[id];
       delete drafts[id];
+      const pendingSince = Object.fromEntries(
+        Object.entries(state.pendingSince).filter(
+          ([key]) => !key.startsWith(`[${JSON.stringify(id)},`),
+        ),
+      );
+      requestPersistence.save(pendingSince);
       return {
         sessions,
         drafts,
+        persistenceError: draftPersistence.save(drafts),
+        pendingSince,
         selectedId: state.selectedId === id ? null : state.selectedId,
         deletedIds: { ...state.deletedIds, [id]: true },
       };
@@ -96,13 +147,22 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     get().remove(id);
   },
   setDraft: (id, text) =>
-    set((s) => ((s.drafts[id] ?? '') === text ? s : { drafts: { ...s.drafts, [id]: text } })),
+    set((state) => {
+      if ((state.drafts[id] ?? '') === text) return state;
+      const drafts = { ...state.drafts };
+      if (text) drafts[id] = text;
+      else delete drafts[id];
+      return { drafts, persistenceError: draftPersistence.save(drafts) };
+    }),
   merge: (session) =>
     set((state) => {
       // A late snapshot or change event must not resurrect a deleted conversation.
       if (state.deletedIds[session.id]) return state;
       if ((state.sessions[session.id]?.revision ?? -1) >= session.revision) return state;
-      return { sessions: { ...state.sessions, [session.id]: session } };
+      return {
+        sessions: { ...state.sessions, [session.id]: session },
+        pendingSince: requestTimes([session], state.pendingSince),
+      };
     }),
   refresh: (afterMutation = false) => {
     // A mutation must read again after any older request; ordinary callers can share it.
@@ -137,6 +197,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
               return state;
             return {
               sessions,
+              pendingSince: requestTimes(Object.values(sessions), state.pendingSince),
               projects: sameProjects ? state.projects : projects,
               ready: true,
               error: null,
@@ -150,7 +211,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     return workspaceRefresh;
   },
   select: (id) => {
-    set({ selectedId: id });
+    set((state) => ({ selectedId: id, navigationRevision: state.navigationRevision + 1 }));
     if (id && get().sessions[id]?.unread)
       void ipc
         .agentUpdate(id, { read: true })

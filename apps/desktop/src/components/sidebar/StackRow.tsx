@@ -5,9 +5,12 @@ import { IconButton } from '@/components/ui/IconButton';
 import { cn } from '@/lib/cn';
 import { beginDrag, endDrag } from './dnd';
 import type { SectionId } from '@/types';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
+import { useSidebarAgentActivity } from './useSidebarAgentActivity';
 
 export function StackRow({
   stackId,
+  serviceIds,
   currentSectionId,
   name,
   total,
@@ -20,6 +23,7 @@ export function StackRow({
   onDelete,
 }: {
   stackId: string;
+  serviceIds: string[];
   currentSectionId: SectionId | null;
   name: string;
   total: number;
@@ -32,6 +36,7 @@ export function StackRow({
   onDelete: () => void;
 }) {
   const anyRunning = running > 0;
+  const hasAgentActivity = !!useSidebarAgentActivity(serviceIds)?.targetSessionId;
   const [dragging, setDragging] = useState(false);
   return (
     <div
@@ -47,16 +52,14 @@ export function StackRow({
       }}
       className={cn(
         'group relative cursor-grab rounded-lg py-1.5 pr-2 pl-0.5 transition-colors active:cursor-grabbing',
-        active
-          ? 'bg-accent/8 text-fg ring-accent/15 ring-1 ring-inset'
-          : 'text-fg-muted hover:bg-fg/4 hover:text-fg',
+        active ? 'bg-fg/6 text-fg' : 'text-fg-muted hover:bg-fg/4 hover:text-fg',
         dragging && 'opacity-40',
       )}
     >
       {active && (
         <span className="bg-accent absolute top-1.5 bottom-1.5 left-0 w-[2px] rounded-full" />
       )}
-      <div className="flex items-center gap-1.5">
+      <div className="relative flex items-center gap-1.5">
         <GripVertical
           className="text-fg-dim/60 h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
           aria-hidden
@@ -68,23 +71,36 @@ export function StackRow({
           )}
           aria-hidden
         />
-        <Layers className={cn('h-3.5 w-3.5 shrink-0', active ? 'text-accent' : 'text-fg-dim')} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{name}</span>
+        <Layers className="text-fg-dim h-3.5 w-3.5 shrink-0" />
+        <span
+          className="min-w-0 flex-1 truncate text-[12.5px] font-medium"
+          title={`${name} · ${running}/${total} services running`}
+        >
+          {name}
+        </span>
 
-        <div className="relative flex h-6 shrink-0 items-center justify-end">
-          <span
-            className={cn(
-              'rounded-app-sm px-1.5 text-[10px] tabular-nums transition-opacity',
-              anyRunning
-                ? 'bg-status-running/15 text-status-running'
-                : 'text-fg-dim bg-surface-muted',
-              active
-                ? 'pointer-events-none absolute inset-y-0 right-0 flex items-center opacity-0'
-                : 'static opacity-100 group-hover:pointer-events-none group-hover:absolute group-hover:inset-y-0 group-hover:right-0 group-hover:flex group-hover:items-center group-hover:opacity-0',
-            )}
-          >
-            {anyRunning ? `${running}/${total}` : total}
-          </span>
+        <SidebarAgentActivity serviceIds={serviceIds} name={name} />
+        <div
+          className={cn(
+            'flex h-6 shrink-0 items-center justify-end',
+            hasAgentActivity && !active
+              ? 'bg-surface-raised absolute right-[64px] rounded-md'
+              : 'relative',
+          )}
+        >
+          {!hasAgentActivity && (
+            <span
+              className={cn(
+                'rounded-app-sm px-1.5 text-[10px] tabular-nums transition-opacity',
+                anyRunning ? 'text-status-running' : 'text-fg-dim',
+                active
+                  ? 'pointer-events-none absolute inset-y-0 right-0 flex items-center opacity-0'
+                  : 'static opacity-100 group-hover:pointer-events-none group-hover:absolute group-hover:inset-y-0 group-hover:right-0 group-hover:flex group-hover:items-center group-hover:opacity-0',
+              )}
+            >
+              {anyRunning ? `${running}/${total}` : total}
+            </span>
+          )}
 
           <div
             className={cn(

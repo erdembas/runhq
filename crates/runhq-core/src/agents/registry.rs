@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 pub(super) fn defaults() -> Vec<AgentTool> {
     [
@@ -14,6 +15,7 @@ pub(super) fn defaults() -> Vec<AgentTool> {
         adapter: adapter.into(),
         executable: executable.into(),
         args,
+        env: Default::default(),
         enabled: true,
     })
     .collect()
@@ -64,6 +66,7 @@ impl AgentManager {
                 "Arguments are supported for ACP and terminal tools",
             ));
         }
+        validate_tool_env(&tool.env)?;
         let mut state = self.state.lock();
         state.db.conn.execute("INSERT INTO agent_tools(id,data) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET data=excluded.data", rusqlite::params![tool.id,serde_json::to_string(&tool)?]).map_err(|e| AppError::other(e.to_string()))?;
         state.tools.insert(tool.id.clone(), tool);
@@ -90,4 +93,38 @@ impl AgentManager {
         }
         Ok((resolve_executable(&tool.executable, "")?, tool.args))
     }
+}
+
+/// A connection's environment selects which provider account its processes use. RunHQ resolves the
+/// executable itself and owns its own bridge variables, so those names stay out of the user's hands
+/// rather than failing confusingly at spawn time.
+pub(super) fn validate_tool_env(env: &BTreeMap<String, String>) -> AppResult<()> {
+    if env.len() > 32 {
+        return Err(invalid(
+            "A connection supports up to 32 environment variables",
+        ));
+    }
+    for (key, value) in env {
+        if key.is_empty()
+            || key.len() > 256
+            || key.as_bytes()[0].is_ascii_digit()
+            || !key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        {
+            return Err(invalid(format!(
+                "Invalid environment variable name: {key}. Use letters, digits and underscores."
+            )));
+        }
+        if key == "PATH" {
+            return Err(invalid(
+                "PATH is resolved by RunHQ. Set the executable path on the connection instead.",
+            ));
+        }
+        if key.starts_with("RUNHQ_") {
+            return Err(invalid(format!("{key} is reserved by RunHQ")));
+        }
+        if value.len() > 4096 || value.contains('\0') {
+            return Err(invalid(format!("Invalid value for {key}")));
+        }
+    }
+    Ok(())
 }

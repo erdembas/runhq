@@ -2,7 +2,12 @@ import { useMemo, useState } from 'react';
 import { ListChecks } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AgentPlanReview, collectAgentPlans, type AgentPlanDocument } from '@runhq/cockpit-ui';
+import {
+  AgentPlanReview,
+  collectAgentPlans,
+  type AgentPlanDocument,
+  SearchableSelect,
+} from '@runhq/cockpit-ui';
 import type { AgentItem } from '@runhq/cockpit-types';
 import { ROOMY_MARKDOWN_COMPONENTS } from '@/components/ai/markdownComponents';
 
@@ -97,21 +102,19 @@ export function AgentPlanPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       {plans.length > 1 && (
         <div className="border-border flex items-center gap-2 border-b px-5 py-2">
-          <label htmlFor={`plan-version-${sessionId}`} className="text-fg-dim text-[11px]">
-            Plan
-          </label>
-          <select
-            id={`plan-version-${sessionId}`}
-            className="text-fg bg-surface min-w-0 flex-1 rounded p-1 text-[12px]"
+          <span className="text-fg-dim text-[11px]">Plan</span>
+          <SearchableSelect
+            label="Plan document"
+            compact
+            className="min-w-0 flex-1"
             value={plan.id}
-            onChange={(event) => setSelectedId(event.target.value)}
-          >
-            {plans.map((entry, index) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.title} · {index + 1}
-              </option>
-            ))}
-          </select>
+            options={plans.map((entry, index) => ({
+              value: entry.id,
+              label: entry.title,
+              description: `Document ${index + 1}`,
+            }))}
+            onChange={setSelectedId}
+          />
         </div>
       )}
       <PlanDocument

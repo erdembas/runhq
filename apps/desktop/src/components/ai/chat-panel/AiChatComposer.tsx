@@ -1,9 +1,19 @@
+import type { AiChatProvider } from './aiChatProviders';
 import type { Ref, RefObject } from 'react';
-import { ArrowUp, ChevronDown, CornerDownLeft, Settings, Sparkles, Square } from 'lucide-react';
+import {
+  ArrowUp,
+  ChevronDown,
+  CornerDownLeft,
+  Sparkles,
+  Square,
+  TerminalSquare,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
-import type { AiProvider, ServiceDef } from '@/types';
+import type { ServiceDef } from '@/types';
 import { ModelPicker } from '../ModelPicker';
 import { TokenMeter } from '../TokenMeter';
+import { isCliChatProvider } from './aiChatProviders';
+import type { ReactNode } from 'react';
 
 interface Props {
   awaitingAutoSend: boolean;
@@ -14,16 +24,17 @@ interface Props {
   isStreaming: boolean;
   pickerOpen: boolean;
   pickerRef: RefObject<HTMLDivElement | null>;
-  provider: AiProvider | null;
-  providers: AiProvider[];
+  provider: AiChatProvider | null;
+  providers: AiChatProvider[];
   selectedService: ServiceDef | null;
   tokenCount: number | null;
   turnsLength: number;
+  projectControl?: ReactNode;
   onCancel: () => void;
   onInput: (value: string) => void;
   onManageModels: () => void;
   onPickerOpenChange: (open: boolean) => void;
-  onSelectProvider: (provider: AiProvider) => void;
+  onSelectProvider: (provider: AiChatProvider) => void;
   onSend: () => void;
 }
 
@@ -32,6 +43,7 @@ export function AiChatComposer(props: Props) {
     <>
       {props.contextChips.length > 0 && <ContextChips chips={props.contextChips} />}
       <div className="px-3 pb-3">
+        {props.projectControl}
         <div
           className={cn(
             'rounded-app bg-fg/3 cursor-text border',
@@ -117,37 +129,28 @@ export function AiChatComposer(props: Props) {
 }
 
 function ModelControl(props: Props) {
-  if (!props.provider) {
-    return (
-      <button
-        type="button"
-        onClick={props.onManageModels}
-        tabIndex={-1}
-        className="text-fg-dim hover:text-fg hover:bg-fg/5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors"
-      >
-        <Settings className="h-3 w-3" />
-        <span>Configure model…</span>
-      </button>
-    );
-  }
-
+  const cli = props.provider && isCliChatProvider(props.provider);
+  const Icon = cli ? TerminalSquare : Sparkles;
   return (
     <div ref={props.pickerRef as Ref<HTMLDivElement>} className="relative">
       <button
         type="button"
         onClick={() => props.onPickerOpenChange(!props.pickerOpen)}
-        title={`${props.provider.name} · ${props.provider.model || 'no model'}`}
+        title={
+          props.provider
+            ? `${props.provider.name} · ${cli ? 'CLI default model' : props.provider.model}`
+            : 'Choose a CLI tool or API provider'
+        }
         aria-haspopup="listbox"
         aria-expanded={props.pickerOpen}
-        tabIndex={-1}
         className={cn(
           'group text-fg-dim hover:text-fg hover:bg-fg/5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
           props.pickerOpen && 'text-fg bg-fg/5',
         )}
       >
-        <Sparkles className="text-accent/70 h-3 w-3" />
+        <Icon className="h-3 w-3" />
         <span className="max-w-[180px] truncate">
-          {props.provider.model || props.provider.name}
+          {props.provider?.model || props.provider?.name || 'Choose provider'}
         </span>
         <ChevronDown
           className={cn(
@@ -159,7 +162,7 @@ function ModelControl(props: Props) {
       {props.pickerOpen && (
         <ModelPicker
           providers={props.providers}
-          activeId={props.provider.id}
+          activeId={props.provider?.id ?? null}
           onSelect={props.onSelectProvider}
           onManage={props.onManageModels}
           awaitingAutoSend={props.awaitingAutoSend}

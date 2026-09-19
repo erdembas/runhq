@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ServiceRow } from './ServiceRow';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
 import type { ServiceGroup } from './dnd';
 import type { SectionId, ServiceDef, ServiceStatus } from '@/types';
 
@@ -57,6 +58,10 @@ export function GroupedServiceList({
               <span className="text-fg-dim bg-surface-muted rounded-app-sm ml-auto px-1.5 text-[10px] tabular-nums">
                 {group.services.length}
               </span>
+              <SidebarAgentActivity
+                serviceIds={group.services.map((service) => service.id)}
+                name={group.label}
+              />
             </header>
             {!collapsed && (
               <ul className="mx-2 my-1 space-y-0.5">

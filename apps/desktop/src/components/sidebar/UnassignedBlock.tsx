@@ -3,18 +3,21 @@ import { WorkspaceGroupHeader } from '@runhq/cockpit-ui';
 import { useAppStore } from '@/store/useAppStore';
 import { readDrag, endDrag, getActiveDrag } from './dnd';
 import { useDragActive } from './useDragActive';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
 
 export function UnassignedBlock({
   collapsed,
   onToggle,
   stacksCount,
   servicesCount,
+  serviceIds,
   children,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   stacksCount: number;
   servicesCount: number;
+  serviceIds: string[];
   children: React.ReactNode;
 }) {
   const total = stacksCount + servicesCount;
@@ -77,6 +80,7 @@ export function UnassignedBlock({
         collapsed={collapsed}
         onToggle={onToggle}
         count={total}
+        activity={<SidebarAgentActivity serviceIds={serviceIds} name="Unassigned" />}
       />
       {!collapsed && <div className="border-border/60 ml-3 border-l pb-1 pl-1">{children}</div>}
     </section>

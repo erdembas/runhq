@@ -1,5 +1,5 @@
+import type { AiChatProvider } from './chat-panel/aiChatProviders';
 import { useMemo, useRef } from 'react';
-import type { AiProvider } from '@/types';
 import { HistoryDrawer } from './HistoryDrawer';
 import { ChatTabs } from './ChatTabs';
 import { AiChatComposer } from './chat-panel/AiChatComposer';
@@ -14,6 +14,10 @@ import { useAiChatTabs } from './chat-panel/useAiChatTabs';
 import { useAiPanelEffects } from './chat-panel/useAiPanelEffects';
 import { useAiProviderPicker } from './chat-panel/useAiProviderPicker';
 import { useAiStreamRunner } from './chat-panel/useAiStreamRunner';
+import { isCliChatProvider } from './chat-panel/aiChatProviders';
+import { useAiCliProject } from './chat-panel/useAiCliProject';
+import { AgentRequestCard } from '@runhq/cockpit-ui';
+import { ipc } from '@/lib/ipc';
 
 interface AiChatPanelProps {
   /**
@@ -33,12 +37,8 @@ interface AiChatPanelProps {
 /**
  * Right-side slide-in chat drawer.
  *
- * Multi-turn conversation backed by the streaming `ai_chat_completion`
- * IPC. Lives entirely in component memory — closing the panel keeps
- * the conversation, "New chat" wipes it. Persisting across reloads
- * is a future tidy: it requires a per-conversation store, retention
- * limits, and a cost-aware redaction step before we treat any prior
- * turn as "context worth re-sending".
+ * Persistent multi-turn conversations backed by API streaming or the
+ * installed CLI runtimes. Both paths share history and attached context.
  *
  * Keyboard contract:
  *   - Esc: close
@@ -117,7 +117,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     turnsByConv,
   } = useAiChatState();
   const sendRef = useRef<
-    ((overrideText?: string, providerOverride?: AiProvider) => Promise<void>) | null
+    ((overrideText?: string, providerOverride?: AiChatProvider) => Promise<void>) | null
   >(null);
 
   useAiConversationEffects({
@@ -144,12 +144,18 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     turnsByConv,
   });
 
-  const { cancel, cancelFor, persistUserMessage, runStream } = useAiStreamRunner({
+  const { resolveProject, projectControl } = useAiCliProject(
+    Boolean(provider && isCliChatProvider(provider)),
+    selectedService,
+    setProviderError,
+  );
+  const { cancel, cancelFor, cliSession, persistUserMessage, runStream } = useAiStreamRunner({
     activeConversationId,
     bumpRequestId,
     getPersistedSet,
     inFlightConvsRef,
     provider,
+    resolveCliProject: resolveProject,
     requestIdsRef,
     runStreamRef,
     setProviderError,
@@ -283,7 +289,17 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         // the user with an "I clicked but nothing happened" state.
         newDisabled={turns.length === 0 && !activeConversationId && !isStreaming}
       />
-      <AiChatMessageList turns={turns} scrollRef={scrollRef} onContinue={continueTruncated} />
+      <AiChatMessageList turns={turns} scrollRef={scrollRef} onContinue={continueTruncated}>
+        {cliSession?.pending.map((request) => (
+          <AgentRequestCard
+            key={`${cliSession.id}:${request.id}`}
+            request={request}
+            disabled={cliSession.status === 'cancelling'}
+            onOpenUrl={(url) => ipc.openUrl(url)}
+            onAnswer={(value) => ipc.agentAnswer(cliSession.id, request.id, value)}
+          />
+        ))}
+      </AiChatMessageList>
       <AiChatComposer
         awaitingAutoSend={awaitingAutoSend}
         contextChips={contextChips}
@@ -298,6 +314,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         selectedService={selectedService ?? null}
         tokenCount={tokenCount}
         turnsLength={turns.length}
+        projectControl={projectControl}
         onCancel={cancel}
         onInput={setInput}
         onManageModels={openAiSettingsFromPicker}

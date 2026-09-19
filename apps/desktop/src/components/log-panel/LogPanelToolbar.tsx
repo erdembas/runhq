@@ -40,7 +40,7 @@ export function LogPanelToolbar({
   servicePid,
 }: LogPanelToolbarProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1">
         {isServiceRunning ? (
           <Button
@@ -53,7 +53,7 @@ export function LogPanelToolbar({
           </Button>
         ) : (
           <Button
-            variant="primary"
+            variant="secondary"
             size="sm"
             leftIcon={<Play className="h-3 w-3 fill-current" />}
             onClick={onStart}
@@ -69,16 +69,6 @@ export function LogPanelToolbar({
         >
           Restart
         </Button>
-        {isServiceRunning && (
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<Square className="h-3 w-3" />}
-            onClick={onStop}
-          >
-            Stop
-          </Button>
-        )}
       </div>
 
       <CommandRunStrip
@@ -88,9 +78,10 @@ export function LogPanelToolbar({
         onSelect={onSelectCommand}
       />
 
-      <div className="relative w-full max-w-[280px] shrink-0">
+      <div className="relative max-w-[280px] min-w-36 flex-1">
         <Search className="text-fg-dim pointer-events-none absolute top-1/2 left-2.5 h-3 w-3 -translate-y-1/2" />
         <input
+          aria-label="Filter logs"
           value={filter}
           onChange={(event) => onSetFilter(event.target.value)}
           placeholder="Filter logs…"

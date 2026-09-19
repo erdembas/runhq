@@ -4,6 +4,9 @@ import { UnassignedBlock } from './UnassignedBlock';
 import { UNASSIGNED } from './dnd';
 import type { Section, SectionId, ServiceDef, ServiceStatus, StackDef } from '@/types';
 
+const itemServiceIds = (items: SidebarItem[]) =>
+  items.flatMap((item) => (item.kind === 'stack' ? item.ref.service_ids : [item.ref.id]));
+
 interface SidebarSectionLayoutProps {
   searching?: boolean;
   sections: Section[];
@@ -97,6 +100,7 @@ export function SidebarSectionLayout({
               onToggle={() => onToggleSection(section.id)}
               running={totals.running}
               total={totals.total}
+              serviceIds={itemServiceIds(itemsBySection.get(section.id) ?? [])}
             >
               <SectionBody
                 items={itemsBySection.get(section.id) ?? []}
@@ -113,6 +117,7 @@ export function SidebarSectionLayout({
           onToggle={() => onToggleSection(UNASSIGNED)}
           stacksCount={stacksCount}
           servicesCount={servicesCount}
+          serviceIds={itemServiceIds(unassignedItems)}
         >
           <SectionBody
             items={unassignedItems}

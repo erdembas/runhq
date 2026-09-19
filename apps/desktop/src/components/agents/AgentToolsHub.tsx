@@ -28,6 +28,7 @@ import { TerminalPane } from '@/components/TerminalPane';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAgentDiscovery } from './useAgentDiscovery';
+import { environmentLines, parseEnvironmentLines } from './agentConnectionEnv';
 
 const field =
   'border-fg/10 bg-fg/3 text-fg focus:border-fg/25 w-full rounded-xl border px-3 py-2 text-[12px]';
@@ -39,6 +40,7 @@ const configuration = (tool: AgentBackend): AgentTool => ({
   adapter: tool.adapter || 'acp',
   executable: tool.command || tool.executable || tool.id,
   args: tool.args ?? [],
+  env: tool.env ?? {},
   enabled: tool.enabled !== false,
 });
 export const AgentToolsHub = memo(function AgentToolsHub() {
@@ -66,6 +68,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
   const [query, setQuery] = useState(''),
     [edit, setEdit] = useState<AgentTool | null>(null),
     [args, setArgs] = useState(''),
+    [environment, setEnvironment] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [notice, setNotice] = useState<string | null>(null);
@@ -106,6 +109,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
   const beginEdit = (tool: AgentTool) => {
     setEdit(tool);
     setArgs(tool.args.join('\n'));
+    setEnvironment(environmentLines(tool.env));
     setNotice(null);
     setError(null);
   };
@@ -190,6 +194,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                       adapter: 'acp',
                       executable: '',
                       args: [],
+                      env: {},
                       enabled: true,
                     })
                   }
@@ -274,6 +279,21 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                           className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px]"
                         >
                           Configure
+                        </button>
+                        <button
+                          type="button"
+                          title="Create a second connection to this tool for another account"
+                          onClick={() => {
+                            const source = configuration(tool);
+                            beginEdit({
+                              ...source,
+                              id: `tool-${crypto.randomUUID()}`,
+                              name: `${source.name} (second account)`,
+                            });
+                          }}
+                          className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px]"
+                        >
+                          Add account
                         </button>
                         {tool.adapter === 'terminal' ? (
                           <button
@@ -408,12 +428,16 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   void action(async () => {
+                    const { env, invalid } = parseEnvironmentLines(environment);
+                    if (invalid)
+                      throw new Error(`Environment needs KEY=value on every line. Fix: ${invalid}`);
                     await save({
                       ...edit,
                       args:
                         edit.adapter === 'acp' || edit.adapter === 'terminal'
                           ? args.split('\n').filter(Boolean)
                           : [],
+                      env,
                     });
                     setEdit(null);
                     setNotice('Tool saved. New sessions use this configuration.');
@@ -496,6 +520,21 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                     />
                   </label>
                 )}
+                <label className="block text-[11px]">
+                  Account environment · KEY=value per line
+                  <textarea
+                    rows={3}
+                    className={`${field} mt-1.5 resize-y font-mono`}
+                    value={environment}
+                    onChange={(e) => setEnvironment(e.target.value)}
+                    placeholder={'CODEX_HOME=/Users/you/.codex-work'}
+                  />
+                  <span className="text-fg-dim mt-1 block leading-relaxed">
+                    Point a second connection at another provider configuration home to run it as a
+                    separate account. Log in to that home yourself with the tool’s own CLI; RunHQ
+                    never creates or stores credentials. PATH and RUNHQ_ names are reserved.
+                  </span>
+                </label>
                 <p className="text-fg-dim text-[11px] leading-relaxed">
                   {edit.adapter === 'acp'
                     ? 'Use an installed ACP-compatible executable and the arguments documented by that tool. Capabilities and authentication depend on the agent.'

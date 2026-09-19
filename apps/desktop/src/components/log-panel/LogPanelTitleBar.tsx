@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Eye, EyeOff, FolderOpen, Globe, Pencil, Trash2 } from 'lucide-react';
 import {
   AuditChip,
@@ -16,6 +17,8 @@ import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import type { ProjectOverview, ServiceDef, Status } from '@/types';
 
 interface LogPanelTitleBarProps {
+  compact?: boolean;
+  controls?: ReactNode;
   currentStatus: Status;
   onDelete: () => void;
   onEdit: () => void;
@@ -29,6 +32,8 @@ interface LogPanelTitleBarProps {
 }
 
 export function LogPanelTitleBar({
+  compact = false,
+  controls,
   currentStatus,
   onDelete,
   onEdit,
@@ -41,18 +46,29 @@ export function LogPanelTitleBar({
   service,
 }: LogPanelTitleBarProps) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <StatusDot status={currentStatus} size="md" />
-        <h2 className="text-fg text-[15px] font-semibold tracking-tight">{service.name}</h2>
-        <StatusPill status={currentStatus} />
-        <div className="ml-1 flex items-center gap-1.5">
-          {service.tags.slice(0, 3).map((tag) => (
-            <TagChip key={tag} tag={tag} />
-          ))}
-        </div>
-        {projectMeta && (
-          <div className="ml-1 flex items-center gap-1.5">
+    <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2.5">
+        <StatusDot status={currentStatus} size="sm" />
+        <h2
+          className="text-fg max-w-64 truncate text-[13px] font-semibold tracking-tight"
+          title={service.name}
+        >
+          {service.name}
+        </h2>
+        {compact ? (
+          <span className="text-fg-dim text-[11px] capitalize">{currentStatus}</span>
+        ) : (
+          <StatusPill status={currentStatus} />
+        )}
+        {!compact && (
+          <div className="ml-1 flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
+            {service.tags.slice(0, 3).map((tag) => (
+              <TagChip key={tag} tag={tag} />
+            ))}
+          </div>
+        )}
+        {!compact && projectMeta && (
+          <div className="ml-1 flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
             {projectMeta.outdated && projectMeta.outdated.total > 0 && (
               <OutdatedChip
                 outdated={projectMeta.outdated}
@@ -73,28 +89,44 @@ export function LogPanelTitleBar({
           </div>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <ProjectAgentButton serviceId={service.id} />
-        <IconButton
-          label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
-          icon={service.hide_dashboard ? <EyeOff /> : <Eye />}
-          size="sm"
-          className={cn(service.hide_dashboard && 'text-accent hover:!text-accent')}
-          onClick={onHideToggle}
-        />
-        <IconButton label="Edit" icon={<Pencil />} size="sm" onClick={onEdit} />
-        <IconButton label="Delete" icon={<Trash2 />} size="sm" tone="danger" onClick={onDelete} />
-        <IconButton label="Open folder" icon={<FolderOpen />} size="sm" onClick={onOpenFolder} />
-        {service.port != null && (
-          <IconButton
-            label={`Open ${localUrl(service.port)}`}
-            icon={<Globe />}
-            size="sm"
-            tone="accent"
-            onClick={() => onOpenPort(service.port!)}
-          />
+      <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1">
+        {!compact && (
+          <>
+            <ProjectAgentButton serviceId={service.id} />
+            <IconButton
+              label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
+              icon={service.hide_dashboard ? <EyeOff /> : <Eye />}
+              size="sm"
+              className={cn(service.hide_dashboard && 'text-accent hover:!text-accent')}
+              onClick={onHideToggle}
+            />
+            <IconButton label="Edit" icon={<Pencil />} size="sm" onClick={onEdit} />
+            <IconButton
+              label="Delete"
+              icon={<Trash2 />}
+              size="sm"
+              tone="danger"
+              onClick={onDelete}
+            />
+            <IconButton
+              label="Open folder"
+              icon={<FolderOpen />}
+              size="sm"
+              onClick={onOpenFolder}
+            />
+            {service.port != null && (
+              <IconButton
+                label={`Open ${localUrl(service.port)}`}
+                icon={<Globe />}
+                size="sm"
+                tone="accent"
+                onClick={() => onOpenPort(service.port!)}
+              />
+            )}
+            <EditorDropdown cwd={service.cwd} cmds={service.cmds} size="sm" />
+          </>
         )}
-        <EditorDropdown cwd={service.cwd} cmds={service.cmds} size="sm" />
+        {controls}
       </div>
     </div>
   );

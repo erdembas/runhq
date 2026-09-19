@@ -96,7 +96,17 @@ for (const decision of ['accepted', 'rejected']) {
           ['implement', 'completed'],
         ],
       );
-      assert(events.some((event) => event.item?.title === 'Explore routing'));
+      // The provider's own fan-out is reported as structure, not as a generic tool blob, so the
+      // transcript can show which subagent ran and with what.
+      const subagent = events.find((event) => event.item?.title === 'Explore routing')?.item;
+      assert(subagent, 'the subagent notification reaches the transcript');
+      assert.equal(subagent.kind, 'subagent');
+      assert.deepEqual(JSON.parse(subagent.text), {
+        prompt: 'Find route handlers',
+        agentId: 'explorer-1',
+        subagentType: 'explore',
+        durationMs: 123,
+      });
       assert(events.some((event) => event.item?.text.includes('/tmp/navigation.png')));
     } finally {
       ctx.close();

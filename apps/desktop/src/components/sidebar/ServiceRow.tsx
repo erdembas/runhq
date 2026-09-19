@@ -10,6 +10,8 @@ import { cn } from '@/lib/cn';
 import { runtimeFromTags, inferRuntimeFromCmds, runtimeMeta } from '@/lib/runtimes';
 import { beginDrag, endDrag } from './dnd';
 import type { SectionId, ServiceDef, Status } from '@/types';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
+import { useSidebarAgentActivity } from './useSidebarAgentActivity';
 
 export function ServiceRow({
   service,
@@ -40,6 +42,7 @@ export function ServiceRow({
   // still consuming memory.
   const resourceSample = useAppStore((s) => s.resources[service.id]);
   const showResources = isRunning && resourceSample !== undefined;
+  const hasAgentActivity = !!useSidebarAgentActivity([service.id])?.targetSessionId;
 
   const dotClass = isCrashed ? 'bg-status-error' : isRunning ? 'bg-status-running' : 'bg-fg-dim/50';
   const dotAnim = isStarting ? 'animate-pulse-dot' : isRunning ? 'animate-breathe' : '';
@@ -59,9 +62,7 @@ export function ServiceRow({
       }}
       className={cn(
         'group relative cursor-grab rounded-lg py-1.5 pr-2 pl-0.5 transition-colors active:cursor-grabbing',
-        selected
-          ? 'bg-accent/8 text-fg ring-accent/15 ring-1 ring-inset'
-          : 'text-fg-muted hover:bg-fg/4 hover:text-fg',
+        selected ? 'bg-fg/6 text-fg' : 'text-fg-muted hover:bg-fg/4 hover:text-fg',
         dragging && 'opacity-40',
       )}
     >
@@ -79,29 +80,42 @@ export function ServiceRow({
           {service.name}
         </span>
 
-        <div className="relative flex h-6 shrink-0 items-center justify-end">
-          <div
-            className={cn(
-              'flex items-center gap-1.5 transition-opacity',
-              selected
-                ? 'pointer-events-none absolute inset-y-0 right-0 opacity-0'
-                : 'static opacity-100 group-hover:pointer-events-none group-hover:absolute group-hover:inset-y-0 group-hover:right-0 group-hover:opacity-0',
-            )}
-          >
-            {service.port != null && (
-              <span className="text-accent text-[10.5px] font-medium tabular-nums">
-                :{service.port}
-              </span>
-            )}
-            {rt && (
-              <span
-                className={cn('bg-fg/4 rounded-md px-1.5 py-0.5 text-[9px] font-medium', rt.color)}
-              >
-                {rt.label}
-              </span>
-            )}
-            {showResources && <ResourceBadge sample={resourceSample} compact />}
-          </div>
+        <SidebarAgentActivity serviceIds={[service.id]} name={service.name} />
+        <div
+          className={cn(
+            'flex h-6 shrink-0 items-center justify-end',
+            hasAgentActivity && !selected
+              ? 'bg-surface-raised absolute right-[64px] rounded-md'
+              : 'relative',
+          )}
+        >
+          {!hasAgentActivity && (
+            <div
+              className={cn(
+                'flex items-center gap-1.5 transition-opacity',
+                selected
+                  ? 'pointer-events-none absolute inset-y-0 right-0 opacity-0'
+                  : 'static opacity-100 group-hover:pointer-events-none group-hover:absolute group-hover:inset-y-0 group-hover:right-0 group-hover:opacity-0',
+              )}
+            >
+              {service.port != null && (
+                <span className="text-accent text-[10.5px] font-medium tabular-nums">
+                  :{service.port}
+                </span>
+              )}
+              {rt && (
+                <span
+                  className={cn(
+                    'bg-fg/4 rounded-md px-1.5 py-0.5 text-[9px] font-medium',
+                    rt.color,
+                  )}
+                >
+                  {rt.label}
+                </span>
+              )}
+              {showResources && <ResourceBadge sample={resourceSample} compact />}
+            </div>
+          )}
 
           <div
             className={cn(

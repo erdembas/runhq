@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import type { ServiceDef, StackDef } from '@/types';
 import { AgentNavigation } from './agents/AgentNavigation';
+import { SidebarAgentActivityProvider } from './sidebar/SidebarAgentActivity';
 
 import {
   WorkspaceHeader,
@@ -20,6 +21,14 @@ import {
 } from './sidebar';
 
 export function SidebarRail() {
+  return (
+    <SidebarAgentActivityProvider>
+      <SidebarRailContent />
+    </SidebarAgentActivityProvider>
+  );
+}
+
+function SidebarRailContent() {
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const selectedServiceId = useAppStore((s) => s.selectedServiceId);

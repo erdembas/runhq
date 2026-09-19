@@ -1,6 +1,7 @@
 import { createServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { pretty, questionsFrom, requireAnswers } from './protocol.mjs';
+import { validateAttachments } from './attachments.mjs';
 
 export async function* sseEvents(body) {
   const decoder = new TextDecoder();
@@ -36,6 +37,7 @@ async function availablePort() {
 
 export async function runOpenCode(ctx, catalog = false) {
   const cfg = ctx.config;
+  if (!catalog) validateAttachments(cfg.attachments, 'opencode');
   const port = await availablePort();
   const password = randomUUID();
   const headers = {

@@ -39,13 +39,35 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(setup_app)
         .invoke_handler(tauri::generate_handler![
             ipc::agent_canvas_url,
             ipc::agent_canvas_save,
             ipc::agent_projects,
+            ipc::agent_workspace_data,
+            ipc::agent_workspace_save,
+            ipc::agent_history_search,
+            ipc::agent_history_export,
+            ipc::agent_history_import,
+            ipc::agent_history_retention_preview,
+            ipc::agent_history_retention_remove,
+            ipc::agent_context_file,
+            ipc::agent_handoff_create,
             ipc::agent_add_project,
             ipc::agent_sessions,
+            ipc::agent_workflows,
+            ipc::agent_workflow_create,
+            ipc::agent_workflow_implement,
+            ipc::agent_workflow_review,
+            ipc::agent_workflow_setup,
+            ipc::agent_workflow_checks,
+            ipc::agent_workflow_preview,
+            ipc::agent_workflow_integrate,
+            ipc::agent_workflow_cancel,
+            ipc::agent_workflow_cleanup,
+            ipc::agent_workflow_transfer_files,
+            ipc::agent_workflow_inventory,
             ipc::agent_snapshot,
             ipc::agent_backends,
             ipc::agent_save_tool,

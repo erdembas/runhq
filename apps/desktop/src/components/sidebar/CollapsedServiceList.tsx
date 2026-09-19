@@ -1,5 +1,6 @@
 import { cn } from '@/lib/cn';
 import type { ServiceDef, ServiceStatus, Status } from '@/types';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
 
 interface CollapsedServiceListProps {
   services: ServiceDef[];
@@ -21,28 +22,36 @@ export function CollapsedServiceList({
         const selected = selectedServiceId === service.id;
         const isRunning = status === 'running' || status === 'starting';
         return (
-          <button
-            key={service.id}
-            type="button"
-            title={service.name}
-            onClick={() => onSelect(service.id)}
-            className={cn(
-              'relative flex h-8 w-8 items-center justify-center transition',
-              selected && 'glow-ring',
-            )}
-          >
-            {isRunning && (
-              <span className="bg-status-running/15 animate-pulse-dot absolute inset-0" />
-            )}
-            <span
+          <div key={service.id} className="relative">
+            <button
+              type="button"
+              title={service.name}
+              aria-pressed={selected}
+              onClick={() => onSelect(service.id)}
               className={cn(
-                'relative text-[11px] font-bold uppercase',
-                selected ? 'text-accent' : isRunning ? 'text-fg' : 'text-fg-muted',
+                'hover:bg-fg/4 relative flex h-8 w-8 items-center justify-center rounded-md transition',
+                selected && 'bg-fg/6',
               )}
             >
-              {service.name.slice(0, 2)}
-            </span>
-          </button>
+              {isRunning && (
+                <span className="bg-status-running absolute right-1 bottom-1 h-1 w-1 rounded-full" />
+              )}
+              <span
+                className={cn(
+                  'relative text-[11px] font-bold uppercase',
+                  selected ? 'text-accent' : isRunning ? 'text-fg' : 'text-fg-muted',
+                )}
+              >
+                {service.name.slice(0, 2)}
+              </span>
+            </button>
+            <SidebarAgentActivity
+              serviceIds={[service.id]}
+              name={service.name}
+              compact
+              className="absolute -top-0.5 -right-1.5"
+            />
+          </div>
         );
       })}
     </div>

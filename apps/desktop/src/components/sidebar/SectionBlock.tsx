@@ -6,6 +6,7 @@ import { sectionColor } from '@/lib/sectionColors';
 import { readDrag, endDrag, getActiveDrag } from './dnd';
 import { useDragActive } from './useDragActive';
 import type { Section } from '@/types';
+import { SidebarAgentActivity } from './SidebarAgentActivity';
 
 export function SectionBlock({
   section,
@@ -13,6 +14,7 @@ export function SectionBlock({
   onToggle,
   running,
   total,
+  serviceIds,
   children,
 }: {
   section: Section;
@@ -20,6 +22,7 @@ export function SectionBlock({
   onToggle: () => void;
   running: number;
   total: number;
+  serviceIds: string[];
   children: React.ReactNode;
 }) {
   const meta = sectionColor(section.color);
@@ -99,16 +102,10 @@ export function SectionBlock({
         onToggle={onToggle}
         count={total}
         running={running}
+        activity={<SidebarAgentActivity serviceIds={serviceIds} name={section.name} />}
         actions={<SectionOverflowMenu section={section} />}
       />
-      {!collapsed && (
-        <div
-          className="ml-3 border-l pb-1 pl-1"
-          style={{ borderColor: `color-mix(in srgb, ${meta.solid} 18%, transparent)` }}
-        >
-          {children}
-        </div>
-      )}
+      {!collapsed && <div className="border-border/60 ml-3 border-l pb-1 pl-1">{children}</div>}
     </section>
   );
 }

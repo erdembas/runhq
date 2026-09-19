@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use std::collections::BTreeMap;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -19,7 +20,7 @@ pub(super) async fn node_executable() -> AppResult<PathBuf> {
             "Node.js 22 or newer is required. Install Node.js, then refresh agent detection.",
         )
     })?;
-    let reported = version(&node)
+    let reported = version(&node, &BTreeMap::new())
         .await
         .map_err(|error| AppError::other(format!("Node.js could not be checked: {error}")))?;
     let major = reported
@@ -82,6 +83,7 @@ impl Drop for OwnedProcess {
 async fn probe_output(
     path: &Path,
     args: &[String],
+    env: &BTreeMap<String, String>,
     limit: u64,
     timeout: Duration,
     label: &str,
@@ -91,6 +93,9 @@ async fn probe_output(
     if let Some(path) = super::agent_command_path(path) {
         cmd.env("PATH", path);
     }
+    // Probe the account the connection is configured for, not whichever one the ambient
+    // environment happens to point at.
+    super::apply_connection_env(&mut cmd, env);
     let mut proc = OwnedProcess::spawn(cmd)?;
     // Probes have no input. In particular, wrappers must see EOF rather than wait forever.
     drop(proc.child.stdin.take());
@@ -116,10 +121,11 @@ async fn probe_output(
     .map_err(|_| AppError::other(format!("{label} timed out")))?
 }
 
-pub(super) async fn version(path: &Path) -> AppResult<String> {
+pub(super) async fn version(path: &Path, env: &BTreeMap<String, String>) -> AppResult<String> {
     probe_output(
         path,
         &["--version".into()],
+        env,
         4096,
         Duration::from_secs(5),
         "CLI version check",
@@ -127,13 +133,18 @@ pub(super) async fn version(path: &Path) -> AppResult<String> {
     .await
 }
 
-pub(super) async fn cursor_acp(path: &Path, args: &[String]) -> AppResult<()> {
+pub(super) async fn cursor_acp(
+    path: &Path,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> AppResult<()> {
     // --help prevents an older Cursor version from treating "acp" as a chat prompt.
     let mut args = args.to_vec();
     args.push("--help".into());
     let help = probe_output(
         path,
         &args,
+        env,
         32768,
         Duration::from_secs(5),
         "Cursor ACP compatibility check",
@@ -192,6 +203,7 @@ mod tests {
     #[cfg(unix)]
     async fn cli_probes_close_stdin_and_bound_failures_output_and_duration() {
         use super::{probe_output, version};
+        use std::collections::BTreeMap;
         use std::{
             os::unix::fs::PermissionsExt,
             time::{Duration, Instant},
@@ -200,30 +212,56 @@ mod tests {
         let script = dir.path().join("cli");
         std::fs::write(&script, "#!/bin/sh\ncat >/dev/null\necho 1.2.3\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(version(&script).await.unwrap(), "1.2.3");
+        assert_eq!(version(&script, &BTreeMap::new()).await.unwrap(), "1.2.3");
+        // A connection's environment must actually reach the process, because that is what makes
+        // two connections for the same CLI two different accounts.
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ncat >/dev/null\necho \"$FIXTURE_AGENT_HOME\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            version(
+                &script,
+                &BTreeMap::from([("FIXTURE_AGENT_HOME".into(), "/fixture/account-two".into())])
+            )
+            .await
+            .unwrap(),
+            "/fixture/account-two"
+        );
         std::fs::write(&script, "#!/bin/sh\nexit 7\n").unwrap();
-        assert!(version(&script)
+        assert!(version(&script, &BTreeMap::new())
             .await
             .unwrap_err()
             .to_string()
             .contains("exit status: 7"));
         std::fs::write(&script, "#!/bin/sh\nprintf 1234567890\n").unwrap();
-        assert!(
-            probe_output(&script, &[], 4, Duration::from_secs(1), "Fixture")
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("too much output")
-        );
+        assert!(probe_output(
+            &script,
+            &[],
+            &BTreeMap::new(),
+            4,
+            Duration::from_secs(1),
+            "Fixture"
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("too much output"));
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
         let start = Instant::now();
-        assert!(
-            probe_output(&script, &[], 4096, Duration::from_millis(80), "Fixture")
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("timed out")
-        );
+        assert!(probe_output(
+            &script,
+            &[],
+            &BTreeMap::new(),
+            4096,
+            Duration::from_millis(80),
+            "Fixture"
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("timed out"));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

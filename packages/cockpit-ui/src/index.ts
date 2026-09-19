@@ -46,6 +46,18 @@ export { cn } from './lib/cn';
 export { formatBytes, formatPercent } from './lib/format';
 export { cpuToneClass, memoryToneClass } from './lib/resourceTone';
 export { AgentStatusBadge } from './components/AgentStatusBadge';
+export { AgentActivityBadge } from './components/AgentActivityBadge';
+export { AgentNotificationSettings } from './components/AgentNotificationSettings';
+export { summarizeAgentActivity, agentActivityLabel } from './lib/agentActivity';
+export type { AgentActivitySummary } from './lib/agentActivity';
+export {
+  validateAgentAttachments,
+  agentSupportsImages,
+  MAX_AGENT_ATTACHMENTS,
+  MAX_AGENT_IMAGE_BYTES,
+  MAX_AGENT_IMAGE_BASE64_LENGTH,
+  AGENT_IMAGE_MIME_TYPES,
+} from './lib/agentAttachments';
 export { AGENT_STATUS_LABELS, agentIsActive } from './components/agentStatus';
 export { AgentRequestCard } from './components/AgentRequestCard';
 export { AgentComposer } from './components/AgentComposer';
