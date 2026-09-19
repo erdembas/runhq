@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/erdembas/runhq/compare/v2.0.0...v2.1.0) (2026-09-19)
+
+
+### Features
+
+* **agents:** centralize agent management across projects and accounts ([36babe5](https://github.com/erdembas/runhq/commit/36babe57c08758afe3af6e5c81b65905d6b3e7d1))
+* **agents:** centralize agent management, provider accounts and scheduled recipes ([7982c60](https://github.com/erdembas/runhq/commit/7982c60d0a0a5d292f548a162df13ed5822b8a28))
+* **agents:** commit reviewed work onto a branch in the destination ([9de903a](https://github.com/erdembas/runhq/commit/9de903a4fe3b73b7b7169a718046d6e1b99fcc0a))
+* **agents:** run a saved recipe on a schedule ([e09b73f](https://github.com/erdembas/runhq/commit/e09b73fae887f09c54ebb41e449b75ef001799ad))
+* **agents:** show a provider's subagents as structure in the transcript ([d39bc2d](https://github.com/erdembas/runhq/commit/d39bc2d49b537bdf85369cb06782ffbf9c69b30d))
+
+
+### Bug Fixes
+
+* **agents:** compare repository roots in one path style ([28a9d4f](https://github.com/erdembas/runhq/commit/28a9d4f9cb91c1478f7492845b6f2b47b44586b5))
+
+
+### Documentation
+
+* **agents:** describe the delivered agent workspace and its limits ([a7e05fb](https://github.com/erdembas/runhq/commit/a7e05fbe38e17f8c01284218e6dbf8c0d2bec111))
+* **agents:** refresh the review and usage boundary ([51e3c46](https://github.com/erdembas/runhq/commit/51e3c462f50275579a1548b7b2690c728c29fbf3))
+
 ## [2.0.0](https://github.com/erdembas/runhq/compare/v1.1.0...v2.0.0) (2026-09-17)
 
 RunHQ 2.0 brings coding agents into the project workspace, alongside services, terminals and development tools.
