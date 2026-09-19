@@ -1278,6 +1278,10 @@ mod tests {
         git(&["init"]);
         git(&["config", "user.email", "test@example.test"]);
         git(&["config", "user.name", "Test"]);
+        // Keep fixture content byte-identical on every platform. Without this, Git on Windows
+        // checks files back out with CRLF and the assertions would be testing the runner's line
+        // endings rather than the behaviour under test.
+        git(&["config", "core.autocrlf", "false"]);
         std::fs::write(repo.join("README.md"), "initial\n").unwrap();
         git(&["add", "."]);
         git(&["commit", "-m", "initial"]);
