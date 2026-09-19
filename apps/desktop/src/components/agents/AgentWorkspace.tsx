@@ -32,6 +32,15 @@ import type { AgentProject, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
+import {
+  handoffAccountAfterLimit,
+  parseAccountCooldowns,
+  parseAccountPool,
+  type AgentAccountPool,
+} from './agentAccountRouting';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { AgentNewSession } from './AgentNewSession';
 import { AgentSessionView } from './AgentSessionView';
@@ -147,6 +156,39 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     setCreating(true);
     setView('conversations');
   };
+  /**
+   * A session keeps the account that opened it, so a limit is taken over by a new session. When the
+   * source account is on cool-down and grouped with others, the composer opens on the account
+   * routing would pick; otherwise the agent is left unset for the user to choose, as before.
+   */
+  const handoffAccount = (source: AgentSession) => {
+    const library = useAgentLibraryStore.getState();
+    const agents = useAgentStore.getState();
+    const pools: AgentAccountPool[] = [];
+    for (const [key, saved] of Object.entries(library.records)) {
+      if (!key.startsWith('pool:')) continue;
+      try {
+        pools.push(parseAccountPool(saved.value));
+      } catch {
+        // An unreadable pool cannot be routed through and is simply not offered.
+      }
+    }
+    return handoffAccountAfterLimit({
+      sourceAccountId: source.backend,
+      pools,
+      accounts: agents.tools.map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        adapter: tool.adapter ?? '',
+        enabled: tool.enabled !== false,
+        available: tool.available,
+      })),
+      cooldowns: parseAccountCooldowns(library.records['preferences:cooldowns']?.value),
+      capacity: agentCapacityPreferences(library.records['preferences:capacity']?.value),
+      occupied: agentOccupiedSlots(agents.sessions, useAgentQueueStore.getState().queues),
+      now: Date.now(),
+    });
+  };
   const handoff = (source: AgentSession, items: AgentItem[]) => {
     startRecipe({
       id: crypto.randomUUID(),
@@ -159,7 +201,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
         .map((item) => `${item.kind}: ${item.text}`)
         .join('\n\n')
         .slice(-60000)}\n\nNext objective: `,
-      backend: '',
+      backend: handoffAccount(source),
       model: '',
       effort: '',
       mode: 'default',

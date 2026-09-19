@@ -362,7 +362,8 @@ is labelled as RunHQ's own backoff rather than a reset the provider reported. Lo
 slots already counted per connection, so the account with the most free slots wins and the pool's
 order breaks a tie. Every start records which account ran it and why, and a plain connection routes
 as a pool of one so a single account gains the same reporting. Taking over after a limit still means
-a new session through the A6 handoff, never switching identity under a running conversation.
+a new session through the A6 handoff, never switching identity under a running conversation; that
+handoff opens on the account routing would pick when the source account is the one on cool-down.
 
 **Verified end to end (2026-09-19):** with two accounts for the same product and the first on a
 cool-down from a reported limit, a due scheduled recipe started on the second account against a real

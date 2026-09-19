@@ -31,6 +31,7 @@ const {
   chooseAgentAccount,
   resolveAccountPool,
   poolTarget,
+  handoffAccountAfterLimit,
   ACCOUNT_COOLDOWN_MS,
 } = load('../src/components/agents/agentAccountRouting.ts', (name) =>
   name === '@runhq/cockpit-ui' ? attachments : {},
@@ -232,4 +233,36 @@ test('a plain connection routes as a pool of one, and a removed pool routes nowh
   assert.equal(resolveAccountPool(poolTarget('team'), pools, named).name, 'Claude accounts');
   assert.equal(resolveAccountPool(poolTarget('gone'), pools, named), null);
   assert.equal(resolveAccountPool('', pools, named), null);
+});
+
+test('a handoff after a limit starts on another account, and otherwise suggests nothing', () => {
+  const pools = [{ id: 'p', name: 'Claude accounts', accounts: ['a', 'b'] }];
+  const accounts = [account('a'), account('b')];
+  const shared = { pools, accounts, capacity, occupied: idle, now: now + 1 };
+  const limited = startCooldown({}, 'a', 'usage limit reached', now);
+  assert.equal(
+    handoffAccountAfterLimit({ ...shared, sourceAccountId: 'a', cooldowns: limited }),
+    'b',
+  );
+  // No limit, no suggestion: an ordinary handoff is the user's own choice of agent.
+  assert.equal(handoffAccountAfterLimit({ ...shared, sourceAccountId: 'a', cooldowns: {} }), '');
+  // A limited account nobody grouped has no interchangeable partner to fall back to.
+  assert.equal(
+    handoffAccountAfterLimit({
+      ...shared,
+      pools: [],
+      sourceAccountId: 'a',
+      cooldowns: limited,
+    }),
+    '',
+  );
+  // Every account in the pool is limited, so the composer is left for the user to decide.
+  assert.equal(
+    handoffAccountAfterLimit({
+      ...shared,
+      sourceAccountId: 'a',
+      cooldowns: startCooldown(limited, 'b', 'usage limit reached', now),
+    }),
+    '',
+  );
 });

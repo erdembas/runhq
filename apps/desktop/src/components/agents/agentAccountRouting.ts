@@ -334,3 +334,35 @@ export function resolveAccountPool(
   if (!isPoolTarget(target)) return { id: target, name: accountName(target), accounts: [target] };
   return pool(target.slice(POOL_TARGET_PREFIX.length));
 }
+
+/**
+ * The account a handoff should start on after the source account reported a limit.
+ *
+ * Only that case is answered. A session keeps the account that opened it, so taking over means a
+ * new session, and suggesting a different account for an ordinary handoff would override a choice
+ * the user is about to make for their own reasons. Returns an empty string to leave the composer's
+ * agent unset, exactly as before.
+ */
+export function handoffAccountAfterLimit(input: {
+  sourceAccountId: string;
+  pools: AgentAccountPool[];
+  accounts: AgentAccountCandidate[];
+  cooldowns: AgentAccountCooldowns;
+  capacity: AgentCapacityPreferences;
+  occupied: ReturnType<typeof agentOccupiedSlots>;
+  now: number;
+}): string {
+  if (!activeCooldown(input.cooldowns, input.sourceAccountId, input.now)) return '';
+  const pool = input.pools.find((entry) => entry.accounts.includes(input.sourceAccountId));
+  if (!pool) return '';
+  return (
+    chooseAgentAccount({
+      pool,
+      accounts: input.accounts,
+      cooldowns: input.cooldowns,
+      capacity: input.capacity,
+      occupied: input.occupied,
+      now: input.now,
+    }).accountId ?? ''
+  );
+}
