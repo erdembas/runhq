@@ -29,6 +29,7 @@ import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAgentDiscovery } from './useAgentDiscovery';
 import { environmentLines, parseEnvironmentLines } from './agentConnectionEnv';
+import { AgentAccountPools } from './AgentAccountPools';
 
 const field =
   'border-fg/10 bg-fg/3 text-fg focus:border-fg/25 w-full rounded-xl border px-3 py-2 text-[12px]';
@@ -405,6 +406,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                           : 'Agent detection is starting…'}
                 </p>
               )}
+              <AgentAccountPools visible={open} />
             </div>
             <p className="border-fg/8 text-fg-dim border-t px-4 py-3 text-[10px] leading-relaxed">
               Disabling a tool prevents new starts. Existing sessions and terminals keep running.

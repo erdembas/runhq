@@ -6,6 +6,7 @@ import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { agentUsageSummary } from './agentLibraryModel';
+import { AgentAccountCooldowns } from './AgentAccountCooldowns';
 import { AgentUsageLimitSettings } from './AgentUsageLimitSettings';
 import { agentUsagePreferences, evaluateAgentUsage } from './agentUsagePolicy';
 import { agentTaskTiming } from './agentDuration';
@@ -195,6 +196,7 @@ export function AgentUsagePanel({
           </p>
         )}
       </div>
+      <AgentAccountCooldowns visible={visible} />
       <AgentUsageLimitSettings visible={visible} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {providerIds.map((id) => {

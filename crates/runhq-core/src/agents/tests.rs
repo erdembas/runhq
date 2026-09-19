@@ -1106,6 +1106,14 @@ fn workspace_records_and_literal_history_search_preserve_project_scope() {
     manager
         .workspace_save("schedule:example".into(), None)
         .unwrap();
+    // An account pool groups interchangeable connections, so it is stored the same way.
+    manager
+        .workspace_save(
+            "pool:claude".into(),
+            Some(json!({"id":"claude","name":"Claude accounts","accounts":["claude","claude-2"]})),
+        )
+        .unwrap();
+    assert!(manager.workspace_record("pool:claude").unwrap().is_some());
     assert!(manager
         .workspace_save("preferences:capacity".into(), Some(json!({"global":0})))
         .is_err());

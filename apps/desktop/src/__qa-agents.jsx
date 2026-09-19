@@ -30,6 +30,17 @@ const tools = [
     args: [],
     path: '/fixture/claude',
   },
+  {
+    id: 'claude-second',
+    name: 'Claude (second account)',
+    adapter: 'claude',
+    enabled: true,
+    available: true,
+    executable: 'claude',
+    args: [],
+    env: { CLAUDE_CONFIG_DIR: '/fixture/home/second' },
+    path: '/fixture/claude',
+  },
 ];
 const sample = (id, title, status, extra = {}) => ({
   id,
@@ -184,6 +195,27 @@ useAgentLibraryStore.setState({
   ready: true,
   error: null,
   records: {
+    'pool:claude': {
+      key: 'pool:claude',
+      updated_at: now,
+      value: {
+        id: 'claude',
+        name: 'Claude accounts',
+        accounts: ['claude', 'claude-second'],
+      },
+    },
+    'preferences:cooldowns': {
+      key: 'preferences:cooldowns',
+      updated_at: now,
+      value: {
+        claude: {
+          since: now - 240_000,
+          until: now + 26 * 60_000,
+          reason:
+            'API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"Usage limit reached for this account."}}',
+        },
+      },
+    },
     'memory:qa': {
       key: 'memory:qa',
       updated_at: now,

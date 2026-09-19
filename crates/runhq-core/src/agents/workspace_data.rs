@@ -247,6 +247,7 @@ impl AgentManager {
                 "preferences:",
                 "link:",
                 "schedule:",
+                "pool:",
             ]
             .iter()
             .any(|prefix| key.starts_with(prefix))

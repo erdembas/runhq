@@ -53,6 +53,7 @@ const harness = (overrides = {}) => {
       schedules: [due],
       recipe: () => recipe,
       blocked: () => null,
+      route: () => ({ accountId: 'codex', reason: '', rejected: [] }),
       launch: async (input, prompt, creationId) => {
         launched.push({ input, prompt, creationId });
         return { id: 'session-1', title: input.title };
@@ -119,4 +120,33 @@ test('a paused schedule produces nothing at all', async () => {
   assert.equal((await runDueSchedules(deps)).length, 0);
   assert.equal(saved.length, 0);
   assert.equal(launched.length, 0);
+});
+
+test('a pooled recipe starts on the routed account and says which one it chose', async () => {
+  const { deps, launched } = harness({
+    recipe: () => ({ ...recipe, backend: 'pool:codex-accounts' }),
+    route: () => ({
+      accountId: 'codex-second',
+      reason: 'Codex (second account) had the most free slots in Codex accounts',
+      rejected: [],
+    }),
+  });
+  const runs = await runDueSchedules(deps);
+  assert.equal(launched[0].input.backend, 'codex-second', 'a task is created against one account');
+  assert.match(runs[0].outcome, /Codex \(second account\) had the most free slots/);
+});
+
+test('a recipe that cannot reach an account records why instead of starting nothing', async () => {
+  const { deps, launched, saved } = harness({
+    route: () => ({
+      accountId: null,
+      reason: 'No account in Codex accounts is free: Codex reported a limit and is on cool-down',
+      rejected: [{ id: 'codex', name: 'Codex', signal: 'quota', reason: 'is on cool-down' }],
+    }),
+  });
+  const runs = await runDueSchedules(deps);
+  assert.equal(launched.length, 0);
+  assert.match(runs[0].outcome, /reported a limit and is on cool-down/);
+  assert.equal(saved.at(-1).lastRunAt, now, 'the occurrence is consumed, not left overdue');
+  assert.equal(saved.at(-1).pendingCreationId, undefined, 'nothing was reserved for a task');
 });

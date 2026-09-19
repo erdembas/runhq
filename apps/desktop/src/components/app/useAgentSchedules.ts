@@ -4,11 +4,13 @@ import { ipc } from '@/lib/ipc';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentCapacityPreferences, agentOccupiedSlots } from '../agents/agentCapacity';
 import {
-  agentCapacityPreferences,
-  agentCapacityWaitReason,
-  agentOccupiedSlots,
-} from '../agents/agentCapacity';
+  chooseAgentAccount,
+  parseAccountCooldowns,
+  parseAccountPool,
+  resolveAccountPool,
+} from '../agents/agentAccountRouting';
 import { parseRecipe } from '../agents/agentLibraryModel';
 import { agentScheduleTickState, parseSchedule, type AgentSchedule } from '../agents/agentSchedule';
 import { runDueSchedules } from '../agents/agentScheduleRunner';
@@ -62,19 +64,41 @@ export function useAgentSchedules() {
           now: Date.now(),
           schedules,
           recipe: (id) => record(library.records[`recipe:${id}`]?.value, parseRecipe),
-          blocked: (schedule) => {
-            if (!agents.projects.some((project) => project.id === schedule.projectId))
-              return 'Project is no longer in the workspace';
-            const recipe = record(
-              library.records[`recipe:${schedule.recipeId}`]?.value,
-              parseRecipe,
+          blocked: (schedule) =>
+            agents.projects.some((project) => project.id === schedule.projectId)
+              ? null
+              : 'Project is no longer in the workspace',
+          // Whether the recipe names one connection or a pool, the task is created against a single
+          // account, and the same signals decide it: capability fit, a reported limit, then load.
+          route: (recipe) => {
+            const pool = resolveAccountPool(
+              recipe.backend,
+              (id) => record(library.records[`pool:${id}`]?.value, parseAccountPool),
+              (id) => agents.tools.find((tool) => tool.id === id)?.name ?? id,
             );
-            const tool = agents.tools.find((entry) => entry.id === recipe?.backend);
-            if (recipe?.backend && !tool?.enabled) return 'The recipe’s tool is disabled';
-            // Respect the same execution limits a person starting this task would hit.
-            return recipe?.backend
-              ? agentCapacityWaitReason(recipe.backend, capacity, occupied)
-              : null;
+            if (!pool)
+              return {
+                accountId: null,
+                reason: recipe.backend
+                  ? 'The recipe’s account pool was removed'
+                  : 'The recipe does not name a connection',
+                rejected: [],
+              };
+            return chooseAgentAccount({
+              pool,
+              accounts: agents.tools.map((tool) => ({
+                id: tool.id,
+                name: tool.name,
+                adapter: tool.adapter ?? '',
+                enabled: tool.enabled !== false,
+                available: tool.available,
+              })),
+              need: { plan: recipe.mode === 'plan' },
+              cooldowns: parseAccountCooldowns(library.records['preferences:cooldowns']?.value),
+              capacity,
+              occupied,
+              now: Date.now(),
+            });
           },
           launch: (input, prompt) =>
             createAgentTaskLauncher({
