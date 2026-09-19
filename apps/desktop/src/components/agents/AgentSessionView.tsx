@@ -52,6 +52,7 @@ import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
 import { AgentPlanPanel } from './AgentPlanPanel';
 import { AgentCanvasPanel } from './AgentCanvasPanel';
 import { agentTurnQueue, useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { parseAgentSubagent, agentSubagentSummary } from './agentSubagentItem';
 import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
 import { agentContextImages, buildAgentContextPrompt } from './agentLibraryModel';
@@ -71,7 +72,13 @@ const emptyItems: AgentItem[] = [];
 
 const quietButton =
   'text-fg-muted hover:bg-fg/5 hover:text-fg focus-visible:ring-accent/50 aria-pressed:bg-fg/7 aria-pressed:text-fg flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] whitespace-nowrap outline-none focus-visible:ring-2 disabled:opacity-40';
-const TranscriptItem = memo(function TranscriptItem({ item }: { item: AgentItem }) {
+const TranscriptItem = memo(function TranscriptItem({
+  item,
+  providerName,
+}: {
+  item: AgentItem;
+  providerName: string;
+}) {
   if (item.kind === 'assistant')
     return (
       <article className="text-fg min-w-0 text-[13px] leading-relaxed break-words">
@@ -83,6 +90,25 @@ const TranscriptItem = memo(function TranscriptItem({ item }: { item: AgentItem 
         </ReactMarkdown>
       </article>
     );
+  if (item.kind === 'subagent') {
+    const details = parseAgentSubagent(item.text);
+    const summary = agentSubagentSummary(details);
+    return (
+      <article className="border-border/70 ml-3 rounded-md border-l-2 py-1.5 pl-3 text-[12px]">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <GitBranch className="text-fg-dim h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="text-fg-muted">{item.title}</span>
+          {summary.length > 0 && <span className="text-fg-dim">{summary.join(' · ')}</span>}
+        </div>
+        {details.prompt && (
+          <p className="text-fg-dim mt-1 break-words whitespace-pre-wrap">{details.prompt}</p>
+        )}
+        <p className="text-fg-dim mt-1 text-[11px]">
+          Ran inside {providerName}; RunHQ reports it but does not schedule it.
+        </p>
+      </article>
+    );
+  }
   if (item.kind === 'user')
     return (
       <article className="bg-fg/5 text-fg ml-6 rounded-lg px-4 py-3 text-[13px] break-words whitespace-pre-wrap">
@@ -621,7 +647,10 @@ export function AgentSessionView({
                           : undefined
                       }
                     >
-                      <TranscriptItem item={item} />
+                      <TranscriptItem
+                        item={item}
+                        providerName={session.backend_name || session.backend}
+                      />
                     </div>
                   ))}
                 {!!artifacts.length && !canvasOpen && (

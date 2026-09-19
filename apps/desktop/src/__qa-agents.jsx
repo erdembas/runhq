@@ -96,6 +96,20 @@ const items = [
     status: 'completed',
     created_at: now - 120000,
   },
+  {
+    id: 'fanout',
+    kind: 'subagent',
+    title: 'Explore routing',
+    text: JSON.stringify({
+      prompt: 'Find every place that renders a project row.',
+      agentId: 'explorer-1',
+      subagentType: 'explore',
+      model: 'composer-1',
+      durationMs: 123000,
+    }),
+    status: 'completed',
+    created_at: now - 150000,
+  },
 ];
 const wf = {
   id: 'wf',

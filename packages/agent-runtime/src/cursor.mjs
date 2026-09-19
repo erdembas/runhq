@@ -133,9 +133,11 @@ export async function cursorExtension(ctx, rpc, message, state) {
     state.setTodos([...todos.values()]);
     ctx.item(`${state.prefix}-cursor-todos`, 'plan', 'Cursor tasks', pretty([...todos.values()]));
   } else if (method === 'cursor/task') {
+    // A distinct kind so the transcript can show the provider's own fan-out as structure. The
+    // subagent runs inside the provider: RunHQ reports it, it does not schedule or route it.
     ctx.item(
       itemId,
-      'tool',
+      'subagent',
       p.description || 'Cursor subagent',
       pretty({
         prompt: p.prompt,

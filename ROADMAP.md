@@ -209,10 +209,11 @@ change baseline, while provider-native state stays with the original provider. I
 independent review and revision run as explicit steps over defined checkouts, with bounded opt-in
 automatic progression and protection that keeps a shared worktree from being cleaned up mid-handoff.
 
-**Next:**
-
-- Map provider-native subagent notifications onto child steps of the task that owns them, so a
-  fanned-out implementation is visible as structure rather than as transcript tool events.
+**Delivered since:** a provider's own fan-out is reported as structure. A subagent notification
+becomes its own transcript item showing the subagent's description, type, model and reported
+duration under the task that owns it, instead of a generic tool event carrying a JSON blob. The item
+says the subagent ran inside the provider, because RunHQ reports it and does not schedule or route
+it; a payload RunHQ cannot read degrades to what the provider sent rather than disappearing.
 
 **Acceptance:** one agent implements a change and another reviews that exact change, with a visible
 handoff and resumable dependencies. Cross-provider handoff starts a new session with selected
