@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState, type ElementRef } from 'react';
-import { BookOpen, Download, Play, Plus, Search, Trash2, Upload } from 'lucide-react';
+import {
+  BookOpen,
+  Download,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  CalendarClock,
+} from 'lucide-react';
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentStore } from '@/store/useAgentStore';
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { AgentHistoryRetention } from './AgentHistoryRetention';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
+import {
+  describeCadence,
+  nextScheduledRun,
+  parseSchedule,
+  type AgentCadence,
+  type AgentSchedule,
+} from './agentSchedule';
 import {
   downloadAgentJson,
   parseRecipe,
@@ -120,6 +136,16 @@ export function AgentLibrary({
   const [searched, setSearched] = useState(false);
   const [editor, setEditor] = useState<AgentRecipe | null>(null);
   const [memoryEditor, setMemoryEditor] = useState<AgentMemory | null>(null);
+  const [scheduleEditor, setScheduleEditor] = useState<AgentSchedule | null>(null);
+  const scheduleFor = (recipeId: string) => {
+    const stored = records[`schedule:${recipeId}`];
+    if (!stored) return null;
+    try {
+      return parseSchedule(stored.value);
+    } catch {
+      return null;
+    }
+  };
   const [launch, setLaunch] = useState<{ recipe: AgentRecipe; workflow: boolean } | null>(null);
   const [parameters, setParameters] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -337,6 +363,21 @@ export function AgentLibrary({
                   {recipe.backend || 'Choose an agent'} · {recipe.model || 'Agent default'} ·{' '}
                   {recipe.isolated ? 'Worktree' : 'Local'}
                 </p>
+                {(() => {
+                  const scheduled = scheduleFor(recipe.id);
+                  if (!scheduled) return null;
+                  return (
+                    <p className="text-fg-dim mt-1 text-[11px]">
+                      {describeCadence(scheduled.cadence)}
+                      {scheduled.enabled
+                        ? ` · next ${new Date(
+                            nextScheduledRun(scheduled.cadence, scheduled.lastRunAt ?? Date.now()),
+                          ).toLocaleString()}`
+                        : ' · paused'}
+                      {scheduled.lastOutcome ? ` · last: ${scheduled.lastOutcome}` : ''}
+                    </p>
+                  );
+                })()}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className={button} onClick={() => start(recipe, false)}>
                     <Play className="h-3 w-3" />
@@ -347,6 +388,23 @@ export function AgentLibrary({
                   </button>
                   <button className={button} onClick={() => setEditor({ ...recipe })}>
                     Edit
+                  </button>
+                  <button
+                    className={button}
+                    onClick={() =>
+                      setScheduleEditor(
+                        scheduleFor(recipe.id) ?? {
+                          id: crypto.randomUUID(),
+                          recipeId: recipe.id,
+                          projectId: recipe.projectId || scope || projects[0]?.id || '',
+                          cadence: { kind: 'daily', time: '09:00' },
+                          enabled: true,
+                        },
+                      )
+                    }
+                  >
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    {scheduleFor(recipe.id) ? 'Schedule…' : 'Schedule'}
                   </button>
                   <button
                     aria-label={`Delete recipe ${recipe.name}`}
@@ -779,6 +837,162 @@ export function AgentLibrary({
               </button>
               <button className={button} disabled={busy}>
                 Save decision
+              </button>
+            </div>
+          </form>
+        </LibraryDialog>
+      )}
+      {scheduleEditor && (
+        <LibraryDialog title="Schedule" onClose={() => setScheduleEditor(null)}>
+          <form
+            aria-label="Recipe schedule"
+            className="border-border bg-surface-raised w-full max-w-lg space-y-3 rounded-xl border p-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void action(async () => {
+                await useAgentLibraryStore
+                  .getState()
+                  .save(`schedule:${scheduleEditor.recipeId}`, parseSchedule(scheduleEditor));
+                setScheduleEditor(null);
+                setNotice('Schedule saved.');
+              });
+            }}
+          >
+            <h3 className="text-fg font-medium">Run this recipe on a schedule</h3>
+            <SearchableSelect
+              label="Schedule project"
+              indentGrouped
+              value={scheduleEditor.projectId}
+              options={projectOptions}
+              onChange={(value) => setScheduleEditor({ ...scheduleEditor, projectId: value })}
+              searchPlaceholder="Find a project or group…"
+            />
+            <SearchableSelect
+              label="How often"
+              searchable={false}
+              value={scheduleEditor.cadence.kind}
+              options={[
+                { value: 'daily', label: 'Every day' },
+                { value: 'weekly', label: 'Every week' },
+                { value: 'interval', label: 'Every few hours' },
+              ]}
+              onChange={(value) =>
+                setScheduleEditor({
+                  ...scheduleEditor,
+                  cadence:
+                    value === 'interval'
+                      ? { kind: 'interval', hours: 6 }
+                      : value === 'weekly'
+                        ? { kind: 'weekly', day: 1, time: '09:00' }
+                        : { kind: 'daily', time: '09:00' },
+                })
+              }
+            />
+            {scheduleEditor.cadence.kind === 'interval' ? (
+              <label className="text-fg-muted text-[12px]">
+                Hours between runs
+                <input
+                  className={field}
+                  type="number"
+                  min={1}
+                  max={336}
+                  value={scheduleEditor.cadence.hours}
+                  onChange={(e) =>
+                    setScheduleEditor({
+                      ...scheduleEditor,
+                      cadence: { kind: 'interval', hours: Number(e.target.value) },
+                    })
+                  }
+                />
+              </label>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {scheduleEditor.cadence.kind === 'weekly' && (
+                  <SearchableSelect
+                    label="Weekday"
+                    searchable={false}
+                    value={String(scheduleEditor.cadence.day)}
+                    options={[
+                      'Sunday',
+                      'Monday',
+                      'Tuesday',
+                      'Wednesday',
+                      'Thursday',
+                      'Friday',
+                      'Saturday',
+                    ].map((label, value) => ({ value: String(value), label }))}
+                    onChange={(value) =>
+                      setScheduleEditor({
+                        ...scheduleEditor,
+                        cadence: {
+                          kind: 'weekly',
+                          day: Number(value),
+                          time: (scheduleEditor.cadence as Extract<AgentCadence, { time: string }>)
+                            .time,
+                        },
+                      })
+                    }
+                  />
+                )}
+                <label className="text-fg-muted text-[12px]">
+                  Time
+                  <input
+                    className={field}
+                    type="time"
+                    value={(scheduleEditor.cadence as Extract<AgentCadence, { time: string }>).time}
+                    onChange={(e) =>
+                      setScheduleEditor({
+                        ...scheduleEditor,
+                        cadence: {
+                          ...scheduleEditor.cadence,
+                          time: e.target.value,
+                        } as AgentCadence,
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            )}
+            <label className="text-fg-muted flex items-center gap-2 text-[12px]">
+              <input
+                type="checkbox"
+                checked={scheduleEditor.enabled}
+                onChange={(e) =>
+                  setScheduleEditor({ ...scheduleEditor, enabled: e.target.checked })
+                }
+              />
+              Enabled
+            </label>
+            <p className="text-fg-dim text-[11px] leading-relaxed">
+              Scheduled runs start the recipe as a new task while RunHQ is running. Nothing runs
+              while RunHQ is closed; occurrences missed in the meantime are reported and started
+              once, not replayed. A run waits when the tool is disabled or its execution slots are
+              full.
+            </p>
+            <div className="flex justify-end gap-2">
+              {records[`schedule:${scheduleEditor.recipeId}`] && (
+                <button
+                  type="button"
+                  className={button}
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      await useAgentLibraryStore
+                        .getState()
+                        .save(`schedule:${scheduleEditor.recipeId}`, null);
+                      setScheduleEditor(null);
+                      setNotice('Schedule removed.');
+                    })
+                  }
+                >
+                  Remove schedule
+                </button>
+              )}
+              <button type="button" className={button} onClick={() => setScheduleEditor(null)}>
+                Cancel
+              </button>
+              <button className={button} disabled={busy || !scheduleEditor.projectId}>
+                Save schedule
               </button>
             </div>
           </form>

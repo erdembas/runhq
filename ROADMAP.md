@@ -239,11 +239,14 @@ preferred provider/model and worktree setup, and they launch either a prefilled 
 workflow. Built-in recipes cover bug reproduction, implementation with independent review,
 dependency updates and release preparation, and recipes can be exported and imported.
 
-**Next:**
-
-- Add scheduled and triggered recipe runs. The durable queue, recovery, capacity limits and recorded
-  checks that this originally waited on now exist, so the remaining work is the schedule itself and
-  its notification and pause policy.
+**Delivered since:** a recipe can carry a schedule — every N hours, daily, or weekly at a chosen
+time — and RunHQ starts it as a new task when it comes due. Saving a schedule never starts work
+immediately; the first run waits for the next occurrence. Occurrences that passed while RunHQ was
+closed are reported and collapsed into a single run rather than replayed, because there is no
+background runner. A run that cannot proceed — the tool is disabled, execution slots are full, the
+project is gone — records why instead of retrying every tick, and the creation id is reserved before
+launching so a retry after a lost acknowledgement cannot create the task twice. Triggers other than
+time are not implemented.
 
 **Acceptance:** repeat a workflow in another project with visible parameter substitutions and the
 same intended setup/checks. Multi-step recipes build on A6; scheduled execution is later work.
