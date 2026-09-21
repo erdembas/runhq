@@ -88,15 +88,23 @@ async fn backend_version_probes_run_concurrently_and_preserve_tool_order() {
 
     let (dir, manager, _session) = setup();
     manager.state.lock().tools.retain(|id, _| id != "cursor");
-    // A probe only completes after the other probes have started. Serial
-    // discovery times out here without relying on a wall-clock assertion.
+    // Each probe announces itself, waits, and then reports whether the others had also started.
+    // Serial discovery cannot see them and reports a version the assertion rejects.
+    //
+    // The wait is a single fixed sleep rather than a barrier the probes spin on. A barrier made
+    // every probe's completion depend on the slowest spawn while three shells each spawned a
+    // `sleep` every 10ms, so the test generated the contention that pushed it past the probe
+    // timeout and failed on a loaded machine. One second of overlap is far longer than concurrent
+    // spawns need and still leaves most of that timeout unused.
     let script = r#"#!/bin/sh
 dir=${0%/*}
 touch "$0.started"
-while [ ! -f "$dir/claude.started" ] || [ ! -f "$dir/codex.started" ] || [ ! -f "$dir/opencode.started" ]; do
-    sleep 0.01
-done
-echo '1.0.0'
+sleep 1
+if [ -f "$dir/claude.started" ] && [ -f "$dir/codex.started" ] && [ -f "$dir/opencode.started" ]; then
+    echo '1.0.0'
+else
+    echo 'ran alone'
+fi
 "#;
     for id in ["claude", "codex", "opencode"] {
         let path = dir.path().join(id);
