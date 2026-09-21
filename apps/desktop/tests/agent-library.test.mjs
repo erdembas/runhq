@@ -15,6 +15,7 @@ runInNewContext(
   { exports, TextEncoder },
 );
 const {
+  parseRecipeSteps,
   parseRecipe,
   portableAgentRecipe,
   recipeParameters,
@@ -85,4 +86,32 @@ test('context byte budget counts multibyte content before sending', () => {
     /256 KiB/,
   );
   assert.equal(buildAgentContextPrompt('plain', []), 'plain');
+});
+
+test('a recipe can save a division of labour, and refuses one it cannot run', () => {
+  const steps = [
+    { role: 'plan', target: 'claude', model: 'sonnet', effort: '', mode: '' },
+    { role: 'implement', target: 'codex', model: '', effort: '', mode: '' },
+    { role: 'review', target: 'pool:claude', model: '', effort: '', mode: '' },
+  ];
+  const saved = parseRecipe({ ...recipe, workflowSteps: steps });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(saved.workflowSteps)).map((s) => [s.role, s.target]),
+    [
+      ['plan', 'claude'],
+      ['implement', 'codex'],
+      ['review', 'pool:claude'],
+    ],
+  );
+  // No steps means what a recipe always meant: its single agent implements and reviews.
+  assert.equal(parseRecipe(recipe).workflowSteps, undefined);
+  assert.deepEqual([...parseRecipeSteps(undefined)], []);
+  // A recipe is imported from a file, so an unknown role must not reach a workflow.
+  assert.throws(() => parseRecipeSteps([{ role: 'deploy', target: 'codex' }]), /step role/);
+  assert.throws(() => parseRecipeSteps('two steps'), /Invalid recipe steps/);
+  assert.throws(
+    () => parseRecipeSteps(Array.from({ length: 9 }, () => ({ role: 'review', target: 'a' }))),
+    /up to 8 steps/,
+  );
+  assert.throws(() => parseRecipeSteps([{ role: 'review', target: 7 }]), /step target/);
 });

@@ -59,6 +59,7 @@ pub fn run() {
             ipc::agent_workflows,
             ipc::agent_workflow_create,
             ipc::agent_workflow_implement,
+            ipc::agent_workflow_run_step,
             ipc::agent_workflow_review,
             ipc::agent_workflow_setup,
             ipc::agent_workflow_checks,

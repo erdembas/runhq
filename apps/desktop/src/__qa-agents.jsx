@@ -153,6 +153,18 @@ const wf = {
   reviewer_backend: 'claude',
   steps: [
     {
+      id: 'plan-1',
+      role: 'plan',
+      target: 'pool:claude',
+      model: '',
+      effort: '',
+      mode: '',
+      session_id: 'implement',
+      input_step_id: null,
+      status: 'completed',
+      input_revision: 'abc123def456',
+    },
+    {
       id: 'implement',
       role: 'implement',
       target: 'codex',
@@ -161,6 +173,8 @@ const wf = {
       mode: '',
       session_id: 'implement',
       input_step_id: null,
+      status: 'completed',
+      input_revision: 'abc123def456',
     },
     {
       id: 'review',
@@ -171,6 +185,8 @@ const wf = {
       mode: '',
       session_id: null,
       input_step_id: 'implement',
+      status: 'pending',
+      input_revision: null,
     },
   ],
   reviewer_model: '',

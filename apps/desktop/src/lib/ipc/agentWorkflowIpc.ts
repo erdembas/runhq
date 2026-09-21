@@ -32,6 +32,9 @@ export interface WorkflowStep {
   mode: string;
   session_id: string | null;
   input_step_id: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  /** The workspace revision this step actually started from, recorded when it starts. */
+  input_revision: string | null;
 }
 export interface AgentWorkflow {
   id: string;
@@ -103,11 +106,22 @@ export interface CreateAgentWorkflow {
   setup_commands: string[];
   check_commands: string[];
   auto_progress: boolean;
+  /** The roles to run, in order. Empty keeps the two-role shape built from the backend fields. */
+  steps: CreateWorkflowStep[];
+}
+/** A step as the creating screen states it; session, status and revision are RunHQ's to fill in. */
+export interface CreateWorkflowStep {
+  role: WorkflowStep['role'];
+  target: string;
+  model: string;
+  effort: string;
+  mode: string;
 }
 export const agentWorkflowIpc = {
   list: () => invoke<AgentWorkflow[]>('agent_workflows'),
   create: (input: CreateAgentWorkflow) => invoke<AgentWorkflow>('agent_workflow_create', { input }),
   implement: (id: string) => invoke<AgentWorkflow>('agent_workflow_implement', { id }),
+  runStep: (id: string) => invoke<AgentWorkflow>('agent_workflow_run_step', { id }),
   review: (id: string) => invoke<AgentWorkflow>('agent_workflow_review', { id }),
   setup: (id: string) => invoke<AgentWorkflow>('agent_workflow_setup', { id }),
   checks: (id: string) => invoke<AgentWorkflow>('agent_workflow_checks', { id }),

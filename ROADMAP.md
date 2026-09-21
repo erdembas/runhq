@@ -19,7 +19,7 @@ verified live or included in a published release. **Partial** identifies an exis
 specific gaps. **Planned** is prioritized work; **Later** has no delivery commitment. Phase order
 expresses dependencies rather than release dates.
 
-A1-A10 below are implemented in the repository. They are covered by unit/integration tests and a
+A1-A11 below are implemented in the repository. They are covered by unit/integration tests and a
 fixture-driven UI walkthrough of the shared Agents surfaces; live runs against every provider and
 platform are a separate, ongoing verification effort.
 
@@ -59,7 +59,7 @@ outside those locks.
 | A8  | Usage and execution capacity                | P2       | Implemented | Understand reported usage and why work is waiting.                                 |
 | A9  | Searchable agent history and project memory | P2       | Implemented | Reuse prior decisions and results across conversations.                            |
 | A10 | Provider accounts and limit-aware routing   | P1       | Implemented | Run more work by spreading it over the accounts you already pay for.               |
-| A11 | Composable multi-provider workflows         | P1       | Planned     | Assign each step of a task to the agent and model that suit it.                    |
+| A11 | Composable multi-provider workflows         | P1       | Implemented | Assign each step of a task to the agent and model that suit it.                    |
 
 ### A1. Durable Queues and Task Recovery
 
@@ -398,13 +398,28 @@ become RunHQ steps.
 - Surface provider-native subagent activity within the step that owns it, without implying RunHQ can
   schedule or route those subagents individually.
 
-**In progress:** a workflow now carries an ordered `steps` list — each step names its role, the
-account or pool that runs it, its model, effort and mode, the session that ran it, and the step whose
-revision it takes as input. Rows written before steps existed are migrated when they are read, as the
-two roles they always were, so nothing stored has to be rewritten to be readable and the
-implementation's connection is not invented where it was only ever recorded on its session. Creation
-writes the same list, and assigning a reviewer updates the step alongside the field it replaces. The
-stage machine and the screens still run the fixed two roles; generalizing them is the next slice.
+**Delivered:** a workflow carries an ordered `steps` list — each step names its role, the account or
+pool that runs it, its model, effort and mode, the session that ran it, and the step whose revision
+it takes as input, alongside the revision it actually started from. Rows written before steps existed
+are migrated when they are read, as the two roles they always were, so nothing stored has to be
+rewritten to be readable and the implementation's connection is not invented where it was only ever
+recorded on its session.
+
+Plan, implement, review, revise and validate all run through one path that differs only in what a
+role may touch: a producing role works in the isolated checkout, a reviewing role reads it under a
+read-only session on a connection that has a real read-only mode. Every safeguard that protected the
+two fixed roles still applies — setup must have passed, a review needs a real change to look at, and
+the fingerprint a review saw is what validation and integration are checked against. A workspace
+that changes after review puts that review back in the queue instead of leaving the workflow with no
+step to run. Stopping a workflow ends every session its steps opened, not only the original two.
+
+The first step must produce work and a review must exist before integration; both rules are stated
+on the screen and enforced again at creation, because a screen is not a boundary. A saved recipe can
+carry the same division of labour, pool targets included, and an imported recipe naming an unknown
+role is refused before it reaches a workflow. The workflow screen edits the list, runs the step the
+workflow is on by name, and shows a read-only strip of the order with each step's account and input
+revision. Provider-native subagents appear in the session of the step that owns them; RunHQ still
+does not schedule them.
 
 **Acceptance:** run one workflow whose plan, implementation and review are performed by different
 providers and models, see each step's account and input revision, and repeat the same division of
