@@ -120,6 +120,20 @@ pub fn workflow_role_produces(role: &str) -> bool {
     matches!(role, "plan" | "implement" | "revise")
 }
 
+/// The provider mode a producing step runs in.
+///
+/// A plan step asks for plan mode only where that mode is built into the integration. An ACP or
+/// terminal connection advertises its modes once it is running, so asking for one it never
+/// advertised fails the turn outright — the step runs in the connection's default mode instead and
+/// the prompt carries the planning instruction.
+fn workflow_step_mode(role: &str, adapter: &str) -> &'static str {
+    if role == "plan" && matches!(adapter, "codex" | "claude" | "opencode") {
+        "plan"
+    } else {
+        "default"
+    }
+}
+
 pub const WORKFLOW_ROLES: [&str; 5] = ["plan", "implement", "review", "revise", "validate"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -872,11 +886,7 @@ impl AgentManager {
                 prompt,
                 model: session.model,
                 effort: session.effort,
-                mode: Some(if step.role == "plan" {
-                    "plan".into()
-                } else {
-                    "default".to_string()
-                }),
+                mode: Some(workflow_step_mode(&step.role, &session.adapter).to_string()),
                 agent: Some(String::new()),
                 attachments: vec![],
             })
@@ -1843,6 +1853,26 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_step_asks_for_plan_mode_only_where_the_integration_has_one() {
+        // Built-in plan modes: asking for one is safe and is what the role means.
+        for adapter in ["codex", "claude", "opencode"] {
+            assert_eq!(workflow_step_mode("plan", adapter), "plan");
+        }
+        // An ACP or terminal connection advertises its modes once it is running. Asking for a mode
+        // it never advertised fails the turn outright — observed as "The selected mode is not
+        // advertised by this ACP agent" — so the step runs in the connection's default instead.
+        for adapter in ["acp", "terminal", ""] {
+            assert_eq!(workflow_step_mode("plan", adapter), "default");
+        }
+        // Every other producing role works in the default mode whatever the connection is.
+        for role in ["implement", "revise"] {
+            for adapter in ["codex", "acp"] {
+                assert_eq!(workflow_step_mode(role, adapter), "default");
+            }
+        }
+    }
+
+    #[test]
     fn check_success_requires_matching_commands_and_successful_exits() {
         let commands = vec!["test-command".into()];
         assert!(!commands_passed(&commands, &[]));
@@ -1912,6 +1942,141 @@ impl AgentManager {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+
+    /// A real three-role workflow against installed provider CLIs.
+    ///
+    /// Ignored: it needs authenticated CLIs and network, so it is run by hand rather than in CI.
+    /// `RUNHQ_E2E_PLAN`, `_IMPLEMENT` and `_REVIEW` name the connections to use.
+    #[tokio::test]
+    #[ignore = "requires authenticated provider CLIs"]
+    async fn three_roles_run_on_real_providers() {
+        // Same fixture repository, but a manager wired to the real agent runtime rather than the
+        // placeholder path the unit tests use, so turns actually reach the provider CLIs.
+        let (_temp, placeholder, repo) = super::tests::repository();
+        let home = Path::new(&placeholder.home).join("e2e");
+        drop(placeholder);
+        let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/src-tauri/resources/agent-runtime/bridge.mjs")
+            .canonicalize()
+            .expect("build the agent runtime first: pnpm agent:build");
+        let manager = Arc::new(AgentManager::open(&home, bridge, Arc::new(|_| {})).unwrap());
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        let named = |key: &str, fallback: &str| std::env::var(key).unwrap_or(fallback.into());
+        let plan = named("RUNHQ_E2E_PLAN", "cursor");
+        let implement = named("RUNHQ_E2E_IMPLEMENT", "cursor");
+        let review = named("RUNHQ_E2E_REVIEW", "claude");
+        let step = |role: &str, target: &str| CreateWorkflowStep {
+            role: role.into(),
+            target: target.into(),
+            model: String::new(),
+            effort: String::new(),
+            mode: String::new(),
+        };
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id.clone(),
+                backend: plan.clone(),
+                model: String::new(),
+                effort: String::new(),
+                reviewer_backend: review.clone(),
+                reviewer_model: String::new(),
+                objective: "Add a file named STEPS.md containing exactly the word STEPS.".into(),
+                acceptance: "STEPS.md exists and contains STEPS.".into(),
+                base_ref: "HEAD".into(),
+                setup_commands: vec![],
+                check_commands: vec!["test -f STEPS.md".into()],
+                auto_progress: false,
+                steps: vec![
+                    step("plan", &plan),
+                    step("implement", &implement),
+                    step("review", &review),
+                ],
+            })
+            .await
+            .unwrap();
+        for expected in ["plan", "implement", "review"] {
+            let before = manager.workflow(&workflow.id).unwrap();
+            let current = before.current_step().unwrap();
+            assert_eq!(
+                current.role, expected,
+                "steps run in the order declared; workflow error: {:?}",
+                before.error
+            );
+            let step_id = current.id.clone();
+            let mut answered = std::collections::HashSet::new();
+            manager.workflow_run_step(&workflow.id).await.unwrap();
+            // Wait for the provider to finish this step, answering the permission prompts a person
+            // would answer, then let reconcile record the outcome.
+            tokio::time::timeout(Duration::from_secs(420), async {
+                loop {
+                    let w = manager.workflows().await.unwrap();
+                    let w = w.iter().find(|w| w.id == workflow.id).unwrap();
+                    let step = w.step(&step_id).unwrap();
+                    if step.status != "running" {
+                        return step.status.clone();
+                    }
+                    if let Some(session_id) = &step.session_id {
+                        if let Ok(session) = manager.session(session_id) {
+                            for request in &session.pending {
+                                let value = request.choices.as_array().and_then(|choices| {
+                                    choices
+                                        .iter()
+                                        .find(|choice| {
+                                            let label = choice["label"]
+                                                .as_str()
+                                                .unwrap_or_default()
+                                                .to_lowercase();
+                                            label.contains("allow") || label.contains("yes")
+                                        })
+                                        .map(|choice| choice["value"].clone())
+                                });
+                                let answer = value.unwrap_or(serde_json::json!("allow"));
+                                // Answer each request once. Re-answering a request the provider
+                                // rejected would spin without ever making progress, so the reason
+                                // is printed instead of discarded.
+                                if !answered.insert(request.id.clone()) {
+                                    continue;
+                                }
+                                println!(
+                                    "answering {:?} ({}) with {answer}; choices {}",
+                                    request.title, request.kind, request.choices
+                                );
+                                if let Err(error) =
+                                    manager.answer(session_id, &request.id, answer).await
+                                {
+                                    println!("  answer rejected: {error}");
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            })
+            .await
+            .map(|status: String| {
+                let w = manager.workflow(&workflow.id).unwrap();
+                let step = w.step(&step_id).unwrap();
+                let session_error = step
+                    .session_id
+                    .as_ref()
+                    .and_then(|id| manager.session(id).ok())
+                    .and_then(|session| session.last_error);
+                println!(
+                    "step {step_id} on {} -> {status} (session {:?}, input {:?}, error {:?})",
+                    step.target, step.session_id, step.input_revision, session_error
+                );
+            })
+            .unwrap();
+        }
+        let done = manager.workflow(&workflow.id).unwrap();
+        println!("stage {}", done.stage);
+        for step in &done.steps {
+            println!(
+                "{} {} {} in {:?}",
+                step.id, step.target, step.status, step.input_revision
+            );
+        }
+    }
 
     #[tokio::test]
     async fn a_declared_division_of_labour_becomes_ordered_steps_with_their_own_accounts() {
