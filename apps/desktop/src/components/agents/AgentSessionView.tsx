@@ -41,6 +41,8 @@ import {
 } from '@runhq/cockpit-ui';
 import type { AgentItem, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { describeRoutingNote, parseRoutingNote } from './agentAccountRouting';
 import { useAgentStore } from '@/store/useAgentStore';
 import { EditorDropdown } from '@/components/EditorDropdown';
 import { TerminalPane } from '@/components/TerminalPane';
@@ -190,6 +192,11 @@ export function AgentSessionView({
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [diff, setDiff] = useState('');
   const preExisting = session.pre_existing_paths ?? [];
+  // Why this task started on the account it did. Absent when the user named the connection.
+  const routingNote = parseRoutingNote(
+    useVisibleStore(useAgentLibraryStore, (s) => s.records[`routing:${session.id}`], visible)
+      ?.value,
+  );
   const [diffBusy, setDiffBusy] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(session.title);
@@ -488,6 +495,11 @@ export function AgentSessionView({
             Terminal
           </button>
         </nav>
+        {routingNote && (
+          // Only present when RunHQ picked the account, and then it is worth seeing without
+          // expanding anything: it is the one thing about this task the user did not decide.
+          <p className="text-fg-dim mt-2 text-[11px]">{describeRoutingNote(routingNote)}</p>
+        )}
         <div id={`${viewId}-details`} hidden={!detailsExpanded}>
           {detailsExpanded && (
             <div className="border-border mt-2 space-y-2 border-t pt-2">

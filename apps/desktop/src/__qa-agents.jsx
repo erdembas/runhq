@@ -30,6 +30,17 @@ const tools = [
     args: [],
     path: '/fixture/claude',
   },
+  {
+    id: 'claude-second',
+    name: 'Claude (second account)',
+    adapter: 'claude',
+    enabled: true,
+    available: true,
+    executable: 'claude',
+    args: [],
+    env: { CLAUDE_CONFIG_DIR: '/fixture/home/second' },
+    path: '/fixture/claude',
+  },
 ];
 const sample = (id, title, status, extra = {}) => ({
   id,
@@ -111,6 +122,26 @@ const items = [
     created_at: now - 150000,
   },
 ];
+// A saved recipe that targets the pool, so drafting it shows which account it resolves to.
+const pooledRecipe = {
+  key: 'recipe:pooled',
+  updated_at: now,
+  value: {
+    id: 'pooled',
+    name: 'Nightly dependency sweep',
+    prompt: 'Update {{dependency}} and report the affected usage.',
+    backend: 'pool:claude',
+    model: '',
+    effort: '',
+    mode: 'default',
+    agent: '',
+    isolated: true,
+    acceptance: '',
+    setupCommands: '',
+    checkCommands: '',
+    version: 1,
+  },
+};
 const wf = {
   id: 'wf',
   project_id: 'qa-project',
@@ -184,6 +215,40 @@ useAgentLibraryStore.setState({
   ready: true,
   error: null,
   records: {
+    'pool:claude': {
+      key: 'pool:claude',
+      updated_at: now,
+      value: {
+        id: 'claude',
+        name: 'Claude accounts',
+        accounts: ['claude', 'claude-second'],
+      },
+    },
+    'preferences:cooldowns': {
+      key: 'preferences:cooldowns',
+      updated_at: now,
+      value: {
+        claude: {
+          since: now - 240_000,
+          until: now + 26 * 60_000,
+          reason:
+            'API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"Usage limit reached for this account."}}',
+        },
+      },
+    },
+    'recipe:pooled': pooledRecipe,
+    // A task RunHQ routed rather than the user, so the session header can explain itself.
+    'routing:implement': {
+      key: 'routing:implement',
+      updated_at: now,
+      value: {
+        accountId: 'codex',
+        accountName: 'Codex',
+        reason: 'takes over after Claude reported a limit',
+        poolName: 'Claude accounts',
+        at: now - 300_000,
+      },
+    },
     'memory:qa': {
       key: 'memory:qa',
       updated_at: now,

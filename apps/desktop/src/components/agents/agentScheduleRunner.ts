@@ -1,5 +1,6 @@
 import type { AgentSession, CreateAgentSession } from '@runhq/cockpit-types';
 import { scheduleDecision, type AgentSchedule } from './agentSchedule';
+import type { AgentAccountChoice } from './agentAccountRouting';
 import type { AgentRecipe } from './agentLibraryModel';
 
 export interface AgentScheduleRun {
@@ -18,8 +19,20 @@ export async function runDueSchedules(deps: {
   recipe: (id: string) => AgentRecipe | null;
   /** Why this schedule cannot run right now, in the user's words, or null when it can. */
   blocked: (schedule: AgentSchedule) => string | null;
+  /**
+   * The connection this recipe should start on. A recipe may target a single connection or a pool
+   * of interchangeable accounts; either way the task is created against one concrete account, so
+   * the session keeps the identity that opened it.
+   */
+  route: (recipe: AgentRecipe) => AgentAccountChoice;
   launch: (input: CreateAgentSession, prompt: string, creationId: string) => Promise<AgentSession>;
   save: (schedule: AgentSchedule) => Promise<void>;
+  /** Record why an unattended run started where it did, beside the task it explains. */
+  routed?: (
+    session: AgentSession,
+    choice: AgentAccountChoice,
+    recipe: AgentRecipe,
+  ) => Promise<void>;
 }): Promise<AgentScheduleRun[]> {
   const runs: AgentScheduleRun[] = [];
   for (const schedule of deps.schedules) {
@@ -40,6 +53,15 @@ export async function runDueSchedules(deps: {
       runs.push({ schedule: missing, outcome: 'Recipe was removed', ranAt: deps.now });
       continue;
     }
+    // Route before reserving anything: an occurrence that cannot reach an account records why, the
+    // same way a blocked one does, instead of creating a task with no place to run.
+    const choice = deps.route(recipe);
+    if (!choice.accountId) {
+      const unrouted = { ...schedule, lastRunAt: deps.now, lastOutcome: choice.reason };
+      await deps.save(unrouted);
+      runs.push({ schedule: unrouted, outcome: choice.reason, ranAt: deps.now });
+      continue;
+    }
     // Reserve the creation id before any IPC: a retry after a lost acknowledgement then reuses it
     // instead of creating a second task.
     const creationId = schedule.pendingCreationId ?? crypto.randomUUID();
@@ -53,7 +75,7 @@ export async function runDueSchedules(deps: {
         {
           creation_request_id: creationId,
           project_id: schedule.projectId,
-          backend: recipe.backend,
+          backend: choice.accountId,
           executable: '',
           title: recipe.name,
           model: recipe.model,
@@ -65,7 +87,10 @@ export async function runDueSchedules(deps: {
         recipe.prompt,
         creationId,
       );
-      const outcome = `Started ${session.title}${missedNote}`;
+      // Nobody is watching an unattended run, so the account it chose is written down with it.
+      if (deps.routed) await deps.routed(session, choice, recipe);
+      const routed = choice.reason ? ` · ${choice.reason}` : '';
+      const outcome = `Started ${session.title}${routed}${missedNote}`;
       const done = {
         ...reserved,
         lastRunAt: deps.now,

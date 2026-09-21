@@ -32,6 +32,17 @@ import type { AgentProject, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
+import {
+  composerAccountForTarget,
+  isPoolTarget,
+  handoffAccountAfterLimit,
+  parseAccountCooldowns,
+  parseAccountPool,
+  type AgentAccountPool,
+} from './agentAccountRouting';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { AgentNewSession } from './AgentNewSession';
 import { AgentSessionView } from './AgentSessionView';
@@ -84,6 +95,8 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
   const [template, setTemplate] = useState<AgentTaskTemplate | undefined>();
   const [recipe, setRecipe] = useState<AgentRecipe | undefined>();
   const [workflowRecipe, setWorkflowRecipe] = useState<AgentRecipe | undefined>();
+  // Why the composer opens on the account it does, when RunHQ chose it rather than the user.
+  const [routing, setRouting] = useState<{ poolName?: string; reason: string } | undefined>();
   const [focusItemId, setFocusItemId] = useState<string>();
   useEffect(() => {
     if (!project && globalSelectedId) {
@@ -131,6 +144,8 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     candidate && (!project || candidate.project_id === project.id) ? candidate : null;
   const startTask = (nextTemplate?: AgentTaskTemplate) => {
     setRecipe(undefined);
+    // A blank task is the user's own choice of agent, so no routing reason applies to it.
+    setRouting(undefined);
     setTemplate(nextTemplate);
     setCreating(true);
     setView('conversations');
@@ -142,12 +157,84 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     setView('conversations');
   };
   const startRecipe = (next: AgentRecipe) => {
-    setRecipe(next);
+    // The composer works in connections and discovers one account's models and modes, so a recipe
+    // that targets a pool is resolved to the account it would start on before the draft opens.
+    const backend = composerAccount(next);
+    const pool = isPoolTarget(next.backend)
+      ? routingPool(next.backend.slice('pool:'.length))
+      : null;
+    setRouting(
+      backend && pool ? { poolName: pool.name, reason: 'had a free execution slot' } : undefined,
+    );
+    setRecipe(backend === next.backend ? next : { ...next, backend });
     setTemplate(undefined);
     setCreating(true);
     setView('conversations');
   };
+  const routingPool = (id: string) => {
+    const saved = useAgentLibraryStore.getState().records[`pool:${id}`];
+    try {
+      return saved ? parseAccountPool(saved.value) : null;
+    } catch {
+      return null;
+    }
+  };
+  const routingAccounts = () =>
+    useAgentStore.getState().tools.map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      adapter: tool.adapter ?? '',
+      enabled: tool.enabled !== false,
+      available: tool.available,
+    }));
+  const routingCooldowns = () =>
+    parseAccountCooldowns(useAgentLibraryStore.getState().records['preferences:cooldowns']?.value);
+  const routingOccupancy = () =>
+    agentOccupiedSlots(useAgentStore.getState().sessions, useAgentQueueStore.getState().queues);
+  const composerAccount = (recipe: AgentRecipe) =>
+    composerAccountForTarget({
+      target: recipe.backend,
+      pool: routingPool,
+      accounts: routingAccounts(),
+      need: { plan: recipe.mode === 'plan' },
+      cooldowns: routingCooldowns(),
+      capacity: agentCapacityPreferences(
+        useAgentLibraryStore.getState().records['preferences:capacity']?.value,
+      ),
+      occupied: routingOccupancy(),
+      now: Date.now(),
+    });
+  /**
+   * A session keeps the account that opened it, so a limit is taken over by a new session. When the
+   * source account is on cool-down and grouped with others, the composer opens on the account
+   * routing would pick; otherwise the agent is left unset for the user to choose, as before.
+   */
+  const handoffAccount = (source: AgentSession) => {
+    const library = useAgentLibraryStore.getState();
+    const pools: AgentAccountPool[] = [];
+    for (const key of Object.keys(library.records)) {
+      if (!key.startsWith('pool:')) continue;
+      const pool = routingPool(key.slice('pool:'.length));
+      // An unreadable pool cannot be routed through and is simply not offered.
+      if (pool) pools.push(pool);
+    }
+    return handoffAccountAfterLimit({
+      sourceAccountId: source.backend,
+      pools,
+      accounts: routingAccounts(),
+      cooldowns: routingCooldowns(),
+      capacity: agentCapacityPreferences(library.records['preferences:capacity']?.value),
+      occupied: routingOccupancy(),
+      now: Date.now(),
+    });
+  };
   const handoff = (source: AgentSession, items: AgentItem[]) => {
+    const account = handoffAccount(source);
+    const taken = account
+      ? {
+          reason: `takes over after ${source.backend_name || source.backend} reported a limit`,
+        }
+      : undefined;
     startRecipe({
       id: crypto.randomUUID(),
       name: `Follow up · ${source.title}`,
@@ -159,7 +246,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
         .map((item) => `${item.kind}: ${item.text}`)
         .join('\n\n')
         .slice(-60000)}\n\nNext objective: `,
-      backend: '',
+      backend: account,
       model: '',
       effort: '',
       mode: 'default',
@@ -170,6 +257,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
       checkCommands: '',
       version: 1,
     });
+    if (taken) setRouting(taken);
   };
   const deleteConversation = async (id: string) => {
     setDeleteTarget(null);
@@ -475,7 +563,8 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             onWorkflow={(next) => {
               if (!project && next.projectId)
                 useAgentStore.setState({ projectFilter: next.projectId });
-              setWorkflowRecipe(next);
+              // A workflow step also runs as one connection, so a pool target resolves here too.
+              setWorkflowRecipe({ ...next, backend: composerAccount(next) });
               setView('workflows');
             }}
           />
@@ -503,6 +592,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             project={project}
             initialTemplate={template}
             initialRecipe={recipe}
+            initialRouting={routing}
             onCreated={(s) => openConversation(s.id)}
             onClose={() => setCreating(false)}
           />

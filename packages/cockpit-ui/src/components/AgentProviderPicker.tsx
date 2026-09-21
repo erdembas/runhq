@@ -12,6 +12,7 @@ export function AgentProviderPicker({
   disabled,
   name,
   loading = false,
+  extraOptions,
 }: {
   value: AgentBackendId;
   onChange?: (id: AgentBackendId) => void;
@@ -19,6 +20,11 @@ export function AgentProviderPicker({
   disabled?: boolean;
   name?: string;
   loading?: boolean;
+  /**
+   * Targets that are not connections themselves, listed after them. The caller decides what they
+   * mean and resolves the chosen value; this component keeps no opinion about them.
+   */
+  extraOptions?: { value: string; label: string; group: string; description?: string }[];
 }) {
   const label =
     name || backends?.find((b) => b.id === value)?.name || agentProviderNames[value] || value;
@@ -33,6 +39,8 @@ export function AgentProviderPicker({
           ? 'CLI found · needs attention'
           : 'CLI not found',
   }));
+  for (const extra of extraOptions ?? [])
+    options.push({ ...extra, description: extra.description ?? '' });
   if (!onChange)
     return (
       <span

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ElementRef } from 'react';
+import { useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
 import {
   BookOpen,
   Download,
@@ -22,6 +22,12 @@ import {
   type AgentCadence,
   type AgentSchedule,
 } from './agentSchedule';
+import {
+  isPoolTarget,
+  parseAccountPool,
+  poolTarget,
+  type AgentAccountPool,
+} from './agentAccountRouting';
 import {
   downloadAgentJson,
   parseRecipe,
@@ -137,6 +143,25 @@ export function AgentLibrary({
   const [editor, setEditor] = useState<AgentRecipe | null>(null);
   const [memoryEditor, setMemoryEditor] = useState<AgentMemory | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<AgentSchedule | null>(null);
+  const accountPools = useMemo(() => {
+    const parsed: AgentAccountPool[] = [];
+    for (const [key, record] of Object.entries(records)) {
+      if (!key.startsWith('pool:')) continue;
+      try {
+        parsed.push(parseAccountPool(record.value));
+      } catch {
+        // An unreadable record is skipped rather than offered as an empty target.
+      }
+    }
+    return parsed.sort((left, right) => left.name.localeCompare(right.name));
+  }, [records]);
+  /** A recipe stores either a connection id or a pool target; both have to read as themselves. */
+  const describeTarget = (target: string) => {
+    if (!target) return 'Choose an agent';
+    if (!isPoolTarget(target)) return tools.find((tool) => tool.id === target)?.name ?? target;
+    const pool = accountPools.find((entry) => poolTarget(entry.id) === target);
+    return pool ? `${pool.name} (pool)` : 'Pool was removed';
+  };
   const scheduleFor = (recipeId: string) => {
     const stored = records[`schedule:${recipeId}`];
     if (!stored) return null;
@@ -360,7 +385,7 @@ export function AgentLibrary({
                   {recipe.prompt}
                 </p>
                 <p className="text-fg-dim mt-3 text-[11px]">
-                  {recipe.backend || 'Choose an agent'} · {recipe.model || 'Agent default'} ·{' '}
+                  {describeTarget(recipe.backend)} · {recipe.model || 'Agent default'} ·{' '}
                   {recipe.isolated ? 'Worktree' : 'Local'}
                 </p>
                 {(() => {
@@ -744,6 +769,11 @@ export function AgentLibrary({
                   options={[
                     { value: '', label: 'Choose at launch' },
                     ...tools.map((t) => ({ value: t.id, label: t.name })),
+                    // A pool lets a scheduled run pick a free account instead of waiting on one.
+                    ...accountPools.map((pool) => ({
+                      value: poolTarget(pool.id),
+                      label: `${pool.name} (pool)`,
+                    })),
                   ]}
                   onChange={(value) => setEditor({ ...editor, backend: value })}
                 />
