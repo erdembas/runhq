@@ -421,6 +421,15 @@ workflow is on by name, and shows a read-only strip of the order with each step'
 revision. Provider-native subagents appear in the session of the step that owns them; RunHQ still
 does not schedule them.
 
+**Verified end to end (2026-09-21):** a plan → implement → review workflow ran against installed
+provider CLIs, each step on its own connection. The plan and implementation steps completed on
+Cursor and the review reached Claude on its own session; the steps ran in the declared order, each
+recorded the session and the revision it started from, and the review's input was the tree the
+implementation produced rather than the workflow's base. The review itself failed on this machine's
+expired Claude token, so a _passing_ review has not been observed against a live provider. The walk
+also exposed a real defect, since fixed: a plan step forced plan mode on a connection that never
+advertised one.
+
 **Acceptance:** run one workflow whose plan, implementation and review are performed by different
 providers and models, see each step's account and input revision, and repeat the same division of
 labor in another project from a saved recipe.

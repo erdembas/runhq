@@ -2030,7 +2030,11 @@ mod lifecycle_tests {
                                         })
                                         .map(|choice| choice["value"].clone())
                                 });
-                                let answer = value.unwrap_or(serde_json::json!("allow"));
+                                // The bridge reads `value.decision` and checks it against the
+                                // options the agent offered, so a bare string is refused.
+                                let answer = serde_json::json!({
+                                    "decision": value.unwrap_or(serde_json::json!("allow"))
+                                });
                                 // Answer each request once. Re-answering a request the provider
                                 // rejected would spin without ever making progress, so the reason
                                 // is printed instead of discarded.
