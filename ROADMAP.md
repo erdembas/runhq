@@ -360,8 +360,12 @@ advertised once it runs. A rate or usage failure the provider actually returned 
 a visible cool-down; nothing else starts one, no remaining allowance is inferred, and the cool-down
 is labelled as RunHQ's own backoff rather than a reset the provider reported. Load is the execution
 slots already counted per connection, so the account with the most free slots wins and the pool's
-order breaks a tie. Every start records which account ran it and why, and a plain connection routes
-as a pool of one so a single account gains the same reporting. Taking over after a limit still means
+order breaks a tie. A recipe, the task composer and a workflow's implementation and review roles can
+all target a pool, and each resolves to a concrete account before the screen opens so the identity
+that will run is visible and overridable. Whenever RunHQ rather than the user picked the account,
+the task records which account and on what grounds and the conversation shows it; a hand-picked
+connection records nothing, because that decision needs no explanation. A plain connection routes as
+a pool of one so a single account gains the same reporting. Taking over after a limit still means
 a new session through the A6 handoff, never switching identity under a running conversation; that
 handoff opens on the account routing would pick when the source account is the one on cool-down.
 

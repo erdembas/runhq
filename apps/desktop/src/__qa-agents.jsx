@@ -237,6 +237,18 @@ useAgentLibraryStore.setState({
       },
     },
     'recipe:pooled': pooledRecipe,
+    // A task RunHQ routed rather than the user, so the session header can explain itself.
+    'routing:implement': {
+      key: 'routing:implement',
+      updated_at: now,
+      value: {
+        accountId: 'codex',
+        accountName: 'Codex',
+        reason: 'takes over after Claude reported a limit',
+        poolName: 'Claude accounts',
+        at: now - 300_000,
+      },
+    },
     'memory:qa': {
       key: 'memory:qa',
       updated_at: now,

@@ -178,8 +178,13 @@ export interface AgentAccountRejection {
 
 export interface AgentAccountChoice {
   accountId: string | null;
-  /** Why this account, or why none — in the words the task list and transcript show. */
+  /** A sentence that stands on its own, for a schedule outcome or a failure message. */
   reason: string;
+  /**
+   * The same grounds as a short phrase, for somewhere the account and pool are already named.
+   * Empty when nothing was compared.
+   */
+  grounds: string;
   /** Every account the pool held and what ruled it out, one signal each. */
   rejected: AgentAccountRejection[];
 }
@@ -256,13 +261,19 @@ export function chooseAgentAccount(input: {
     eligible.push({ candidate, free });
   }
   if (!eligible.length)
-    return { accountId: null, reason: noAccountReason(input.pool, rejected), rejected };
+    return {
+      accountId: null,
+      reason: noAccountReason(input.pool, rejected),
+      grounds: '',
+      rejected,
+    };
   // A global limit is not a property of any one account, so it is reported after the per-account
   // signals: the pool is fine, the workspace as a whole is full.
   if (input.occupied.total >= input.capacity.global)
     return {
       accountId: null,
       reason: 'Waiting for a global execution slot',
+      grounds: '',
       rejected,
     };
   // Most free slots wins; the pool's own order breaks a tie so the choice is reproducible.
@@ -275,6 +286,7 @@ export function chooseAgentAccount(input: {
       input.pool.accounts.length > 1
         ? `${best.candidate.name} had the most free slots in ${input.pool.name}`
         : '',
+    grounds: input.pool.accounts.length > 1 ? 'had the most free slots' : '',
     rejected,
   };
 }
@@ -400,4 +412,45 @@ export function composerAccountForTarget(input: {
       now: input.now,
     }).accountId ?? ''
   );
+}
+
+/**
+ * Why a task started on the account it did, kept beside the task it explains.
+ *
+ * Only written when RunHQ made the choice — a pool in the composer, a scheduled run, or a handoff
+ * after a reported limit. Picking a connection by hand needs no explanation, and inventing one
+ * would put RunHQ's words on the user's decision.
+ */
+export interface AgentRoutingNote {
+  accountId: string;
+  accountName: string;
+  reason: string;
+  /** The pool the account came from, when a pool was involved. */
+  poolName?: string;
+  at: number;
+}
+
+export function parseRoutingNote(value: unknown): AgentRoutingNote | null {
+  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!raw) return null;
+  const { accountId, accountName, reason, poolName, at } = raw;
+  if (typeof accountId !== 'string' || !accountId) return null;
+  if (typeof at !== 'number' || !Number.isFinite(at)) return null;
+  return {
+    accountId,
+    accountName: typeof accountName === 'string' && accountName ? accountName : accountId,
+    reason: typeof reason === 'string' ? reason.slice(0, 400) : '',
+    ...(typeof poolName === 'string' && poolName ? { poolName } : {}),
+    at,
+  };
+}
+
+/** One line a person can check: which account, out of which pool, and on what grounds. */
+export function describeRoutingNote(note: AgentRoutingNote): string {
+  const from = note.poolName ? ` from ${note.poolName}` : '';
+  // The account and the pool are already named here, so the grounds stay a short clause rather
+  // than a second sentence repeating both.
+  return note.reason
+    ? `RunHQ chose ${note.accountName}${from}, which ${note.reason}`
+    : `RunHQ chose ${note.accountName}${from}`;
 }

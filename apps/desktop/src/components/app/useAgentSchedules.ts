@@ -7,6 +7,7 @@ import { useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { agentCapacityPreferences, agentOccupiedSlots } from '../agents/agentCapacity';
 import {
   chooseAgentAccount,
+  isPoolTarget,
   parseAccountCooldowns,
   parseAccountPool,
   resolveAccountPool,
@@ -82,6 +83,7 @@ export function useAgentSchedules() {
                 reason: recipe.backend
                   ? 'The recipe’s account pool was removed'
                   : 'The recipe does not name a connection',
+                grounds: '',
                 rejected: [],
               };
             return chooseAgentAccount({
@@ -106,6 +108,22 @@ export function useAgentSchedules() {
               start: ipc.agentStart,
               created: () => {},
             }).send(input, prompt),
+          routed: async (session, choice, recipe) => {
+            const pool = isPoolTarget(recipe.backend)
+              ? record(
+                  library.records[`pool:${recipe.backend.slice('pool:'.length)}`]?.value,
+                  parseAccountPool,
+                )
+              : null;
+            await useAgentLibraryStore.getState().save(`routing:${session.id}`, {
+              accountId: session.backend,
+              accountName:
+                agents.tools.find((entry) => entry.id === session.backend)?.name ?? session.backend,
+              reason: choice.grounds,
+              ...(pool ? { poolName: pool.name } : {}),
+              at: Date.now(),
+            });
+          },
           save: (schedule) =>
             // One schedule per recipe, so the record key is the recipe the editor shows it under.
             useAgentLibraryStore.getState().save(`schedule:${schedule.recipeId}`, schedule),

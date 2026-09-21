@@ -150,3 +150,28 @@ test('a recipe that cannot reach an account records why instead of starting noth
   assert.equal(saved.at(-1).lastRunAt, now, 'the occurrence is consumed, not left overdue');
   assert.equal(saved.at(-1).pendingCreationId, undefined, 'nothing was reserved for a task');
 });
+
+test('an unattended run writes down the account it chose, beside the task', async () => {
+  const noted = [];
+  const { deps } = harness({
+    recipe: () => ({ ...recipe, backend: 'pool:codex-accounts' }),
+    route: () => ({ accountId: 'codex-second', reason: 'had the most free slots', rejected: [] }),
+    routed: async (session, choice, used) => {
+      noted.push({ id: session.id, reason: choice.reason, target: used.backend });
+    },
+  });
+  await runDueSchedules(deps);
+  assert.deepEqual(noted, [
+    { id: 'session-1', reason: 'had the most free slots', target: 'pool:codex-accounts' },
+  ]);
+});
+
+test('a run that never started records nothing about an account', async () => {
+  const noted = [];
+  const { deps } = harness({
+    route: () => ({ accountId: null, reason: 'Codex is on cool-down', rejected: [] }),
+    routed: async () => void noted.push('written'),
+  });
+  await runDueSchedules(deps);
+  assert.deepEqual(noted, []);
+});

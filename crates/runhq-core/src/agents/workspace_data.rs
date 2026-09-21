@@ -248,6 +248,7 @@ impl AgentManager {
                 "link:",
                 "schedule:",
                 "pool:",
+                "routing:",
             ]
             .iter()
             .any(|prefix| key.starts_with(prefix))

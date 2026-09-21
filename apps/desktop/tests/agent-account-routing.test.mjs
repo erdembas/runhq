@@ -33,6 +33,8 @@ const {
   poolTarget,
   handoffAccountAfterLimit,
   composerAccountForTarget,
+  parseRoutingNote,
+  describeRoutingNote,
   ACCOUNT_COOLDOWN_MS,
 } = load('../src/components/agents/agentAccountRouting.ts', (name) =>
   name === '@runhq/cockpit-ui' ? attachments : {},
@@ -119,6 +121,8 @@ test('the account with the most free slots wins, and the pool order breaks a tie
   });
   assert.equal(choice.accountId, 'b');
   assert.match(choice.reason, /most free slots/);
+  // The same grounds, short enough to sit after an account name that is already on screen.
+  assert.equal(choice.grounds, 'had the most free slots');
   // A pool of one is an ordinary connection: nothing was compared, so nothing is claimed.
   assert.equal(
     chooseAgentAccount({
@@ -128,7 +132,7 @@ test('the account with the most free slots wins, and the pool order breaks a tie
       capacity,
       occupied: idle,
       now,
-    }).reason,
+    }).grounds,
     '',
   );
   assert.equal(
@@ -300,4 +304,26 @@ test('a pool target becomes a real connection before it reaches the composer', (
     }),
     '',
   );
+});
+
+test('a routing note says which account, out of which pool, and why', () => {
+  const note = parseRoutingNote({
+    accountId: 'b',
+    accountName: 'Claude (second account)',
+    reason: 'had the most free slots',
+    poolName: 'Claude accounts',
+    at: now,
+  });
+  // The account and pool are named once; the grounds stay a clause rather than a second sentence.
+  assert.equal(
+    describeRoutingNote(note),
+    'RunHQ chose Claude (second account) from Claude accounts, which had the most free slots',
+  );
+  // A connection chosen without a pool still names itself rather than claiming a comparison.
+  assert.equal(
+    describeRoutingNote(parseRoutingNote({ accountId: 'a', accountName: 'Claude', at: now })),
+    'RunHQ chose Claude',
+  );
+  for (const invalid of [null, {}, { accountId: 'a' }, { accountId: '', at: now }, 'x'])
+    assert.equal(parseRoutingNote(invalid), null, `${JSON.stringify(invalid)} is not a note`);
 });

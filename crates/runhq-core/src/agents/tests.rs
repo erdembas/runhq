@@ -1122,6 +1122,17 @@ fn workspace_records_and_literal_history_search_preserve_project_scope() {
         )
         .unwrap();
     assert!(manager.workspace_record("pool:claude").unwrap().is_some());
+    // Why a task started on the account it did, kept next to the task it explains.
+    manager
+        .workspace_save(
+            "routing:session-a".into(),
+            Some(json!({"accountId":"claude-2","reason":"most free slots","at":now()})),
+        )
+        .unwrap();
+    assert!(manager
+        .workspace_record("routing:session-a")
+        .unwrap()
+        .is_some());
     assert!(manager
         .workspace_save("preferences:capacity".into(), Some(json!({"global":0})))
         .is_err());

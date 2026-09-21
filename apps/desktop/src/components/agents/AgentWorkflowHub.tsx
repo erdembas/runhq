@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   GitBranch,
@@ -20,6 +20,17 @@ import {
 } from '@/lib/ipc/agentWorkflowIpc';
 import { ipc } from '@/lib/ipc';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
+import {
+  chooseAgentAccount,
+  isPoolTarget,
+  parseAccountCooldowns,
+  parseAccountPool,
+  poolTarget,
+  type AgentAccountPool,
+} from './agentAccountRouting';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAgentDiscovery } from './useAgentDiscovery';
 
@@ -113,6 +124,53 @@ export function AgentWorkflowHub({
     (t) => t.enabled !== false && t.available && t.adapter !== 'terminal',
   );
   const reviewers = available.filter((t) => ['codex', 'claude'].includes(t.adapter ?? t.id));
+  // A workflow step runs as one connection, so a pool is offered as a target and resolved the
+  // moment it is chosen: the form then shows, and stores, the identity that will actually run.
+  const libraryRecords = useVisibleStore(useAgentLibraryStore, (s) => s.records, visible);
+  const accountPools = useMemo(() => {
+    const parsed: AgentAccountPool[] = [];
+    for (const [key, saved] of Object.entries(libraryRecords)) {
+      if (!key.startsWith('pool:')) continue;
+      try {
+        parsed.push(parseAccountPool(saved.value));
+      } catch {
+        // An unreadable pool is not offered rather than shown as an empty target.
+      }
+    }
+    return parsed.sort((left, right) => left.name.localeCompare(right.name));
+  }, [libraryRecords]);
+  const poolOptions = accountPools.map((pool) => ({
+    value: poolTarget(pool.id),
+    label: `${pool.name} (pool)`,
+    description: 'RunHQ picks a free account',
+  }));
+  const resolvePool = (value: string, candidates: typeof available) => {
+    if (!isPoolTarget(value)) return value;
+    const pool = accountPools.find((entry) => poolTarget(entry.id) === value);
+    if (!pool) return '';
+    return (
+      chooseAgentAccount({
+        pool: {
+          ...pool,
+          accounts: pool.accounts.filter((id) => candidates.some((t) => t.id === id)),
+        },
+        accounts: candidates.map((tool) => ({
+          id: tool.id,
+          name: tool.name,
+          adapter: tool.adapter ?? '',
+          enabled: tool.enabled !== false,
+          available: tool.available,
+        })),
+        cooldowns: parseAccountCooldowns(libraryRecords['preferences:cooldowns']?.value),
+        capacity: agentCapacityPreferences(libraryRecords['preferences:capacity']?.value),
+        occupied: agentOccupiedSlots(
+          useAgentStore.getState().sessions,
+          useAgentQueueStore.getState().queues,
+        ),
+        now: Date.now(),
+      }).accountId ?? ''
+    );
+  };
   const chosenProject = projectId || newProject || projects[0]?.id || '';
   const chosenBackend = backend || available[0]?.id || '';
   const chosenReviewer = reviewer || reviewers[0]?.id || '';
@@ -365,8 +423,11 @@ export function AgentWorkflowHub({
                   searchable={false}
                   className="mt-1"
                   value={chosenBackend}
-                  options={available.map((t) => ({ value: t.id, label: t.name }))}
-                  onChange={setBackend}
+                  options={[
+                    ...available.map((t) => ({ value: t.id, label: t.name })),
+                    ...poolOptions,
+                  ]}
+                  onChange={(value) => setBackend(resolvePool(value, available))}
                 />
               </label>
               <label className={label}>
@@ -376,12 +437,17 @@ export function AgentWorkflowHub({
                   searchable={false}
                   className="mt-1"
                   value={chosenReviewer}
-                  options={reviewers.map((t) => ({
-                    value: t.id,
-                    label: t.name,
-                    description: 'Read-only review',
-                  }))}
-                  onChange={setReviewer}
+                  options={[
+                    ...reviewers.map((t) => ({
+                      value: t.id,
+                      label: t.name,
+                      description: 'Read-only review',
+                    })),
+                    // A pool resolves against the reviewers, so it can only pick a review-capable
+                    // account even when the pool also holds connections that are not.
+                    ...poolOptions,
+                  ]}
+                  onChange={(value) => setReviewer(resolvePool(value, reviewers))}
                 />
               </label>
               <label className={label}>

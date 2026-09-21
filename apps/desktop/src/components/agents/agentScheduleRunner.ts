@@ -27,6 +27,12 @@ export async function runDueSchedules(deps: {
   route: (recipe: AgentRecipe) => AgentAccountChoice;
   launch: (input: CreateAgentSession, prompt: string, creationId: string) => Promise<AgentSession>;
   save: (schedule: AgentSchedule) => Promise<void>;
+  /** Record why an unattended run started where it did, beside the task it explains. */
+  routed?: (
+    session: AgentSession,
+    choice: AgentAccountChoice,
+    recipe: AgentRecipe,
+  ) => Promise<void>;
 }): Promise<AgentScheduleRun[]> {
   const runs: AgentScheduleRun[] = [];
   for (const schedule of deps.schedules) {
@@ -81,6 +87,8 @@ export async function runDueSchedules(deps: {
         recipe.prompt,
         creationId,
       );
+      // Nobody is watching an unattended run, so the account it chose is written down with it.
+      if (deps.routed) await deps.routed(session, choice, recipe);
       const routed = choice.reason ? ` · ${choice.reason}` : '';
       const outcome = `Started ${session.title}${routed}${missedNote}`;
       const done = {

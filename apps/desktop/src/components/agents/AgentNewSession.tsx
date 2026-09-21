@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUp,
   FolderGit2,
@@ -36,6 +36,17 @@ import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
 import { agentContextImages, buildAgentContextPrompt, type AgentRecipe } from './agentLibraryModel';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
+import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
+import {
+  chooseAgentAccount,
+  isPoolTarget,
+  parseAccountCooldowns,
+  describeRoutingNote,
+  parseAccountPool,
+  poolTarget,
+  type AgentAccountPool,
+} from './agentAccountRouting';
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { initialAgentTaskRecovery } from './agentSendRecovery';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -47,6 +58,7 @@ export function AgentNewSession({
   visible = true,
   initialTemplate,
   initialRecipe,
+  initialRouting,
 }: {
   onClose: () => void;
   onCreated?: (session: AgentSession) => void;
@@ -54,8 +66,11 @@ export function AgentNewSession({
   visible?: boolean;
   initialTemplate?: AgentTaskTemplate;
   initialRecipe?: AgentRecipe;
+  /** Why the opening account was chosen, when RunHQ rather than the user chose it. */
+  initialRouting?: { poolName?: string; reason: string };
 }) {
   const storedProjects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
+  const libraryRecords = useVisibleStore(useAgentLibraryStore, (s) => s.records, visible);
   const projects = project ? [project] : storedProjects;
   const projectOptions = useAgentProjectOptions(storedProjects, visible);
   const firstProjectId = projects[0]?.id ?? '';
@@ -68,6 +83,9 @@ export function AgentNewSession({
   const input = useVisibleStore(useAgentStore, (s) => s.drafts[draftKey] ?? '', visible);
   const setInput = (text: string) => useAgentStore.getState().setDraft(draftKey, text);
   const [backend, setBackend] = useState<AgentBackendId>('');
+  // Set when RunHQ picked this account out of a pool, so the task can record why it ran where it
+  // did. Cleared whenever the user names a connection themselves — that choice needs no reason.
+  const [routedFrom, setRoutedFrom] = useState<{ poolName: string; reason: string } | null>(null);
   const userSelectedBackend = useRef(false);
   const backends = useVisibleStore(useAgentStore, (s) => s.tools, visible);
   const discovery = useAgentDiscovery(visible);
@@ -147,9 +165,58 @@ export function AgentNewSession({
     !!projectId &&
     (!!recovered ||
       (context.ready && (!!input.trim() || context.entries.length > 0) && connection.canStart));
+  const accountPools = useMemo(() => {
+    const parsed: AgentAccountPool[] = [];
+    for (const [key, record] of Object.entries(libraryRecords)) {
+      if (!key.startsWith('pool:')) continue;
+      try {
+        parsed.push(parseAccountPool(record.value));
+      } catch {
+        // An unreadable pool is not offered as a target rather than shown as an empty one.
+      }
+    }
+    return parsed.sort((left, right) => left.name.localeCompare(right.name));
+  }, [libraryRecords]);
+  const poolOptions = accountPools.map((pool) => ({
+    value: poolTarget(pool.id),
+    label: pool.name,
+    group: 'Account pools',
+    description: `${pool.accounts.length} accounts · RunHQ picks a free one`,
+  }));
   const selectBackend = (value: string) => {
     if (locked) return;
     userSelectedBackend.current = true;
+    // A pool is a target, not a connection: resolve it now so the screen discovers that account's
+    // models and modes, and so the identity the task will run as is visible before it starts.
+    if (isPoolTarget(value)) {
+      const pool = accountPools.find((entry) => poolTarget(entry.id) === value);
+      const choice = pool
+        ? chooseAgentAccount({
+            pool,
+            accounts: backends.map((tool) => ({
+              id: tool.id,
+              name: tool.name,
+              adapter: tool.adapter ?? '',
+              enabled: tool.enabled !== false,
+              available: tool.available,
+            })),
+            need: { plan: mode === 'plan' },
+            cooldowns: parseAccountCooldowns(libraryRecords['preferences:cooldowns']?.value),
+            capacity: agentCapacityPreferences(libraryRecords['preferences:capacity']?.value),
+            occupied: agentOccupiedSlots(
+              useAgentStore.getState().sessions,
+              useAgentQueueStore.getState().queues,
+            ),
+            now: Date.now(),
+          })
+        : null;
+      if (!choice?.accountId) {
+        setError(choice?.reason ?? 'That account pool was removed.');
+        return;
+      }
+      setRoutedFrom({ poolName: pool!.name, reason: choice.grounds });
+      value = choice.accountId;
+    } else setRoutedFrom(null);
     if (value === backend) return;
     setBackend(value);
     setTemplateMode(null);
@@ -282,6 +349,16 @@ export function AgentNewSession({
         { sourceSessionId, draftText },
       );
       useAgentStore.getState().merge(session);
+      const routing = routedFrom ?? initialRouting;
+      if (routing)
+        await useAgentLibraryStore.getState().save(`routing:${session.id}`, {
+          accountId: session.backend,
+          accountName:
+            backends.find((tool) => tool.id === session.backend)?.name ?? session.backend,
+          reason: routing.reason,
+          ...(routing.poolName ? { poolName: routing.poolName } : {}),
+          at: Date.now(),
+        });
       if (sourceSessionId)
         await useAgentLibraryStore.getState().save(`link:${session.id}`, {
           sourceSessionId,
@@ -409,6 +486,20 @@ export function AgentNewSession({
             }}
           />
         )}
+        {(routedFrom ?? initialRouting) && (
+          <p className="text-fg-muted mb-3 text-[11px]">
+            {describeRoutingNote({
+              accountId: backend,
+              accountName: backends.find((tool) => tool.id === backend)?.name ?? backend,
+              reason: (routedFrom ?? initialRouting)!.reason,
+              ...((routedFrom ?? initialRouting)!.poolName
+                ? { poolName: (routedFrom ?? initialRouting)!.poolName }
+                : {}),
+              at: Date.now(),
+            })}
+            . Change the agent above to override it; the task keeps whichever account it starts on.
+          </p>
+        )}
         <div className="text-fg-dim mb-3 flex flex-wrap items-center gap-2 text-[12px]">
           <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
           {project ? (
@@ -469,6 +560,7 @@ export function AgentNewSession({
                 disabled={locked}
                 loading={discovery.loading}
                 onChange={selectBackend}
+                extraOptions={poolOptions}
               />
               {canDiscover && catalog && (
                 <AgentModelControls
