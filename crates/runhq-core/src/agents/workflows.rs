@@ -20,6 +20,37 @@ pub struct WorkflowCheck {
     pub fingerprint: String,
     pub status: String,
 }
+/// One agent's part of a workflow.
+///
+/// A workflow used to be exactly two roles with their settings spread across the workflow itself: an
+/// implementation session, plus a review session with its own backend and model. The step list makes
+/// that shape explicit and extensible — each step names the role it plays, the account or pool that
+/// runs it, the settings to run it with, and which earlier step's result it takes as input.
+///
+/// `target` may be a connection id or a `pool:` target, because an account is only chosen when the
+/// step actually starts; recording the pool keeps the choice explainable after the fact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub id: String,
+    /// One of `plan`, `implement`, `review`, `revise`, `validate`.
+    pub role: String,
+    pub target: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
+    #[serde(default)]
+    pub mode: String,
+    /// The session that ran this step, once one exists.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// The step whose revision this one starts from. `None` means the workflow's own base.
+    #[serde(default)]
+    pub input_step_id: Option<String>,
+}
+
+pub const WORKFLOW_ROLES: [&str; 5] = ["plan", "implement", "review", "revise", "validate"];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowPreview {
     pub target: String,
@@ -76,6 +107,10 @@ pub struct AgentWorkflow {
     pub review_session_id: Option<String>,
     pub reviewer_backend: String,
     pub reviewer_model: String,
+    /// The ordered roles this workflow runs. Empty on rows written before steps existed; those are
+    /// migrated on read, so an older workflow reads as the two steps it always was.
+    #[serde(default)]
+    pub steps: Vec<WorkflowStep>,
     pub base_revision: String,
     pub cwd: String,
     pub root: String,
@@ -134,6 +169,44 @@ pub(super) struct WorkflowLease<'a> {
     manager: &'a AgentManager,
     key: String,
 }
+impl AgentWorkflow {
+    /// The two roles a pre-step workflow always had, written out as steps.
+    ///
+    /// The implementation's connection lived only on its session, never on the workflow, so the
+    /// migrated step names no target and points at the session that ran it instead of inventing one.
+    /// The review's connection was stored on the workflow, so that step keeps it.
+    pub(super) fn ensure_steps(&mut self) {
+        if !self.steps.is_empty() {
+            return;
+        }
+        self.steps = vec![
+            WorkflowStep {
+                id: "implement".into(),
+                role: "implement".into(),
+                target: String::new(),
+                model: String::new(),
+                effort: String::new(),
+                mode: String::new(),
+                session_id: Some(self.implementation_session_id.clone()),
+                input_step_id: None,
+            },
+            WorkflowStep {
+                id: "review".into(),
+                role: "review".into(),
+                target: self.reviewer_backend.clone(),
+                model: self.reviewer_model.clone(),
+                effort: String::new(),
+                mode: String::new(),
+                session_id: self.review_session_id.clone(),
+                input_step_id: Some("implement".into()),
+            },
+        ];
+    }
+    pub fn step(&self, id: &str) -> Option<&WorkflowStep> {
+        self.steps.iter().find(|step| step.id == id)
+    }
+}
+
 impl Drop for WorkflowLease<'_> {
     fn drop(&mut self) {
         self.manager.state.lock().workflow_leases.remove(&self.key);
@@ -154,9 +227,12 @@ impl AgentManager {
             .query_map([], |r| r.get::<_, String>(0))
             .map_err(|e| AppError::other(e.to_string()))?;
         rows.map(|row| {
-            Ok(serde_json::from_str(
-                &row.map_err(|e| AppError::other(e.to_string()))?,
-            )?)
+            let mut workflow: AgentWorkflow =
+                serde_json::from_str(&row.map_err(|e| AppError::other(e.to_string()))?)?;
+            // Rows written before steps existed are read as the two roles they always had, so no
+            // stored workflow has to be rewritten before it can be read.
+            workflow.ensure_steps();
+            Ok(workflow)
         })
         .collect()
     }
@@ -374,6 +450,9 @@ impl AgentManager {
             review_session_id: None,
             reviewer_backend: input.reviewer_backend,
             reviewer_model: input.reviewer_model,
+            // Filled from these fields right after construction, so creation keeps one description
+            // of the two roles instead of two that can drift apart.
+            steps: vec![],
             base_revision: revision,
             cwd: PathBuf::from(session.cwd)
                 .canonicalize()?
@@ -399,6 +478,7 @@ impl AgentManager {
             integration_branch: None,
             integration_commit: None,
         };
+        w.ensure_steps();
         if !w.setup_commands.is_empty() {
             w.stage = "setup_ready".into();
         }
@@ -546,6 +626,12 @@ impl AgentManager {
             Ok(())
         })?;
         w.review_session_id = Some(reviewer.id.clone());
+        // The step list is the same fact in its new shape, so it must not be left behind.
+        if let Some(step) = w.steps.iter_mut().find(|step| step.role == "review") {
+            step.session_id = Some(reviewer.id.clone());
+            step.target = w.reviewer_backend.clone();
+            step.model = w.reviewer_model.clone();
+        }
         w.review_fingerprint = Some(fingerprint.clone());
         w.current_fingerprint = Some(fingerprint.clone());
         w.preview = None;
@@ -1365,6 +1451,44 @@ mod tests {
         assert_eq!(status, "cancelled");
     }
     #[test]
+    fn a_workflow_written_before_steps_reads_as_the_two_roles_it_always_had() {
+        // The stored shape, without a `steps` field at all.
+        let stored = json!({
+            "id": "w1", "project_id": "p", "title": "t", "objective": "o", "acceptance": "a",
+            "implementation_session_id": "impl-session",
+            "review_session_id": "review-session",
+            "reviewer_backend": "claude", "reviewer_model": "sonnet",
+            "base_revision": "abc", "cwd": "/w", "root": "/w", "target": "/p",
+            "stage": "ready", "setup_commands": [], "check_commands": [],
+            "setup": [], "checks": [], "review_fingerprint": null,
+            "current_fingerprint": null, "preview": null, "error": null,
+            "created_at": 1, "updated_at": 2, "cleaned": false
+        });
+        let mut workflow: AgentWorkflow = serde_json::from_value(stored).unwrap();
+        assert!(workflow.steps.is_empty(), "nothing was stored to read");
+        workflow.ensure_steps();
+        let roles: Vec<_> = workflow.steps.iter().map(|s| s.role.as_str()).collect();
+        assert_eq!(roles, ["implement", "review"]);
+        let implement = workflow.step("implement").unwrap();
+        // The implementation's connection only ever lived on its session, so none is invented here.
+        assert_eq!(implement.target, "");
+        assert_eq!(implement.session_id.as_deref(), Some("impl-session"));
+        assert_eq!(implement.input_step_id, None);
+        let review = workflow.step("review").unwrap();
+        assert_eq!(review.target, "claude");
+        assert_eq!(review.model, "sonnet");
+        assert_eq!(review.session_id.as_deref(), Some("review-session"));
+        assert_eq!(review.input_step_id.as_deref(), Some("implement"));
+        // Reading again must not rebuild steps over whatever the workflow has since recorded.
+        workflow.steps[0].session_id = Some("replaced".into());
+        workflow.ensure_steps();
+        assert_eq!(
+            workflow.step("implement").unwrap().session_id.as_deref(),
+            Some("replaced")
+        );
+    }
+
+    #[test]
     fn check_success_requires_matching_commands_and_successful_exits() {
         let commands = vec!["test-command".into()];
         assert!(!commands_passed(&commands, &[]));
@@ -1607,6 +1731,39 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         manager.save_workflow(&mut workflow).unwrap();
         (temp, manager, workflow)
     }
+    #[tokio::test]
+    async fn a_new_workflow_describes_its_roles_as_steps_and_keeps_them_current() {
+        let (_temp, manager, workflow) = prepared().await;
+        // Creation writes the steps, so the list is never a migration artefact of old rows only.
+        let roles: Vec<_> = workflow.steps.iter().map(|s| s.role.as_str()).collect();
+        assert_eq!(roles, ["implement", "review"]);
+        assert_eq!(
+            workflow.step("implement").unwrap().session_id.as_deref(),
+            Some(workflow.implementation_session_id.as_str())
+        );
+        assert_eq!(workflow.step("review").unwrap().target, "codex");
+        // `prepared` assigns the reviewer directly, so reload through the store to see the row.
+        let stored = manager.workflow(&workflow.id).unwrap();
+        assert_eq!(
+            stored.steps.len(),
+            2,
+            "reading does not duplicate the steps"
+        );
+        // Running a review records its session on the step as well as on the workflow.
+        let mut running = stored;
+        running.review_session_id = Some("reviewer-1".into());
+        if let Some(step) = running.steps.iter_mut().find(|step| step.role == "review") {
+            step.session_id = Some("reviewer-1".into());
+        }
+        manager.save_workflow(&mut running).unwrap();
+        let reloaded = manager.workflow(&workflow.id).unwrap();
+        assert_eq!(
+            reloaded.step("review").unwrap().session_id.as_deref(),
+            reloaded.review_session_id.as_deref(),
+            "the step list and the legacy field describe the same review"
+        );
+    }
+
     #[tokio::test]
     async fn integrating_onto_a_branch_commits_there_and_leaves_the_original_branch_untouched() {
         let (_temp, manager, workflow) = prepared().await;

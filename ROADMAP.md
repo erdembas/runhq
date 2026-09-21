@@ -398,6 +398,14 @@ become RunHQ steps.
 - Surface provider-native subagent activity within the step that owns it, without implying RunHQ can
   schedule or route those subagents individually.
 
+**In progress:** a workflow now carries an ordered `steps` list — each step names its role, the
+account or pool that runs it, its model, effort and mode, the session that ran it, and the step whose
+revision it takes as input. Rows written before steps existed are migrated when they are read, as the
+two roles they always were, so nothing stored has to be rewritten to be readable and the
+implementation's connection is not invented where it was only ever recorded on its session. Creation
+writes the same list, and assigning a reviewer updates the step alongside the field it replaces. The
+stage machine and the screens still run the fixed two roles; generalizing them is the next slice.
+
 **Acceptance:** run one workflow whose plan, implementation and review are performed by different
 providers and models, see each step's account and input revision, and repeat the same division of
 labor in another project from a saved recipe.

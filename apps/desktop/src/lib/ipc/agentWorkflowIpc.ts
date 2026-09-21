@@ -18,6 +18,21 @@ export interface WorkflowPreview {
   patch: string;
   conflict: string | null;
 }
+/**
+ * One agent's part of a workflow. `target` is a connection id or a `pool:` target, because the
+ * account is only chosen when the step starts; `input_step_id` names the step whose revision this
+ * one begins from, and null means the workflow's own base.
+ */
+export interface WorkflowStep {
+  id: string;
+  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+  target: string;
+  model: string;
+  effort: string;
+  mode: string;
+  session_id: string | null;
+  input_step_id: string | null;
+}
 export interface AgentWorkflow {
   id: string;
   project_id: string;
@@ -27,6 +42,8 @@ export interface AgentWorkflow {
   implementation_session_id: string;
   review_session_id: string | null;
   reviewer_backend: string;
+  /** The ordered roles this workflow runs. Older rows are migrated on read, so this is never empty. */
+  steps: WorkflowStep[];
   reviewer_model: string;
   base_revision: string;
   cwd: string;
