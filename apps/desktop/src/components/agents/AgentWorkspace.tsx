@@ -551,6 +551,21 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                     setupCommands: workflowRecipe.setupCommands.split('\n').filter(Boolean),
                     checkCommands: workflowRecipe.checkCommands.split('\n').filter(Boolean),
                     acceptance: workflowRecipe.acceptance,
+                    steps: workflowRecipe.workflowSteps?.map((step) => ({
+                      ...step,
+                      // A recipe may name a pool; the form resolves it to an account on open.
+                      target: composerAccountForTarget({
+                        target: step.target,
+                        pool: routingPool,
+                        accounts: routingAccounts(),
+                        cooldowns: routingCooldowns(),
+                        capacity: agentCapacityPreferences(
+                          useAgentLibraryStore.getState().records['preferences:capacity']?.value,
+                        ),
+                        occupied: routingOccupancy(),
+                        now: Date.now(),
+                      }),
+                    })),
                   }
                 : undefined
             }

@@ -20,6 +20,122 @@ pub struct WorkflowCheck {
     pub fingerprint: String,
     pub status: String,
 }
+/// One agent's part of a workflow.
+///
+/// A workflow used to be exactly two roles with their settings spread across the workflow itself: an
+/// implementation session, plus a review session with its own backend and model. The step list makes
+/// that shape explicit and extensible — each step names the role it plays, the account or pool that
+/// runs it, the settings to run it with, and which earlier step's result it takes as input.
+///
+/// `target` may be a connection id or a `pool:` target, because an account is only chosen when the
+/// step actually starts; recording the pool keeps the choice explainable after the fact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub id: String,
+    /// One of `plan`, `implement`, `review`, `revise`, `validate`.
+    pub role: String,
+    pub target: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
+    #[serde(default)]
+    pub mode: String,
+    /// The session that ran this step, once one exists.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// The step whose revision this one starts from. `None` means the workflow's own base.
+    #[serde(default)]
+    pub input_step_id: Option<String>,
+    /// `pending`, `running`, `completed` or `failed`.
+    #[serde(default = "pending_status")]
+    pub status: String,
+    /// The workspace revision this step actually started from, recorded when it starts. A step's
+    /// declared input says which step it follows; this says what that came to in practice.
+    #[serde(default)]
+    pub input_revision: Option<String>,
+}
+
+fn pending_status() -> String {
+    "pending".into()
+}
+
+/// Turn a declared list into the workflow's steps, chaining each one to the step before it. The
+/// first producing step is the session the workflow was created with; the rest open theirs when
+/// they run, because a session belongs to the account that started it.
+fn workflow_declared_steps(
+    declared: &[CreateWorkflowStep],
+    implementation_session_id: &str,
+    base_revision: &str,
+) -> Vec<WorkflowStep> {
+    let mut steps = Vec::new();
+    let mut previous: Option<String> = None;
+    for (index, step) in declared.iter().enumerate() {
+        let id = format!("{}-{}", step.role, index + 1);
+        steps.push(WorkflowStep {
+            id: id.clone(),
+            role: step.role.clone(),
+            target: step.target.clone(),
+            model: step.model.clone(),
+            effort: step.effort.clone(),
+            mode: step.mode.clone(),
+            session_id: if index == 0 {
+                Some(implementation_session_id.to_string())
+            } else {
+                None
+            },
+            input_step_id: previous.clone(),
+            status: "pending".into(),
+            input_revision: if index == 0 {
+                Some(base_revision.to_string())
+            } else {
+                None
+            },
+        });
+        previous = Some(id);
+    }
+    steps
+}
+
+/// Title and instruction wording per role, so a step reads as itself rather than as "implement".
+fn workflow_role_title(role: &str) -> &'static str {
+    match role {
+        "plan" => "Plan",
+        "review" => "Review",
+        "revise" => "Revision",
+        "validate" => "Validation",
+        _ => "Implementation",
+    }
+}
+fn workflow_role_instruction(role: &str) -> &'static str {
+    match role {
+        "plan" => "produce a plan for the work",
+        "revise" => "revise the existing work",
+        _ => "implement",
+    }
+}
+
+/// Roles that change the checkout. The rest read it and report, and run read-only.
+pub fn workflow_role_produces(role: &str) -> bool {
+    matches!(role, "plan" | "implement" | "revise")
+}
+
+/// The provider mode a producing step runs in.
+///
+/// A plan step asks for plan mode only where that mode is built into the integration. An ACP or
+/// terminal connection advertises its modes once it is running, so asking for one it never
+/// advertised fails the turn outright — the step runs in the connection's default mode instead and
+/// the prompt carries the planning instruction.
+fn workflow_step_mode(role: &str, adapter: &str) -> &'static str {
+    if role == "plan" && matches!(adapter, "codex" | "claude" | "opencode") {
+        "plan"
+    } else {
+        "default"
+    }
+}
+
+pub const WORKFLOW_ROLES: [&str; 5] = ["plan", "implement", "review", "revise", "validate"];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowPreview {
     pub target: String,
@@ -76,6 +192,10 @@ pub struct AgentWorkflow {
     pub review_session_id: Option<String>,
     pub reviewer_backend: String,
     pub reviewer_model: String,
+    /// The ordered roles this workflow runs. Empty on rows written before steps existed; those are
+    /// migrated on read, so an older workflow reads as the two steps it always was.
+    #[serde(default)]
+    pub steps: Vec<WorkflowStep>,
     pub base_revision: String,
     pub cwd: String,
     pub root: String,
@@ -105,6 +225,21 @@ pub struct AgentWorkflow {
     #[serde(default)]
     pub integration_commit: Option<String>,
 }
+/// A step as the creating screen states it. The session, status and input revision are RunHQ's to
+/// fill in as the workflow runs, so they are not accepted from the caller.
+#[derive(Debug, Deserialize)]
+pub struct CreateWorkflowStep {
+    pub role: String,
+    pub target: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
+    #[serde(default)]
+    pub mode: String,
+}
+pub const MAX_WORKFLOW_STEPS: usize = 8;
+
 #[derive(Debug, Deserialize)]
 pub struct CreateAgentWorkflow {
     pub project_id: String,
@@ -126,6 +261,10 @@ pub struct CreateAgentWorkflow {
     pub check_commands: Vec<String>,
     #[serde(default)]
     pub auto_progress: bool,
+    /// The roles to run, in order. Empty keeps the two-role shape built from `backend` and
+    /// `reviewer_backend`, so a caller that predates steps behaves exactly as before.
+    #[serde(default)]
+    pub steps: Vec<CreateWorkflowStep>,
 }
 
 // A short-held checkout lease also excludes ordinary agent starts. The long command
@@ -134,6 +273,83 @@ pub(super) struct WorkflowLease<'a> {
     manager: &'a AgentManager,
     key: String,
 }
+impl AgentWorkflow {
+    /// The two roles a pre-step workflow always had, written out as steps.
+    ///
+    /// The implementation's connection lived only on its session, never on the workflow, so the
+    /// migrated step names no target and points at the session that ran it instead of inventing one.
+    /// The review's connection was stored on the workflow, so that step keeps it.
+    pub(super) fn ensure_steps(&mut self) {
+        if !self.steps.is_empty() {
+            return;
+        }
+        self.steps = vec![
+            WorkflowStep {
+                id: "implement".into(),
+                role: "implement".into(),
+                target: String::new(),
+                model: String::new(),
+                effort: String::new(),
+                mode: String::new(),
+                session_id: Some(self.implementation_session_id.clone()),
+                input_step_id: None,
+                // A migrated workflow's progress is whatever its stage already said.
+                status: if self.stage == "implementation_ready" {
+                    "pending".into()
+                } else if self.stage == "implementing" {
+                    "running".into()
+                } else if self.stage == "implementation_failed" {
+                    "failed".into()
+                } else {
+                    "completed".into()
+                },
+                input_revision: Some(self.base_revision.clone()),
+            },
+            WorkflowStep {
+                id: "review".into(),
+                role: "review".into(),
+                target: self.reviewer_backend.clone(),
+                model: self.reviewer_model.clone(),
+                effort: String::new(),
+                mode: String::new(),
+                session_id: self.review_session_id.clone(),
+                input_step_id: Some("implement".into()),
+                status: match self.stage.as_str() {
+                    "reviewing" => "running".into(),
+                    "review_failed" => "failed".into(),
+                    _ if self.review_session_id.is_some() => "completed".into(),
+                    _ => "pending".into(),
+                },
+                input_revision: self.review_fingerprint.clone(),
+            },
+        ];
+    }
+    pub fn step(&self, id: &str) -> Option<&WorkflowStep> {
+        self.steps.iter().find(|step| step.id == id)
+    }
+    /// The step the workflow is on: the running one, else the first that has not completed. A failed
+    /// step stays current, because retrying it is the explicit next action rather than skipping it.
+    pub fn current_step(&self) -> Option<&WorkflowStep> {
+        self.steps
+            .iter()
+            .find(|step| step.status == "running")
+            .or_else(|| self.steps.iter().find(|step| step.status != "completed"))
+    }
+    fn current_step_mut(&mut self) -> Option<&mut WorkflowStep> {
+        let id = self.current_step()?.id.clone();
+        self.steps.iter_mut().find(|step| step.id == id)
+    }
+    /// The revision a step begins from: whatever its declared input actually produced, or the
+    /// workflow's base when it follows nothing.
+    pub fn step_input_revision(&self, step: &WorkflowStep) -> String {
+        step.input_step_id
+            .as_ref()
+            .and_then(|id| self.step(id))
+            .and_then(|input| input.input_revision.clone())
+            .unwrap_or_else(|| self.base_revision.clone())
+    }
+}
+
 impl Drop for WorkflowLease<'_> {
     fn drop(&mut self) {
         self.manager.state.lock().workflow_leases.remove(&self.key);
@@ -154,9 +370,12 @@ impl AgentManager {
             .query_map([], |r| r.get::<_, String>(0))
             .map_err(|e| AppError::other(e.to_string()))?;
         rows.map(|row| {
-            Ok(serde_json::from_str(
-                &row.map_err(|e| AppError::other(e.to_string()))?,
-            )?)
+            let mut workflow: AgentWorkflow =
+                serde_json::from_str(&row.map_err(|e| AppError::other(e.to_string()))?)?;
+            // Rows written before steps existed are read as the two roles they always had, so no
+            // stored workflow has to be rewritten before it can be read.
+            workflow.ensure_steps();
+            Ok(workflow)
         })
         .collect()
     }
@@ -237,29 +456,40 @@ impl AgentManager {
     }
     async fn reconcile_workflow(&self, w: &mut AgentWorkflow) -> AppResult<()> {
         let old = serde_json::to_string(w)?;
-        if w.stage == "implementing" {
-            let session = self.session(&w.implementation_session_id)?;
-            if !session.active() {
-                w.stage = if session.status == "completed" {
-                    "review_ready"
-                } else {
-                    "implementation_failed"
-                }
-                .into();
-                w.error = session.last_error;
-            }
-        }
-        if w.stage == "reviewing" {
-            if let Some(id) = &w.review_session_id {
-                let session = self.session(id)?;
-                if !session.active() {
-                    w.stage = if session.status == "completed" {
-                        "checks_ready"
-                    } else {
-                        "review_failed"
+        // A running step is finished by its session, not by a stage name. The stage then says what
+        // the workflow as a whole is waiting for: another step, or validation once every step ran.
+        if matches!(w.stage.as_str(), "implementing" | "reviewing") {
+            let running = w
+                .current_step()
+                .filter(|step| step.status == "running")
+                .cloned();
+            if let Some(step) = running {
+                let session = step.session_id.as_ref().map(|id| self.session(id));
+                if let Some(session) = session.transpose()? {
+                    if !session.active() {
+                        let produced = workflow_role_produces(&step.role);
+                        let completed = session.status == "completed";
+                        if let Some(current) = w.current_step_mut() {
+                            current.status = if completed { "completed" } else { "failed" }.into();
+                        }
+                        w.stage = match (completed, produced) {
+                            (false, true) => "implementation_failed".into(),
+                            (false, false) => "review_failed".into(),
+                            // Every step having run is what makes validation the next thing to do.
+                            (true, _) => {
+                                if w.steps.iter().all(|step| step.status == "completed") {
+                                    "checks_ready".into()
+                                } else if workflow_role_produces(
+                                    &w.current_step().map(|s| s.role.clone()).unwrap_or_default(),
+                                ) {
+                                    "implementation_ready".into()
+                                } else {
+                                    "review_ready".into()
+                                }
+                            }
+                        };
+                        w.error = session.last_error;
                     }
-                    .into();
-                    w.error = session.last_error;
                 }
             }
         }
@@ -277,6 +507,18 @@ impl AgentManager {
                     {
                         w.stage = "review_ready".into();
                         w.preview = None;
+                        // The review that has been invalidated becomes the step to run again.
+                        // Without this the workflow would have no current step and nothing could
+                        // be started, leaving a changed workspace stuck short of validation.
+                        if let Some(step) = w
+                            .steps
+                            .iter_mut()
+                            .rev()
+                            .find(|step| !workflow_role_produces(&step.role))
+                        {
+                            step.status = "pending".into();
+                            step.input_revision = None;
+                        }
                         w.error = Some("The workspace changed after review. Review this revision again before validation and integration.".into());
                     }
                 }
@@ -311,9 +553,54 @@ impl AgentManager {
         }
         validate_commands(&input.check_commands, true)?;
         validate_commands(&input.setup_commands, false)?;
-        let review_tool = self.tool(&input.reviewer_backend)?;
-        if !matches!(review_tool.adapter.as_str(), "codex" | "claude") {
-            return Err(invalid("Independent review requires Codex read-only sandbox or Claude plan mode. This provider does not expose a supported read-only review mode."));
+        // A declared step list is checked before anything is created, so an unusable division of
+        // labour is refused rather than half-built.
+        if input.steps.len() > MAX_WORKFLOW_STEPS {
+            return Err(invalid(format!(
+                "A workflow runs at most {MAX_WORKFLOW_STEPS} steps"
+            )));
+        }
+        for step in &input.steps {
+            if !WORKFLOW_ROLES.contains(&step.role.as_str()) {
+                return Err(invalid(format!("Unsupported workflow role: {}", step.role)));
+            }
+            if step.target.trim().is_empty() {
+                return Err(invalid("Every step needs an account or pool to run it"));
+            }
+        }
+        if !input.steps.is_empty() {
+            if !workflow_role_produces(&input.steps[0].role) {
+                return Err(invalid(
+                    "The first step must produce work; a review has nothing to read before it",
+                ));
+            }
+            if !input.steps.iter().any(|step| step.role == "review") {
+                return Err(invalid(
+                    "A workflow needs an independent review before its work can be integrated",
+                ));
+            }
+        }
+        // Reviewing roles need a real read-only mode, whichever step asks for one.
+        let reviewer_targets: Vec<String> = if input.steps.is_empty() {
+            vec![input.reviewer_backend.clone()]
+        } else {
+            input
+                .steps
+                .iter()
+                .filter(|step| !workflow_role_produces(&step.role))
+                .map(|step| step.target.clone())
+                .collect()
+        };
+        for target in &reviewer_targets {
+            // A pool is resolved when the step starts, so only a named connection can be checked
+            // here; the pool's own members are checked as each one is chosen.
+            if target.starts_with("pool:") {
+                continue;
+            }
+            let review_tool = self.tool(target)?;
+            if !matches!(review_tool.adapter.as_str(), "codex" | "claude") {
+                return Err(invalid("Independent review requires Codex read-only sandbox or Claude plan mode. This provider does not expose a supported read-only review mode."));
+            }
         }
         let project = self.state.lock().db.project(&input.project_id)?;
         let target = git_toplevel(Path::new(&project.path))
@@ -348,11 +635,23 @@ impl AgentManager {
                 CreateAgentSession {
                     creation_request_id: None,
                     project_id: input.project_id.clone(),
-                    backend: input.backend,
+                    backend: input
+                        .steps
+                        .first()
+                        .map(|step| step.target.clone())
+                        .unwrap_or(input.backend),
                     executable: String::new(),
                     title: title.clone(),
-                    model: input.model,
-                    effort: input.effort,
+                    model: input
+                        .steps
+                        .first()
+                        .map(|step| step.model.clone())
+                        .unwrap_or(input.model),
+                    effort: input
+                        .steps
+                        .first()
+                        .map(|step| step.effort.clone())
+                        .unwrap_or(input.effort),
                     mode: "default".into(),
                     agent: String::new(),
                     isolated: true,
@@ -374,6 +673,9 @@ impl AgentManager {
             review_session_id: None,
             reviewer_backend: input.reviewer_backend,
             reviewer_model: input.reviewer_model,
+            // Filled from these fields right after construction, so creation keeps one description
+            // of the two roles instead of two that can drift apart.
+            steps: vec![],
             base_revision: revision,
             cwd: PathBuf::from(session.cwd)
                 .canonicalize()?
@@ -399,18 +701,19 @@ impl AgentManager {
             integration_branch: None,
             integration_commit: None,
         };
+        w.steps =
+            workflow_declared_steps(&input.steps, &w.implementation_session_id, &w.base_revision);
+        w.ensure_steps();
         if !w.setup_commands.is_empty() {
             w.stage = "setup_ready".into();
         }
         self.save_workflow(&mut w)?;
         Ok(w)
     }
-    pub async fn workflow_implement(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
-        let _gate = self.workflow_gate.lock().await;
-        let mut w = self.workflow(id)?;
-        self.reconcile_workflow(&mut w).await?;
-        if !matches!(
-            w.stage.as_str(),
+    /// Stages in which no step is running, so the next one may be started.
+    fn workflow_idle(stage: &str) -> bool {
+        matches!(
+            stage,
             "implementation_ready"
                 | "implementation_failed"
                 | "review_failed"
@@ -420,30 +723,119 @@ impl AgentManager {
                 | "ready"
                 | "cancelled"
                 | "interrupted"
-        ) || w.cleaned
-        {
+        )
+    }
+
+    /// Run the step the workflow is on.
+    ///
+    /// The roles differ in what they are allowed to touch, not in how they are sequenced: a
+    /// producing role works in the isolated checkout, a reviewing role reads it under a read-only
+    /// session. Everything that protected the two fixed roles still applies — setup must have
+    /// passed, a review needs a real change to look at, and the fingerprint a review saw is what
+    /// validation and integration are later checked against.
+    pub async fn workflow_run_step(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
+        let w = self.workflow_run_step_inner(id).await?;
+        // Automatic progression is started only from an explicit action. Keeping the spawn out of
+        // the inner path also keeps the async call graph acyclic, which auto-trait inference needs.
+        if w.auto_progress && w.stage == "implementing" {
+            let manager = Arc::clone(self);
+            let workflow_id = w.id.clone();
+            let generation = w.generation;
+            tokio::spawn(async move {
+                manager.advance_workflow(workflow_id, generation).await;
+            });
+        }
+        Ok(w)
+    }
+
+    async fn workflow_run_step_inner(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
+        let _gate = self.workflow_gate.lock().await;
+        let mut w = self.workflow(id)?;
+        self.reconcile_workflow(&mut w).await?;
+        if !Self::workflow_idle(&w.stage) || w.cleaned {
             return Err(invalid(
                 "Finish setup or stop the current workflow step first",
             ));
         }
+        let Some(step) = w.current_step().cloned() else {
+            return Err(invalid("Every step in this workflow has completed"));
+        };
+        if workflow_role_produces(&step.role) {
+            self.workflow_start_producing(&mut w, step).await
+        } else {
+            self.workflow_start_reviewing(&mut w, step).await
+        }
+    }
+
+    /// Kept so an explicit "implement" action cannot silently start a review, and the other way
+    /// round. Both run the step the workflow is on; they only disagree about what that may be.
+    pub async fn workflow_implement(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
+        let role = self
+            .workflow(id)?
+            .current_step()
+            .map(|step| step.role.clone());
+        match role {
+            Some(role) if !workflow_role_produces(&role) => Err(invalid(
+                "The next step in this workflow is a review, not implementation",
+            )),
+            _ => self.workflow_run_step(id).await,
+        }
+    }
+
+    pub async fn workflow_review(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
+        let role = self
+            .workflow(id)?
+            .current_step()
+            .map(|step| step.role.clone());
+        match role {
+            Some(role) if workflow_role_produces(&role) => {
+                Err(invalid("Finish implementation before independent review"))
+            }
+            _ => self.workflow_run_step(id).await,
+        }
+    }
+
+    async fn workflow_start_producing(
+        self: &Arc<Self>,
+        w: &mut AgentWorkflow,
+        step: WorkflowStep,
+    ) -> AppResult<AgentWorkflow> {
         if !w.setup_commands.is_empty() && !commands_passed(&w.setup_commands, &w.setup) {
             return Err(invalid("Complete the setup commands before implementation"));
         }
-        let session = self.session(&w.implementation_session_id)?;
-        let review_context = if let Some(id) = &w.review_session_id {
-            self.snapshot(id, None)?
-                .items
-                .into_iter()
-                .filter(|item| item.kind == "assistant")
-                .map(|item| item.text)
-                .collect::<Vec<_>>()
-                .join("\n\n")
-                .chars()
-                .take(24_000)
-                .collect::<String>()
-        } else {
-            String::new()
+        // The first producing step owns the session created with the workflow; a later one opens
+        // its own in the same checkout, because a session belongs to the account that started it.
+        let session = match &step.session_id {
+            Some(id) => self.session(id)?,
+            None => {
+                let created = self
+                    .create(CreateAgentSession {
+                        creation_request_id: None,
+                        project_id: w.project_id.clone(),
+                        backend: step.target.clone(),
+                        executable: String::new(),
+                        title: format!("{} · {}", workflow_role_title(&step.role), w.title),
+                        model: step.model.clone(),
+                        effort: step.effort.clone(),
+                        mode: if step.mode.is_empty() {
+                            "default".into()
+                        } else {
+                            step.mode.clone()
+                        },
+                        agent: String::new(),
+                        isolated: false,
+                    })
+                    .await?;
+                let branch = self.session(&w.implementation_session_id)?.branch;
+                self.mutate(&created.id, |s, _| {
+                    s.cwd = w.cwd.clone();
+                    s.isolated = true;
+                    s.branch = branch.clone();
+                    Ok(())
+                })?
+            }
         };
+        let review_context = self.workflow_review_findings(w);
         let failed_checks = w
             .checks
             .iter()
@@ -458,14 +850,35 @@ impl AgentManager {
             })
             .collect::<Vec<_>>()
             .join("\n\n");
+        let input_revision = w.step_input_revision(&step);
         w.review_fingerprint = None;
         w.preview = None;
         w.checks.clear();
         w.error = None;
         w.stage = "implementing".into();
         w.generation += 1;
-        self.save_workflow(&mut w)?;
-        let prompt = format!("{}\n\nAcceptance criteria:\n{}\n\nWorkflow: implement in this isolated checkout. Do not merge, push, or apply changes to the original project. An independent agent will review your changes against base {} and RunHQ will execute these checks: {}.\nSummarize the result and remaining risks.\n\nPrevious independent review (when revising, address its findings or explain why they do not apply):\n{}\n\nRecorded failed checks from the previous attempt:\n{}", w.objective, w.acceptance, w.base_revision, w.check_commands.join("; "), review_context, failed_checks);
+        if let Some(current) = w.current_step_mut() {
+            current.status = "running".into();
+            current.session_id = Some(session.id.clone());
+            current.input_revision = Some(input_revision.clone());
+            if current.target.is_empty() {
+                current.target = session.backend.clone();
+            }
+        }
+        // The legacy field keeps naming the session that works in the checkout, so everything that
+        // still reads it — recovery, fingerprints, the review's branch — keeps agreeing.
+        w.implementation_session_id = session.id.clone();
+        self.save_workflow(w)?;
+        let prompt = format!(
+            "{}\n\nAcceptance criteria:\n{}\n\nWorkflow: {} in this isolated checkout. Do not merge, push, or apply changes to the original project. An independent agent will review your changes against base {} and RunHQ will execute these checks: {}.\nSummarize the result and remaining risks.\n\nPrevious independent review (when revising, address its findings or explain why they do not apply):\n{}\n\nRecorded failed checks from the previous attempt:\n{}",
+            w.objective,
+            w.acceptance,
+            workflow_role_instruction(&step.role),
+            input_revision,
+            w.check_commands.join("; "),
+            review_context,
+            failed_checks
+        );
         if let Err(error) = self
             .start(AgentTurnInput {
                 session_id: session.id,
@@ -473,7 +886,7 @@ impl AgentManager {
                 prompt,
                 model: session.model,
                 effort: session.effort,
-                mode: Some("default".into()),
+                mode: Some(workflow_step_mode(&step.role, &session.adapter).to_string()),
                 agent: Some(String::new()),
                 attachments: vec![],
             })
@@ -481,42 +894,26 @@ impl AgentManager {
         {
             w.stage = "implementation_failed".into();
             w.error = Some(error.to_string());
-            self.save_workflow(&mut w)?;
+            if let Some(current) = w.current_step_mut() {
+                current.status = "failed".into();
+            }
+            self.save_workflow(w)?;
         }
-        if w.auto_progress && w.stage == "implementing" {
-            let manager = Arc::clone(self);
-            let workflow_id = w.id.clone();
-            let generation = w.generation;
-            tokio::spawn(async move {
-                manager.advance_workflow(workflow_id, generation).await;
-            });
-        }
-        Ok(w)
+        Ok(w.clone())
     }
-    pub async fn workflow_review(self: &Arc<Self>, id: &str) -> AppResult<AgentWorkflow> {
-        let _gate = self.workflow_gate.lock().await;
-        let mut w = self.workflow(id)?;
-        self.reconcile_workflow(&mut w).await?;
-        if !matches!(
-            w.stage.as_str(),
-            "review_ready"
-                | "review_failed"
-                | "checks_ready"
-                | "checks_failed"
-                | "ready"
-                | "cancelled"
-                | "interrupted"
-        ) || w.cleaned
-        {
-            return Err(invalid("Finish implementation before independent review"));
-        }
+
+    async fn workflow_start_reviewing(
+        self: &Arc<Self>,
+        w: &mut AgentWorkflow,
+        step: WorkflowStep,
+    ) -> AppResult<AgentWorkflow> {
         if self.session(&w.implementation_session_id)?.status != "completed" {
             return Err(invalid(
                 "The implementation task must complete successfully before review",
             ));
         }
         let fingerprint = self.workflow_fingerprint(Path::new(&w.root)).await?;
-        let patch = self.workflow_patch(&w, &fingerprint).await?;
+        let patch = self.workflow_patch(w, &fingerprint).await?;
         if patch.is_empty() {
             return Err(invalid(
                 "There are no changes to review against this workflow's base",
@@ -526,11 +923,19 @@ impl AgentManager {
             .create(CreateAgentSession {
                 creation_request_id: None,
                 project_id: w.project_id.clone(),
-                backend: w.reviewer_backend.clone(),
+                backend: if step.target.is_empty() {
+                    w.reviewer_backend.clone()
+                } else {
+                    step.target.clone()
+                },
                 executable: String::new(),
-                title: format!("Review · {}", w.title),
-                model: w.reviewer_model.clone(),
-                effort: String::new(),
+                title: format!("{} · {}", workflow_role_title(&step.role), w.title),
+                model: if step.model.is_empty() {
+                    w.reviewer_model.clone()
+                } else {
+                    step.model.clone()
+                },
+                effort: step.effort.clone(),
                 mode: "plan".into(),
                 agent: String::new(),
                 isolated: false,
@@ -542,7 +947,7 @@ impl AgentManager {
             s.cwd = w.cwd.clone();
             s.isolated = true;
             s.workflow_read_only = true;
-            s.branch = branch;
+            s.branch = branch.clone();
             Ok(())
         })?;
         w.review_session_id = Some(reviewer.id.clone());
@@ -552,7 +957,15 @@ impl AgentManager {
         w.checks.clear();
         w.stage = "reviewing".into();
         w.error = None;
-        self.save_workflow(&mut w)?;
+        if let Some(current) = w.current_step_mut() {
+            current.status = "running".into();
+            current.session_id = Some(reviewer.id.clone());
+            current.input_revision = Some(fingerprint.clone());
+            if current.target.is_empty() {
+                current.target = reviewer.backend.clone();
+            }
+        }
+        self.save_workflow(w)?;
         let prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", w.objective, w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
         if let Err(error) = self
             .start(AgentTurnInput {
@@ -569,9 +982,38 @@ impl AgentManager {
         {
             w.stage = "review_failed".into();
             w.error = Some(error.to_string());
-            self.save_workflow(&mut w)?;
+            if let Some(current) = w.current_step_mut() {
+                current.status = "failed".into();
+            }
+            self.save_workflow(w)?;
         }
-        Ok(w)
+        Ok(w.clone())
+    }
+
+    /// What earlier reviewing steps said, so a revision addresses findings instead of re-reading
+    /// the diff blind. Empty when nothing has reviewed yet.
+    fn workflow_review_findings(&self, w: &AgentWorkflow) -> String {
+        let sessions: Vec<String> = w
+            .steps
+            .iter()
+            .filter(|step| !workflow_role_produces(&step.role))
+            .filter_map(|step| step.session_id.clone())
+            .collect();
+        sessions
+            .iter()
+            .filter_map(|id| self.snapshot(id, None).ok())
+            .flat_map(|snapshot| {
+                snapshot
+                    .items
+                    .into_iter()
+                    .filter(|item| item.kind == "assistant")
+                    .map(|item| item.text)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+            .chars()
+            .take(24_000)
+            .collect::<String>()
     }
     async fn workflow_fingerprint(&self, root: &Path) -> AppResult<String> {
         // A private index captures tracked + untracked non-ignored files and file modes,
@@ -1184,15 +1626,23 @@ impl AgentManager {
         if matches!(w.stage.as_str(), "integrated" | "integrating") {
             return Err(invalid("This workflow has already been applied"));
         }
-        for session_id in [
-            Some(&w.implementation_session_id),
-            w.review_session_id.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if self.session(session_id)?.active() {
-                self.interrupt(session_id).await?;
+        // Every step that opened a session, not just the two the workflow used to have.
+        let sessions: Vec<String> = w
+            .steps
+            .iter()
+            .filter_map(|step| step.session_id.clone())
+            .chain([w.implementation_session_id.clone()])
+            .chain(w.review_session_id.clone())
+            .collect();
+        for session_id in sessions {
+            if self.session(&session_id)?.active() {
+                self.interrupt(&session_id).await?;
+            }
+        }
+        // A stopped step is not still running, so it offers a retry rather than looking live.
+        if let Some(step) = w.current_step_mut() {
+            if step.status == "running" {
+                step.status = "failed".into();
             }
         }
         w.stage = "cancelled".into();
@@ -1365,6 +1815,64 @@ mod tests {
         assert_eq!(status, "cancelled");
     }
     #[test]
+    fn a_workflow_written_before_steps_reads_as_the_two_roles_it_always_had() {
+        // The stored shape, without a `steps` field at all.
+        let stored = json!({
+            "id": "w1", "project_id": "p", "title": "t", "objective": "o", "acceptance": "a",
+            "implementation_session_id": "impl-session",
+            "review_session_id": "review-session",
+            "reviewer_backend": "claude", "reviewer_model": "sonnet",
+            "base_revision": "abc", "cwd": "/w", "root": "/w", "target": "/p",
+            "stage": "ready", "setup_commands": [], "check_commands": [],
+            "setup": [], "checks": [], "review_fingerprint": null,
+            "current_fingerprint": null, "preview": null, "error": null,
+            "created_at": 1, "updated_at": 2, "cleaned": false
+        });
+        let mut workflow: AgentWorkflow = serde_json::from_value(stored).unwrap();
+        assert!(workflow.steps.is_empty(), "nothing was stored to read");
+        workflow.ensure_steps();
+        let roles: Vec<_> = workflow.steps.iter().map(|s| s.role.as_str()).collect();
+        assert_eq!(roles, ["implement", "review"]);
+        let implement = workflow.step("implement").unwrap();
+        // The implementation's connection only ever lived on its session, so none is invented here.
+        assert_eq!(implement.target, "");
+        assert_eq!(implement.session_id.as_deref(), Some("impl-session"));
+        assert_eq!(implement.input_step_id, None);
+        let review = workflow.step("review").unwrap();
+        assert_eq!(review.target, "claude");
+        assert_eq!(review.model, "sonnet");
+        assert_eq!(review.session_id.as_deref(), Some("review-session"));
+        assert_eq!(review.input_step_id.as_deref(), Some("implement"));
+        // Reading again must not rebuild steps over whatever the workflow has since recorded.
+        workflow.steps[0].session_id = Some("replaced".into());
+        workflow.ensure_steps();
+        assert_eq!(
+            workflow.step("implement").unwrap().session_id.as_deref(),
+            Some("replaced")
+        );
+    }
+
+    #[test]
+    fn a_plan_step_asks_for_plan_mode_only_where_the_integration_has_one() {
+        // Built-in plan modes: asking for one is safe and is what the role means.
+        for adapter in ["codex", "claude", "opencode"] {
+            assert_eq!(workflow_step_mode("plan", adapter), "plan");
+        }
+        // An ACP or terminal connection advertises its modes once it is running. Asking for a mode
+        // it never advertised fails the turn outright — observed as "The selected mode is not
+        // advertised by this ACP agent" — so the step runs in the connection's default instead.
+        for adapter in ["acp", "terminal", ""] {
+            assert_eq!(workflow_step_mode("plan", adapter), "default");
+        }
+        // Every other producing role works in the default mode whatever the connection is.
+        for role in ["implement", "revise"] {
+            for adapter in ["codex", "acp"] {
+                assert_eq!(workflow_step_mode(role, adapter), "default");
+            }
+        }
+    }
+
+    #[test]
     fn check_success_requires_matching_commands_and_successful_exits() {
         let commands = vec!["test-command".into()];
         assert!(!commands_passed(&commands, &[]));
@@ -1411,7 +1919,7 @@ impl AgentManager {
                 "implementing" | "reviewing" | "checking" => continue,
                 "review_ready" if !reviewed => {
                     reviewed = true;
-                    self.workflow_review(&id).await
+                    self.workflow_run_step_inner(&id).await
                 }
                 "checks_ready" if !checked => {
                     checked = true;
@@ -1434,6 +1942,244 @@ impl AgentManager {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+
+    /// A real three-role workflow against installed provider CLIs.
+    ///
+    /// Ignored: it needs authenticated CLIs and network, so it is run by hand rather than in CI.
+    /// `RUNHQ_E2E_PLAN`, `_IMPLEMENT` and `_REVIEW` name the connections to use.
+    #[tokio::test]
+    #[ignore = "requires authenticated provider CLIs"]
+    async fn three_roles_run_on_real_providers() {
+        // Same fixture repository, but a manager wired to the real agent runtime rather than the
+        // placeholder path the unit tests use, so turns actually reach the provider CLIs.
+        let (_temp, placeholder, repo) = super::tests::repository();
+        let home = Path::new(&placeholder.home).join("e2e");
+        drop(placeholder);
+        let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/src-tauri/resources/agent-runtime/bridge.mjs")
+            .canonicalize()
+            .expect("build the agent runtime first: pnpm agent:build");
+        let manager = Arc::new(AgentManager::open(&home, bridge, Arc::new(|_| {})).unwrap());
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        let named = |key: &str, fallback: &str| std::env::var(key).unwrap_or(fallback.into());
+        let plan = named("RUNHQ_E2E_PLAN", "cursor");
+        let implement = named("RUNHQ_E2E_IMPLEMENT", "cursor");
+        let review = named("RUNHQ_E2E_REVIEW", "claude");
+        let step = |role: &str, target: &str| CreateWorkflowStep {
+            role: role.into(),
+            target: target.into(),
+            model: String::new(),
+            effort: String::new(),
+            mode: String::new(),
+        };
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id.clone(),
+                backend: plan.clone(),
+                model: String::new(),
+                effort: String::new(),
+                reviewer_backend: review.clone(),
+                reviewer_model: String::new(),
+                objective: "Add a file named STEPS.md containing exactly the word STEPS.".into(),
+                acceptance: "STEPS.md exists and contains STEPS.".into(),
+                base_ref: "HEAD".into(),
+                setup_commands: vec![],
+                check_commands: vec!["test -f STEPS.md".into()],
+                auto_progress: false,
+                steps: vec![
+                    step("plan", &plan),
+                    step("implement", &implement),
+                    step("review", &review),
+                ],
+            })
+            .await
+            .unwrap();
+        for expected in ["plan", "implement", "review"] {
+            let before = manager.workflow(&workflow.id).unwrap();
+            let current = before.current_step().unwrap();
+            assert_eq!(
+                current.role, expected,
+                "steps run in the order declared; workflow error: {:?}",
+                before.error
+            );
+            let step_id = current.id.clone();
+            let mut answered = std::collections::HashSet::new();
+            manager.workflow_run_step(&workflow.id).await.unwrap();
+            // Wait for the provider to finish this step, answering the permission prompts a person
+            // would answer, then let reconcile record the outcome.
+            tokio::time::timeout(Duration::from_secs(420), async {
+                loop {
+                    let w = manager.workflows().await.unwrap();
+                    let w = w.iter().find(|w| w.id == workflow.id).unwrap();
+                    let step = w.step(&step_id).unwrap();
+                    if step.status != "running" {
+                        return step.status.clone();
+                    }
+                    if let Some(session_id) = &step.session_id {
+                        if let Ok(session) = manager.session(session_id) {
+                            for request in &session.pending {
+                                let value = request.choices.as_array().and_then(|choices| {
+                                    choices
+                                        .iter()
+                                        .find(|choice| {
+                                            let label = choice["label"]
+                                                .as_str()
+                                                .unwrap_or_default()
+                                                .to_lowercase();
+                                            label.contains("allow") || label.contains("yes")
+                                        })
+                                        .map(|choice| choice["value"].clone())
+                                });
+                                // The bridge reads `value.decision` and checks it against the
+                                // options the agent offered, so a bare string is refused.
+                                let answer = serde_json::json!({
+                                    "decision": value.unwrap_or(serde_json::json!("allow"))
+                                });
+                                // Answer each request once. Re-answering a request the provider
+                                // rejected would spin without ever making progress, so the reason
+                                // is printed instead of discarded.
+                                if !answered.insert(request.id.clone()) {
+                                    continue;
+                                }
+                                println!(
+                                    "answering {:?} ({}) with {answer}; choices {}",
+                                    request.title, request.kind, request.choices
+                                );
+                                if let Err(error) =
+                                    manager.answer(session_id, &request.id, answer).await
+                                {
+                                    println!("  answer rejected: {error}");
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            })
+            .await
+            .map(|status: String| {
+                let w = manager.workflow(&workflow.id).unwrap();
+                let step = w.step(&step_id).unwrap();
+                let session_error = step
+                    .session_id
+                    .as_ref()
+                    .and_then(|id| manager.session(id).ok())
+                    .and_then(|session| session.last_error);
+                println!(
+                    "step {step_id} on {} -> {status} (session {:?}, input {:?}, error {:?})",
+                    step.target, step.session_id, step.input_revision, session_error
+                );
+            })
+            .unwrap();
+        }
+        let done = manager.workflow(&workflow.id).unwrap();
+        println!("stage {}", done.stage);
+        for step in &done.steps {
+            println!(
+                "{} {} {} in {:?}",
+                step.id, step.target, step.status, step.input_revision
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_declared_division_of_labour_becomes_ordered_steps_with_their_own_accounts() {
+        let (_temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        for id in ["codex", "claude"] {
+            let mut tool = manager.tool(id).unwrap();
+            tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+            manager.save_tool(tool).unwrap();
+        }
+        let create = |steps: Vec<CreateWorkflowStep>| CreateAgentWorkflow {
+            project_id: project.id.clone(),
+            backend: "codex".into(),
+            model: String::new(),
+            effort: String::new(),
+            reviewer_backend: "codex".into(),
+            reviewer_model: String::new(),
+            objective: "Make the requested change".into(),
+            acceptance: String::new(),
+            base_ref: "HEAD".into(),
+            setup_commands: vec![],
+            check_commands: vec!["echo verified".into()],
+            auto_progress: false,
+            steps,
+        };
+        let step = |role: &str, target: &str, model: &str| CreateWorkflowStep {
+            role: role.into(),
+            target: target.into(),
+            model: model.into(),
+            effort: String::new(),
+            mode: String::new(),
+        };
+        let workflow = manager
+            .workflow_create(create(vec![
+                step("plan", "claude", "sonnet"),
+                step("implement", "codex", ""),
+                step("review", "claude", "opus"),
+            ]))
+            .await
+            .unwrap();
+        let shape: Vec<_> = workflow
+            .steps
+            .iter()
+            .map(|s| {
+                (
+                    s.role.as_str(),
+                    s.target.as_str(),
+                    s.input_step_id.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("plan", "claude", None),
+                ("implement", "codex", Some("plan-1")),
+                ("review", "claude", Some("implement-2")),
+            ],
+            "each step names its own account and the step it follows"
+        );
+        // The first producing step is the session the workflow opened with, on its own account.
+        assert_eq!(
+            workflow.steps[0].session_id.as_deref(),
+            Some(workflow.implementation_session_id.as_str())
+        );
+        let opening = manager
+            .session(&workflow.implementation_session_id)
+            .unwrap();
+        assert_eq!(opening.backend, "claude");
+        assert_eq!(opening.model, "sonnet");
+        assert_eq!(workflow.current_step().unwrap().role, "plan");
+        // A step that follows another starts from what that one produced, not from the base.
+        assert_eq!(
+            workflow.step_input_revision(workflow.step("implement-2").unwrap()),
+            workflow.base_revision,
+            "nothing has run yet, so the chain still resolves to the base"
+        );
+
+        // Shapes that cannot work are refused before anything is created.
+        for (steps, expected) in [
+            (vec![step("review", "codex", "")], "must produce work"),
+            (
+                vec![step("implement", "codex", ""), step("plan", "codex", "")],
+                "needs an independent review",
+            ),
+            (vec![step("implement", "", "")], "needs an account or pool"),
+            (
+                vec![step("deploy", "codex", "")],
+                "Unsupported workflow role",
+            ),
+        ] {
+            let error = manager.workflow_create(create(steps)).await.unwrap_err();
+            assert!(
+                error.to_string().contains(expected),
+                "expected {expected:?} in {error}"
+            );
+        }
+    }
+
     #[tokio::test]
     #[cfg(unix)]
     async fn long_checks_allow_independent_workflow_creation_and_remain_cancellable() {
@@ -1465,6 +2211,7 @@ mod lifecycle_tests {
                 setup_commands: vec![],
                 check_commands: vec!["echo verified".into()],
                 auto_progress: false,
+                steps: vec![],
             }),
         )
         .await
@@ -1557,6 +2304,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 setup_commands: vec![],
                 check_commands: vec!["echo verified".into()],
                 auto_progress: false,
+                steps: vec![],
             })
             .await
             .unwrap();
@@ -1607,6 +2355,39 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         manager.save_workflow(&mut workflow).unwrap();
         (temp, manager, workflow)
     }
+    #[tokio::test]
+    async fn a_new_workflow_describes_its_roles_as_steps_and_keeps_them_current() {
+        let (_temp, manager, workflow) = prepared().await;
+        // Creation writes the steps, so the list is never a migration artefact of old rows only.
+        let roles: Vec<_> = workflow.steps.iter().map(|s| s.role.as_str()).collect();
+        assert_eq!(roles, ["implement", "review"]);
+        assert_eq!(
+            workflow.step("implement").unwrap().session_id.as_deref(),
+            Some(workflow.implementation_session_id.as_str())
+        );
+        assert_eq!(workflow.step("review").unwrap().target, "codex");
+        // `prepared` assigns the reviewer directly, so reload through the store to see the row.
+        let stored = manager.workflow(&workflow.id).unwrap();
+        assert_eq!(
+            stored.steps.len(),
+            2,
+            "reading does not duplicate the steps"
+        );
+        // Running a review records its session on the step as well as on the workflow.
+        let mut running = stored;
+        running.review_session_id = Some("reviewer-1".into());
+        if let Some(step) = running.steps.iter_mut().find(|step| step.role == "review") {
+            step.session_id = Some("reviewer-1".into());
+        }
+        manager.save_workflow(&mut running).unwrap();
+        let reloaded = manager.workflow(&workflow.id).unwrap();
+        assert_eq!(
+            reloaded.step("review").unwrap().session_id.as_deref(),
+            reloaded.review_session_id.as_deref(),
+            "the step list and the legacy field describe the same review"
+        );
+    }
+
     #[tokio::test]
     async fn integrating_onto_a_branch_commits_there_and_leaves_the_original_branch_untouched() {
         let (_temp, manager, workflow) = prepared().await;

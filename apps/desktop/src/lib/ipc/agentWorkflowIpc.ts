@@ -18,6 +18,24 @@ export interface WorkflowPreview {
   patch: string;
   conflict: string | null;
 }
+/**
+ * One agent's part of a workflow. `target` is a connection id or a `pool:` target, because the
+ * account is only chosen when the step starts; `input_step_id` names the step whose revision this
+ * one begins from, and null means the workflow's own base.
+ */
+export interface WorkflowStep {
+  id: string;
+  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+  target: string;
+  model: string;
+  effort: string;
+  mode: string;
+  session_id: string | null;
+  input_step_id: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  /** The workspace revision this step actually started from, recorded when it starts. */
+  input_revision: string | null;
+}
 export interface AgentWorkflow {
   id: string;
   project_id: string;
@@ -27,6 +45,8 @@ export interface AgentWorkflow {
   implementation_session_id: string;
   review_session_id: string | null;
   reviewer_backend: string;
+  /** The ordered roles this workflow runs. Older rows are migrated on read, so this is never empty. */
+  steps: WorkflowStep[];
   reviewer_model: string;
   base_revision: string;
   cwd: string;
@@ -86,11 +106,22 @@ export interface CreateAgentWorkflow {
   setup_commands: string[];
   check_commands: string[];
   auto_progress: boolean;
+  /** The roles to run, in order. Empty keeps the two-role shape built from the backend fields. */
+  steps: CreateWorkflowStep[];
+}
+/** A step as the creating screen states it; session, status and revision are RunHQ's to fill in. */
+export interface CreateWorkflowStep {
+  role: WorkflowStep['role'];
+  target: string;
+  model: string;
+  effort: string;
+  mode: string;
 }
 export const agentWorkflowIpc = {
   list: () => invoke<AgentWorkflow[]>('agent_workflows'),
   create: (input: CreateAgentWorkflow) => invoke<AgentWorkflow>('agent_workflow_create', { input }),
   implement: (id: string) => invoke<AgentWorkflow>('agent_workflow_implement', { id }),
+  runStep: (id: string) => invoke<AgentWorkflow>('agent_workflow_run_step', { id }),
   review: (id: string) => invoke<AgentWorkflow>('agent_workflow_review', { id }),
   setup: (id: string) => invoke<AgentWorkflow>('agent_workflow_setup', { id }),
   checks: (id: string) => invoke<AgentWorkflow>('agent_workflow_checks', { id }),

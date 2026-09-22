@@ -25,6 +25,49 @@ export interface AgentRecipe {
   setupCommands: string;
   checkCommands: string;
   version: number;
+  /**
+   * A saved division of labour, used when this recipe creates a workflow. Empty means the recipe's
+   * single agent implements and reviews, which is what a recipe meant before steps existed.
+   */
+  workflowSteps?: AgentRecipeStep[];
+}
+/** A workflow step as a recipe stores it. Sessions and revisions belong to a run, not a recipe. */
+export interface AgentRecipeStep {
+  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+  target: string;
+  model: string;
+  effort: string;
+  mode: string;
+}
+const WORKFLOW_ROLES = ['plan', 'implement', 'review', 'revise', 'validate'];
+const MAX_RECIPE_STEPS = 8;
+
+/**
+ * Read a saved division of labour. A recipe is exportable and importable, so this is a trust
+ * boundary: an unknown role or an over-long list is refused rather than carried into a workflow.
+ */
+export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('Invalid recipe steps');
+  if (value.length > MAX_RECIPE_STEPS)
+    throw new Error(`A recipe holds up to ${MAX_RECIPE_STEPS} steps`);
+  return value.map((raw) => {
+    const step = object(raw);
+    if (!WORKFLOW_ROLES.includes(String(step.role)))
+      throw new Error(`Invalid recipe step role: ${String(step.role)}`);
+    for (const field of ['target', 'model', 'effort', 'mode']) {
+      const entry = step[field];
+      if (entry !== undefined && (typeof entry !== 'string' || entry.length > 200))
+        throw new Error(`Invalid recipe step ${field}`);
+    }
+    return {
+      role: step.role as AgentRecipeStep['role'],
+      target: (step.target as string) ?? '',
+      model: (step.model as string) ?? '',
+      effort: (step.effort as string) ?? '',
+      mode: (step.mode as string) ?? '',
+    };
+  });
 }
 export interface AgentMemory {
   id: string;
@@ -186,6 +229,7 @@ export function parseRecipe(value: unknown): AgentRecipe {
     throw new Error('Invalid recipe settings');
   if (r.projectId !== undefined && (typeof r.projectId !== 'string' || r.projectId.length > 160))
     throw new Error('Invalid recipe project');
+  const steps = parseRecipeSteps(r.workflowSteps);
   // Saved/imported recipes cannot carry a live handoff identity, provider session,
   // executable override or arbitrary future fields from an external JSON file.
   return {
@@ -203,6 +247,7 @@ export function parseRecipe(value: unknown): AgentRecipe {
     checkCommands: r.checkCommands as string,
     version: r.version as number,
     ...(r.projectId ? { projectId: r.projectId as string } : {}),
+    ...(steps.length ? { workflowSteps: steps } : {}),
   };
 }
 export function portableAgentRecipe(recipe: AgentRecipe): AgentRecipe {

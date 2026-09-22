@@ -22,6 +22,8 @@ import {
   type AgentCadence,
   type AgentSchedule,
 } from './agentSchedule';
+import { AgentWorkflowSteps } from './AgentWorkflowSteps';
+import { newWorkflowStep } from './agentWorkflowStepPolicy';
 import {
   isPoolTarget,
   parseAccountPool,
@@ -162,6 +164,18 @@ export function AgentLibrary({
     const pool = accountPools.find((entry) => poolTarget(entry.id) === target);
     return pool ? `${pool.name} (pool)` : 'Pool was removed';
   };
+  const producers = tools.filter(
+    (tool) => tool.enabled !== false && tool.available && tool.adapter !== 'terminal',
+  );
+  // Only a connection with a real read-only mode can hold a reviewing role.
+  const reviewTools = producers.filter((tool) =>
+    ['codex', 'claude'].includes(tool.adapter ?? tool.id),
+  );
+  const workflowPoolOptions = accountPools.map((pool) => ({
+    value: poolTarget(pool.id),
+    label: `${pool.name} (pool)`,
+    description: 'RunHQ picks a free account when the step starts',
+  }));
   const scheduleFor = (recipeId: string) => {
     const stored = records[`schedule:${recipeId}`];
     if (!stored) return null;
@@ -813,6 +827,49 @@ export function AgentLibrary({
                 Isolated worktree
               </label>
             </div>
+            <details className="border-border rounded-xl border p-3">
+              <summary className="text-fg-muted cursor-pointer text-[12px]">
+                Workflow steps &middot;{' '}
+                {editor.workflowSteps?.length
+                  ? `${editor.workflowSteps.length} saved`
+                  : 'this recipe implements and reviews'}
+              </summary>
+              <p className="text-fg-dim mt-2 text-[11px] leading-relaxed">
+                Used only when this recipe creates a workflow. Leave it empty to keep the agent
+                above implementing and reviewing; add steps to save a division of labour that
+                repeats across projects.
+              </p>
+              {editor.workflowSteps?.length ? (
+                <div className="mt-3">
+                  <AgentWorkflowSteps
+                    steps={editor.workflowSteps}
+                    onChange={(workflowSteps) => setEditor({ ...editor, workflowSteps })}
+                    producers={producers}
+                    reviewers={reviewTools}
+                    poolOptions={workflowPoolOptions}
+                    // A recipe is stored, not run, so a pool stays a pool here: the account is
+                    // chosen when a step actually starts.
+                    resolveTarget={(target) => target}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={`${button} mt-3`}
+                  onClick={() =>
+                    setEditor({
+                      ...editor,
+                      workflowSteps: [
+                        newWorkflowStep('implement', editor.backend || producers[0]?.id || ''),
+                        newWorkflowStep('review', reviewTools[0]?.id ?? ''),
+                      ],
+                    })
+                  }
+                >
+                  Add workflow steps
+                </button>
+              )}
+            </details>
             {error && (
               <p role="alert" className="text-status-error text-[12px]">
                 {error}

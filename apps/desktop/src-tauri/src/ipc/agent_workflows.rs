@@ -23,6 +23,14 @@ pub async fn agent_workflow_implement(
 ) -> AppResult<AgentWorkflow> {
     state.agents.workflow_implement(&id).await
 }
+/// Run whatever step the workflow is on, whichever role it plays.
+#[tauri::command]
+pub async fn agent_workflow_run_step(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_run_step(&id).await
+}
 #[tauri::command]
 pub async fn agent_workflow_review(
     id: String,
