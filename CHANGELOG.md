@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/erdembas/runhq/compare/v2.0.0...v2.1.0) (2026-09-22)
+
+
+### Features
+
+* **agents:** account pools, limit cool-downs and routed starts ([f780dad](https://github.com/erdembas/runhq/commit/f780dad5662cc2f6be7aab3a1d512a265f7b1e68))
+* **agents:** centralize agent management across projects and accounts ([36babe5](https://github.com/erdembas/runhq/commit/36babe57c08758afe3af6e5c81b65905d6b3e7d1))
+* **agents:** centralize agent management, provider accounts and scheduled recipes ([7982c60](https://github.com/erdembas/runhq/commit/7982c60d0a0a5d292f548a162df13ed5822b8a28))
+* **agents:** commit reviewed work onto a branch in the destination ([9de903a](https://github.com/erdembas/runhq/commit/9de903a4fe3b73b7b7169a718046d6e1b99fcc0a))
+* **agents:** composable multi-provider workflow steps ([e823e9b](https://github.com/erdembas/runhq/commit/e823e9bf9b1da8bf1a343f33571b972ce5d689d7))
+* **agents:** describe a workflow's roles as an ordered step list ([85814b8](https://github.com/erdembas/runhq/commit/85814b82ab04423ec29be26d9ab6d58d37b07fe0))
+* **agents:** group interchangeable accounts into a routed pool ([b73d373](https://github.com/erdembas/runhq/commit/b73d3738aa69419aef1390ead94d67fc8ee58120))
+* **agents:** let any start target a pool, and say why it chose an account ([4a8dad3](https://github.com/erdembas/runhq/commit/4a8dad30ffcbe9e8c61dc6e820e75817844acf13))
+* **agents:** open a limit handoff on the account that can take over ([8dcc73e](https://github.com/erdembas/runhq/commit/8dcc73ee8f472477102a341d1260d089e7c5c975))
+* **agents:** resolve a pooled recipe before a draft opens ([2707522](https://github.com/erdembas/runhq/commit/270752206dba3980ca7470b3c9a2b4ff6a0163e2))
+* **agents:** run a due schedule as soon as the workspace is readable ([dfcc139](https://github.com/erdembas/runhq/commit/dfcc139671494d1e6b64f8f689e8e5a7b0392028))
+* **agents:** run a saved recipe on a schedule ([e09b73f](https://github.com/erdembas/runhq/commit/e09b73fae887f09c54ebb41e449b75ef001799ad))
+* **agents:** run a workflow as the steps you chose ([f06d641](https://github.com/erdembas/runhq/commit/f06d641abfe6aece4291d5694b38df28cd1c00ea))
+* **agents:** show a provider's subagents as structure in the transcript ([d39bc2d](https://github.com/erdembas/runhq/commit/d39bc2d49b537bdf85369cb06782ffbf9c69b30d))
+
+
+### Bug Fixes
+
+* **agents:** ask for plan mode only where the integration has one ([67fd6f2](https://github.com/erdembas/runhq/commit/67fd6f279f0d1d4e1200399c2c4d0e62f94f1b60))
+* **agents:** compare repository roots in one path style ([28a9d4f](https://github.com/erdembas/runhq/commit/28a9d4f9cb91c1478f7492845b6f2b47b44586b5))
+* **agents:** judge a schedule only against a loaded workspace ([6615d2c](https://github.com/erdembas/runhq/commit/6615d2cc8b517d64956a7da532a2234c1892b511))
+* **agents:** store a recipe schedule as a workspace record ([2c5e8d9](https://github.com/erdembas/runhq/commit/2c5e8d96b4fd88e8f57352460eb955efb99bfdae))
+
+
+### Documentation
+
+* **agents:** describe the delivered agent workspace and its limits ([a7e05fb](https://github.com/erdembas/runhq/commit/a7e05fbe38e17f8c01284218e6dbf8c0d2bec111))
+* **agents:** refresh the review and usage boundary ([51e3c46](https://github.com/erdembas/runhq/commit/51e3c462f50275579a1548b7b2690c728c29fbf3))
+
 ## [2.0.0](https://github.com/erdembas/runhq/compare/v1.1.0...v2.0.0) (2026-09-17)
 
 RunHQ 2.0 brings coding agents into the project workspace, alongside services, terminals and development tools.
