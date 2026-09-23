@@ -132,6 +132,40 @@ test('module-level status labels remain live after switching languages', () => {
   assert.equal(labels.AGENT_STATUS_LABELS.running, 'Working');
 });
 
+test('startup category and runtime tables import without React and keep translations live', () => {
+  const app = runtime();
+  const loadTable = (name) => {
+    const exports = {};
+    runInNewContext(
+      ts.transpileModule(readFileSync(new URL(`../src/lib/${name}.ts`, import.meta.url), 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText,
+      {
+        exports,
+        require: (specifier) => {
+          assert.match(specifier, /^@runhq\/cockpit-ui\/i18n(?:\/core)?$/);
+          return app;
+        },
+      },
+    );
+    return exports;
+  };
+  const categories = loadTable('categories');
+  const runtimes = loadTable('runtimes');
+  const category = categories.categoryForTags(['database']);
+  const unknownRuntime = runtimes.runtimeMeta('custom');
+  assert.equal(category.label, 'Database');
+  assert.equal(unknownRuntime.label, 'Other');
+  assert.equal(runtimes.runtimeMeta('node'), runtimes.RUNTIMES[0]);
+  assert.equal(categories.categoryForTags(['custom']).key, 'other');
+  app.setLocale('tr');
+  assert.equal(category.label, 'Veritabanı');
+  assert.equal(unknownRuntime.label, 'Diğer');
+  app.setLocale('en');
+  assert.equal(category.label, 'Database');
+  assert.equal(unknownRuntime.label, 'Other');
+});
+
 test('activity summaries translate complete count phrases while preserving supplied paths and text', () => {
   const app = runtime();
   const activity = {};

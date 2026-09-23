@@ -24,6 +24,8 @@ and Turkish in the same change**. i18n is a requirement, not follow-up work.
   Use `number`, `date`, `relative`, or `getFormatLocale()` for locale-aware formatting.
 - Module-level display tables must resolve translations lazily (e.g. property getters
   or a factory called during rendering); never freeze a translated label at import time.
+  Never call React hooks while building these tables, including inside `map`/`reduce`
+  callbacks. Subscribe in the consuming component; keep data helpers on the `/core` entry.
 - **Do not translate agent/provider responses or supplied question/choice labels,
   user-written content, project/file names, code, logs, protocol values, IDs, commands,
   model IDs or stored data.** Translate our surrounding UI only. Interface language
@@ -40,3 +42,7 @@ existing tests, typechecks and builds. The check rejects missing translations,
 invalid placeholders and uncatalogued UI literals. Any narrow exemption must explain
 why the text is technical, user/provider content, or outside the desktop scope.
 Never add an exemption merely to avoid translating a new label.
+
+Before shipping desktop changes, open the full production app and verify that the
+main window renders. A successful build or an isolated component preview does not
+verify startup of the complete module graph.
