@@ -3826,8 +3826,8 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line=
         let mut tool = manager.tool("codex").unwrap();
         tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
         manager.save_tool(tool).unwrap();
-        // Each task writes the file its own instruction names, so what landed says which task did
-        // it, and holds the checkout long enough for a sibling to be seen running beside it.
+        // Producers report that they started and wait on an explicit release barrier. This
+        // proves overlap even when creating the second checkout is slow, as on Windows CI.
         std::fs::write(temp.path().join("bridge.cjs"), r#"
 const fs = require('node:fs'); const path = require('node:path');
 const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
@@ -3838,7 +3838,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const named = /write ([a-z.]+)/.exec(cfg.prompt || '');
   if(!cfg.read_only_review && named) fs.writeFileSync(path.join(cfg.cwd,named[1]),'done\n');
   emit({type:'item',item:{id:'result',kind:'assistant',title:'Agent',text:'ok',status:'completed'}});
-  setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},400);
+  const finish=()=>{emit({type:'finished',status:'completed'});process.exit(0);};
+  if(!cfg.read_only_review && named) {
+    fs.writeFileSync(path.join(__dirname,named[1]+'.started'),'started');
+    const timer=setInterval(()=>{
+      if(fs.existsSync(path.join(__dirname,'release-'+named[1]))) {clearInterval(timer);finish();}
+    },10);
+  } else finish();
 });
 "#).unwrap();
         let task = |id: &str, role: &str, prompt: &str, after: &[&str], workspace: &str| {
@@ -3859,7 +3865,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 reviewer_backend: "codex".into(),
                 objective: "Two independent tasks".into(),
                 base_ref: "HEAD".into(),
-                check_commands: vec!["test -f api.txt -a -f docs.txt".into()],
+                check_commands: vec![r#"node -e "require('node:fs').accessSync('api.txt');require('node:fs').accessSync('docs.txt')""#.into()],
                 auto_progress: true,
                 steps: vec![
                     task("api", "implement", "write api.txt", &[], "own"),
@@ -3871,6 +3877,19 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             .await
             .unwrap();
         manager.workflow_schedule(&workflow.id).await.unwrap();
+        // Wait for evidence from both processes; elapsed time is not evidence of overlap.
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while !["api.txt.started", "docs.txt.started"]
+                .iter()
+                .all(|name| temp.path().join(name).is_file())
+            {
+                let current = manager.workflow(&workflow.id).unwrap();
+                assert!(!current.stage.ends_with("failed"), "{:?}", current.error);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
         // Both producing tasks are free from the start, so both are running — which one checkout
         // could never allow.
         let running = manager.workflow(&workflow.id).unwrap();
@@ -3892,10 +3911,33 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             "each task works in a checkout of its own"
         );
         assert!(roots.iter().all(|root| *root != running.root));
+        for step in running.steps.iter().filter(|step| step.status == "running") {
+            assert!(manager
+                .session(step.session_id.as_ref().unwrap())
+                .unwrap()
+                .active());
+        }
+        std::fs::write(temp.path().join("release-api.txt"), "continue").unwrap();
+        // Release the first result before the second so ordering is observed from persisted
+        // completion, not assumed from process startup or wall-clock delays.
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let current = manager.workflow(&workflow.id).unwrap();
+                if current.joined == ["api"] {
+                    break;
+                }
+                assert!(!current.stage.ends_with("failed"), "{:?}", current.error);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        std::fs::write(temp.path().join("release-docs.txt"), "continue").unwrap();
 
         let ready = tokio::time::timeout(Duration::from_secs(60), async {
             loop {
-                manager.workflow_schedule(&workflow.id).await.unwrap();
+                // Automatic progression is the only driver. A manual check could race the
+                // scheduler after observing checks_ready and correctly be rejected as concurrent.
                 let current = manager.workflow(&workflow.id).unwrap();
                 if current.stage == "ready" {
                     break current;
@@ -3906,13 +3948,6 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                     current.stage,
                     current.error
                 );
-                // Running the recorded checks is its own step of the walk, as it is for a person.
-                if current.stage == "checks_ready" {
-                    manager
-                        .workflow_commands(&workflow.id, false)
-                        .await
-                        .unwrap();
-                }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         })
