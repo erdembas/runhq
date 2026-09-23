@@ -1,4 +1,4 @@
-import * as i18n from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /**
  * Service categories.
  *
@@ -120,7 +120,6 @@ export const CATEGORIES: Category[] = [
 
 const CATEGORY_BY_KEY: Record<CategoryKey, Category> = CATEGORIES.reduce(
   (acc, c) => {
-    i18n.useLocale();
     acc[c.key] = c;
     return acc;
   },

@@ -1,4 +1,4 @@
-import * as i18n from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { CommandEntry } from '@/types';
 
 export interface RuntimeMeta {
@@ -91,7 +91,6 @@ export const RUNTIMES: RuntimeMeta[] = [
 
 const RUNTIME_MAP: Record<string, RuntimeMeta> = RUNTIMES.reduce(
   (acc, r) => {
-    i18n.useLocale();
     acc[r.key] = r;
     return acc;
   },
