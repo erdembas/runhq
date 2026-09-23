@@ -7,10 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.0](https://github.com/erdembas/runhq/compare/v2.1.0...v2.2.0) (2026-09-23)
 
+RunHQ 2.2 coordinates parallel agent tasks and brings their results together for independent review, recorded checks and explicit integration.
 
 ### Features
 
-* **agents:** coordinate parallel workflow tasks and review their results ([#159](https://github.com/erdembas/runhq/issues/159)) ([9a9f711](https://github.com/erdembas/runhq/commit/9a9f71133d0dc7c7a941672d98f786ca9af90712))
+- Dependency-based workflows with up to 64 individually configured tasks, account/pool selection and parallel isolated worktrees.
+- Workflow task board with readiness, blockers, per-task actions and batch start.
+- Combined-result review with conflict reporting and user-controlled integration.
+- Reusable recipes that preserve task instructions, dependencies, workspace choices and parameters.
+- Compact tool activity summaries and full-screen split/inline tool diffs.
+
+### Bug Fixes
+
+- Avoid pooled scheduler deadlocks and honor cooldown, account/global capacity and read-only reviewer capabilities.
+- Start newly unblocked tasks while independent siblings are still running; prevent duplicate automatic scheduler workers.
+- Protect shared checkouts while joining results and allow explicit retry of individual failed tasks.
+- Preserve multiline task instructions during collapsed editing and topologically order task graphs before saving or starting.
+- Keep useful Codex/OpenCode labels when provider tool titles are empty.
+
+Implementation and validation: [#159](https://github.com/erdembas/runhq/pull/159).
 
 ## [2.1.0](https://github.com/erdembas/runhq/compare/v2.0.0...v2.1.0) (2026-09-22)
 
