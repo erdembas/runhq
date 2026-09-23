@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/erdembas/runhq/compare/v2.2.0...v3.0.0) (2026-09-23)
+
+
+### Features
+
+* **desktop:** add bilingual UI and configurable agent workflows ([d349c5f](https://github.com/erdembas/runhq/commit/d349c5f28cdd2176f67dcc502ad2ac4bf93675dd))
+
 ## [2.2.0](https://github.com/erdembas/runhq/compare/v2.1.0...v2.2.0) (2026-09-23)
 
 RunHQ 2.2 coordinates parallel agent tasks and brings their results together for independent review, recorded checks and explicit integration.
