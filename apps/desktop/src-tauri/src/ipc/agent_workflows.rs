@@ -23,13 +23,25 @@ pub async fn agent_workflow_implement(
 ) -> AppResult<AgentWorkflow> {
     state.agents.workflow_implement(&id).await
 }
-/// Run whatever step the workflow is on, whichever role it plays.
+/// Run one named task, or whichever step the workflow is on when none is named.
 #[tauri::command]
 pub async fn agent_workflow_run_step(
     id: String,
+    step_id: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<AgentWorkflow> {
-    state.agents.workflow_run_step(&id).await
+    match step_id {
+        Some(step) => state.agents.workflow_run_named_step(&id, &step).await,
+        None => state.agents.workflow_run_step(&id).await,
+    }
+}
+/// Start every task this workflow can run right now, and land the results that are ready.
+#[tauri::command]
+pub async fn agent_workflow_schedule(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_schedule(&id).await
 }
 #[tauri::command]
 pub async fn agent_workflow_review(

@@ -50,6 +50,7 @@ import { useVisibleStore } from '@/lib/useVisibleStore';
 import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
 import { AgentDecisionInbox } from './AgentDecisionInbox';
 import { AgentRecoveryNotice } from './AgentRecoveryNotice';
+import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
 import { AgentWorkflowHub } from './AgentWorkflowHub';
 import { AgentLibrary } from './AgentLibrary';
 import { AgentUsagePanel } from './AgentUsagePanel';
@@ -551,21 +552,23 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                     setupCommands: workflowRecipe.setupCommands.split('\n').filter(Boolean),
                     checkCommands: workflowRecipe.checkCommands.split('\n').filter(Boolean),
                     acceptance: workflowRecipe.acceptance,
-                    steps: workflowRecipe.workflowSteps?.map((step) => ({
-                      ...step,
-                      // A recipe may name a pool; the form resolves it to an account on open.
-                      target: composerAccountForTarget({
-                        target: step.target,
-                        pool: routingPool,
-                        accounts: routingAccounts(),
-                        cooldowns: routingCooldowns(),
-                        capacity: agentCapacityPreferences(
-                          useAgentLibraryStore.getState().records['preferences:capacity']?.value,
-                        ),
-                        occupied: routingOccupancy(),
-                        now: Date.now(),
-                      }),
-                    })),
+                    steps: workflowRecipe.workflowSteps
+                      ? recipeStepsToCreateSteps(workflowRecipe.workflowSteps, (target) =>
+                          // A recipe may name a pool; the form resolves it to an account on open.
+                          composerAccountForTarget({
+                            target,
+                            pool: routingPool,
+                            accounts: routingAccounts(),
+                            cooldowns: routingCooldowns(),
+                            capacity: agentCapacityPreferences(
+                              useAgentLibraryStore.getState().records['preferences:capacity']
+                                ?.value,
+                            ),
+                            occupied: routingOccupancy(),
+                            now: Date.now(),
+                          }),
+                        )
+                      : undefined,
                   }
                 : undefined
             }

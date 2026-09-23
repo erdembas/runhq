@@ -55,6 +55,8 @@ import { AgentPlanPanel } from './AgentPlanPanel';
 import { AgentCanvasPanel } from './AgentCanvasPanel';
 import { agentTurnQueue, useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { parseAgentSubagent, agentSubagentSummary } from './agentSubagentItem';
+import { groupAgentTranscript } from './agentActivity';
+import { AgentActivityBlock } from './AgentActivityBlock';
 import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
 import { agentContextImages, buildAgentContextPrompt } from './agentLibraryModel';
@@ -132,11 +134,7 @@ const TranscriptItem = memo(function TranscriptItem({
           <Check className="h-3.5 w-3.5 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate" title={item.title}>
-          {item.kind === 'reasoning' && /^reasoning(?: summary)?$/i.test(item.title)
-            ? item.status === 'running'
-              ? 'Thinking…'
-              : 'Reasoning'
-            : item.title}
+          {item.title}
         </span>
         <ChevronRight
           className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90"
@@ -249,6 +247,18 @@ export function AgentSessionView({
   }, [visible, focusItemId, snapshot, snapshotError, loadOlder]);
   const planMode = session.mode === 'plan' || session.agent === 'plan';
   const plans = useMemo(() => collectAgentPlans(items, planMode), [items, planMode]);
+  // Requests still awaiting an answer are shown as cards below the transcript, not twice.
+  const groups = useMemo(
+    () =>
+      groupAgentTranscript(
+        items.filter(
+          (item) =>
+            item.kind !== 'request' ||
+            !session.pending.some((request) => item.id === `request:${request.id}`),
+        ),
+      ),
+    [items, session.pending],
+  );
   const artifacts = useMemo(() => extractAgentCanvasArtifacts(items), [items]);
   useEffect(() => {
     if (visible && tab === 'chat' && follow.current && scroll.current)
@@ -643,28 +653,31 @@ export function AgentSessionView({
                     </p>
                   </div>
                 )}
-                {items
-                  .filter(
-                    (item) =>
-                      item.kind !== 'request' ||
-                      !session.pending.some((request) => item.id === `request:${request.id}`),
-                  )
-                  .map((item) => (
+                {groups.map((group) =>
+                  group.kind === 'item' ? (
                     <div
-                      key={item.id}
-                      data-agent-item={item.id}
+                      key={group.item.id}
+                      data-agent-item={group.item.id}
                       className={
-                        focusItemId === item.id
+                        focusItemId === group.item.id
                           ? 'ring-accent/40 ring-offset-surface rounded-lg ring-1 ring-offset-4'
                           : undefined
                       }
                     >
                       <TranscriptItem
-                        item={item}
+                        item={group.item}
                         providerName={session.backend_name || session.backend}
                       />
                     </div>
-                  ))}
+                  ) : (
+                    <AgentActivityBlock
+                      key={group.id}
+                      group={group}
+                      focusItemId={focusItemId}
+                      cwd={session.cwd}
+                    />
+                  ),
+                )}
                 {!!artifacts.length && !canvasOpen && (
                   <button
                     onClick={() => setCanvasOpen(true)}

@@ -559,5 +559,5 @@ impl AgentManager {
 }
 
 fn history_protected(conn: &rusqlite::Connection, id: &str) -> AppResult<bool> {
-    conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workspace_records WHERE key LIKE 'memory:%' AND json_extract(data,'$.sourceSessionId')=?1)", [id], |row| row.get(0)).map_err(sql_error)
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workflows w, json_each(json_extract(w.data,'$.steps')) s WHERE json_extract(s.value,'$.session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workspace_records WHERE key LIKE 'memory:%' AND json_extract(data,'$.sourceSessionId')=?1)", [id], |row| row.get(0)).map_err(sql_error)
 }

@@ -25,7 +25,13 @@ pub struct WorkflowCheck {
 /// A workflow used to be exactly two roles with their settings spread across the workflow itself: an
 /// implementation session, plus a review session with its own backend and model. The step list makes
 /// that shape explicit and extensible — each step names the role it plays, the account or pool that
-/// runs it, the settings to run it with, and which earlier step's result it takes as input.
+/// runs it, the settings to run it with, its own instruction, and the steps whose results it takes
+/// as input.
+///
+/// `depends_on` names every step that must complete first, so a workflow is a graph rather than a
+/// chain: steps that wait on nothing in common can run at the same time. The declared list is always
+/// kept in topological order — a step may only depend on one declared before it — so reading the
+/// steps in order is also a legal execution order.
 ///
 /// `target` may be a connection id or a `pool:` target, because an account is only chosen when the
 /// step actually starts; recording the pool keeps the choice explainable after the fact.
@@ -44,57 +50,223 @@ pub struct WorkflowStep {
     /// The session that ran this step, once one exists.
     #[serde(default)]
     pub session_id: Option<String>,
-    /// The step whose revision this one starts from. `None` means the workflow's own base.
+    /// The single predecessor this step used to declare. Kept in sync with `depends_on.first()` so
+    /// a build that predates the graph still reads the chain it understands.
     #[serde(default)]
     pub input_step_id: Option<String>,
-    /// `pending`, `running`, `completed` or `failed`.
+    /// Every step that must complete before this one may run. Empty means the workflow's own base.
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    /// This step's own instruction. Empty keeps the previous behaviour, where a step was described
+    /// by the workflow objective and the sentence its role contributes.
+    #[serde(default)]
+    pub prompt: String,
+    /// `shared` — the workflow's own checkout — or `own`, a checkout of this step's alone. Only a
+    /// producing step may ask for its own, and only that makes two producers run at the same time:
+    /// one checkout never carries two agents.
+    #[serde(default)]
+    pub workspace: String,
+    /// The step's checkout and its Git toplevel. Set only for `own`.
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub root: Option<String>,
+    /// `pending`, `running`, `completed`, `failed` or `blocked`.
     #[serde(default = "pending_status")]
     pub status: String,
     /// The workspace revision this step actually started from, recorded when it starts. A step's
     /// declared input says which step it follows; this says what that came to in practice.
     #[serde(default)]
     pub input_revision: Option<String>,
+    /// What the step produced: the tree its checkout came to, and the commit RunHQ wrote for it so
+    /// a later step can branch from a real revision.
+    #[serde(default)]
+    pub output_tree: Option<String>,
+    #[serde(default)]
+    pub output_revision: Option<String>,
+    /// How this step's result landed in the workflow's shared checkout, once it has.
+    #[serde(default)]
+    pub merge: Option<WorkflowStepMerge>,
+    /// The workflow generation this step was started in. A turn that finishes after the workflow
+    /// moved on is recorded as superseded rather than counted.
+    #[serde(default)]
+    pub generation: u64,
+    #[serde(default)]
+    pub started_at: Option<i64>,
+    #[serde(default)]
+    pub finished_at: Option<i64>,
+    /// Why this step failed or is blocked, in the words the screen shows.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl WorkflowStep {
+    /// The fields a migrated step carries no record of: it ran in the workflow's own checkout, under
+    /// the workflow's objective, before any of this was written down.
+    fn migrated() -> Self {
+        WorkflowStep {
+            id: String::new(),
+            role: String::new(),
+            target: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            mode: String::new(),
+            session_id: None,
+            input_step_id: None,
+            depends_on: vec![],
+            prompt: String::new(),
+            workspace: "shared".into(),
+            cwd: None,
+            root: None,
+            status: pending_status(),
+            input_revision: None,
+            output_tree: None,
+            output_revision: None,
+            merge: None,
+            generation: 0,
+            started_at: None,
+            finished_at: None,
+            error: None,
+        }
+    }
+    /// Whether this step runs in a checkout of its own rather than the workflow's.
+    pub fn owns_workspace(&self) -> bool {
+        self.workspace == "own"
+    }
+    /// The checkout a step works in: its own when it has one, else the workflow's.
+    pub fn step_cwd<'a>(&'a self, workflow: &'a AgentWorkflow) -> &'a str {
+        self.cwd.as_deref().unwrap_or(&workflow.cwd)
+    }
+    pub fn step_root<'a>(&'a self, workflow: &'a AgentWorkflow) -> &'a str {
+        self.root.as_deref().unwrap_or(&workflow.root)
+    }
+}
+
+/// What became of a step's result when it was applied to the workflow's shared checkout.
+///
+/// A conflict is recorded and reported; it is never resolved automatically, and it leaves the shared
+/// checkout exactly as it was.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStepMerge {
+    pub applied_at: i64,
+    /// The revision the step branched from, and the tree it produced.
+    pub base_revision: String,
+    pub source_fingerprint: String,
+    /// The shared checkout's fingerprint after this landed.
+    #[serde(default)]
+    pub target_fingerprint: Option<String>,
+    #[serde(default)]
+    pub patch_bytes: u64,
+    /// `applied`, `conflict` or `empty`.
+    pub status: String,
+    /// `git apply --check` output, verbatim.
+    #[serde(default)]
+    pub conflict: Option<String>,
 }
 
 fn pending_status() -> String {
     "pending".into()
 }
 
-/// Turn a declared list into the workflow's steps, chaining each one to the step before it. The
-/// first producing step is the session the workflow was created with; the rest open theirs when
-/// they run, because a session belongs to the account that started it.
-fn workflow_declared_steps(
+/// A step id is also the key the person writes in another step's dependencies, so it has to stay
+/// short, stable and typable.
+fn valid_step_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 32
+        && id
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// Turn a declared list into the workflow's steps.
+///
+/// A step that declares no dependency follows the one before it, so a caller that predates the graph
+/// still produces exactly the chain it always did. The first producing step is the session the
+/// workflow was created with; the rest open theirs when they run, because a session belongs to the
+/// account that started it.
+fn workflow_declared_graph(
     declared: &[CreateWorkflowStep],
     implementation_session_id: &str,
     base_revision: &str,
 ) -> Vec<WorkflowStep> {
+    let ids = declared_step_ids(declared);
+    let dependencies = declared_dependencies(declared, &ids);
     let mut steps = Vec::new();
-    let mut previous: Option<String> = None;
     for (index, step) in declared.iter().enumerate() {
-        let id = format!("{}-{}", step.role, index + 1);
+        let depends_on = dependencies[index].clone();
+        let owns = step.workspace.trim() == "own";
         steps.push(WorkflowStep {
-            id: id.clone(),
+            id: ids[index].clone(),
             role: step.role.clone(),
             target: step.target.clone(),
             model: step.model.clone(),
             effort: step.effort.clone(),
             mode: step.mode.clone(),
-            session_id: if index == 0 {
+            // The session the workflow was created with owns its shared checkout, so the first
+            // step is that session — unless it asked to work somewhere of its own, in which case
+            // the shared checkout stays what the results are applied to.
+            session_id: if index == 0 && !owns && !step.target.starts_with("pool:") {
                 Some(implementation_session_id.to_string())
             } else {
                 None
             },
-            input_step_id: previous.clone(),
+            input_step_id: depends_on.first().cloned(),
+            depends_on,
+            prompt: step.prompt.clone(),
+            workspace: if step.workspace.trim().is_empty() {
+                "shared".into()
+            } else {
+                step.workspace.clone()
+            },
+            cwd: None,
+            root: None,
             status: "pending".into(),
-            input_revision: if index == 0 {
+            input_revision: if index == 0 && !owns {
                 Some(base_revision.to_string())
             } else {
                 None
             },
+            output_tree: None,
+            output_revision: None,
+            merge: None,
+            generation: 0,
+            started_at: None,
+            finished_at: None,
+            error: None,
         });
-        previous = Some(id);
     }
     steps
+}
+
+/// What each declared step actually waits for: the dependencies it named, or — for a step that named
+/// none — the step declared before it, so a caller that predates the graph still describes a chain.
+fn declared_dependencies(declared: &[CreateWorkflowStep], ids: &[String]) -> Vec<Vec<String>> {
+    declared
+        .iter()
+        .enumerate()
+        .map(|(index, step)| match &step.depends_on {
+            Some(declared) => declared.clone(),
+            None if index > 0 => vec![ids[index - 1].clone()],
+            None => vec![],
+        })
+        .collect()
+}
+
+/// The id each declared step will carry: the one it named, else the generated `<role>-<n>` this
+/// workflow has always used.
+fn declared_step_ids(declared: &[CreateWorkflowStep]) -> Vec<String> {
+    declared
+        .iter()
+        .enumerate()
+        .map(|(index, step)| match step.id.as_deref().map(str::trim) {
+            Some(id) if !id.is_empty() => id.to_string(),
+            _ => format!("{}-{}", step.role, index + 1),
+        })
+        .collect()
 }
 
 /// Title and instruction wording per role, so a step reads as itself rather than as "implement".
@@ -113,6 +285,73 @@ fn workflow_role_instruction(role: &str) -> &'static str {
         "revise" => "revise the existing work",
         _ => "implement",
     }
+}
+
+/// The name a step's session carries, so dozens of tasks are told apart in the task list: the step's
+/// own first line when it has one, else the role and the workflow it belongs to.
+fn workflow_step_title(w: &AgentWorkflow, step: &WorkflowStep) -> String {
+    let own: String = step
+        .prompt
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .chars()
+        .take(80)
+        .collect();
+    if own.trim().is_empty() {
+        format!("{} · {}", workflow_role_title(&step.role), w.title)
+    } else {
+        format!("{} · {}", workflow_role_title(&step.role), own.trim())
+    }
+}
+
+/// What a step is being asked to do.
+///
+/// A step that carries its own instruction is asked that, under the workflow's objective as shared
+/// context — dozens of tasks share one brief and still say different things. A step that carries
+/// none is asked exactly what it always was: the objective itself.
+fn workflow_step_task(w: &AgentWorkflow, step: &WorkflowStep) -> String {
+    let own = step.prompt.trim();
+    if own.is_empty() {
+        return w.objective.clone();
+    }
+    if w.objective.trim().is_empty() {
+        return own.to_string();
+    }
+    format!(
+        "Shared context for this workflow:\n{}\n\nYour task:\n{own}",
+        w.objective
+    )
+}
+
+/// The sentence that names what this step does with the checkout. A step with its own instruction
+/// has already said what it wants, so the sentence only has to name the kind of work.
+fn workflow_step_instruction(step: &WorkflowStep) -> &'static str {
+    if step.prompt.trim().is_empty() {
+        workflow_role_instruction(&step.role)
+    } else {
+        match step.role.as_str() {
+            "plan" => "carry out the task above as a plan",
+            "revise" => "carry out the task above as a revision of the existing work",
+            _ => "carry out the task above",
+        }
+    }
+}
+
+/// Stages that describe where the step graph is, and are therefore derived from it. The rest belong
+/// to a phase that owns the whole checkout — setup, checks, integration — and only that phase writes
+/// them, so a refresh never talks over an operation in flight.
+pub(super) fn workflow_step_stage(stage: &str) -> bool {
+    matches!(
+        stage,
+        "implementing"
+            | "reviewing"
+            | "implementation_ready"
+            | "implementation_failed"
+            | "review_ready"
+            | "review_failed"
+            | "checks_ready"
+    )
 }
 
 /// Roles that change the checkout. The rest read it and report, and run read-only.
@@ -214,6 +453,13 @@ pub struct AgentWorkflow {
     pub cleaned: bool,
     #[serde(default)]
     pub auto_progress: bool,
+    /// How many of this workflow's steps may run at once. 0 derives the bound from the capacity
+    /// settings, so a workflow does not have to restate what the account limits already say.
+    #[serde(default)]
+    pub concurrency: u32,
+    /// Steps whose results were applied to the shared checkout, in the order they landed.
+    #[serde(default)]
+    pub joined: Vec<String>,
     #[serde(default)]
     pub generation: u64,
     #[serde(default)]
@@ -227,7 +473,7 @@ pub struct AgentWorkflow {
 }
 /// A step as the creating screen states it. The session, status and input revision are RunHQ's to
 /// fill in as the workflow runs, so they are not accepted from the caller.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CreateWorkflowStep {
     pub role: String,
     pub target: String,
@@ -237,10 +483,27 @@ pub struct CreateWorkflowStep {
     pub effort: String,
     #[serde(default)]
     pub mode: String,
+    /// The key this step is known by, and that other steps name in `depends_on`. Left out, it is
+    /// the generated `<role>-<n>`.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// This step's own instruction.
+    #[serde(default)]
+    pub prompt: String,
+    /// Ids of steps declared before this one. An empty list is a task that waits for nothing;
+    /// leaving the field out entirely follows the step before it, which is what a caller that
+    /// predates the graph means by an ordered list.
+    #[serde(default)]
+    pub depends_on: Option<Vec<String>>,
+    /// `""`/`shared`, or `own` for a checkout of this step's alone.
+    #[serde(default)]
+    pub workspace: String,
 }
-pub const MAX_WORKFLOW_STEPS: usize = 8;
+pub const MAX_WORKFLOW_STEPS: usize = 64;
+/// A step's own instruction is bounded like the workflow objective it stands in for.
+pub const MAX_STEP_PROMPT: usize = 128 * 1024;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CreateAgentWorkflow {
     pub project_id: String,
     pub backend: String,
@@ -261,6 +524,9 @@ pub struct CreateAgentWorkflow {
     pub check_commands: Vec<String>,
     #[serde(default)]
     pub auto_progress: bool,
+    /// How many steps may run at once. 0 derives the bound from the capacity settings.
+    #[serde(default)]
+    pub concurrency: u32,
     /// The roles to run, in order. Empty keeps the two-role shape built from `backend` and
     /// `reviewer_backend`, so a caller that predates steps behaves exactly as before.
     #[serde(default)]
@@ -280,64 +546,182 @@ impl AgentWorkflow {
     /// migrated step names no target and points at the session that ran it instead of inventing one.
     /// The review's connection was stored on the workflow, so that step keeps it.
     pub(super) fn ensure_steps(&mut self) {
-        if !self.steps.is_empty() {
+        if self.steps.is_empty() {
+            self.steps = vec![
+                WorkflowStep {
+                    id: "implement".into(),
+                    role: "implement".into(),
+                    session_id: Some(self.implementation_session_id.clone()),
+                    // A migrated workflow's progress is whatever its stage already said.
+                    status: if self.stage == "implementation_ready" {
+                        "pending".into()
+                    } else if self.stage == "implementing" {
+                        "running".into()
+                    } else if self.stage == "implementation_failed" {
+                        "failed".into()
+                    } else {
+                        "completed".into()
+                    },
+                    input_revision: Some(self.base_revision.clone()),
+                    ..WorkflowStep::migrated()
+                },
+                WorkflowStep {
+                    id: "review".into(),
+                    role: "review".into(),
+                    target: self.reviewer_backend.clone(),
+                    model: self.reviewer_model.clone(),
+                    session_id: self.review_session_id.clone(),
+                    input_step_id: Some("implement".into()),
+                    depends_on: vec!["implement".into()],
+                    status: match self.stage.as_str() {
+                        "reviewing" => "running".into(),
+                        "review_failed" => "failed".into(),
+                        _ if self.review_session_id.is_some() => "completed".into(),
+                        _ => "pending".into(),
+                    },
+                    input_revision: self.review_fingerprint.clone(),
+                    ..WorkflowStep::migrated()
+                },
+            ];
             return;
         }
-        self.steps = vec![
-            WorkflowStep {
-                id: "implement".into(),
-                role: "implement".into(),
-                target: String::new(),
-                model: String::new(),
-                effort: String::new(),
-                mode: String::new(),
-                session_id: Some(self.implementation_session_id.clone()),
-                input_step_id: None,
-                // A migrated workflow's progress is whatever its stage already said.
-                status: if self.stage == "implementation_ready" {
-                    "pending".into()
-                } else if self.stage == "implementing" {
-                    "running".into()
-                } else if self.stage == "implementation_failed" {
-                    "failed".into()
-                } else {
-                    "completed".into()
-                },
-                input_revision: Some(self.base_revision.clone()),
-            },
-            WorkflowStep {
-                id: "review".into(),
-                role: "review".into(),
-                target: self.reviewer_backend.clone(),
-                model: self.reviewer_model.clone(),
-                effort: String::new(),
-                mode: String::new(),
-                session_id: self.review_session_id.clone(),
-                input_step_id: Some("implement".into()),
-                status: match self.stage.as_str() {
-                    "reviewing" => "running".into(),
-                    "review_failed" => "failed".into(),
-                    _ if self.review_session_id.is_some() => "completed".into(),
-                    _ => "pending".into(),
-                },
-                input_revision: self.review_fingerprint.clone(),
-            },
-        ];
+        // Rows written before a workflow was a graph read as the chain they declared: a step with no
+        // dependencies of its own keeps the single predecessor it recorded. The pass is idempotent —
+        // a genuine root has no `input_step_id` to fold in — so re-reading a row changes nothing.
+        self.normalize_steps();
+    }
+
+    /// Fill in what a graph needs from what a chain recorded, without touching anything already set.
+    pub(super) fn normalize_steps(&mut self) {
+        for step in &mut self.steps {
+            if step.depends_on.is_empty() {
+                if let Some(previous) = step.input_step_id.clone() {
+                    step.depends_on.push(previous);
+                }
+            }
+            step.input_step_id = step.depends_on.first().cloned();
+            if step.workspace.trim().is_empty() {
+                step.workspace = "shared".into();
+            }
+        }
     }
     pub fn step(&self, id: &str) -> Option<&WorkflowStep> {
         self.steps.iter().find(|step| step.id == id)
     }
-    /// The step the workflow is on: the running one, else the first that has not completed. A failed
-    /// step stays current, because retrying it is the explicit next action rather than skipping it.
+    /// The step the workflow is on: the running one, else the first that could start now, else the
+    /// first that has not completed. A failed step stays current, because retrying it is the explicit
+    /// next action rather than skipping it.
     pub fn current_step(&self) -> Option<&WorkflowStep> {
         self.steps
             .iter()
             .find(|step| step.status == "running")
+            .or_else(|| self.runnable_steps().into_iter().next())
             .or_else(|| self.steps.iter().find(|step| step.status != "completed"))
     }
-    fn current_step_mut(&mut self) -> Option<&mut WorkflowStep> {
-        let id = self.current_step()?.id.clone();
-        self.steps.iter_mut().find(|step| step.id == id)
+    /// Steps that could start right now: waiting, with every step they depend on completed and, for
+    /// a dependency that produced changes in a checkout of its own, landed in the shared one.
+    pub fn runnable_steps(&self) -> Vec<&WorkflowStep> {
+        self.steps
+            .iter()
+            .filter(|step| step.status == "pending" && self.dependencies_ready(step))
+            .collect()
+    }
+    fn dependencies_ready(&self, step: &WorkflowStep) -> bool {
+        step.depends_on.iter().all(|id| {
+            self.step(id).is_some_and(|dependency| {
+                dependency.status == "completed" && !self.awaiting_join(dependency)
+            })
+        })
+    }
+    /// Producing steps whose result has not yet been applied to the shared checkout.
+    pub fn unjoined(&self) -> Vec<&WorkflowStep> {
+        self.steps
+            .iter()
+            .filter(|step| self.awaiting_join(step))
+            .collect()
+    }
+    fn awaiting_join(&self, step: &WorkflowStep) -> bool {
+        workflow_role_produces(&step.role)
+            && step.owns_workspace()
+            && step.status == "completed"
+            && !matches!(
+                step.merge.as_ref().map(|merge| merge.status.as_str()),
+                Some("applied") | Some("empty")
+            )
+    }
+    /// Whether this step is the review that unlocks integration: it reads the shared checkout and
+    /// every step that produces work is behind it, so what it saw is the finished result.
+    pub fn gates_integration(&self, step: &WorkflowStep) -> bool {
+        if workflow_role_produces(&step.role) || step.owns_workspace() {
+            return false;
+        }
+        let ancestors = self.ancestors(&step.id);
+        self.steps
+            .iter()
+            .filter(|other| workflow_role_produces(&other.role))
+            .all(|producer| ancestors.contains(&producer.id))
+    }
+    fn ancestors(&self, id: &str) -> std::collections::BTreeSet<String> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut pending: Vec<String> = match self.step(id) {
+            Some(step) => step.depends_on.clone(),
+            None => vec![],
+        };
+        while let Some(next) = pending.pop() {
+            if !seen.insert(next.clone()) {
+                continue;
+            }
+            if let Some(step) = self.step(&next) {
+                pending.extend(step.depends_on.iter().cloned());
+            }
+        }
+        seen
+    }
+    /// The stage the step graph itself is in.
+    ///
+    /// With several steps able to run at once there is no single step whose state is the workflow's,
+    /// so the stage is read off the graph: what is running, what failed, and whether anything is
+    /// still to do. The phases that own the checkout as a whole — setup, checks, integration — keep
+    /// writing their own stage and are never derived.
+    pub fn steps_stage(&self) -> String {
+        let running: Vec<&WorkflowStep> = self
+            .steps
+            .iter()
+            .filter(|step| step.status == "running")
+            .collect();
+        if running
+            .iter()
+            .any(|step| workflow_role_produces(&step.role))
+        {
+            return "implementing".into();
+        }
+        if !running.is_empty() {
+            return "reviewing".into();
+        }
+        if let Some(stopped) = self
+            .steps
+            .iter()
+            .find(|step| matches!(step.status.as_str(), "failed" | "blocked"))
+        {
+            return if workflow_role_produces(&stopped.role) {
+                "implementation_failed"
+            } else {
+                "review_failed"
+            }
+            .into();
+        }
+        if self.steps.iter().all(|step| step.status == "completed") && self.unjoined().is_empty() {
+            return "checks_ready".into();
+        }
+        if self
+            .runnable_steps()
+            .iter()
+            .any(|step| workflow_role_produces(&step.role))
+        {
+            "implementation_ready".into()
+        } else {
+            "review_ready".into()
+        }
     }
     /// The revision a step begins from: whatever its declared input actually produced, or the
     /// workflow's base when it follows nothing.
@@ -379,14 +763,17 @@ impl AgentManager {
         })
         .collect()
     }
-    fn workflow(&self, id: &str) -> AppResult<AgentWorkflow> {
+    pub(super) fn workflow(&self, id: &str) -> AppResult<AgentWorkflow> {
         self.workflow_rows()?
             .into_iter()
             .find(|w| w.id == id)
             .ok_or_else(|| invalid("Unknown agent workflow"))
     }
-    fn save_workflow(&self, w: &mut AgentWorkflow) -> AppResult<()> {
+    pub(super) fn save_workflow(&self, w: &mut AgentWorkflow) -> AppResult<()> {
         w.updated_at = now();
+        // `input_step_id` is written for readers that predate the graph, so it never drifts from the
+        // dependency it stands for.
+        w.normalize_steps();
         self.state.lock().db.conn.execute("INSERT INTO agent_workflows(id,data) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET data=excluded.data", params![w.id, serde_json::to_string(w)?])
             .map_err(|e| AppError::other(e.to_string()))?;
         Ok(())
@@ -396,6 +783,22 @@ impl AgentManager {
             if w.auto_progress && !matches!(w.stage.as_str(), "integrated" | "ready") {
                 w.auto_progress = false;
                 w.error = Some("Automatic progression paused after restart. Inspect the workspace and choose the next step explicitly.".into());
+                self.save_workflow(&mut w)?;
+            }
+            // A step that was running when RunHQ exited is not running now. Its checkout and
+            // evidence are kept; restarting it is an explicit action.
+            if w.steps.iter().any(|step| step.status == "running") {
+                for step in w.steps.iter_mut().filter(|step| step.status == "running") {
+                    step.status = "failed".into();
+                    step.finished_at = Some(now());
+                    step.error = Some(
+                        "RunHQ exited while this step was running; nothing was replayed.".into(),
+                    );
+                }
+                w.generation += 1;
+                if workflow_step_stage(&w.stage) {
+                    w.stage = w.steps_stage();
+                }
                 self.save_workflow(&mut w)?;
             }
             if matches!(w.stage.as_str(), "setting_up" | "checking" | "integrating") {
@@ -424,16 +827,23 @@ impl AgentManager {
             return Err(invalid("Independent reviews stay in read-only plan mode"));
         }
         for w in self.workflow_rows()? {
-            if w.review_session_id.as_deref() == Some(&session.id)
+            let reviewing = w.review_session_id.as_deref() == Some(&session.id)
+                || w.steps.iter().any(|step| {
+                    step.session_id.as_deref() == Some(&session.id)
+                        && !workflow_role_produces(&step.role)
+                });
+            if reviewing
                 && (input.mode.as_deref().unwrap_or(&session.mode) != "plan"
                     || !input.agent.as_deref().unwrap_or(&session.agent).is_empty())
             {
                 return Err(invalid("Independent workflow reviews stay in read-only plan mode. Continue implementation in its original task."));
             }
-            if (w.implementation_session_id == session.id
-                || w.review_session_id.as_deref() == Some(&session.id))
-                && (w.cleaned || w.stage == "integrated")
-            {
+            let belongs = w.implementation_session_id == session.id
+                || w.review_session_id.as_deref() == Some(&session.id)
+                || w.steps
+                    .iter()
+                    .any(|step| step.session_id.as_deref() == Some(&session.id));
+            if belongs && (w.cleaned || w.stage == "integrated") {
                 return Err(invalid("This workflow has been integrated or cleaned up. Create a new task for further changes."));
             }
         }
@@ -454,44 +864,84 @@ impl AgentManager {
         state.workflow_leases.insert(key.clone(), root);
         Ok(WorkflowLease { manager: self, key })
     }
-    async fn reconcile_workflow(&self, w: &mut AgentWorkflow) -> AppResult<()> {
+    pub(super) async fn reconcile_workflow(&self, w: &mut AgentWorkflow) -> AppResult<()> {
         let old = serde_json::to_string(w)?;
         // A running step is finished by its session, not by a stage name. The stage then says what
         // the workflow as a whole is waiting for: another step, or validation once every step ran.
-        if matches!(w.stage.as_str(), "implementing" | "reviewing") {
-            let running = w
-                .current_step()
+        if workflow_step_stage(&w.stage) {
+            // Every running step is settled from its own session, not one of them from the stage.
+            let running: Vec<(String, Option<String>, u64)> = w
+                .steps
+                .iter()
                 .filter(|step| step.status == "running")
-                .cloned();
-            if let Some(step) = running {
-                let session = step.session_id.as_ref().map(|id| self.session(id));
-                if let Some(session) = session.transpose()? {
-                    if !session.active() {
-                        let produced = workflow_role_produces(&step.role);
-                        let completed = session.status == "completed";
-                        if let Some(current) = w.current_step_mut() {
-                            current.status = if completed { "completed" } else { "failed" }.into();
-                        }
-                        w.stage = match (completed, produced) {
-                            (false, true) => "implementation_failed".into(),
-                            (false, false) => "review_failed".into(),
-                            // Every step having run is what makes validation the next thing to do.
-                            (true, _) => {
-                                if w.steps.iter().all(|step| step.status == "completed") {
-                                    "checks_ready".into()
-                                } else if workflow_role_produces(
-                                    &w.current_step().map(|s| s.role.clone()).unwrap_or_default(),
-                                ) {
-                                    "implementation_ready".into()
-                                } else {
-                                    "review_ready".into()
-                                }
-                            }
-                        };
-                        w.error = session.last_error;
-                    }
+                .map(|step| (step.id.clone(), step.session_id.clone(), step.generation))
+                .collect();
+            let mut failure: Option<String> = None;
+            let mut settled = false;
+            let mut shared_result = false;
+            for (id, session_id, generation) in running {
+                let Some(session) = session_id.map(|id| self.session(&id)).transpose()? else {
+                    continue;
+                };
+                if session.active() {
+                    continue;
+                }
+                // A turn that outlived the workflow it was started in is recorded as superseded: its
+                // result belongs to a revision the workflow has already moved past.
+                let superseded = generation != w.generation;
+                let completed = session.status == "completed" && !superseded;
+                if !completed && failure.is_none() {
+                    failure = Some(if superseded {
+                        "A step finished after the workflow moved on; its result was not counted."
+                            .into()
+                    } else {
+                        session
+                            .last_error
+                            .clone()
+                            .unwrap_or_else(|| format!("Step {id} did not complete"))
+                    });
+                }
+                settled = true;
+                if let Some(step) = w.steps.iter_mut().find(|step| step.id == id) {
+                    shared_result |=
+                        completed && workflow_role_produces(&step.role) && !step.owns_workspace();
+                    step.status = if completed { "completed" } else { "failed" }.into();
+                    step.finished_at = Some(now());
+                    step.error = if completed { None } else { failure.clone() };
                 }
             }
+            if shared_result {
+                // Changes produced by a declared shared step are expected. Record them before
+                // joining a sibling's result, whose staleness guard rejects outside edits.
+                let _lease = self.workflow_lease(Path::new(&w.root))?;
+                w.current_fingerprint = Some(self.workflow_fingerprint(Path::new(&w.root)).await?);
+            }
+            // An error is the last settled step's, so a finished step clears the one before it — and
+            // a refresh that settled nothing leaves whatever was recorded standing.
+            if settled {
+                w.error = failure;
+            }
+            // What a step produced in a checkout of its own is written down as soon as it finishes,
+            // so a step that follows it has a revision to branch from.
+            let produced: Vec<String> = w
+                .steps
+                .iter()
+                .filter(|step| {
+                    step.status == "completed"
+                        && step.owns_workspace()
+                        && step.output_revision.is_none()
+                        && step.root.is_some()
+                })
+                .map(|step| step.id.clone())
+                .collect();
+            for id in produced {
+                if let Err(error) = self.workflow_record_output(w, &id).await {
+                    w.error = Some(format!(
+                        "Recording what step {id:?} produced failed: {error}"
+                    ));
+                }
+            }
+            w.stage = w.steps_stage();
         }
         if !w.cleaned
             && matches!(
@@ -505,20 +955,18 @@ impl AgentManager {
                     if matches!(w.stage.as_str(), "checks_ready" | "checks_failed" | "ready")
                         && w.review_fingerprint.as_ref() != Some(&current)
                     {
-                        w.stage = "review_ready".into();
                         w.preview = None;
-                        // The review that has been invalidated becomes the step to run again.
+                        // Every review that read an older revision becomes a step to run again.
                         // Without this the workflow would have no current step and nothing could
                         // be started, leaving a changed workspace stuck short of validation.
-                        if let Some(step) = w
-                            .steps
-                            .iter_mut()
-                            .rev()
-                            .find(|step| !workflow_role_produces(&step.role))
-                        {
+                        for step in w.steps.iter_mut().filter(|step| {
+                            !workflow_role_produces(&step.role)
+                                && step.input_revision.as_ref() != Some(&current)
+                        }) {
                             step.status = "pending".into();
                             step.input_revision = None;
                         }
+                        w.stage = "review_ready".into();
                         w.error = Some("The workspace changed after review. Review this revision again before validation and integration.".into());
                     }
                 }
@@ -543,12 +991,17 @@ impl AgentManager {
     }
     pub async fn workflow_create(&self, input: CreateAgentWorkflow) -> AppResult<AgentWorkflow> {
         let _gate = self.workflow_gate.lock().await;
-        if input.objective.trim().is_empty()
-            || input.objective.len() > 128 * 1024
-            || input.acceptance.len() > 64 * 1024
-        {
+        // A workflow says what it is for either in one brief or in the tasks themselves, and with
+        // dozens of tasks the brief is often the redundant half.
+        let described = !input.objective.trim().is_empty()
+            || (!input.steps.is_empty()
+                && input
+                    .steps
+                    .iter()
+                    .all(|step| !step.prompt.trim().is_empty()));
+        if !described || input.objective.len() > 128 * 1024 || input.acceptance.len() > 64 * 1024 {
             return Err(invalid(
-                "Provide a task objective and bounded acceptance criteria",
+                "Give this workflow an objective, or an instruction for every task, with bounded acceptance criteria",
             ));
         }
         validate_commands(&input.check_commands, true)?;
@@ -560,26 +1013,7 @@ impl AgentManager {
                 "A workflow runs at most {MAX_WORKFLOW_STEPS} steps"
             )));
         }
-        for step in &input.steps {
-            if !WORKFLOW_ROLES.contains(&step.role.as_str()) {
-                return Err(invalid(format!("Unsupported workflow role: {}", step.role)));
-            }
-            if step.target.trim().is_empty() {
-                return Err(invalid("Every step needs an account or pool to run it"));
-            }
-        }
-        if !input.steps.is_empty() {
-            if !workflow_role_produces(&input.steps[0].role) {
-                return Err(invalid(
-                    "The first step must produce work; a review has nothing to read before it",
-                ));
-            }
-            if !input.steps.iter().any(|step| step.role == "review") {
-                return Err(invalid(
-                    "A workflow needs an independent review before its work can be integrated",
-                ));
-            }
-        }
+        validate_declared_graph(&input.steps)?;
         // Reviewing roles need a real read-only mode, whichever step asks for one.
         let reviewer_targets: Vec<String> = if input.steps.is_empty() {
             vec![input.reviewer_backend.clone()]
@@ -622,10 +1056,18 @@ impl AgentManager {
         .await?
         .trim()
         .to_string();
+        // The name is the brief's first line, or — when the tasks carry the description — the first
+        // task's, so a workflow is never listed as "Agent workflow".
         let title: String = input
             .objective
             .lines()
-            .next()
+            .find(|line| !line.trim().is_empty())
+            .or_else(|| {
+                input
+                    .steps
+                    .first()
+                    .and_then(|step| step.prompt.lines().find(|line| !line.trim().is_empty()))
+            })
             .unwrap_or("Agent workflow")
             .chars()
             .take(100)
@@ -635,11 +1077,14 @@ impl AgentManager {
                 CreateAgentSession {
                     creation_request_id: None,
                     project_id: input.project_id.clone(),
-                    backend: input
-                        .steps
-                        .first()
-                        .map(|step| step.target.clone())
-                        .unwrap_or(input.backend),
+                    backend: self.resolve_step_target(
+                        input
+                            .steps
+                            .first()
+                            .map(|step| step.target.as_str())
+                            .unwrap_or(&input.backend),
+                        false,
+                    )?,
                     executable: String::new(),
                     title: title.clone(),
                     model: input
@@ -696,13 +1141,15 @@ impl AgentManager {
             updated_at: now(),
             cleaned: false,
             auto_progress: input.auto_progress,
+            concurrency: input.concurrency,
+            joined: vec![],
             generation: 0,
             transferred_files: vec![],
             integration_branch: None,
             integration_commit: None,
         };
         w.steps =
-            workflow_declared_steps(&input.steps, &w.implementation_session_id, &w.base_revision);
+            workflow_declared_graph(&input.steps, &w.implementation_session_id, &w.base_revision);
         w.ensure_steps();
         if !w.setup_commands.is_empty() {
             w.stage = "setup_ready".into();
@@ -737,12 +1184,86 @@ impl AgentManager {
         let w = self.workflow_run_step_inner(id).await?;
         // Automatic progression is started only from an explicit action. Keeping the spawn out of
         // the inner path also keeps the async call graph acyclic, which auto-trait inference needs.
-        if w.auto_progress && w.stage == "implementing" {
+        if w.auto_progress {
             let manager = Arc::clone(self);
             let workflow_id = w.id.clone();
             let generation = w.generation;
             tokio::spawn(async move {
-                manager.advance_workflow(workflow_id, generation).await;
+                manager
+                    .workflow_scheduler_loop(workflow_id, generation)
+                    .await;
+            });
+        }
+        Ok(w)
+    }
+
+    /// Run one named task, whichever role it plays.
+    ///
+    /// With a graph there is rarely one obvious next step, so a person points at the one they mean.
+    /// It still has to be a task that could run: its dependencies finished, their results landed,
+    /// and a free checkout and account to run in.
+    pub async fn workflow_run_named_step(
+        self: &Arc<Self>,
+        id: &str,
+        step_id: &str,
+    ) -> AppResult<AgentWorkflow> {
+        let outcome =
+            {
+                let _gate = self.workflow_gate.lock().await;
+                let mut w = self.workflow(id)?;
+                self.reconcile_workflow(&mut w).await?;
+                if !Self::workflow_accepts_steps(&w) {
+                    return Err(invalid(
+                        "Finish setup or stop this workflow's current operation first",
+                    ));
+                }
+                // Retry is an explicit action. Scheduling still considers pending steps only,
+                // so failures never replay themselves in the background.
+                if let Some(step) = w.steps.iter_mut().find(|step| step.id == step_id) {
+                    if step.status == "failed" {
+                        step.status = "pending".into();
+                    }
+                }
+                let step = w
+                    .step(step_id)
+                    .cloned()
+                    .ok_or_else(|| invalid("Unknown workflow step"))?;
+                match self.workflow_step_wait(&w, &step, &[]) {
+                    StepWait::Ready => {}
+                    StepWait::Dependencies => {
+                        return Err(invalid(
+                            "This task is waiting for the tasks it depends on to finish",
+                        ))
+                    }
+                    StepWait::Checkout => {
+                        return Err(invalid(
+                            "Another agent is using the checkout this task runs in",
+                        ))
+                    }
+                    StepWait::Capacity => return Err(invalid(
+                        "No free account slot for this task. Wait, or change capacity settings.",
+                    )),
+                    StepWait::WorkflowLimit => {
+                        return Err(invalid(
+                            "This workflow is already running as many tasks at once as it allows",
+                        ))
+                    }
+                }
+                if workflow_role_produces(&step.role) {
+                    self.workflow_start_producing(&mut w, step).await
+                } else {
+                    self.workflow_start_reviewing(&mut w, step).await
+                }
+            };
+        let w = outcome?;
+        if w.auto_progress {
+            let manager = Arc::clone(self);
+            let workflow_id = w.id.clone();
+            let generation = w.generation;
+            tokio::spawn(async move {
+                manager
+                    .workflow_scheduler_loop(workflow_id, generation)
+                    .await;
             });
         }
         Ok(w)
@@ -795,7 +1316,7 @@ impl AgentManager {
         }
     }
 
-    async fn workflow_start_producing(
+    pub(super) async fn workflow_start_producing(
         self: &Arc<Self>,
         w: &mut AgentWorkflow,
         step: WorkflowStep,
@@ -803,18 +1324,61 @@ impl AgentManager {
         if !w.setup_commands.is_empty() && !commands_passed(&w.setup_commands, &w.setup) {
             return Err(invalid("Complete the setup commands before implementation"));
         }
-        // The first producing step owns the session created with the workflow; a later one opens
-        // its own in the same checkout, because a session belongs to the account that started it.
+        let target = match &step.session_id {
+            Some(id) => self.session(id)?.backend,
+            None => self.resolve_step_target(&step.target, false)?,
+        };
+        // The first producing step owns the session created with the workflow; a later one opens its
+        // own, because a session belongs to the account that started it. A step that asked for a
+        // checkout of its own gets one here, branched from what its dependencies produced — that is
+        // what lets two producing steps run at the same time, since one checkout never carries two.
         let session = match &step.session_id {
             Some(id) => self.session(id)?,
+            None if step.owns_workspace() => {
+                let base = self.workflow_branch_point(w, &step).await?;
+                let created = self
+                    .create_at_base(
+                        CreateAgentSession {
+                            creation_request_id: None,
+                            project_id: w.project_id.clone(),
+                            backend: target.clone(),
+                            executable: String::new(),
+                            title: workflow_step_title(w, &step),
+                            model: step.model.clone(),
+                            effort: step.effort.clone(),
+                            mode: "default".into(),
+                            agent: String::new(),
+                            isolated: true,
+                        },
+                        &base,
+                    )
+                    .await?;
+                let root = git_toplevel(Path::new(&created.cwd))
+                    .await?
+                    .to_string_lossy()
+                    .into_owned();
+                let cwd: String = PathBuf::from(&created.cwd)
+                    .canonicalize()?
+                    .to_string_lossy()
+                    .into();
+                // The environment a workflow was given belongs to every checkout it opens, or a
+                // parallel step would run without the files the shared one was set up with.
+                self.workflow_copy_transferred(w, Path::new(&cwd))?;
+                if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
+                    current.cwd = Some(cwd);
+                    current.root = Some(root);
+                    current.input_revision = Some(base.clone());
+                }
+                created
+            }
             None => {
                 let created = self
                     .create(CreateAgentSession {
                         creation_request_id: None,
                         project_id: w.project_id.clone(),
-                        backend: step.target.clone(),
+                        backend: target.clone(),
                         executable: String::new(),
-                        title: format!("{} · {}", workflow_role_title(&step.role), w.title),
+                        title: workflow_step_title(w, &step),
                         model: step.model.clone(),
                         effort: step.effort.clone(),
                         mode: if step.mode.is_empty() {
@@ -835,6 +1399,8 @@ impl AgentManager {
                 })?
             }
         };
+        // A step reloads the shape it may have just been given a checkout in.
+        let step = w.step(&step.id).cloned().unwrap_or(step);
         let review_context = self.workflow_review_findings(w);
         let failed_checks = w
             .checks
@@ -850,30 +1416,48 @@ impl AgentManager {
             })
             .collect::<Vec<_>>()
             .join("\n\n");
-        let input_revision = w.step_input_revision(&step);
+        // A step in its own checkout branched from a revision that was recorded when it was created;
+        // one in the shared checkout starts from wherever that stands.
+        let input_revision = step
+            .input_revision
+            .clone()
+            .filter(|_| step.owns_workspace())
+            .unwrap_or_else(|| w.step_input_revision(&step));
         w.review_fingerprint = None;
         w.preview = None;
         w.checks.clear();
         w.error = None;
         w.stage = "implementing".into();
-        w.generation += 1;
-        if let Some(current) = w.current_step_mut() {
+        let generation = w.generation;
+        if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
             current.status = "running".into();
             current.session_id = Some(session.id.clone());
             current.input_revision = Some(input_revision.clone());
+            // A step remembers the generation it belongs to, so a turn that finishes after the
+            // workflow moved on is recorded as superseded instead of counted.
+            current.generation = generation;
+            current.started_at = Some(now());
+            current.finished_at = None;
+            current.error = None;
+            current.merge = None;
+            current.output_tree = None;
+            current.output_revision = None;
             if current.target.is_empty() {
                 current.target = session.backend.clone();
             }
         }
-        // The legacy field keeps naming the session that works in the checkout, so everything that
-        // still reads it — recovery, fingerprints, the review's branch — keeps agreeing.
-        w.implementation_session_id = session.id.clone();
+        // The legacy field keeps naming the session that works in the workflow's own checkout, so
+        // everything that still reads it — recovery, fingerprints, the review's branch — keeps
+        // agreeing. A step working somewhere else is not that session.
+        if !step.owns_workspace() {
+            w.implementation_session_id = session.id.clone();
+        }
         self.save_workflow(w)?;
         let prompt = format!(
             "{}\n\nAcceptance criteria:\n{}\n\nWorkflow: {} in this isolated checkout. Do not merge, push, or apply changes to the original project. An independent agent will review your changes against base {} and RunHQ will execute these checks: {}.\nSummarize the result and remaining risks.\n\nPrevious independent review (when revising, address its findings or explain why they do not apply):\n{}\n\nRecorded failed checks from the previous attempt:\n{}",
-            w.objective,
+            workflow_step_task(w, &step),
             w.acceptance,
-            workflow_role_instruction(&step.role),
+            workflow_step_instruction(&step),
             input_revision,
             w.check_commands.join("; "),
             review_context,
@@ -892,22 +1476,44 @@ impl AgentManager {
             })
             .await
         {
-            w.stage = "implementation_failed".into();
             w.error = Some(error.to_string());
-            if let Some(current) = w.current_step_mut() {
+            if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
                 current.status = "failed".into();
+                current.finished_at = Some(now());
+                current.error = Some(error.to_string());
             }
+            // The stage follows from the steps: a sibling that is still running is still running.
+            w.stage = w.steps_stage();
             self.save_workflow(w)?;
         }
         Ok(w.clone())
     }
 
-    async fn workflow_start_reviewing(
+    pub(super) async fn workflow_start_reviewing(
         self: &Arc<Self>,
         w: &mut AgentWorkflow,
         step: WorkflowStep,
     ) -> AppResult<AgentWorkflow> {
-        if self.session(&w.implementation_session_id)?.status != "completed" {
+        // What this review reads is what the steps it depends on produced, so those must have
+        // finished and — for one that worked in a checkout of its own — have landed here.
+        for id in &step.depends_on {
+            let Some(dependency) = w.step(id) else {
+                continue;
+            };
+            if dependency.status != "completed" {
+                return Err(invalid(format!(
+                    "Step {id:?} must complete successfully before this review"
+                )));
+            }
+            if w.unjoined().iter().any(|step| &step.id == id) {
+                return Err(invalid(format!(
+                    "Step {id:?} has not been applied to this workflow's checkout yet"
+                )));
+            }
+        }
+        if step.depends_on.is_empty()
+            && self.session(&w.implementation_session_id)?.status != "completed"
+        {
             return Err(invalid(
                 "The implementation task must complete successfully before review",
             ));
@@ -926,10 +1532,10 @@ impl AgentManager {
                 backend: if step.target.is_empty() {
                     w.reviewer_backend.clone()
                 } else {
-                    step.target.clone()
+                    self.resolve_step_target(&step.target, true)?
                 },
                 executable: String::new(),
-                title: format!("{} · {}", workflow_role_title(&step.role), w.title),
+                title: workflow_step_title(w, &step),
                 model: if step.model.is_empty() {
                     w.reviewer_model.clone()
                 } else {
@@ -957,16 +1563,21 @@ impl AgentManager {
         w.checks.clear();
         w.stage = "reviewing".into();
         w.error = None;
-        if let Some(current) = w.current_step_mut() {
+        let generation = w.generation;
+        if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
             current.status = "running".into();
             current.session_id = Some(reviewer.id.clone());
             current.input_revision = Some(fingerprint.clone());
+            current.generation = generation;
+            current.started_at = Some(now());
+            current.finished_at = None;
+            current.error = None;
             if current.target.is_empty() {
                 current.target = reviewer.backend.clone();
             }
         }
         self.save_workflow(w)?;
-        let prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", w.objective, w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
+        let prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", workflow_step_task(w, &step), w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
         if let Err(error) = self
             .start(AgentTurnInput {
                 session_id: reviewer.id,
@@ -980,11 +1591,14 @@ impl AgentManager {
             })
             .await
         {
-            w.stage = "review_failed".into();
             w.error = Some(error.to_string());
-            if let Some(current) = w.current_step_mut() {
+            if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
                 current.status = "failed".into();
+                current.finished_at = Some(now());
+                current.error = Some(error.to_string());
             }
+            // The stage follows from the steps: a sibling that is still running is still running.
+            w.stage = w.steps_stage();
             self.save_workflow(w)?;
         }
         Ok(w.clone())
@@ -1021,16 +1635,25 @@ impl AgentManager {
         let dir = self.home.join("workflow-indexes");
         std::fs::create_dir_all(&dir)?;
         let index = dir.join(uuid::Uuid::new_v4().to_string());
-        let workflow = self
-            .workflow_rows()?
-            .into_iter()
-            .find(|w| Path::new(&w.root) == root);
+        // A step that works in a checkout of its own is still this workflow's, so the environment
+        // files it was given are excluded from its fingerprint too.
+        let workflow = self.workflow_rows()?.into_iter().find(|w| {
+            Path::new(&w.root) == root
+                || w.steps
+                    .iter()
+                    .any(|step| step.root.as_deref().map(Path::new) == Some(root))
+        });
         let environment: Vec<PathBuf> = workflow
             .as_ref()
             .map(|w| {
+                // The environment sits where the workflow's own checkout keeps it, at the same
+                // place inside whichever checkout is being fingerprinted.
+                let inside = Path::new(&w.cwd)
+                    .strip_prefix(&w.root)
+                    .unwrap_or(Path::new(""));
                 w.transferred_files
                     .iter()
-                    .map(|file| Path::new(&w.cwd).join(&file.path))
+                    .map(|file| root.join(inside).join(&file.path))
                     .collect()
             })
             .unwrap_or_default();
@@ -1113,27 +1736,286 @@ impl AgentManager {
             hash_bytes(root, &serde_json::to_vec(&evidence)?).await?
         ))
     }
-    async fn workflow_patch(&self, w: &AgentWorkflow, tree: &str) -> AppResult<String> {
-        let tree = tree
-            .split(':')
-            .next()
-            .ok_or_else(|| invalid("Invalid workspace fingerprint"))?;
-        let patch = git_output(
-            Path::new(&w.root),
-            &[
-                "diff",
-                "--binary",
-                "--no-ext-diff",
-                &w.base_revision,
-                tree,
-                "--",
-            ],
+    /// The account a step actually runs on.
+    ///
+    /// A pool names interchangeable accounts and is resolved when the step starts, not when it is
+    /// declared, so the choice reflects what is free at that moment. The step keeps naming the pool;
+    /// the session records which member was chosen.
+    pub(super) fn resolve_step_target(&self, target: &str, read_only: bool) -> AppResult<String> {
+        let Some(id) = target.strip_prefix("pool:") else {
+            return Ok(target.to_string());
+        };
+        let record = self
+            .workspace_record(&format!("pool:{id}"))?
+            .ok_or_else(|| invalid(format!("Account pool {id:?} no longer exists")))?;
+        let members: Vec<String> = record.value["accounts"]
+            .as_array()
+            .map(|accounts| {
+                accounts
+                    .iter()
+                    .filter_map(|account| account.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let cooldowns = self
+            .workspace_record("preferences:cooldowns")?
+            .map(|record| record.value)
+            .unwrap_or(Value::Null);
+        let state = self.state.lock();
+        let mut best: Option<(String, usize)> = None;
+        for member in members {
+            let Some(tool) = state.tools.get(&member) else {
+                continue;
+            };
+            if !tool.enabled
+                || resolve_executable(&tool.executable, "").is_err()
+                || (read_only && !matches!(tool.adapter.as_str(), "codex" | "claude"))
+                || cooldowns[&member]["until"]
+                    .as_f64()
+                    .is_some_and(|until| until > now() as f64)
+            {
+                continue;
+            }
+            let (global, provider) = Self::capacity_limits(&state.db.conn, &member)?;
+            if state.running.len() >= global {
+                return Err(invalid("Waiting for a global execution slot"));
+            }
+            let busy = state
+                .running
+                .keys()
+                .filter(|id| {
+                    state
+                        .sessions
+                        .get(*id)
+                        .is_some_and(|session| session.backend == member)
+                })
+                .count();
+            let free = provider.saturating_sub(busy);
+            if free > 0 && best.as_ref().map_or(true, |(_, previous)| free > *previous) {
+                best = Some((member, free));
+            }
+        }
+        best.map(|(member, _)| member).ok_or_else(|| {
+            invalid(format!(
+                "Every compatible account in pool {id:?} is busy, on cool-down, or unavailable"
+            ))
+        })
+    }
+
+    /// The revision a step's own checkout branches from.
+    ///
+    /// One producing dependency means that step's result; several mean their results merged in the
+    /// object database, which is also where a disagreement between them shows up — and where it
+    /// stops, because a step whose inputs conflict is not started.
+    async fn workflow_branch_point(
+        &self,
+        w: &AgentWorkflow,
+        step: &WorkflowStep,
+    ) -> AppResult<String> {
+        let mut revisions: Vec<String> = Vec::new();
+        for id in &step.depends_on {
+            let Some(dependency) = w.step(id) else {
+                continue;
+            };
+            if !workflow_role_produces(&dependency.role) {
+                continue;
+            }
+            let revision = match &dependency.output_revision {
+                Some(revision) => revision.clone(),
+                // A dependency that worked in the shared checkout has its result there; it becomes
+                // something to branch from by being written down as a commit.
+                None => self.workflow_shared_revision(w).await?,
+            };
+            if !revisions.contains(&revision) {
+                revisions.push(revision);
+            }
+        }
+        let Some((first, rest)) = revisions.split_first() else {
+            return Ok(w.base_revision.clone());
+        };
+        let root = Path::new(&w.root);
+        let mut merged = first.clone();
+        for next in rest {
+            match merge_trees(root, &merged, next).await? {
+                Ok(tree) => {
+                    merged = commit_tree(
+                        root,
+                        &tree,
+                        &[merged.clone(), next.clone()],
+                        &format!("runhq: {} · inputs for {}", w.title, step.id),
+                    )
+                    .await?
+                }
+                Err(conflicts) => {
+                    return Err(invalid(format!(
+                        "The results this step builds on disagree and were not merged:\n{conflicts}"
+                    )))
+                }
+            }
+        }
+        Ok(merged)
+    }
+
+    /// The workflow's shared checkout as a commit, so a step can branch from where it stands.
+    async fn workflow_shared_revision(&self, w: &AgentWorkflow) -> AppResult<String> {
+        let root = Path::new(&w.root);
+        let tree = self.workflow_fingerprint(root).await?;
+        commit_tree(
+            root,
+            &tree,
+            std::slice::from_ref(&w.base_revision),
+            &format!("runhq: {} · shared checkout", w.title),
+        )
+        .await
+    }
+
+    /// Copy the environment files a workflow was given into a checkout it has just opened.
+    ///
+    /// Their content is deliberately outside the patch and the database; a step that runs in its own
+    /// checkout still needs them, so they are copied from the workflow's checkout rather than read
+    /// from anywhere they were recorded.
+    fn workflow_copy_transferred(&self, w: &AgentWorkflow, destination: &Path) -> AppResult<()> {
+        for file in &w.transferred_files {
+            let relative = safe_relative_file(&file.path)?;
+            let source = Path::new(&w.cwd).join(&relative);
+            if !source.is_file() {
+                continue;
+            }
+            let target = destination.join(&relative);
+            let parent = target
+                .parent()
+                .ok_or_else(|| invalid("Invalid environment destination"))?;
+            std::fs::create_dir_all(parent)?;
+            std::fs::copy(&source, &target)?;
+            std::fs::set_permissions(&target, std::fs::metadata(&source)?.permissions())?;
+        }
+        Ok(())
+    }
+
+    /// Record what a step that worked in its own checkout produced.
+    ///
+    /// A working tree is not something another step can branch from, so the result is written as a
+    /// commit on that checkout's own branch — the branch `create_at_base` already made for it. The
+    /// index is moved with it, so the step's worktree reads as what it produced rather than as a
+    /// tree full of pending changes.
+    async fn workflow_record_output(&self, w: &mut AgentWorkflow, id: &str) -> AppResult<()> {
+        let Some(step) = w.step(id).cloned() else {
+            return Ok(());
+        };
+        if !workflow_role_produces(&step.role) || !step.owns_workspace() {
+            return Ok(());
+        }
+        let Some(root) = step.root.clone() else {
+            return Ok(());
+        };
+        let root = PathBuf::from(root);
+        let tree = self.workflow_fingerprint(&root).await?;
+        let parent = step
+            .input_revision
+            .clone()
+            .unwrap_or_else(|| w.base_revision.clone());
+        let commit = commit_tree(
+            &root,
+            &tree,
+            &[parent],
+            &format!("runhq: {} · {}", w.title, step.id),
         )
         .await?;
-        if patch.len() > PATCH_LIMIT {
-            return Err(invalid("The change exceeds the 8 MiB integration preview limit; use the Git workspace to inspect and integrate it."));
+        let mut reset: Vec<String> = RUNHQ_COMMITTER.iter().map(|a| a.to_string()).collect();
+        reset.extend(["reset".to_string(), "--mixed".to_string(), commit.clone()]);
+        git_output(&root, &reset.iter().map(String::as_str).collect::<Vec<_>>()).await?;
+        if let Some(step) = w.steps.iter_mut().find(|step| step.id == id) {
+            step.output_tree = Some(tree);
+            step.output_revision = Some(commit);
         }
-        Ok(patch)
+        Ok(())
+    }
+
+    /// Apply what a step produced in its own checkout to the workflow's shared one.
+    ///
+    /// Only this step's own difference is applied, so two steps that ran at the same time do not
+    /// re-apply each other's work. A conflict is recorded with the paths Git named and leaves the
+    /// shared checkout exactly as it was: results that disagree are a decision for the person, and
+    /// until one is made the workflow cannot reach validation or integration.
+    pub(super) async fn workflow_join_step(
+        &self,
+        w: &mut AgentWorkflow,
+        id: &str,
+    ) -> AppResult<()> {
+        let Some(step) = w.step(id).cloned() else {
+            return Ok(());
+        };
+        let (Some(tree), Some(base)) = (step.output_tree.clone(), step.input_revision.clone())
+        else {
+            return Ok(());
+        };
+        let shared = Path::new(&w.root);
+        let _lease = self.workflow_lease(shared)?;
+        let current = self.workflow_fingerprint(shared).await?;
+        if w.current_fingerprint
+            .as_ref()
+            .is_some_and(|known| known != &current)
+        {
+            return Err(invalid(
+                "This workflow's checkout changed outside the workflow. Inspect it before applying more step results.",
+            ));
+        }
+        let patch = workflow_patch_between(shared, &base, &tree).await?;
+        let mut merge = WorkflowStepMerge {
+            applied_at: now(),
+            base_revision: base,
+            source_fingerprint: tree,
+            target_fingerprint: None,
+            patch_bytes: patch.len() as u64,
+            status: "empty".into(),
+            conflict: None,
+        };
+        if !patch.trim().is_empty() {
+            match apply_patch(shared, &patch, true).await {
+                Ok(()) => {
+                    apply_patch(shared, &patch, false).await?;
+                    merge.status = "applied".into();
+                }
+                Err(error) => {
+                    merge.status = "conflict".into();
+                    merge.conflict = Some(error.to_string());
+                }
+            }
+        }
+        let landed = merge.status != "conflict";
+        if landed {
+            let after = self.workflow_fingerprint(shared).await?;
+            merge.target_fingerprint = Some(after.clone());
+            w.current_fingerprint = Some(after.clone());
+            // A review that read an earlier revision has not seen this, so it runs again.
+            for step in w.steps.iter_mut().filter(|step| {
+                !workflow_role_produces(&step.role) && step.input_revision.as_ref() != Some(&after)
+            }) {
+                if step.status == "completed" {
+                    step.status = "pending".into();
+                    step.input_revision = None;
+                }
+            }
+            w.review_fingerprint = None;
+            w.preview = None;
+            w.checks.clear();
+            if !w.joined.contains(&step.id) {
+                w.joined.push(step.id.clone());
+            }
+        } else {
+            w.error = Some(format!(
+                "Step {:?} produced changes that conflict with this workflow's checkout. Nothing was applied; resolve it in the step's own worktree.",
+                step.id
+            ));
+        }
+        if let Some(step) = w.steps.iter_mut().find(|step| step.id == id) {
+            step.merge = Some(merge);
+        }
+        Ok(())
+    }
+
+    async fn workflow_patch(&self, w: &AgentWorkflow, tree: &str) -> AppResult<String> {
+        workflow_patch_between(Path::new(&w.root), &w.base_revision, tree).await
     }
     pub async fn workflow_preview(&self, id: &str) -> AppResult<AgentWorkflow> {
         let _gate = self.workflow_gate.lock().await;
@@ -1186,12 +2068,37 @@ impl AgentManager {
                 "Complete independent review and all recorded checks for the same revision first",
             ));
         }
-        let review = w
-            .review_session_id
-            .as_ref()
-            .ok_or_else(|| invalid("Independent review is missing"))?;
-        if self.session(review)?.status != "completed" {
-            return Err(invalid("Independent review has not completed"));
+        // Integration is unlocked by the review that read the finished result, not by whichever
+        // review ran last: with work arriving from several steps, a review of one branch has not
+        // seen what is about to be applied.
+        let gating: Vec<&WorkflowStep> = w
+            .steps
+            .iter()
+            .filter(|step| w.gates_integration(step))
+            .collect();
+        if gating.is_empty() {
+            return Err(invalid("Independent review is missing"));
+        }
+        for step in &gating {
+            if step.status != "completed" || step.input_revision != w.review_fingerprint {
+                return Err(invalid(
+                    "The independent review of the finished work has not completed for this revision",
+                ));
+            }
+            let session = step
+                .session_id
+                .as_ref()
+                .ok_or_else(|| invalid("Independent review is missing"))?;
+            if self.session(session)?.status != "completed" {
+                return Err(invalid("Independent review has not completed"));
+            }
+        }
+        // Nothing may be integrated while a step's result is still sitting in its own checkout.
+        if let Some(step) = w.unjoined().first() {
+            return Err(invalid(format!(
+                "Step {:?} has not been applied to this workflow's checkout yet",
+                step.id
+            )));
         }
         Ok(())
     }
@@ -1340,10 +2247,17 @@ impl AgentManager {
         }
         let _lease = self.workflow_lease(Path::new(&w.root))?;
         let root = Path::new(&w.root).canonicalize()?;
+        // Every session this workflow's own steps opened belongs to it, not to a linked task.
+        let own: Vec<&str> = w
+            .steps
+            .iter()
+            .filter_map(|step| step.session_id.as_deref())
+            .collect();
         if self.sessions().iter().any(|session| {
             !session.archived
                 && session.id != w.implementation_session_id
                 && Some(&session.id) != w.review_session_id.as_ref()
+                && !own.contains(&session.id.as_str())
                 && session.status != "completed"
                 && Path::new(&session.cwd)
                     .canonicalize()
@@ -1394,6 +2308,55 @@ impl AgentManager {
                 return Err(invalid("An environment file changed after copying. Preserve its worktree copy before cleanup."));
             }
         }
+        // Every checkout this workflow opened is removed, not only the one results were applied to;
+        // a step's own worktree is held to the same rules as the workflow's.
+        let step_roots: Vec<String> = w
+            .steps
+            .iter()
+            .filter_map(|step| step.root.clone())
+            .collect();
+        for step_root in step_roots {
+            let step_root = match Path::new(&step_root).canonicalize() {
+                Ok(path) => path,
+                // A worktree the person already removed is not a reason to refuse.
+                Err(_) => continue,
+            };
+            if !step_root.starts_with(self.home.join("worktrees").canonicalize()?) {
+                return Err(invalid("This is not a RunHQ-managed worktree"));
+            }
+            let ignored = git_output(
+                &step_root,
+                &[
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                ],
+            )
+            .await?;
+            if ignored
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .any(|path| {
+                    !w.transferred_files
+                        .iter()
+                        .any(|copy| step_root.join(&copy.path) == step_root.join(path))
+                })
+            {
+                return Err(invalid("A step's worktree contains ignored setup files (for example dependencies or local configuration). Remove or preserve them explicitly before cleanup."));
+            }
+            git_output(
+                Path::new(&w.target),
+                &[
+                    "worktree",
+                    "remove",
+                    "--force",
+                    &step_root.to_string_lossy(),
+                ],
+            )
+            .await?;
+        }
         git_output(
             Path::new(&w.target),
             &["worktree", "remove", "--force", &w.root],
@@ -1403,6 +2366,108 @@ impl AgentManager {
         self.save_workflow(&mut w)?;
         Ok(w)
     }
+}
+
+/// Whether a declared division of labour can run at all, checked before anything is created.
+///
+/// A dependency may only name a step declared before it. That single rule makes a cycle impossible
+/// to express and keeps the stored list in topological order, which every later decision — what may
+/// start, what a step branches from, the order results are applied in — relies on.
+fn validate_declared_graph(declared: &[CreateWorkflowStep]) -> AppResult<()> {
+    if declared.is_empty() {
+        return Ok(());
+    }
+    let ids = declared_step_ids(declared);
+    let dependencies = declared_dependencies(declared, &ids);
+    let mut seen: Vec<&str> = Vec::new();
+    for (index, step) in declared.iter().enumerate() {
+        if !WORKFLOW_ROLES.contains(&step.role.as_str()) {
+            return Err(invalid(format!("Unsupported workflow role: {}", step.role)));
+        }
+        if step.target.trim().is_empty() {
+            return Err(invalid("Every step needs an account or pool to run it"));
+        }
+        let id = ids[index].as_str();
+        if !valid_step_id(id) {
+            return Err(invalid(format!(
+                "Step key {id:?} may use up to 32 lowercase letters, digits, dashes or underscores"
+            )));
+        }
+        if seen.contains(&id) {
+            return Err(invalid(format!("Two steps share the key {id:?}")));
+        }
+        seen.push(id);
+        if step.prompt.len() > MAX_STEP_PROMPT {
+            return Err(invalid(format!("The instruction for {id:?} is too long")));
+        }
+        if !matches!(step.workspace.trim(), "" | "shared" | "own") {
+            return Err(invalid(format!(
+                "Step {id:?} asks for an unknown checkout: {}",
+                step.workspace
+            )));
+        }
+        if step.workspace.trim() == "own" && !workflow_role_produces(&step.role) {
+            return Err(invalid(format!(
+                "Step {id:?} reads the work rather than producing it, so it runs in the checkout it reviews"
+            )));
+        }
+        for dependency in &dependencies[index] {
+            if !seen[..seen.len() - 1].contains(&dependency.as_str()) {
+                return Err(invalid(format!(
+                    "Step {id:?} depends on {dependency:?}, which is not a step declared before it"
+                )));
+            }
+        }
+    }
+    // Ancestors, in declaration order, so "depends on everything that produces" is a set question.
+    let mut ancestors: Vec<std::collections::BTreeSet<String>> = Vec::new();
+    for declared_dependency in &dependencies {
+        let mut reachable = std::collections::BTreeSet::new();
+        for dependency in declared_dependency {
+            reachable.insert(dependency.clone());
+            if let Some(position) = ids.iter().position(|id| id == dependency) {
+                reachable.extend(ancestors[position].iter().cloned());
+            }
+        }
+        ancestors.push(reachable);
+    }
+    let producers: Vec<&String> = ids
+        .iter()
+        .zip(declared)
+        .filter(|(_, step)| workflow_role_produces(&step.role))
+        .map(|(id, _)| id)
+        .collect();
+    for (index, step) in declared.iter().enumerate() {
+        if dependencies[index].is_empty() && !workflow_role_produces(&step.role) {
+            return Err(invalid(format!(
+                "Step {:?} reviews work that nothing has produced yet; every step that starts on its own must produce work",
+                ids[index]
+            )));
+        }
+        if !workflow_role_produces(&step.role)
+            && !ancestors[index].iter().any(|id| producers.contains(&id))
+        {
+            return Err(invalid(format!(
+                "Step {:?} has nothing to read; make it depend on a step that produces work",
+                ids[index]
+            )));
+        }
+    }
+    // Integration is unlocked by a review that saw everything, so at least one review must run in
+    // the shared checkout with every producing step behind it.
+    let gating = declared.iter().enumerate().any(|(index, step)| {
+        step.role == "review"
+            && matches!(step.workspace.trim(), "" | "shared")
+            && producers
+                .iter()
+                .all(|producer| ancestors[index].contains(*producer))
+    });
+    if !gating {
+        return Err(invalid(
+            "A workflow needs an independent review of the finished work: add a review in the shared checkout that depends on every step that produces",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_commands(commands: &[String], required: bool) -> AppResult<()> {
@@ -1418,7 +2483,7 @@ fn validate_commands(commands: &[String], required: bool) -> AppResult<()> {
     }
     Ok(())
 }
-fn commands_passed(commands: &[String], evidence: &[WorkflowCheck]) -> bool {
+pub(super) fn commands_passed(commands: &[String], evidence: &[WorkflowCheck]) -> bool {
     commands.len() == evidence.len()
         && commands.iter().zip(evidence).all(|(command, check)| {
             command == &check.command && check.status == "passed" && check.exit_code == Some(0)
@@ -1439,6 +2504,100 @@ async fn index_git(root: &Path, index: &Path, args: &[&str]) -> AppResult<String
     }
     Ok(String::from_utf8_lossy(&output.stdout).into())
 }
+/// The difference between two revisions of a checkout, as a patch.
+///
+/// A step's own result is the difference it made — `base` is what it started from, not the
+/// workflow's base — so applying it elsewhere carries that step's work and nothing a sibling did.
+async fn workflow_patch_between(root: &Path, base: &str, tree: &str) -> AppResult<String> {
+    let tree = tree
+        .split(':')
+        .next()
+        .ok_or_else(|| invalid("Invalid workspace fingerprint"))?;
+    let patch = git_output(
+        root,
+        &["diff", "--binary", "--no-ext-diff", base, tree, "--"],
+    )
+    .await?;
+    if patch.len() > PATCH_LIMIT {
+        return Err(invalid("The change exceeds the 8 MiB integration preview limit; use the Git workspace to inspect and integrate it."));
+    }
+    Ok(patch)
+}
+
+/// RunHQ's own identity for the bookkeeping commits a step's result is recorded as. These are not
+/// the person's commits — they are how a working tree becomes something another step can branch
+/// from — so they do not borrow the person's name, and they never need their Git identity to be set.
+const RUNHQ_COMMITTER: [&str; 4] = [
+    "-c",
+    "user.name=RunHQ",
+    "-c",
+    "user.email=runhq@runhq.invalid",
+];
+
+/// Record a tree as a commit, so a later step can branch from what this one produced.
+///
+/// A step's result is a working tree, and `git worktree add` can only start from a commit. The
+/// commit is written into the repository's object store and pointed at by the step's own worktree
+/// branch, so nothing collects it before the workflow is cleaned up.
+async fn commit_tree(
+    root: &Path,
+    tree: &str,
+    parents: &[String],
+    message: &str,
+) -> AppResult<String> {
+    let tree = tree
+        .split(':')
+        .next()
+        .ok_or_else(|| invalid("Invalid workspace fingerprint"))?;
+    let mut args: Vec<String> = RUNHQ_COMMITTER.iter().map(|a| a.to_string()).collect();
+    args.extend(["commit-tree".to_string(), tree.to_string()]);
+    for parent in parents {
+        args.push("-p".into());
+        args.push(parent.clone());
+    }
+    args.push("-m".into());
+    args.push(message.into());
+    Ok(
+        git_output(root, &args.iter().map(String::as_str).collect::<Vec<_>>())
+            .await?
+            .trim()
+            .to_string(),
+    )
+}
+
+/// Merge two commits in the object database, without a checkout.
+///
+/// Returns the merged tree, or the conflicted paths exactly as Git named them. A conflict is
+/// reported and never resolved here: a step whose inputs disagree does not start.
+async fn merge_trees(root: &Path, base: &str, other: &str) -> AppResult<Result<String, String>> {
+    let mut command = Command::new("git");
+    command
+        .args(["merge-tree", "--write-tree", "--name-only", base, other])
+        .kill_on_drop(true);
+    crate::git::configure_git_cmd(command.as_std_mut(), root);
+    let output = tokio::time::timeout(Duration::from_secs(120), command.output())
+        .await
+        .map_err(|_| invalid("Merging two parallel results timed out"))??;
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    if output.status.success() {
+        return Ok(Ok(text.trim().to_string()));
+    }
+    // Git 2.38 introduced `--write-tree`; without it there is no way to merge without a checkout,
+    // and saying so is better than silently running the steps one after another.
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if stderr.contains("unknown option") || stderr.contains("usage:") {
+        return Err(invalid(
+            "Merging results from steps that ran at the same time needs Git 2.38 or newer",
+        ));
+    }
+    let conflicts: String = text.lines().skip(1).collect::<Vec<_>>().join("\n");
+    Ok(Err(if conflicts.trim().is_empty() {
+        stderr
+    } else {
+        conflicts
+    }))
+}
+
 async fn apply_patch(root: &Path, patch: &str, check: bool) -> AppResult<()> {
     let mut command = Command::new("git");
     command.args(["apply", "--binary", "--whitespace=nowarn"]);
@@ -1639,12 +2798,15 @@ impl AgentManager {
                 self.interrupt(&session_id).await?;
             }
         }
-        // A stopped step is not still running, so it offers a retry rather than looking live.
-        if let Some(step) = w.current_step_mut() {
-            if step.status == "running" {
-                step.status = "failed".into();
-            }
+        // A stopped step is not still running, so it offers a retry rather than looking live —
+        // every step that was running, because several may have been.
+        for step in w.steps.iter_mut().filter(|step| step.status == "running") {
+            step.status = "failed".into();
+            step.finished_at = Some(now());
+            step.error = Some("Stopped by you.".into());
         }
+        // Anything that finishes after this belongs to a generation the workflow has left behind.
+        w.generation += 1;
         w.stage = "cancelled".into();
         w.error = Some("Stopped by you. Workspace and evidence were retained; choose the next step explicitly.".into());
         self.save_workflow(&mut w)?;
@@ -1892,53 +3054,6 @@ mod tests {
     }
 }
 
-impl AgentManager {
-    async fn advance_workflow(self: Arc<Self>, id: String, generation: u64) {
-        // Only this live, explicitly started implementation can advance. On restart
-        // recover_workflows pauses automation instead of replaying an uncertain step.
-        let mut reviewed = false;
-        let mut checked = false;
-        loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            let state = {
-                let _gate = self.workflow_gate.lock().await;
-                match self.workflow(&id) {
-                    Ok(mut workflow)
-                        if workflow.auto_progress && workflow.generation == generation =>
-                    {
-                        if let Err(error) = self.reconcile_workflow(&mut workflow).await {
-                            tracing::warn!("Workflow status refresh failed: {error}");
-                            return;
-                        }
-                        workflow.stage
-                    }
-                    _ => return,
-                }
-            };
-            let outcome = match state.as_str() {
-                "implementing" | "reviewing" | "checking" => continue,
-                "review_ready" if !reviewed => {
-                    reviewed = true;
-                    self.workflow_run_step_inner(&id).await
-                }
-                "checks_ready" if !checked => {
-                    checked = true;
-                    self.workflow_commands(&id, false).await
-                }
-                _ => return,
-            };
-            if let Err(error) = outcome {
-                if let Ok(mut workflow) = self.workflow(&id) {
-                    workflow.auto_progress = false;
-                    workflow.error = Some(format!("Automatic progression paused: {error}"));
-                    let _ = self.save_workflow(&mut workflow);
-                }
-                return;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
@@ -1971,6 +3086,7 @@ mod lifecycle_tests {
             model: String::new(),
             effort: String::new(),
             mode: String::new(),
+            ..Default::default()
         };
         let workflow = manager
             .workflow_create(CreateAgentWorkflow {
@@ -1991,6 +3107,7 @@ mod lifecycle_tests {
                     step("implement", &implement),
                     step("review", &review),
                 ],
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -2105,6 +3222,7 @@ mod lifecycle_tests {
             check_commands: vec!["echo verified".into()],
             auto_progress: false,
             steps,
+            ..Default::default()
         };
         let step = |role: &str, target: &str, model: &str| CreateWorkflowStep {
             role: role.into(),
@@ -2112,6 +3230,7 @@ mod lifecycle_tests {
             model: model.into(),
             effort: String::new(),
             mode: String::new(),
+            ..Default::default()
         };
         let workflow = manager
             .workflow_create(create(vec![
@@ -2140,6 +3259,22 @@ mod lifecycle_tests {
                 ("review", "claude", Some("implement-2")),
             ],
             "each step names its own account and the step it follows"
+        );
+        // A list that declares no dependencies is still the chain it always was, now said in the
+        // words a graph uses.
+        let declared: Vec<&[String]> = workflow
+            .steps
+            .iter()
+            .map(|step| step.depends_on.as_slice())
+            .collect();
+        assert_eq!(declared[0], Vec::<String>::new());
+        assert_eq!(declared[1], ["plan-1".to_string()]);
+        assert_eq!(declared[2], ["implement-2".to_string()]);
+        assert!(
+            workflow.steps.iter().all(|step| step.workspace == "shared"
+                && step.prompt.is_empty()
+                && step.cwd.is_none()),
+            "a step that asked for nothing of its own runs in the workflow's checkout"
         );
         // The first producing step is the session the workflow opened with, on its own account.
         assert_eq!(
@@ -2170,6 +3305,141 @@ mod lifecycle_tests {
             (
                 vec![step("deploy", "codex", "")],
                 "Unsupported workflow role",
+            ),
+        ] {
+            let error = manager.workflow_create(create(steps)).await.unwrap_err();
+            assert!(
+                error.to_string().contains(expected),
+                "expected {expected:?} in {error}"
+            );
+        }
+    }
+
+    /// Several tasks, each with its own instruction, and only the order the dependencies state.
+    #[tokio::test]
+    async fn a_declared_graph_keeps_its_tasks_dependencies_and_own_checkouts() {
+        let (_temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        for id in ["codex", "claude"] {
+            let mut tool = manager.tool(id).unwrap();
+            tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+            manager.save_tool(tool).unwrap();
+        }
+        let create = |steps: Vec<CreateWorkflowStep>| CreateAgentWorkflow {
+            project_id: project.id.clone(),
+            backend: "codex".into(),
+            reviewer_backend: "codex".into(),
+            objective: "Ship the ordering flow".into(),
+            base_ref: "HEAD".into(),
+            check_commands: vec!["echo verified".into()],
+            steps,
+            ..Default::default()
+        };
+        let task = |id: &str, role: &str, prompt: &str, after: &[&str], workspace: &str| {
+            CreateWorkflowStep {
+                id: Some(id.into()),
+                role: role.into(),
+                target: if workflow_role_produces(role) {
+                    "codex".into()
+                } else {
+                    "claude".into()
+                },
+                prompt: prompt.into(),
+                depends_on: Some(after.iter().map(|id| (*id).to_string()).collect()),
+                workspace: workspace.into(),
+                ..Default::default()
+            }
+        };
+        // api → {ui, docs} → rev: the two middle tasks wait on the same thing and on nothing of
+        // each other, so they are free to run at the same time — each in a checkout of its own.
+        let workflow = manager
+            .workflow_create(create(vec![
+                task("api", "implement", "Add POST /orders", &[], ""),
+                task("ui", "implement", "Build the order form", &["api"], "own"),
+                task(
+                    "docs",
+                    "implement",
+                    "Document the endpoint",
+                    &["api"],
+                    "own",
+                ),
+                task("rev", "review", "Review everything", &["ui", "docs"], ""),
+            ]))
+            .await
+            .unwrap();
+        let shape: Vec<(&str, Vec<&str>, &str, &str)> = workflow
+            .steps
+            .iter()
+            .map(|step| {
+                (
+                    step.id.as_str(),
+                    step.depends_on.iter().map(String::as_str).collect(),
+                    step.workspace.as_str(),
+                    step.prompt.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("api", vec![], "shared", "Add POST /orders"),
+                ("ui", vec!["api"], "own", "Build the order form"),
+                ("docs", vec!["api"], "own", "Document the endpoint"),
+                ("rev", vec!["ui", "docs"], "shared", "Review everything"),
+            ],
+            "each task keeps the key, instruction, dependencies and checkout it declared"
+        );
+        // A reader that predates the graph still sees a chain it can follow.
+        assert_eq!(
+            workflow.step("rev").unwrap().input_step_id.as_deref(),
+            Some("ui")
+        );
+
+        // Shapes a graph makes expressible but that still cannot run are refused before anything is
+        // created, so an unusable division of labour never opens a checkout.
+        for (steps, expected) in [
+            (
+                vec![
+                    task("api", "implement", "x", &[], ""),
+                    task("rev", "review", "x", &["missing"], ""),
+                ],
+                "is not a step declared before it",
+            ),
+            (
+                vec![
+                    task("api", "implement", "x", &["rev"], ""),
+                    task("rev", "review", "x", &["api"], ""),
+                ],
+                "is not a step declared before it",
+            ),
+            (
+                vec![
+                    task("api", "implement", "x", &[], ""),
+                    task("api", "review", "x", &["api"], ""),
+                ],
+                "share the key",
+            ),
+            (
+                vec![
+                    task("API key", "implement", "x", &[], ""),
+                    task("rev", "review", "x", &["API key"], ""),
+                ],
+                "lowercase letters",
+            ),
+            (
+                vec![
+                    task("api", "implement", "x", &[], ""),
+                    task("ui", "implement", "x", &["api"], "own"),
+                    task("rev", "review", "x", &["api"], ""),
+                ],
+                "depends on every step that produces",
+            ),
+            (
+                vec![
+                    task("api", "implement", "x", &[], ""),
+                    task("rev", "review", "x", &["api"], "own"),
+                ],
+                "runs in the checkout it reviews",
             ),
         ] {
             let error = manager.workflow_create(create(steps)).await.unwrap_err();
@@ -2212,6 +3482,7 @@ mod lifecycle_tests {
                 check_commands: vec!["echo verified".into()],
                 auto_progress: false,
                 steps: vec![],
+                ..Default::default()
             }),
         )
         .await
@@ -2241,6 +3512,12 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},30);
 });
 "#).unwrap();
+        // The fixture arrives reviewed; this walk starts it over, so the steps say so too.
+        for step in &mut workflow.steps {
+            step.status = "pending".into();
+            step.input_revision = None;
+        }
+        workflow.review_fingerprint = None;
         workflow.stage = "implementation_ready".into();
         workflow.auto_progress = true;
         manager.save_workflow(&mut workflow).unwrap();
@@ -2284,6 +3561,466 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         assert_eq!(calls[1]["mode"], "plan");
         assert_eq!(calls[1]["review"], true);
     }
+    #[tokio::test]
+    async fn a_failed_named_step_can_be_explicitly_retried() {
+        if super::super::executable("node").is_none() {
+            return;
+        }
+        let (temp, manager, mut workflow) = prepared().await;
+        std::fs::write(
+            temp.path().join("bridge.cjs"),
+            r#"
+require('node:readline').createInterface({input:process.stdin}).on('line', line=>{
+ if(JSON.parse(line).type!=='start') return;
+ process.stdout.write(JSON.stringify({type:'finished',status:'completed'})+'\n'); process.exit(0);
+});
+"#,
+        )
+        .unwrap();
+        workflow.steps[0].status = "failed".into();
+        workflow.steps[1].status = "pending".into();
+        workflow.stage = "implementation_failed".into();
+        manager.save_workflow(&mut workflow).unwrap();
+        let retried = manager
+            .workflow_run_named_step(&workflow.id, &workflow.steps[0].id)
+            .await
+            .unwrap();
+        assert_eq!(retried.steps[0].status, "running");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while manager
+                .session(&retried.implementation_session_id)
+                .unwrap()
+                .active()
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            manager
+                .session(&retried.implementation_session_id)
+                .unwrap()
+                .status,
+            "completed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_completed_shared_step_updates_the_join_baseline() {
+        let (_temp, manager, mut workflow) = prepared().await;
+        let before = workflow.current_fingerprint.clone();
+        workflow.steps[0].status = "running".into();
+        workflow.steps[1].status = "pending".into();
+        workflow.stage = "implementing".into();
+        std::fs::write(
+            Path::new(&workflow.cwd).join("README.md"),
+            "shared step result\n",
+        )
+        .unwrap();
+        manager.reconcile_workflow(&mut workflow).await.unwrap();
+        assert_eq!(workflow.steps[0].status, "completed");
+        assert_ne!(workflow.current_fingerprint, before);
+        assert_eq!(
+            workflow.current_fingerprint,
+            Some(
+                manager
+                    .workflow_fingerprint(Path::new(&workflow.root))
+                    .await
+                    .unwrap()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_scheduling_respects_cooldown_capabilities_load_and_global_capacity() {
+        let (_temp, manager, mut workflow) = prepared().await;
+        let mut alternate = manager.tool("codex").unwrap();
+        alternate.id = "alternate".into();
+        alternate.name = "Alternate".into();
+        manager.save_tool(alternate.clone()).unwrap();
+        manager
+            .workspace_save(
+                "pool:workers".into(),
+                Some(json!({
+                    "accounts": ["codex", "alternate"]
+                })),
+            )
+            .unwrap();
+        manager
+            .workspace_save(
+                "preferences:capacity".into(),
+                Some(json!({
+                    "global": 8, "providers": {"codex": 1, "alternate": 2}
+                })),
+            )
+            .unwrap();
+        assert_eq!(
+            manager.resolve_step_target("pool:workers", false).unwrap(),
+            "alternate"
+        );
+        manager
+            .workspace_save(
+                "preferences:cooldowns".into(),
+                Some(json!({
+                    "alternate": {"since": now(), "until": now() + 60_000, "reason": "rate limit"}
+                })),
+            )
+            .unwrap();
+        assert_eq!(
+            manager.resolve_step_target("pool:workers", false).unwrap(),
+            "codex"
+        );
+        manager
+            .workspace_save("preferences:cooldowns".into(), None)
+            .unwrap();
+        alternate.adapter = "terminal".into();
+        manager.save_tool(alternate).unwrap();
+        assert_eq!(
+            manager.resolve_step_target("pool:workers", true).unwrap(),
+            "codex"
+        );
+
+        let mut step = workflow.steps[0].clone();
+        step.target = "pool:workers".into();
+        step.status = "pending".into();
+        step.session_id = None;
+        step.workspace = "own".into();
+        workflow.steps = vec![step.clone()];
+        // A bounded thread catches a reentrant parking_lot lock without hanging the test process.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = Arc::clone(&manager);
+        let copy = workflow.clone();
+        std::thread::spawn(move || {
+            sender
+                .send(worker.workflow_step_wait(&copy, &copy.steps[0], &[]))
+                .unwrap()
+        });
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+            StepWait::Ready
+        );
+        manager
+            .workspace_save("preferences:capacity".into(), Some(json!({"global": 1})))
+            .unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        manager.state.lock().running.insert(
+            workflow.implementation_session_id.clone(),
+            Running {
+                run_id: "occupied".into(),
+                cwd: PathBuf::from(&workflow.cwd),
+                sender,
+            },
+        );
+        assert_eq!(
+            manager.workflow_step_wait(&workflow, &step, &[]),
+            StepWait::Capacity
+        );
+        assert!(manager
+            .resolve_step_target("pool:workers", false)
+            .unwrap_err()
+            .to_string()
+            .contains("global execution slot"));
+        manager.state.lock().running.clear();
+    }
+
+    #[tokio::test]
+    async fn automatic_scheduler_starts_a_newly_unblocked_task_while_its_sibling_runs() {
+        if super::super::executable("node").is_none() {
+            return;
+        }
+        let (temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        let mut tool = manager.tool("codex").unwrap();
+        tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+        manager.save_tool(tool).unwrap();
+        manager
+            .workspace_save("pool:workers".into(), Some(json!({"accounts": ["codex"]})))
+            .unwrap();
+        manager
+            .workspace_save("preferences:capacity".into(), Some(json!({"global": 2})))
+            .unwrap();
+        std::fs::write(temp.path().join("bridge.cjs"), r#"
+const fs=require('node:fs'), path=require('node:path');
+const emit=value=>process.stdout.write(JSON.stringify(value)+'\n');
+require('node:readline').createInterface({input:process.stdin}).on('line', line=>{
+  const message=JSON.parse(line); if(message.type!=='start') return;
+  const cfg=message.config, named=/write ([a-z.]+)/.exec(cfg.prompt||'');
+  if(!cfg.read_only_review && named) fs.writeFileSync(path.join(cfg.cwd,named[1]),'done\n');
+  const finish=()=>{emit({type:'finished',status:'completed'});process.exit(0);};
+  if(named && named[1]==='a.txt') {
+    const timer=setInterval(()=>{if(fs.existsSync(path.join(__dirname,'release-a'))) {clearInterval(timer);finish();}},30);
+  } else setTimeout(finish,50);
+});
+"#).unwrap();
+        let task =
+            |id: &str, role: &str, prompt: &str, after: &[&str], own: bool| CreateWorkflowStep {
+                id: Some(id.into()),
+                role: role.into(),
+                prompt: prompt.into(),
+                target: if own { "pool:workers" } else { "codex" }.into(),
+                depends_on: Some(after.iter().map(|id| (*id).to_string()).collect()),
+                workspace: if own { "own" } else { "shared" }.into(),
+                ..Default::default()
+            };
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id,
+                backend: "codex".into(),
+                reviewer_backend: "codex".into(),
+                objective: "Schedule newly unblocked work".into(),
+                base_ref: "HEAD".into(),
+                check_commands: vec!["echo verified".into()],
+                auto_progress: true,
+                steps: vec![
+                    task("a", "implement", "write a.txt", &[], true),
+                    task("b", "implement", "write b.txt", &[], true),
+                    task("c", "implement", "write c.txt", &["b"], true),
+                    task("review", "review", "review all work", &["a", "c"], false),
+                ],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        manager.workflow_schedule(&workflow.id).await.unwrap();
+        // Do not call schedule here: this must prove the automatic loop fills the free slot.
+        let unblocked = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let current = manager.workflow(&workflow.id).unwrap();
+                if current.step("c").unwrap().status == "completed" {
+                    break current;
+                }
+                assert!(!current.stage.ends_with("failed"), "{:?}", current.error);
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(unblocked.step("a").unwrap().status, "running");
+        std::fs::write(temp.path().join("release-a"), "continue").unwrap();
+        let ready = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let current = manager.workflow(&workflow.id).unwrap();
+                if current.stage == "ready" {
+                    break current;
+                }
+                assert!(!current.stage.ends_with("failed"), "{:?}", current.error);
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(ready.checks[0].status, "passed");
+        assert!(!Path::new(&ready.target).join("c.txt").exists());
+    }
+
+    /// Two tasks that wait on nothing of each other run at the same time, in checkouts of their
+    /// own, and their results are applied to the workflow's checkout in the order declared.
+    #[tokio::test]
+    async fn independent_tasks_run_at_once_and_their_results_are_applied_in_order() {
+        if super::super::executable("node").is_none() {
+            return;
+        }
+        let (temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        let mut tool = manager.tool("codex").unwrap();
+        tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+        manager.save_tool(tool).unwrap();
+        // Each task writes the file its own instruction names, so what landed says which task did
+        // it, and holds the checkout long enough for a sibling to be seen running beside it.
+        std::fs::write(temp.path().join("bridge.cjs"), r#"
+const fs = require('node:fs'); const path = require('node:path');
+const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+  const message=JSON.parse(line); if(message.type!=='start') return;
+  const cfg=message.config;
+  fs.appendFileSync(path.join(__dirname,'calls.jsonl'), JSON.stringify({cwd:cfg.cwd,review:cfg.read_only_review})+'\n');
+  const named = /write ([a-z.]+)/.exec(cfg.prompt || '');
+  if(!cfg.read_only_review && named) fs.writeFileSync(path.join(cfg.cwd,named[1]),'done\n');
+  emit({type:'item',item:{id:'result',kind:'assistant',title:'Agent',text:'ok',status:'completed'}});
+  setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},400);
+});
+"#).unwrap();
+        let task = |id: &str, role: &str, prompt: &str, after: &[&str], workspace: &str| {
+            CreateWorkflowStep {
+                id: Some(id.into()),
+                role: role.into(),
+                target: "codex".into(),
+                prompt: prompt.into(),
+                depends_on: Some(after.iter().map(|id| (*id).to_string()).collect()),
+                workspace: workspace.into(),
+                ..Default::default()
+            }
+        };
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id.clone(),
+                backend: "codex".into(),
+                reviewer_backend: "codex".into(),
+                objective: "Two independent tasks".into(),
+                base_ref: "HEAD".into(),
+                check_commands: vec!["test -f api.txt -a -f docs.txt".into()],
+                auto_progress: true,
+                steps: vec![
+                    task("api", "implement", "write api.txt", &[], "own"),
+                    task("docs", "implement", "write docs.txt", &[], "own"),
+                    task("rev", "review", "review it", &["api", "docs"], ""),
+                ],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        manager.workflow_schedule(&workflow.id).await.unwrap();
+        // Both producing tasks are free from the start, so both are running — which one checkout
+        // could never allow.
+        let running = manager.workflow(&workflow.id).unwrap();
+        let live: Vec<&str> = running
+            .steps
+            .iter()
+            .filter(|step| step.status == "running")
+            .map(|step| step.id.as_str())
+            .collect();
+        assert_eq!(live, ["api", "docs"], "{:?}", running.error);
+        let roots: Vec<&str> = running
+            .steps
+            .iter()
+            .filter_map(|step| step.root.as_deref())
+            .collect();
+        assert_eq!(roots.len(), 2);
+        assert_ne!(
+            roots[0], roots[1],
+            "each task works in a checkout of its own"
+        );
+        assert!(roots.iter().all(|root| *root != running.root));
+
+        let ready = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                manager.workflow_schedule(&workflow.id).await.unwrap();
+                let current = manager.workflow(&workflow.id).unwrap();
+                if current.stage == "ready" {
+                    break current;
+                }
+                assert!(
+                    !current.stage.ends_with("failed"),
+                    "{} {:?}",
+                    current.stage,
+                    current.error
+                );
+                // Running the recorded checks is its own step of the walk, as it is for a person.
+                if current.stage == "checks_ready" {
+                    manager
+                        .workflow_commands(&workflow.id, false)
+                        .await
+                        .unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // Both results were applied to the workflow's own checkout, in the order declared.
+        assert_eq!(ready.joined, ["api", "docs"]);
+        for name in ["api.txt", "docs.txt"] {
+            assert!(
+                Path::new(&ready.cwd).join(name).is_file(),
+                "{name} was not applied"
+            );
+        }
+        assert!(ready
+            .steps
+            .iter()
+            .filter(|step| step.owns_workspace())
+            .all(|step| step.merge.as_ref().unwrap().status == "applied"));
+        // The review read the finished result, and the checks ran against exactly that.
+        let review = ready.step("rev").unwrap();
+        assert_eq!(review.input_revision, ready.review_fingerprint);
+        assert_eq!(ready.checks[0].status, "passed");
+        // Nothing reached the project itself; applying stays an explicit choice.
+        assert!(!Path::new(&ready.target).join("api.txt").exists());
+    }
+
+    /// Two parallel results that touch the same line are reported, not merged behind the person.
+    #[tokio::test]
+    async fn conflicting_parallel_results_are_reported_and_never_resolved_automatically() {
+        if super::super::executable("node").is_none() {
+            return;
+        }
+        let (temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Example".into(), repo).unwrap();
+        let mut tool = manager.tool("codex").unwrap();
+        tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+        manager.save_tool(tool).unwrap();
+        std::fs::write(temp.path().join("bridge.cjs"), r#"
+const fs = require('node:fs'); const path = require('node:path');
+const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+  const message=JSON.parse(line); if(message.type!=='start') return;
+  const cfg=message.config;
+  const named = /write README as ([a-z]+)/.exec(cfg.prompt || '');
+  if(!cfg.read_only_review && named) fs.writeFileSync(path.join(cfg.cwd,'README.md'),named[1]+'\n');
+  emit({type:'item',item:{id:'result',kind:'assistant',title:'Agent',text:'ok',status:'completed'}});
+  setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},60);
+});
+"#).unwrap();
+        let task = |id: &str, role: &str, prompt: &str, after: &[&str], workspace: &str| {
+            CreateWorkflowStep {
+                id: Some(id.into()),
+                role: role.into(),
+                target: "codex".into(),
+                prompt: prompt.into(),
+                depends_on: Some(after.iter().map(|id| (*id).to_string()).collect()),
+                workspace: workspace.into(),
+                ..Default::default()
+            }
+        };
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id.clone(),
+                backend: "codex".into(),
+                reviewer_backend: "codex".into(),
+                objective: "Two tasks that disagree".into(),
+                base_ref: "HEAD".into(),
+                check_commands: vec!["echo verified".into()],
+                steps: vec![
+                    task("left", "implement", "write README as left", &[], "own"),
+                    task("right", "implement", "write README as right", &[], "own"),
+                    task("rev", "review", "review it", &["left", "right"], ""),
+                ],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let conflicted = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                manager.workflow_schedule(&workflow.id).await.unwrap();
+                let current = manager.workflow(&workflow.id).unwrap();
+                if current.steps.iter().any(|step| {
+                    step.merge
+                        .as_ref()
+                        .is_some_and(|merge| merge.status == "conflict")
+                }) {
+                    break current;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // The first result landed; the second is held with the paths Git named, and the shared
+        // checkout still reads as the first result rather than as a half-merged mixture.
+        assert_eq!(conflicted.joined, ["left"]);
+        let held = conflicted.step("right").unwrap().merge.as_ref().unwrap();
+        assert_eq!(held.status, "conflict");
+        assert!(held.conflict.as_ref().is_some_and(|text| !text.is_empty()));
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&conflicted.cwd).join("README.md")).unwrap(),
+            "left\n"
+        );
+        // Nothing can be validated or integrated while a result is still held back.
+        assert!(!conflicted.unjoined().is_empty());
+        assert!(manager.workflow_preview(&workflow.id).await.is_err());
+    }
+
     pub(super) async fn prepared() -> (tempfile::TempDir, Arc<AgentManager>, AgentWorkflow) {
         let (temp, manager, repo) = super::tests::repository();
         let project = manager.add_project("Example".into(), repo).unwrap();
@@ -2305,6 +4042,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 check_commands: vec!["echo verified".into()],
                 auto_progress: false,
                 steps: vec![],
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -2343,7 +4081,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 Ok(())
             })
             .unwrap();
-        workflow.review_session_id = Some(reviewer.id);
+        workflow.review_session_id = Some(reviewer.id.clone());
         workflow.review_fingerprint = Some(
             manager
                 .workflow_fingerprint(Path::new(&workflow.root))
@@ -2351,6 +4089,17 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 .unwrap(),
         );
         workflow.current_fingerprint = workflow.review_fingerprint.clone();
+        // The stage a workflow is in follows from its steps, so a fixture that stands for "reviewed,
+        // waiting on checks" has to say so in the steps themselves rather than only in the stage.
+        for step in &mut workflow.steps {
+            step.status = "completed".into();
+            if workflow_role_produces(&step.role) {
+                step.input_revision = Some(workflow.base_revision.clone());
+            } else {
+                step.session_id = Some(reviewer.id.clone());
+                step.input_revision = workflow.review_fingerprint.clone();
+            }
+        }
         workflow.stage = "checks_ready".into();
         manager.save_workflow(&mut workflow).unwrap();
         (temp, manager, workflow)
@@ -2621,6 +4370,7 @@ impl AgentManager {
             workflow.stage.as_str(),
             "setup_ready" | "setup_failed" | "implementation_ready"
         ) || self.session(&workflow.implementation_session_id)?.status != "idle"
+            || workflow.steps.iter().any(|step| step.status == "running")
         {
             return Err(invalid(
                 "Transfer selected environment files before implementation starts",
@@ -2711,10 +4461,45 @@ impl AgentManager {
     pub async fn workflow_inventory(&self) -> AppResult<Vec<WorkflowWorktree>> {
         let mut inventory = vec![];
         let workflows = self.workflow_rows()?;
-        let mut seen: std::collections::HashSet<PathBuf> =
-            workflows.iter().map(|w| PathBuf::from(&w.root)).collect();
-        for workflow in workflows.into_iter().filter(|w| !w.cleaned) {
-            let root = PathBuf::from(&workflow.root);
+        // A workflow owns its shared checkout and one per step that asked for its own, so the
+        // inventory names every one of them against the workflow rather than as a loose worktree.
+        let mut seen: std::collections::HashSet<PathBuf> = workflows
+            .iter()
+            .flat_map(|w| {
+                std::iter::once(PathBuf::from(&w.root)).chain(
+                    w.steps
+                        .iter()
+                        .filter_map(|step| step.root.clone().map(PathBuf::from)),
+                )
+            })
+            .collect();
+        let checkouts: Vec<(AgentWorkflow, String, String, String)> = workflows
+            .into_iter()
+            .filter(|w| !w.cleaned)
+            .flat_map(|w| {
+                let mut entries = vec![(
+                    w.clone(),
+                    w.root.clone(),
+                    w.implementation_session_id.clone(),
+                    w.base_revision.clone(),
+                )];
+                for step in &w.steps {
+                    if let (Some(root), Some(session)) = (&step.root, &step.session_id) {
+                        entries.push((
+                            w.clone(),
+                            root.clone(),
+                            session.clone(),
+                            step.input_revision
+                                .clone()
+                                .unwrap_or_else(|| w.base_revision.clone()),
+                        ));
+                    }
+                }
+                entries
+            })
+            .collect();
+        for (workflow, checkout, session_id, base_revision) in checkouts {
+            let root = PathBuf::from(&checkout);
             let missing = !root.is_dir();
             let status = if missing {
                 "Worktree directory is missing".into()
@@ -2743,14 +4528,11 @@ impl AgentManager {
             };
             inventory.push(WorkflowWorktree {
                 workflow_id: Some(workflow.id),
-                session_id: workflow.implementation_session_id.clone(),
                 project_id: workflow.project_id,
-                path: workflow.root,
-                branch: self
-                    .session(&workflow.implementation_session_id)
-                    .ok()
-                    .and_then(|s| s.branch),
-                base_revision: workflow.base_revision,
+                path: checkout,
+                branch: self.session(&session_id).ok().and_then(|s| s.branch),
+                session_id,
+                base_revision,
                 dirty: !status.trim().is_empty(),
                 status,
                 active,
