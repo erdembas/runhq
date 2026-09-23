@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0](https://github.com/erdembas/runhq/compare/v2.2.0...v3.0.0) (2026-09-23)
 
+RunHQ 3.0 brings a bilingual desktop and more control over the agent workspace.
+
+- Switch the desktop between **Turkish and English**, including native menus, notifications, help text, dates and numbers. Language changes are immediate, persistent and synchronized across windows without losing drafts.
+- Follow tasks in a **cross-project agent dashboard**, with search, project/status filters and direct links to conversations.
+- Build **visual workflows and prompt queues** with per-step models and reasoning, conversation continuity, deferred starts and editing of waiting steps.
+- Choose **review policies**: pause on findings, require approval, attempt one correction and review again, or pass findings forward. Applying changes remains explicit.
+- Read clearer agent responses and generated task titles. Configure tool-permission preferences in General settings; asking remains the default.
+- Require English and Turkish UI copy through **AGENTS.md and CI**, including translated 3.0.0 in-app release notes.
+
+
 
 ### Features
 
