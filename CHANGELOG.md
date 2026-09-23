@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1](https://github.com/erdembas/runhq/compare/v3.0.0...v3.0.1) (2026-09-23)
+
+Fixes the blank desktop window on startup introduced in 3.0.0. Turkish and English
+labels continue to update immediately when switching the interface language.
+
+3.0.0 sürümünde açılışta oluşan boş masaüstü penceresi düzeltildi. Arayüz dili
+değiştirildiğinde Türkçe ve İngilizce etiketler anında güncellenmeye devam eder.
+
+
+### Bug Fixes
+
+* **desktop:** prevent i18n hooks from crashing startup ([#163](https://github.com/erdembas/runhq/issues/163)) ([1aa024b](https://github.com/erdembas/runhq/commit/1aa024b87b4909d945546e009474cf3f7f9cacb0))
+
 ## [3.0.0](https://github.com/erdembas/runhq/compare/v2.2.0...v3.0.0) (2026-09-23)
 
 RunHQ 3.0 brings a bilingual desktop and more control over the agent workspace.
