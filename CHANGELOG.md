@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/erdembas/runhq/compare/v2.1.0...v2.2.0) (2026-09-23)
+
+
+### Features
+
+* **agents:** coordinate parallel workflow tasks and review their results ([#159](https://github.com/erdembas/runhq/issues/159)) ([9a9f711](https://github.com/erdembas/runhq/commit/9a9f71133d0dc7c7a941672d98f786ca9af90712))
+
 ## [2.1.0](https://github.com/erdembas/runhq/compare/v2.0.0...v2.1.0) (2026-09-22)
 
 
