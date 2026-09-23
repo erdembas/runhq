@@ -1,4 +1,6 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useRef } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { cn } from '@/lib/cn';
 import type { TimelineEvent } from '@/types';
@@ -35,6 +37,7 @@ export function ActivityTimeline({
   embedded = false,
   visible = true,
 }: ActivityTimelineProps) {
+  i18n.useLocale();
   const store = useActivityTimelineStoreRef();
   const state = useActivityTimelineStore(store, (timeline) => timeline);
   const isInline = variant === 'inline';
@@ -230,7 +233,7 @@ export function ActivityTimeline({
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
-        aria-label="Close timeline"
+        aria-label={i18n.t('Close timeline')}
       />
       <div className="bg-surface border-border animate-in slide-in-from-right relative flex h-full w-[680px] flex-col shadow-2xl duration-300">
         <ActivityTimelineHeader

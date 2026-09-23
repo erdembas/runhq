@@ -42,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(setup_app)
         .invoke_handler(tauri::generate_handler![
+            tray::set_interface_locale,
             ipc::agent_canvas_url,
             ipc::agent_canvas_save,
             ipc::agent_projects,
@@ -58,6 +59,10 @@ pub fn run() {
             ipc::agent_sessions,
             ipc::agent_workflows,
             ipc::agent_workflow_create,
+            ipc::agent_workflow_launch,
+            ipc::agent_workflow_edit,
+            ipc::agent_workflow_update_steps,
+            ipc::agent_workflow_review_decision,
             ipc::agent_workflow_implement,
             ipc::agent_workflow_run_step,
             ipc::agent_workflow_schedule,

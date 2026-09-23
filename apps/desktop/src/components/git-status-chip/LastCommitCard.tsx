@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { Ref } from 'react';
 import { Check, Copy, GitCommit, Pencil, RefreshCw, Undo2 } from 'lucide-react';
 import { timeAgo } from '@/lib/gitDiff';
@@ -33,6 +34,7 @@ export function LastCommitCard({
   onStartAmend,
   onRequestUndo,
 }: LastCommitCardProps) {
+  i18n.useLocale();
   if (!lastCommit) return null;
 
   return (
@@ -46,8 +48,9 @@ export function LastCommitCard({
           className="flex flex-col gap-1.5"
         >
           <div className="text-fg-dim flex items-center gap-1 text-[10px] tracking-wide uppercase">
-            <GitCommit className="h-3 w-3 shrink-0" />
-            Amend commit message
+            {i18n.rich('{value1}Amend commit message', {
+              value1: <GitCommit className="h-3 w-3 shrink-0" />,
+            })}
           </div>
           <textarea
             ref={amendInputRef}
@@ -63,14 +66,18 @@ export function LastCommitCard({
                 onSubmitAmend();
               }
             }}
-            placeholder="Subject line&#10;&#10;Optional body — wrap at ~72 chars."
+            placeholder={i18n.t('Subject line\n\nOptional body — wrap at ~72 chars.')}
             rows={3}
             className="border-border bg-surface-muted/60 text-fg placeholder:text-fg-dim focus:border-accent/60 focus:bg-surface min-h-[56px] w-full resize-y rounded border px-1.5 py-1 text-[11.5px] leading-snug transition focus:outline-none"
           />
           <div className="flex items-center justify-between gap-2">
             <span className="text-fg-dim text-[10px]">
-              <span className="bg-surface-muted rounded px-1 font-mono">⌘↵</span> Commit ·{' '}
-              <span className="bg-surface-muted rounded px-1 font-mono">Esc</span> Cancel
+              {i18n.rich('{value1} Commit · {value2} Cancel', {
+                value1: <span className="bg-surface-muted rounded px-1 font-mono">⌘↵</span>,
+                value2: (
+                  <span className="bg-surface-muted rounded px-1 font-mono">{i18n.t('Esc')}</span>
+                ),
+              })}
             </span>
             <div className="flex items-center gap-1">
               <button
@@ -78,19 +85,21 @@ export function LastCommitCard({
                 onClick={onCancelAmend}
                 className="text-fg-dim hover:text-fg h-6 rounded px-2 text-[11px] transition"
               >
-                Cancel
+                {i18n.t('Cancel')}
               </button>
               <button
                 type="submit"
                 disabled={busy !== null || !amendMessage.trim()}
                 className="btn-chrome text-fg flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {busy === 'amend' ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Check className="h-3 w-3" />
-                )}
-                Amend
+                {i18n.rich('{value1}Amend', {
+                  value1:
+                    busy === 'amend' ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    ),
+                })}
               </button>
             </div>
           </div>
@@ -107,7 +116,7 @@ export function LastCommitCard({
             <button
               type="button"
               onClick={() => onCopyHash(lastCommit.hash_short)}
-              title="Copy hash"
+              title={i18n.t('Copy hash')}
               className="hover:text-fg focus:text-fg flex items-center gap-1 font-mono transition focus:outline-none"
             >
               {copiedHash ? (
@@ -126,9 +135,9 @@ export function LastCommitCard({
                 type="button"
                 disabled={busy !== null}
                 onClick={() => onStartAmend(lastCommit.subject)}
-                title="Rewrite commit message (git commit --amend)"
+                title={i18n.t('Rewrite commit message (git commit --amend)')}
                 className="text-fg-dim hover:text-fg hover:bg-surface-overlay/70 flex h-5 w-5 items-center justify-center rounded transition disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Amend commit message"
+                aria-label={i18n.t('Amend commit message')}
               >
                 {busy === 'amend' ? (
                   <RefreshCw className="h-3 w-3 animate-spin" />
@@ -140,9 +149,9 @@ export function LastCommitCard({
                 type="button"
                 disabled={busy !== null}
                 onClick={onRequestUndo}
-                title="Undo commit — keeps changes staged (git reset --soft HEAD~1)"
+                title={i18n.t('Undo commit — keeps changes staged (git reset --soft HEAD~1)')}
                 className="text-fg-dim hover:text-status-starting hover:bg-status-starting/10 flex h-5 w-5 items-center justify-center rounded transition disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Undo last commit"
+                aria-label={i18n.t('Undo last commit')}
               >
                 {busy === 'undo' ? (
                   <RefreshCw className="h-3 w-3 animate-spin" />

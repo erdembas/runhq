@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useMemo } from 'react';
 import { logKey, useAppStore } from '@/store/useAppStore';
 import {
@@ -137,7 +138,7 @@ export function useActivityConsoleSections(
       return [
         {
           key: 'all',
-          label: 'All',
+          label: i18n.t('All'),
           lines: consoleLines,
           errors: consoleLines.filter((line) => line.severity === 'error').length,
           warnings: consoleLines.filter((line) => line.severity === 'warn').length,

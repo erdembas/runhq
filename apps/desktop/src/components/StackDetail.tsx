@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowLeft,
@@ -41,6 +43,7 @@ interface StackDetailProps {
 }
 
 export function StackDetail({ stackId, visible = true }: StackDetailProps) {
+  i18n.useLocale();
   const stack = useVisibleStore(
     useAppStore,
     (s) => s.stacks.find((candidate) => candidate.id === stackId) ?? null,
@@ -121,8 +124,9 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
             onClick={() => setSelectedStack(null)}
             className="text-fg-dim hover:text-fg mb-3 flex items-center gap-1.5 text-[12px] font-medium transition"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to Dashboard
+            {i18n.rich('{value1}Back to Dashboard', {
+              value1: <ArrowLeft className="h-3.5 w-3.5" />,
+            })}
           </button>
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -133,19 +137,26 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
                 <div>
                   <h1 className="text-fg text-xl font-bold">{stack.name}</h1>
                   <div className="text-fg-muted mt-0.5 flex items-center gap-2 text-[13px]">
-                    {stackServices.length} service{stackServices.length !== 1 ? 's' : ''}
-                    {runningCount > 0 && (
-                      <>
-                        <span className="text-fg-dim">·</span>
-                        <span className="text-status-running">{runningCount} running</span>
-                      </>
-                    )}
-                    {failedCount > 0 && (
-                      <>
-                        <span className="text-fg-dim">·</span>
-                        <span className="text-status-error">{failedCount} failed</span>
-                      </>
-                    )}
+                    {i18n.rich('{value1} service{plural3}{value4}{value5}', {
+                      value1: stackServices.length,
+                      plural3: stackServices.length !== 1 ? 's' : '',
+                      value4: runningCount > 0 && (
+                        <>
+                          <span className="text-fg-dim">·</span>
+                          <span className="text-status-running">
+                            {i18n.rich('{runningCount} running', { runningCount: runningCount })}
+                          </span>
+                        </>
+                      ),
+                      value5: failedCount > 0 && (
+                        <>
+                          <span className="text-fg-dim">·</span>
+                          <span className="text-status-error">
+                            {i18n.rich('{failedCount} failed', { failedCount: failedCount })}
+                          </span>
+                        </>
+                      ),
+                    })}
                   </div>
                 </div>
               </div>
@@ -153,39 +164,39 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
             <div className="flex items-center gap-2">
               {anyRunning ? (
                 <IconButton
-                  label="Stop all"
+                  label={i18n.t('Stop all')}
                   icon={<Square className="h-4 w-4" />}
                   size="md"
                   onClick={() => void ipc.stopStack(stack.id)}
                 />
               ) : (
                 <IconButton
-                  label="Start all"
+                  label={i18n.t('Start all')}
                   icon={<Play className="h-4 w-4" />}
                   size="md"
                   onClick={() => void ipc.startStack(stack.id)}
                 />
               )}
               <IconButton
-                label="Restart all"
+                label={i18n.t('Restart all')}
                 icon={<RotateCcw className="h-4 w-4" />}
                 size="md"
                 onClick={() => void ipc.restartStack(stack.id)}
               />
               <IconButton
-                label="Edit stack"
+                label={i18n.t('Edit stack')}
                 icon={<Pencil className="h-4 w-4" />}
                 size="md"
                 onClick={() => openStackEditor(stack)}
               />
               <IconButton
-                label="Delete stack"
+                label={i18n.t('Delete stack')}
                 icon={<Trash2 className="h-4 w-4" />}
                 size="md"
                 tone="danger"
                 onClick={() => {
                   setPendingConfirm({
-                    message: `Delete stack "${stack.name}"?`,
+                    message: i18n.t('Delete stack "{value1}"?', { value1: stack.name }),
                     onConfirm: async () => {
                       setPendingConfirm(null);
                       await ipc.removeStack(stack.id);
@@ -202,7 +213,7 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
         <div className="glass overflow-hidden p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-              Stack Health
+              {i18n.t('Stack Health')}
             </span>
             <span className="text-fg text-[13px] font-semibold tabular-nums">
               {runningCount}/{stackServices.length}
@@ -232,7 +243,7 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
                 : 'text-fg-dim hover:text-fg',
             )}
           >
-            Services
+            {i18n.t('Services')}
           </button>
           <button
             type="button"
@@ -242,8 +253,7 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
               tab === 'logs' ? 'text-accent border-accent border-b-2' : 'text-fg-dim hover:text-fg',
             )}
           >
-            <FileText className="h-3 w-3" />
-            Logs
+            {i18n.rich('{value1}Logs', { value1: <FileText className="h-3 w-3" /> })}
           </button>
         </div>
 
@@ -253,7 +263,9 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
               const st: Status = statuses[svc.id] ?? 'stopped';
               const isRunning = st === 'running' || st === 'starting';
               const cmdSummary =
-                svc.cmds.length === 1 ? svc.cmds[0]?.cmd : `${svc.cmds.length} commands`;
+                svc.cmds.length === 1
+                  ? svc.cmds[0]?.cmd
+                  : i18n.t('{value1} commands', { value1: svc.cmds.length });
               return (
                 <div
                   key={svc.id}
@@ -284,28 +296,28 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
                     )}
                     {isRunning ? (
                       <IconButton
-                        label="Stop"
+                        label={i18n.t('Stop')}
                         icon={<Square />}
                         size="xs"
                         onClick={() => void ipc.stopService(svc.id)}
                       />
                     ) : (
                       <IconButton
-                        label="Start"
+                        label={i18n.t('Start')}
                         icon={<Play />}
                         size="xs"
                         onClick={() => void ipc.startService(svc.id)}
                       />
                     )}
                     <IconButton
-                      label="Restart"
+                      label={i18n.t('Restart')}
                       icon={<RotateCcw />}
                       size="xs"
                       onClick={() => void ipc.restartService(svc.id)}
                     />
                     <button
                       type="button"
-                      title="Open folder"
+                      title={i18n.t('Open folder')}
                       onClick={() => void ipc.openPath(svc.cwd)}
                       className="text-fg-dim hover:bg-accent/10 hover:text-fg flex h-6 w-6 items-center justify-center transition"
                     >
@@ -314,7 +326,7 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
                     {svc.port != null && (
                       <button
                         type="button"
-                        title={`Open ${localUrl(svc.port!)}`}
+                        title={i18n.t('Open {value1}', { value1: localUrl(svc.port!) })}
                         onClick={() => void ipc.openUrl(localUrl(svc.port!))}
                         className="text-fg-dim hover:bg-accent/10 hover:text-accent flex h-6 w-6 items-center justify-center transition"
                       >
@@ -364,10 +376,12 @@ export function StackDetail({ stackId, visible = true }: StackDetailProps) {
                   <div className="border-border/20 flex items-center gap-2 border-b px-4 py-1.5">
                     <StatusDot status={st} size="sm" />
                     <span className="text-fg text-[11px] font-semibold">{svc.name}</span>
-                    <span className="text-fg-dim ml-auto text-[10px]">{svcLines.length} lines</span>
+                    <span className="text-fg-dim ml-auto text-[10px]">
+                      {i18n.rich('{value1} lines', { value1: svcLines.length })}
+                    </span>
                   </div>
                   {svcLines.length === 0 ? (
-                    <div className="text-fg-dim px-4 py-3 text-[11px]">No output</div>
+                    <div className="text-fg-dim px-4 py-3 text-[11px]">{i18n.t('No output')}</div>
                   ) : (
                     <div
                       className={cn(

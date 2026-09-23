@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { Check, CircleAlert, KeyRound, Loader2, RefreshCw, Settings2 } from 'lucide-react';
 import type { AgentBackend } from '@runhq/cockpit-types';
 import {
@@ -22,12 +23,17 @@ export function AgentProviderChips({
   onSelect: (id: string) => void;
   selectedExecutable?: string;
 }) {
+  i18n.useLocale();
   const tools = enabledAgentBackends(backends).filter(
     (tool) => agentDetectionStatus(tool) === 'available' || tool.id === selected,
   );
   if (!tools.length) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Agent selection">
+    <div
+      className="flex flex-wrap items-center gap-2"
+      role="group"
+      aria-label={i18n.t('Agent selection')}
+    >
       {tools.map((tool) => {
         const custom = tool.id === selected && !!selectedExecutable;
         const available = custom || agentDetectionStatus(tool) === 'available';
@@ -52,12 +58,12 @@ export function AgentProviderChips({
                 <CircleAlert className="h-3 w-3" aria-hidden />
               )}
               {custom
-                ? 'Custom path'
+                ? i18n.t('Custom path')
                 : available
-                  ? 'Installed'
+                  ? i18n.t('Installed')
                   : agentDetectionStatus(tool) === 'not_found'
-                    ? 'Missing'
-                    : 'Setup'}
+                    ? i18n.t('Missing')
+                    : i18n.t('Setup')}
             </span>
           </button>
         );
@@ -85,6 +91,7 @@ export function AgentConnectionStatus({
   onManage: () => void;
   onUseDefaultModel?: () => void;
 }) {
+  i18n.useLocale();
   const loading = state.stage === 'checking' || state.stage === 'connecting';
   const ready = state.stage === 'ready';
   const Icon = loading
@@ -104,12 +111,12 @@ export function AgentConnectionStatus({
           : onRecheck;
   const actionLabel =
     state.action === 'catalog'
-      ? 'Retry connection'
+      ? i18n.t('Retry connection')
       : state.action === 'settings'
-        ? 'Connection settings'
+        ? i18n.t('Connection settings')
         : state.action === 'manage'
-          ? 'Agent tools'
-          : 'Recheck';
+          ? i18n.t('Agent tools')
+          : i18n.t('Recheck');
   return (
     <div
       className="border-border/70 bg-surface-muted/40 mb-5 flex flex-wrap items-center gap-3 rounded-xl border px-3.5 py-3"
@@ -137,7 +144,7 @@ export function AgentConnectionStatus({
             onClick={onUseDefaultModel}
             className="text-accent hover:bg-accent/5 rounded-md px-1.5 py-1 text-[10px] font-medium disabled:opacity-40"
           >
-            Use agent default
+            {i18n.t('Use agent default')}
           </button>
         )}
         {state.action && (
@@ -162,7 +169,7 @@ export function AgentConnectionStatus({
             onClick={onRecheck}
             className="text-fg-dim hover:text-fg rounded-md px-1.5 py-1 text-[10px] disabled:opacity-40"
           >
-            Recheck
+            {i18n.t('Recheck')}
           </button>
         )}
         {(ready || loading) && (
@@ -172,7 +179,7 @@ export function AgentConnectionStatus({
             onClick={onManage}
             className="text-fg-dim hover:text-fg rounded-md px-1.5 py-1 text-[10px] disabled:opacity-40"
           >
-            Manage
+            {i18n.t('Manage')}
           </button>
         )}
       </div>

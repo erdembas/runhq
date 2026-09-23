@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { ipc } from '@/lib/ipc';
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
+  i18n.useLocale();
   const [docs, setDocs] = useState<ProjectDoc[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [content, setContent] = useState<DocContent | null>(null);
@@ -118,7 +120,7 @@ export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
             handleProps={navWidth.handleProps}
             dragging={navWidth.dragging}
             className="absolute top-0 right-[-2px] h-full"
-            title="Drag to resize docs sidebar · double-click to reset"
+            title={i18n.t('Drag to resize docs sidebar · double-click to reset')}
           />
         </aside>
       )}

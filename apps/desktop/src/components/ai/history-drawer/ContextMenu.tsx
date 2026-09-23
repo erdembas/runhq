@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect } from 'react';
 import { Archive, ArchiveRestore, Pencil, Pin, PinOff, Star, StarOff, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -29,6 +30,7 @@ export function ContextMenu({
   onArchive,
   onDelete,
 }: ContextMenuProps) {
+  i18n.useLocale();
   useEffect(() => {
     const onDown = () => onClose();
     const id = setTimeout(() => {
@@ -49,24 +51,29 @@ export function ContextMenu({
         'bg-surface-raised border-border/80 rounded-app border shadow-lg shadow-black/30',
       )}
     >
-      <MenuItem icon={<Pencil className="h-3 w-3" />} label="Rename" onClick={onRename} />
+      <MenuItem icon={<Pencil className="h-3 w-3" />} label={i18n.t('Rename')} onClick={onRename} />
       <MenuItem
         icon={pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-        label={pinned ? 'Unpin' : 'Pin'}
+        label={pinned ? i18n.t('Unpin') : i18n.t('Pin')}
         onClick={onPin}
       />
       <MenuItem
         icon={favorite ? <StarOff className="h-3 w-3" /> : <Star className="h-3 w-3" />}
-        label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+        label={favorite ? i18n.t('Remove from favorites') : i18n.t('Add to favorites')}
         onClick={onFavorite}
       />
       <MenuItem
         icon={archived ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
-        label={archived ? 'Unarchive' : 'Archive'}
+        label={archived ? i18n.t('Unarchive') : i18n.t('Archive')}
         onClick={onArchive}
       />
       <div className="border-border/60 my-1 border-t" />
-      <MenuItem icon={<Trash2 className="h-3 w-3" />} label="Delete…" onClick={onDelete} danger />
+      <MenuItem
+        icon={<Trash2 className="h-3 w-3" />}
+        label={i18n.t('Delete…')}
+        onClick={onDelete}
+        danger
+      />
     </div>
   );
 }
@@ -82,6 +89,7 @@ function MenuItem({
   onClick: () => void;
   danger?: boolean;
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"

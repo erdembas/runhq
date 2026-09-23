@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentRequest, AgentSession } from '@runhq/cockpit-types';
 
 export interface AgentDecision {
@@ -40,9 +41,15 @@ export function collectAgentDecisions(
 
 export function agentDecisionWait(since: number, now: number) {
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 60) return i18n.t('{seconds}s', { seconds });
+  if (seconds < 3600) return i18n.t('{value1}m', { value1: Math.floor(seconds / 60) });
   if (seconds < 86400)
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+    return i18n.t('{value1}h {value2}m', {
+      value1: Math.floor(seconds / 3600),
+      value2: Math.floor((seconds % 3600) / 60),
+    });
+  return i18n.t('{value1}d {value2}h', {
+    value1: Math.floor(seconds / 86400),
+    value2: Math.floor((seconds % 86400) / 3600),
+  });
 }

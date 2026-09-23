@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Circle } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { GitStatus } from '@/types';
@@ -18,6 +19,7 @@ export function GitStatusBadge({
   onClick?: () => void;
   title?: string;
 }) {
+  i18n.useLocale();
   if (git === null || git === undefined) return null;
 
   const { is_dirty, dirty_count } = git;
@@ -35,7 +37,7 @@ export function GitStatusBadge({
   const content = (
     <>
       <Circle className={cn('h-1.5 w-1.5 fill-current', !is_dirty && 'opacity-60')} aria-hidden />
-      {is_dirty ? `${dirty_count} dirty` : 'clean'}
+      {is_dirty ? i18n.t('{dirty_count} dirty', { dirty_count: dirty_count }) : i18n.t('clean')}
     </>
   );
 

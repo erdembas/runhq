@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Activity, Sparkles } from 'lucide-react';
 import { cn } from '../lib/cn';
 
@@ -11,6 +14,7 @@ interface Props {
  * real desktop opens drawers when these are clicked.
  */
 export function RightActivityRail({ className }: Props) {
+  i18n.useLocale();
   return (
     <aside
       className={cn(
@@ -21,14 +25,14 @@ export function RightActivityRail({ className }: Props) {
       <button
         type="button"
         className="hover:text-fg hover:bg-surface-muted rounded-md p-1.5 transition"
-        aria-label="Activity"
+        aria-label={i18n.t('Activity')}
       >
         <Activity className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
         className="hover:text-fg hover:bg-surface-muted rounded-md p-1.5 transition"
-        aria-label="AI"
+        aria-label={i18n.t('AI')}
       >
         <Sparkles className="h-3.5 w-3.5" />
       </button>

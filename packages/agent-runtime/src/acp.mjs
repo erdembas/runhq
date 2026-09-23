@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Rpc, pretty } from './protocol.mjs';
 import { cursorExtension, requireCursorAcp } from './cursor.mjs';
 import { validateAttachments } from './attachments.mjs';
+import { acpApproval } from './permissions.mjs';
 
 class AcpRpc extends Rpc {
   send(message) {
@@ -112,6 +113,7 @@ export async function runAcp(ctx, catalog = false) {
           });
           permissions.delete(id);
         },
+        acpApproval(p),
       );
       return;
     }

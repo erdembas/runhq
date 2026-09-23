@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Flame, ArrowUpRight, Cpu, MemoryStick } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { formatBytes, formatPercent } from '@/lib/format';
@@ -48,6 +49,7 @@ export function ResourceHeatmap({
   onJump: (serviceId: string) => void;
   limit?: number;
 }) {
+  i18n.useLocale();
   const entries: HeatmapEntry[] = [];
   let totalMem = 0;
   let totalCpu = 0;
@@ -69,14 +71,16 @@ export function ResourceHeatmap({
   return (
     <section
       className="rounded-app border-border overflow-hidden border"
-      aria-label="Resource usage heatmap"
+      aria-label={i18n.t('Resource usage heatmap')}
     >
       <header className="border-border/60 flex items-center gap-2 border-b px-4 py-2">
         <Flame className="text-fg-dim h-3.5 w-3.5" />
         <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-          Running hot
+          {i18n.t('Running hot')}
         </span>
-        <span className="text-fg-dim text-[11px] tabular-nums">{entries.length} running</span>
+        <span className="text-fg-dim text-[11px] tabular-nums">
+          {i18n.rich('{value1} running', { value1: entries.length })}
+        </span>
         <div className="ml-auto flex items-center gap-3 text-[11px] tabular-nums">
           <span className="text-fg-dim inline-flex items-center gap-1">
             <Cpu className="h-3 w-3" />
@@ -94,7 +98,10 @@ export function ResourceHeatmap({
         ))}
         {hiddenCount > 0 && (
           <li className="text-fg-dim px-4 py-1.5 text-[11px]">
-            +{hiddenCount} more running below top {limit}
+            {i18n.rich('+{hiddenCount} more running below top {limit}', {
+              hiddenCount: hiddenCount,
+              limit: limit,
+            })}
           </li>
         )}
       </ul>
@@ -111,6 +118,7 @@ function HeatmapRow({
   maxMem: number;
   onJump: (serviceId: string) => void;
 }) {
+  i18n.useLocale();
   const { service: svc, cpu, mem } = entry;
   // Relative bar width (min 4% so even the smallest process shows a
   // visible sliver rather than a dot).

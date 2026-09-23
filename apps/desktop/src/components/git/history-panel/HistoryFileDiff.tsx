@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { DiffPane, type DiffViewMode } from '@/components/git/DiffPane';
 import type { HistoryPanelStore } from '@/components/git/useHistoryPanelStore';
 import type { FileEntry } from '@/lib/gitDiff';
@@ -17,6 +18,7 @@ export function HistoryFileDiff({
   cwd,
   viewMode,
 }: HistoryFileDiffProps) {
+  i18n.useLocale();
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <DiffPane
@@ -28,7 +30,9 @@ export function HistoryFileDiff({
         viewMode={viewMode}
         fileLoading={panel.fileLoading}
         emptyLabel={
-          panel.selectedCommit ? 'Select a file from this commit' : 'Select a commit on the left'
+          panel.selectedCommit
+            ? i18n.t('Select a file from this commit')
+            : i18n.t('Select a commit on the left')
         }
       />
     </div>

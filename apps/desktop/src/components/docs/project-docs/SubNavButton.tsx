@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { ProjectDoc } from '@/types';
 import { KIND_META } from './docKindMeta';
@@ -11,6 +12,7 @@ interface SubNavButtonProps {
 }
 
 export function SubNavButton({ doc, active, onSelect, label, depth = 0 }: SubNavButtonProps) {
+  i18n.useLocale();
   const meta = KIND_META[doc.kind];
   return (
     <button

@@ -1,6 +1,8 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 export function Kbd({ children, className }: { children: React.ReactNode; className?: string }) {
+  i18n.useLocale();
   return (
     <kbd
       className={cn(

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { defaultLayoutState } from './layoutDefaults';
 import {
   collapseEmptyGroups,
@@ -14,9 +15,24 @@ import type { LayoutAction, LayoutState, Tab, TabKind } from './layoutTypes';
 
 const RESTORABLE_TAB_DEFAULTS: Record<'docs' | 'notes' | 'agents', { id: string; title: string }> =
   {
-    agents: { id: 'agents', title: 'Agents' },
-    docs: { id: 'docs', title: 'Docs' },
-    notes: { id: 'notes', title: 'Notes' },
+    agents: {
+      id: 'agents',
+      get title() {
+        return i18n.t('Agents');
+      },
+    },
+    docs: {
+      id: 'docs',
+      get title() {
+        return i18n.t('Docs');
+      },
+    },
+    notes: {
+      id: 'notes',
+      get title() {
+        return i18n.t('Notes');
+      },
+    },
   };
 
 function isRestorableKind(kind: TabKind): kind is 'docs' | 'notes' | 'agents' {
@@ -71,7 +87,7 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
       const newTab: Tab = {
         id: newId,
         kind: 'terminal',
-        title: `Terminal ${idx}`,
+        title: i18n.t('Terminal {idx}', { idx: idx }),
       };
       const root = updateNode(state.root, action.groupId, (n) => {
         if (n.type !== 'group') return n;

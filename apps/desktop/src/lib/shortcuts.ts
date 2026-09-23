@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { Shortcuts } from '@/types';
 
 /**
@@ -75,18 +76,28 @@ export const SHORTCUT_CATALOG: ReadonlyArray<ShortcutMeta> = [
     scope: 'global',
     group: 'global',
     defaultBinding: DEFAULT_SHORTCUTS.quick_action,
-    label: 'Quick Action Bar',
-    description:
-      'Open the Spotlight-like search bar from anywhere. The app window will be brought to front if hidden.',
+    get label() {
+      return i18n.t('Quick Action Bar');
+    },
+    get description() {
+      return i18n.t(
+        'Open the Spotlight-like search bar from anywhere. The app window will be brought to front if hidden.',
+      );
+    },
   },
   {
     id: 'focus_main',
     scope: 'global',
     group: 'global',
     defaultBinding: DEFAULT_SHORTCUTS.focus_main,
-    label: 'Show RunHQ window',
-    description:
-      'Bring the main RunHQ window to the foreground from anywhere — works even when RunHQ is hidden in the menu bar / tray, minimised, or sitting behind a fullscreen editor.',
+    get label() {
+      return i18n.t('Show RunHQ window');
+    },
+    get description() {
+      return i18n.t(
+        'Bring the main RunHQ window to the foreground from anywhere — works even when RunHQ is hidden in the menu bar / tray, minimised, or sitting behind a fullscreen editor.',
+      );
+    },
   },
 
   // ---- Window panels ----
@@ -95,25 +106,38 @@ export const SHORTCUT_CATALOG: ReadonlyArray<ShortcutMeta> = [
     scope: 'view',
     group: 'panels',
     defaultBinding: DEFAULT_SHORTCUTS.toggle_left_sidebar,
-    label: 'Toggle left sidebar',
-    description:
-      'Pin or unpin the left sidebar. When unpinned the sidebar collapses to its rail and re-expands on hover.',
+    get label() {
+      return i18n.t('Toggle left sidebar');
+    },
+    get description() {
+      return i18n.t(
+        'Pin or unpin the left sidebar. When unpinned the sidebar collapses to its rail and re-expands on hover.',
+      );
+    },
   },
   {
     id: 'toggle_ai_panel',
     scope: 'view',
     group: 'panels',
     defaultBinding: DEFAULT_SHORTCUTS.toggle_ai_panel,
-    label: 'Toggle AI Chat panel',
-    description: 'Open or collapse the AI Chat panel on the right side of the workspace.',
+    get label() {
+      return i18n.t('Toggle AI Chat panel');
+    },
+    get description() {
+      return i18n.t('Open or collapse the AI Chat panel on the right side of the workspace.');
+    },
   },
   {
     id: 'toggle_activity_panel',
     scope: 'view',
     group: 'panels',
     defaultBinding: DEFAULT_SHORTCUTS.toggle_activity_panel,
-    label: 'Toggle Activity panel',
-    description: 'Open or collapse the Activity timeline panel on the right side.',
+    get label() {
+      return i18n.t('Toggle Activity panel');
+    },
+    get description() {
+      return i18n.t('Open or collapse the Activity timeline panel on the right side.');
+    },
   },
 
   // ---- Service-internal ----
@@ -122,9 +146,14 @@ export const SHORTCUT_CATALOG: ReadonlyArray<ShortcutMeta> = [
     scope: 'view',
     group: 'service',
     defaultBinding: DEFAULT_SHORTCUTS.new_terminal,
-    label: 'New terminal',
-    description:
-      'Spawn a new terminal in the active service tab. The terminal opens in the most recently focused terminal pane, or in a new pane if none exists.',
+    get label() {
+      return i18n.t('New terminal');
+    },
+    get description() {
+      return i18n.t(
+        'Spawn a new terminal in the active service tab. The terminal opens in the most recently focused terminal pane, or in a new pane if none exists.',
+      );
+    },
   },
 
   // ---- Main tabs ----
@@ -133,44 +162,77 @@ export const SHORTCUT_CATALOG: ReadonlyArray<ShortcutMeta> = [
     scope: 'view',
     group: 'tabs',
     defaultBinding: DEFAULT_SHORTCUTS.next_main_tab,
-    label: 'Next main tab',
-    description:
-      'Cycle to the next tab in the top tab strip. Wraps around at the end so the dashboard is always one keystroke away.',
+    get label() {
+      return i18n.t('Next main tab');
+    },
+    get description() {
+      return i18n.t(
+        'Cycle to the next tab in the top tab strip. Wraps around at the end so the dashboard is always one keystroke away.',
+      );
+    },
   },
   {
     id: 'prev_main_tab',
     scope: 'view',
     group: 'tabs',
     defaultBinding: DEFAULT_SHORTCUTS.prev_main_tab,
-    label: 'Previous main tab',
-    description: 'Cycle to the previous tab in the top tab strip. Wraps around at the start.',
+    get label() {
+      return i18n.t('Previous main tab');
+    },
+    get description() {
+      return i18n.t('Cycle to the previous tab in the top tab strip. Wraps around at the start.');
+    },
   },
   {
     id: 'close_main_tab',
     scope: 'view',
     group: 'tabs',
     defaultBinding: DEFAULT_SHORTCUTS.close_main_tab,
-    label: 'Close active main tab',
-    description:
-      'Close the currently active tab. The dashboard tab is sticky and ignores this — closing it would leave the workspace with no anchor.',
+    get label() {
+      return i18n.t('Close active main tab');
+    },
+    get description() {
+      return i18n.t(
+        'Close the currently active tab. The dashboard tab is sticky and ignores this — closing it would leave the workspace with no anchor.',
+      );
+    },
   },
 ];
 
 export const SHORTCUT_GROUP_LABELS: Record<ShortcutGroup, string> = {
-  global: 'Global (system-wide)',
-  panels: 'Window panels',
-  service: 'Service workspace',
-  tabs: 'Main tabs',
+  get global() {
+    return i18n.t('Global (system-wide)');
+  },
+  get panels() {
+    return i18n.t('Window panels');
+  },
+  get service() {
+    return i18n.t('Service workspace');
+  },
+  get tabs() {
+    return i18n.t('Main tabs');
+  },
 };
 
 export const SHORTCUT_GROUP_DESCRIPTIONS: Record<ShortcutGroup, string> = {
-  global:
-    'Registered with the OS and fire even when RunHQ is hidden, minimised, or behind another app. Changes take effect after restarting RunHQ.',
-  panels:
-    'Show, hide, or focus the workspace panels around the editor area. Active only while the RunHQ window has focus.',
-  service:
-    'Act on the currently focused service tab. The shortcut is delegated to that tab’s layout — switch tabs to act on a different service.',
-  tabs: 'Move between or close the tabs in the top tab strip.',
+  get global() {
+    return i18n.t(
+      'Registered with the OS and fire even when RunHQ is hidden, minimised, or behind another app. Changes take effect after restarting RunHQ.',
+    );
+  },
+  get panels() {
+    return i18n.t(
+      'Show, hide, or focus the workspace panels around the editor area. Active only while the RunHQ window has focus.',
+    );
+  },
+  get service() {
+    return i18n.t(
+      'Act on the currently focused service tab. The shortcut is delegated to that tab’s layout — switch tabs to act on a different service.',
+    );
+  },
+  get tabs() {
+    return i18n.t('Move between or close the tabs in the top tab strip.');
+  },
 };
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);

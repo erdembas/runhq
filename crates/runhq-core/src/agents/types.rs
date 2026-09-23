@@ -59,6 +59,9 @@ pub struct AgentSession {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub title: String,
+    /// Empty for legacy sessions; auto awaits a model title, generated and manual are final.
+    #[serde(default)]
+    pub title_source: String,
     pub model: String,
     pub effort: String,
     pub mode: String,

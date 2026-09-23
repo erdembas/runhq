@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { ExternalLink, Play, Square, Terminal } from 'lucide-react';
 import type {
   GitStatus,
@@ -34,12 +35,24 @@ interface Props {
 }
 
 const statusLabel: Record<Status, string> = {
-  running: 'Running',
-  starting: 'Starting',
-  stopping: 'Stopping',
-  stopped: 'Stopped',
-  exited: 'Exited',
-  crashed: 'Crashed',
+  get running() {
+    return i18n.t('Running');
+  },
+  get starting() {
+    return i18n.t('Starting');
+  },
+  get stopping() {
+    return i18n.t('Stopping');
+  },
+  get stopped() {
+    return i18n.t('Stopped');
+  },
+  get exited() {
+    return i18n.t('Exited');
+  },
+  get crashed() {
+    return i18n.t('Crashed');
+  },
 };
 
 /**
@@ -64,6 +77,7 @@ export function ServiceCard({
   onOpenInIde,
   className,
 }: Props) {
+  i18n.useLocale();
   const isRunning = status === 'running' || status === 'starting';
   return (
     <div
@@ -90,7 +104,7 @@ export function ServiceCard({
             <button
               type="button"
               onClick={onStop}
-              title="Stop"
+              title={i18n.t('Stop')}
               className="hover:bg-status-error/10 hover:text-status-error text-fg-muted flex h-7 w-7 items-center justify-center rounded transition"
             >
               <Square className="h-3.5 w-3.5" />
@@ -99,7 +113,7 @@ export function ServiceCard({
             <button
               type="button"
               onClick={onStart}
-              title="Start"
+              title={i18n.t('Start')}
               className="hover:bg-status-running/10 hover:text-status-running text-fg-muted flex h-7 w-7 items-center justify-center rounded transition"
             >
               <Play className="h-3.5 w-3.5" />
@@ -108,7 +122,7 @@ export function ServiceCard({
           <button
             type="button"
             onClick={onOpenLogs}
-            title="Open logs"
+            title={i18n.t('Open logs')}
             className="hover:bg-accent/10 hover:text-accent text-fg-muted flex h-7 w-7 items-center justify-center rounded transition"
           >
             <Terminal className="h-3.5 w-3.5" />
@@ -116,7 +130,7 @@ export function ServiceCard({
           <button
             type="button"
             onClick={onOpenInIde}
-            title="Open in editor"
+            title={i18n.t('Open in editor')}
             className="hover:bg-accent/10 hover:text-accent text-fg-muted flex h-7 w-7 items-center justify-center rounded transition"
           >
             <ExternalLink className="h-3.5 w-3.5" />

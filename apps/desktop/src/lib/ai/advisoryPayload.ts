@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { Advisory } from '@/types';
 
 /**
@@ -122,11 +123,14 @@ export function buildAdvisoryChatPayload(input: {
   ].join('\n');
 
   const titleSuffix = projectName
-    ? `${projectName} · ${included} advisories`
-    : `${included} advisories`;
+    ? i18n.t('{projectName} · {included} advisories', {
+        projectName: projectName,
+        included: included,
+      })
+    : i18n.t('{included} advisories', { included: included });
 
   return {
-    title: `Triage · ${titleSuffix}`,
+    title: i18n.t('Triage · {titleSuffix}', { titleSuffix: titleSuffix }),
     context: {
       kind: 'advisory_triage',
       project_name: projectName,
@@ -243,7 +247,7 @@ export function buildSingleAdvisoryChatPayload(input: {
   // a consistent verb prefix the user can scan for.
   const idTag = advisory.id ?? advisory.package;
   const projectTag = projectName ? ` · ${projectName}` : '';
-  const title = `Analyze · ${idTag}${projectTag}`;
+  const title = i18n.t('Analyze · {idTag}{projectTag}', { idTag: idTag, projectTag: projectTag });
 
   const draftPrompt =
     `Analyse this ${advisory.severity.toLowerCase()} advisory` +

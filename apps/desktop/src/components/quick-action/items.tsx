@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import {
   Code2,
   FolderOpen,
@@ -108,7 +109,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     subActions.push({
       type: 'sub-action',
       serviceId: svc.id,
-      label: anyRunning ? 'Stop All' : 'Start All',
+      label: anyRunning ? i18n.t('Stop All') : i18n.t('Start All'),
       icon: anyRunning ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />,
       danger: anyRunning,
       // Start and Stop share a key on purpose: from the user's POV
@@ -125,7 +126,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     subActions.push({
       type: 'sub-action',
       serviceId: svc.id,
-      label: 'Restart All',
+      label: i18n.t('Restart All'),
       icon: <RotateCcw className="h-3.5 w-3.5" />,
       actionKey: 'restart-all',
       run: tracked(svc.id, 'restart-all', async () => {
@@ -136,7 +137,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     subActions.push({
       type: 'sub-action',
       serviceId: svc.id,
-      label: 'Show in RunHQ',
+      label: i18n.t('Show in RunHQ'),
       icon: <TextSearch className="h-3.5 w-3.5" />,
       actionKey: 'show-in-runhq',
       run: tracked(svc.id, 'show-in-runhq', async () => {
@@ -149,7 +150,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
       subActions.push({
         type: 'sub-action',
         serviceId: svc.id,
-        label: `Open localhost:${svc.port}`,
+        label: i18n.t('Open localhost:{value1}', { value1: svc.port }),
         subtitle: localUrl(svc.port!),
         icon: <Globe className="h-3.5 w-3.5" />,
         actionKey: 'open-localhost',
@@ -178,7 +179,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     const makeEditorRow = (editor: DetectedEditor, opts: { nested?: boolean } = {}): ListItem => ({
       type: 'sub-action',
       serviceId: svc.id,
-      label: `Open in ${editor.name}`,
+      label: i18n.t('Open in {value1}', { value1: editor.name }),
       subtitle: svc.cwd,
       icon: editorBadge(editor),
       nested: opts.nested,
@@ -199,7 +200,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
       subActions.push({
         type: 'sub-action',
         serviceId: svc.id,
-        label: 'Open in IDE',
+        label: i18n.t('Open in IDE'),
         // Comma-list when collapsed gives a one-glance confirmation that
         // the user's editor is in there. When expanded the same data is
         // visible as rows below, so we drop it to avoid duplication.
@@ -226,7 +227,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     subActions.push({
       type: 'sub-action',
       serviceId: svc.id,
-      label: 'Open in Finder',
+      label: i18n.t('Open in Finder'),
       subtitle: svc.cwd,
       icon: <FolderOpen className="h-3.5 w-3.5" />,
       actionKey: 'open-finder',
@@ -238,7 +239,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     subActions.push({
       type: 'sub-action',
       serviceId: svc.id,
-      label: 'Open Terminal',
+      label: i18n.t('Open Terminal'),
       subtitle: svc.cwd,
       icon: <TerminalSquare className="h-3.5 w-3.5" />,
       actionKey: 'open-terminal',
@@ -319,7 +320,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
     const filteredMain = mainSubActions.filter((a) => a.type === 'sub-action' && matchesQuery(a));
 
     if (filteredRecent.length > 0) {
-      result.push({ type: 'header', label: 'Frequent' });
+      result.push({ type: 'header', label: i18n.t('Frequent') });
       result.push(...filteredRecent);
     }
     result.push(...filteredMain);
@@ -381,7 +382,7 @@ export function buildItems(deps: BuildItemsDeps): ListItem[] {
   }
 
   if (svcItems.length > 0) {
-    result.push({ type: 'header', label: 'Services' });
+    result.push({ type: 'header', label: i18n.t('Services') });
     result.push(...svcItems);
   }
 

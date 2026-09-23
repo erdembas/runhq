@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -81,6 +82,7 @@ const WIDTH: Record<DrawerWidth, string> = {
  * box. The `Dashboard` root is the canonical mount point.
  */
 export function Drawer({ children, onClose, ariaLabel, size = 'md', side = 'right' }: Props) {
+  i18n.useLocale();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();

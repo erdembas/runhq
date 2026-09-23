@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { Check, ChevronDown, CircleAlert, Loader2, Search } from 'lucide-react';
 import type { AgentBackend } from '@runhq/cockpit-types';
 import { agentDetectionStatus } from '../lib/agentDiscovery';
@@ -17,6 +18,7 @@ export function AgentDiscoverySummary({
   error: string | null;
   checkedAt: number | null;
 }) {
+  i18n.useLocale();
   const counts = { available: 0, blocked: 0, not_found: 0 };
   for (const tool of tools) counts[agentDetectionStatus(tool)]++;
   return (
@@ -31,20 +33,23 @@ export function AgentDiscoverySummary({
         )}
         <span>
           {loading
-            ? 'Checking installed agents…'
+            ? i18n.t('Checking installed agents…')
             : error
-              ? 'Could not complete detection'
+              ? i18n.t('Could not complete detection')
               : ready
-                ? 'Local installations checked'
-                : 'Preparing agent detection…'}
+                ? i18n.t('Local installations checked')
+                : i18n.t('Preparing agent detection…')}
         </span>
         {!loading && !!checkedAt && (
           <time
             dateTime={new Date(checkedAt).toISOString()}
-            title={new Date(checkedAt).toLocaleString()}
+            title={new Date(checkedAt).toLocaleString(i18n.getFormatLocale())}
             className="text-fg-dim ml-auto text-[10px]"
           >
-            {new Date(checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {new Date(checkedAt).toLocaleTimeString(i18n.getFormatLocale(), {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
           </time>
         )}
       </div>
@@ -54,16 +59,16 @@ export function AgentDiscoverySummary({
           className="border-accent/20 bg-accent/5 text-fg-muted rounded-lg border px-3 py-2 text-[11px] leading-relaxed break-words"
         >
           {error}
-          {ready && tools.length > 0 ? ' Showing the last detected results.' : ''}
+          {ready && tools.length > 0 ? i18n.t(' Showing the last detected results.') : ''}
         </p>
       )}
       {(ready || tools.length > 0) && (
         <div className="grid grid-cols-3 gap-2">
           {(
             [
-              ['available', 'Installed', 'text-status-running'],
-              ['blocked', 'Needs setup', 'text-accent'],
-              ['not_found', 'Missing', 'text-fg-dim'],
+              ['available', i18n.t('Installed'), 'text-status-running'],
+              ['blocked', i18n.t('Needs setup'), 'text-accent'],
+              ['not_found', i18n.t('Missing'), 'text-fg-dim'],
             ] as const
           ).map(([status, label, tone]) => (
             <div
@@ -77,14 +82,16 @@ export function AgentDiscoverySummary({
         </div>
       )}
       <p className="text-fg-dim text-[10px] leading-relaxed">
-        Checks your PATH and standard install locations. Project connections load when you use an
-        agent.
+        {i18n.t(
+          'Checks your PATH and standard install locations. Project connections load when you use an agent.',
+        )}
       </p>
     </div>
   );
 }
 
 export function AgentToolDetectionBadge({ tool }: { tool: AgentBackend }) {
+  i18n.useLocale();
   const status = agentDetectionStatus(tool);
   return (
     <span
@@ -95,27 +102,34 @@ export function AgentToolDetectionBadge({ tool }: { tool: AgentBackend }) {
       ) : status === 'blocked' ? (
         <CircleAlert className="h-2.5 w-2.5" />
       ) : null}
-      {status === 'available' ? 'Installed' : status === 'blocked' ? 'Setup required' : 'Missing'}
+      {status === 'available'
+        ? i18n.t('Installed')
+        : status === 'blocked'
+          ? i18n.t('Setup required')
+          : i18n.t('Missing')}
     </span>
   );
 }
 
 export function AgentToolDetectionDetails({ tool }: { tool: AgentBackend }) {
+  i18n.useLocale();
   const status = agentDetectionStatus(tool);
   const source =
     tool.detection_source === 'known_location'
-      ? 'Standard install location'
+      ? i18n.t('Standard install location')
       : tool.detection_source === 'explicit'
-        ? 'Configured path'
+        ? i18n.t('Configured path')
         : tool.detection_source === 'path'
-          ? 'Shell PATH'
+          ? i18n.t('Shell PATH')
           : null;
   const error =
     tool.error ||
     (status === 'blocked'
-      ? 'The CLI is installed but could not be started. Check its setup or configure another executable.'
+      ? i18n.t(
+          'The CLI is installed but could not be started. Check its setup or configure another executable.',
+        )
       : status === 'not_found'
-        ? 'The CLI was not found. Install this tool or configure its executable path.'
+        ? i18n.t('The CLI was not found. Install this tool or configure its executable path.')
         : null);
   return (
     <div className="mt-2.5 space-y-2">
@@ -129,12 +143,14 @@ export function AgentToolDetectionDetails({ tool }: { tool: AgentBackend }) {
       <details className="group/discovery-details">
         <summary className="text-fg-dim hover:text-fg-muted flex cursor-pointer items-center gap-1.5 py-1 text-[10px]">
           <ChevronDown className="h-3 w-3 -rotate-90 transition-transform group-open/discovery-details:rotate-0" />
-          {tool.executable ? 'Executable & detection details' : 'Configuration details'}
+          {tool.executable
+            ? i18n.t('Executable & detection details')
+            : i18n.t('Configuration details')}
         </summary>
         <dl className="border-fg/8 mt-1 space-y-2 border-l pl-3 text-[10px]">
           {tool.executable && (
             <div>
-              <dt className="text-fg-dim">Detected executable</dt>
+              <dt className="text-fg-dim">{i18n.t('Detected executable')}</dt>
               <dd className="text-fg-muted mt-0.5 font-mono break-all select-text">
                 {tool.executable}
               </dd>
@@ -142,20 +158,20 @@ export function AgentToolDetectionDetails({ tool }: { tool: AgentBackend }) {
           )}
           {source && (
             <div>
-              <dt className="text-fg-dim">Found through</dt>
+              <dt className="text-fg-dim">{i18n.t('Found through')}</dt>
               <dd className="text-fg-muted mt-0.5">{source}</dd>
             </div>
           )}
           {tool.version && (
             <div>
-              <dt className="text-fg-dim">Version</dt>
+              <dt className="text-fg-dim">{i18n.t('Version')}</dt>
               <dd className="text-fg-muted mt-0.5 font-mono break-all select-text">
                 {tool.version}
               </dd>
             </div>
           )}
           <div>
-            <dt className="text-fg-dim">Configured command</dt>
+            <dt className="text-fg-dim">{i18n.t('Configured command')}</dt>
             <dd className="text-fg-muted mt-0.5 font-mono break-all select-text">
               {tool.command || tool.id}
               {tool.args?.length ? ` ${tool.args.join(' ')}` : ''}

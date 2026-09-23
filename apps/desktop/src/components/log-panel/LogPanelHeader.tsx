@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useId } from 'react';
 import { ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
@@ -58,6 +59,7 @@ export function LogPanelHeader({
   onStart,
   onStop,
 }: LogPanelHeaderProps) {
+  i18n.useLocale();
   const controlsId = useId();
   const [collapsed, setCollapsed] = usePersistentBoolean(
     `runhq.service-controls-collapsed.${service.id}`,
@@ -74,15 +76,15 @@ export function LogPanelHeader({
                 {filter && (
                   <button
                     type="button"
-                    title={`Log filter: ${filter}`}
+                    title={i18n.t('Log filter: {filter}', { filter: filter })}
                     className="text-fg-muted hover:text-fg rounded px-2 py-1 text-[11px]"
                     onClick={() => setCollapsed(false)}
                   >
-                    Logs filtered
+                    {i18n.t('Logs filtered')}
                   </button>
                 )}
                 <IconButton
-                  label={isServiceRunning ? 'Stop service' : 'Start service'}
+                  label={isServiceRunning ? i18n.t('Stop service') : i18n.t('Start service')}
                   icon={isServiceRunning ? <Square /> : <Play />}
                   size="sm"
                   onClick={isServiceRunning ? onStop : onStart}
@@ -93,15 +95,19 @@ export function LogPanelHeader({
               type="button"
               aria-expanded={!collapsed}
               aria-controls={controlsId}
-              aria-label={collapsed ? 'Expand service controls' : 'Collapse service controls'}
-              title={collapsed ? 'Expand service controls' : 'Collapse service controls'}
+              aria-label={
+                collapsed ? i18n.t('Expand service controls') : i18n.t('Collapse service controls')
+              }
+              title={
+                collapsed ? i18n.t('Expand service controls') : i18n.t('Collapse service controls')
+              }
               className="text-fg-muted hover:bg-fg/5 hover:text-fg focus-visible:ring-accent/40 flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] focus-visible:ring-2 focus-visible:outline-none"
               onClick={() => {
                 if (!collapsed) onOpenPopoverChange(false);
                 setCollapsed(!collapsed);
               }}
             >
-              <span>Controls</span>
+              <span>{i18n.t('Controls')}</span>
               {collapsed ? (
                 <ChevronDown className="h-3.5 w-3.5" />
               ) : (

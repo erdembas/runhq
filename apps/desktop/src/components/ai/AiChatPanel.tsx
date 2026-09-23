@@ -1,5 +1,7 @@
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { AiChatProvider } from './chat-panel/aiChatProviders';
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { HistoryDrawer } from './HistoryDrawer';
 import { ChatTabs } from './ChatTabs';
 import { AiChatComposer } from './chat-panel/AiChatComposer';
@@ -51,6 +53,7 @@ interface AiChatPanelProps {
  * working" vs a modal interruption.
  */
 export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChatPanelProps) {
+  i18n.useLocale();
   // Inline mode is *always* "open" — the right activity rail decides
   // when this component is mounted. Collapse to a single boolean
   // here so the rest of the file doesn't need to special-case the
@@ -259,7 +262,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     <div
       className={panelClassName(isInline)}
       role={isInline ? undefined : 'dialog'}
-      aria-label={isInline ? undefined : 'AI Chat'}
+      aria-label={isInline ? undefined : i18n.t('AI Chat')}
     >
       <AiChatPanelHeader
         activeConversationId={activeConversationId}

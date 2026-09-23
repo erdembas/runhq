@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Info } from 'lucide-react';
@@ -32,13 +33,14 @@ export function ConfirmDialog({
   title,
   message,
   details,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = i18n.t('Confirm'),
+  cancelLabel = i18n.t('Cancel'),
   tone = 'danger',
   confirmWord,
   onConfirm,
   onCancel,
 }: Props) {
+  i18n.useLocale();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const wordInputRef = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState('');
@@ -103,11 +105,13 @@ export function ConfirmDialog({
             {confirmWord && (
               <div className="mt-3">
                 <label className="text-fg-dim text-[11px]">
-                  Type{' '}
-                  <span className="text-fg bg-surface-muted rounded px-1 font-mono text-[11px]">
-                    {confirmWord}
-                  </span>{' '}
-                  to confirm
+                  {i18n.rich('Type {value1} to confirm', {
+                    value1: (
+                      <span className="text-fg bg-surface-muted rounded px-1 font-mono text-[11px]">
+                        {confirmWord}
+                      </span>
+                    ),
+                  })}
                 </label>
                 <input
                   ref={wordInputRef}

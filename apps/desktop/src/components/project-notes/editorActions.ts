@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { editor as MonacoEditor } from 'monaco-editor';
 
 export function wrapSelection(
@@ -45,7 +46,7 @@ export function insertLink(editor: MonacoEditor.IStandaloneCodeEditor): void {
   if (!model || !selection) return;
   const selected = model.getValueInRange(selection);
   const looksLikeUrl = /^(https?:\/\/|mailto:|\/)/i.test(selected.trim());
-  const text = looksLikeUrl ? 'link text' : selected || 'link text';
+  const text = looksLikeUrl ? i18n.t('link text') : selected || 'link text';
   const url = looksLikeUrl ? selected.trim() : 'https://';
   const replacement = `[${text}](${url})`;
   editor.executeEdits('markdown-link', [

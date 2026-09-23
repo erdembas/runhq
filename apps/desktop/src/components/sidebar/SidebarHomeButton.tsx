@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { LayoutDashboard, PanelLeftClose, Pin } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import { cn } from '@/lib/cn';
@@ -17,6 +18,7 @@ export function SidebarHomeButton({
   onSelect,
   onTogglePinned,
 }: SidebarHomeButtonProps) {
+  i18n.useLocale();
   return (
     <div data-tauri-drag-region className="flex items-center justify-between gap-2 px-3 py-2.5">
       <button
@@ -35,11 +37,13 @@ export function SidebarHomeButton({
         >
           <LayoutDashboard className="h-3 w-3" />
         </span>
-        {expanded && <span className="text-[13px] font-semibold tracking-tight">Dashboard</span>}
+        {expanded && (
+          <span className="text-[13px] font-semibold tracking-tight">{i18n.t('Dashboard')}</span>
+        )}
       </button>
       {expanded && (
         <IconButton
-          label={pinned ? 'Collapse sidebar' : 'Pin sidebar open'}
+          label={pinned ? i18n.t('Collapse sidebar') : i18n.t('Pin sidebar open')}
           icon={pinned ? <PanelLeftClose /> : <Pin />}
           size="xs"
           onClick={onTogglePinned}

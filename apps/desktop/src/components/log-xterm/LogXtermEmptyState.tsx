@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import { XTERM_DARK_BG, XTERM_LIGHT_BG } from '@/lib/xtermTheme';
 
@@ -7,6 +8,7 @@ interface LogXtermEmptyStateProps {
 }
 
 export function LogXtermEmptyState({ isDark, message }: LogXtermEmptyStateProps) {
+  i18n.useLocale();
   return (
     <div
       className={cn(

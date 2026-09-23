@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -20,6 +21,7 @@ export function PopoverChip({
   onToggle,
   open,
 }: PopoverChipProps) {
+  i18n.useLocale();
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {

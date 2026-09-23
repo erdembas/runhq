@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { createPortal } from 'react-dom';
 import type { Ref } from 'react';
 import { BranchSection } from './BranchSection';
@@ -86,6 +87,7 @@ export function GitStatusPopover({
   onSubmitNewBranch,
   onCancelCreate,
 }: GitStatusPopoverProps) {
+  i18n.useLocale();
   return createPortal(
     <>
       <div

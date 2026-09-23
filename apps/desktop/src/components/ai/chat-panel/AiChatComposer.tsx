@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { AiChatProvider } from './aiChatProviders';
 import type { Ref, RefObject } from 'react';
 import {
@@ -39,6 +40,7 @@ interface Props {
 }
 
 export function AiChatComposer(props: Props) {
+  i18n.useLocale();
   return (
     <>
       {props.contextChips.length > 0 && <ContextChips chips={props.contextChips} />}
@@ -66,8 +68,10 @@ export function AiChatComposer(props: Props) {
             }}
             placeholder={
               props.selectedService
-                ? `Ask about ${props.selectedService.name}, your logs, or anything else…`
-                : 'Ask anything about your projects, diffs, or logs…'
+                ? i18n.t('Ask about {value1}, your logs, or anything else…', {
+                    value1: props.selectedService.name,
+                  })
+                : i18n.t('Ask anything about your projects, diffs, or logs…')
             }
             rows={1}
             className={cn(
@@ -91,8 +95,8 @@ export function AiChatComposer(props: Props) {
               <button
                 type="button"
                 onClick={props.onCancel}
-                title="Stop (Esc)"
-                aria-label="Stop generating"
+                title={i18n.t('Stop (Esc)')}
+                aria-label={i18n.t('Stop generating')}
                 className="bg-fg/10 hover:bg-fg/20 text-fg/90 flex h-7 w-7 items-center justify-center rounded-md transition-colors"
               >
                 <Square className="h-3 w-3" fill="currentColor" />
@@ -102,8 +106,8 @@ export function AiChatComposer(props: Props) {
                 type="button"
                 onClick={props.onSend}
                 disabled={!props.input.trim() || !props.provider}
-                title="Send · Enter"
-                aria-label="Send message"
+                title={i18n.t('Send · Enter')}
+                aria-label={i18n.t('Send message')}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded-md transition-all',
                   'bg-accent text-accent-fg hover:bg-accent-hover',
@@ -119,7 +123,9 @@ export function AiChatComposer(props: Props) {
           <div className="text-fg-dim/60 mt-1.5 flex items-center gap-1.5 px-1 text-[10px]">
             <CornerDownLeft className="h-2.5 w-2.5" />
             <span>
-              Enter to send · Shift+Enter for newline{!props.isInline ? ' · Esc to close' : ''}
+              {i18n.rich('Enter to send · Shift+Enter for newline{value1}', {
+                value1: !props.isInline ? i18n.t(' · Esc to close') : '',
+              })}
             </span>
           </div>
         )}
@@ -129,6 +135,7 @@ export function AiChatComposer(props: Props) {
 }
 
 function ModelControl(props: Props) {
+  i18n.useLocale();
   const cli = props.provider && isCliChatProvider(props.provider);
   const Icon = cli ? TerminalSquare : Sparkles;
   return (
@@ -138,8 +145,8 @@ function ModelControl(props: Props) {
         onClick={() => props.onPickerOpenChange(!props.pickerOpen)}
         title={
           props.provider
-            ? `${props.provider.name} · ${cli ? 'CLI default model' : props.provider.model}`
-            : 'Choose a CLI tool or API provider'
+            ? `${props.provider.name} · ${cli ? i18n.t('CLI default model') : props.provider.model}`
+            : i18n.t('Choose a CLI tool or API provider')
         }
         aria-haspopup="listbox"
         aria-expanded={props.pickerOpen}
@@ -150,7 +157,7 @@ function ModelControl(props: Props) {
       >
         <Icon className="h-3 w-3" />
         <span className="max-w-[180px] truncate">
-          {props.provider?.model || props.provider?.name || 'Choose provider'}
+          {props.provider?.model || props.provider?.name || i18n.t('Choose provider')}
         </span>
         <ChevronDown
           className={cn(
@@ -173,10 +180,11 @@ function ModelControl(props: Props) {
 }
 
 function ContextChips({ chips }: { chips: Array<{ id: string; label: string }> }) {
+  i18n.useLocale();
   return (
     <div className="border-border/60 flex flex-wrap gap-1 border-t px-3 pt-2 pb-1">
       <span className="text-fg-dim text-[9px] font-semibold tracking-[0.12em] uppercase">
-        Context
+        {i18n.t('Context')}
       </span>
       {chips.map((chip) => (
         <span

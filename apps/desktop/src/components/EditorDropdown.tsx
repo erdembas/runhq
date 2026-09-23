@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Code2, FolderOpen } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
@@ -20,8 +22,12 @@ const PLATFORM =
       : /Win/.test(navigator.userAgent)
         ? 'win'
         : 'other';
-const REVEAL_LABEL =
-  PLATFORM === 'mac' ? 'Show in Finder' : PLATFORM === 'win' ? 'Show in Explorer' : 'Open folder';
+const revealLabel = () =>
+  PLATFORM === 'mac'
+    ? i18n.t('Show in Finder')
+    : PLATFORM === 'win'
+      ? i18n.t('Show in Explorer')
+      : i18n.t('Open folder');
 
 interface Props {
   cwd: string;
@@ -37,6 +43,7 @@ interface Props {
 }
 
 export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
+  i18n.useLocale();
   const editors = useAppStore((s) => s.editors);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
@@ -93,7 +100,7 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
       <div
         role="button"
         tabIndex={0}
-        title="Open in editor"
+        title={i18n.t('Open in editor')}
         className={cn(
           'rounded-app-sm inline-flex cursor-pointer items-center justify-center transition',
           'text-fg-muted hover:bg-fg/10 hover:text-fg',
@@ -175,7 +182,7 @@ export function EditorDropdown({ cwd, size = 'xs', cmds }: Props) {
               >
                 <FolderOpen className="h-3 w-3" />
               </span>
-              <span className="truncate font-medium">{REVEAL_LABEL}</span>
+              <span className="truncate font-medium">{revealLabel()}</span>
             </button>
           </div>,
           document.body,

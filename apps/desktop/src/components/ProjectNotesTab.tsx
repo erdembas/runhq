@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor as MonacoEditor, IKeyboardEvent } from 'monaco-editor';
 import { ipc } from '@/lib/ipc';
@@ -27,6 +29,7 @@ interface ProjectNotesTabProps {
 }
 
 export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps) {
+  i18n.useLocale();
   const [notes, setNotes] = useState<NoteFile[]>([]);
   const [activeName, setActiveName] = useState<string | null>(null);
   const [content, setContent] = useState('');
@@ -62,7 +65,8 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
         setActiveName(list[0]?.name ?? null);
       })
       .catch((error) => {
-        if (!cancelled) setError(`Couldn't load notes: ${String(error)}`);
+        if (!cancelled)
+          setError(i18n.t("Couldn't load notes: {value1}", { value1: String(error) }));
       })
       .finally(() => {
         if (!cancelled) setListLoading(false);
@@ -92,7 +96,7 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
         setMode(body.length > 0 ? 'preview' : 'edit');
       })
       .catch((error) => {
-        if (!cancelled) setError(`Couldn't read note: ${String(error)}`);
+        if (!cancelled) setError(i18n.t("Couldn't read note: {value1}", { value1: String(error) }));
       })
       .finally(() => {
         if (!cancelled) setBodyLoading(false);
@@ -114,7 +118,7 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
       setOriginalContent(content);
       setNotes(await ipc.listNotes(serviceId));
     } catch (error) {
-      setError(`Couldn't save: ${String(error)}`);
+      setError(i18n.t("Couldn't save: {value1}", { value1: String(error) }));
     } finally {
       setSaving(false);
     }
@@ -146,7 +150,7 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
       setActiveName(newName);
       setMode('edit');
     } catch (error) {
-      setError(`Couldn't create note: ${String(error)}`);
+      setError(i18n.t("Couldn't create note: {value1}", { value1: String(error) }));
     }
   }, [serviceId]);
 
@@ -161,7 +165,7 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
           setActiveName(list[0]?.name ?? null);
         }
       } catch (error) {
-        setError(`Couldn't delete: ${String(error)}`);
+        setError(i18n.t("Couldn't delete: {value1}", { value1: String(error) }));
       }
     },
     [serviceId, activeName],
@@ -189,49 +193,49 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
     const actions: Array<{ id: string; label: string; keys: number[]; run: () => void }> = [
       {
         id: 'runhq.notes.bold',
-        label: 'Markdown: Toggle Bold',
+        label: i18n.t('Markdown: Toggle Bold'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB],
-        run: () => wrapSelection(editor, '**', '**', 'bold text'),
+        run: () => wrapSelection(editor, '**', '**', i18n.t('bold text')),
       },
       {
         id: 'runhq.notes.italic',
-        label: 'Markdown: Toggle Italic',
+        label: i18n.t('Markdown: Toggle Italic'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
-        run: () => wrapSelection(editor, '*', '*', 'italic text'),
+        run: () => wrapSelection(editor, '*', '*', i18n.t('italic text')),
       },
       {
         id: 'runhq.notes.code',
-        label: 'Markdown: Toggle Inline Code',
+        label: i18n.t('Markdown: Toggle Inline Code'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE],
         run: () => wrapSelection(editor, '`', '`', 'code'),
       },
       {
         id: 'runhq.notes.link',
-        label: 'Markdown: Insert Link',
+        label: i18n.t('Markdown: Insert Link'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
         run: () => insertLink(editor),
       },
       {
         id: 'runhq.notes.quote',
-        label: 'Markdown: Toggle Block Quote',
+        label: i18n.t('Markdown: Toggle Block Quote'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Period],
         run: () => toggleLinePrefix(editor, '> '),
       },
       {
         id: 'runhq.notes.list',
-        label: 'Markdown: Toggle Bullet List',
+        label: i18n.t('Markdown: Toggle Bullet List'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL],
         run: () => toggleLinePrefix(editor, '- '),
       },
       {
         id: 'runhq.notes.ordered',
-        label: 'Markdown: Toggle Ordered List',
+        label: i18n.t('Markdown: Toggle Ordered List'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Digit7],
         run: () => toggleLinePrefix(editor, '1. '),
       },
       {
         id: 'runhq.notes.heading',
-        label: 'Markdown: Toggle Heading',
+        label: i18n.t('Markdown: Toggle Heading'),
         keys: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyH],
         run: () => toggleHeading(editor),
       },
@@ -318,13 +322,13 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
           <EmptyNotesState onCreate={() => void handleCreate()} serviceName={serviceName} />
         ) : bodyLoading ? (
           <div className="text-fg-dim flex flex-1 items-center justify-center text-[12px]">
-            Loading…
+            {i18n.t('Loading…')}
           </div>
         ) : mode === 'edit' && activeName ? (
           <div className="relative flex-1 overflow-hidden">
             {monaco.error ? (
               <div className="text-tone-critical-fg flex h-full items-center justify-center px-6 text-[12px]">
-                Couldn't load editor: {monaco.error}
+                {i18n.rich("Couldn't load editor: {value1}", { value1: monaco.error })}
               </div>
             ) : monaco.ready ? (
               <Editor
@@ -372,7 +376,7 @@ export function ProjectNotesTab({ serviceId, serviceName }: ProjectNotesTabProps
               />
             ) : (
               <div className="text-fg-dim flex h-full items-center justify-center text-[12px]">
-                Loading editor…
+                {i18n.t('Loading editor…')}
               </div>
             )}
           </div>

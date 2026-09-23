@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { AlertTriangle, FileText, RefreshCw, StretchHorizontal } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -25,6 +26,7 @@ export function DocBody({
   onRunCommand,
   onSelectDoc,
 }: DocBodyProps) {
+  i18n.useLocale();
   const [wide, toggleWide] = useWideLayoutPref();
   const [showSpinner, setShowSpinner] = useState(false);
   useEffect(() => {
@@ -42,7 +44,7 @@ export function DocBody({
         <div className="border-status-error/40 bg-status-error/10 text-status-error max-w-md rounded-lg border px-4 py-3 text-[12.5px]">
           <div className="mb-1 flex items-center gap-2 font-semibold">
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span>Couldn't load this doc</span>
+            <span>{i18n.t("Couldn't load this doc")}</span>
           </div>
           <code className="text-fg-dim block font-mono text-[11px]">{error}</code>
         </div>
@@ -53,7 +55,7 @@ export function DocBody({
   if (!content) {
     return (
       <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-        {showSpinner ? 'Loading…' : ''}
+        {showSpinner ? i18n.t('Loading…') : ''}
       </div>
     );
   }
@@ -72,7 +74,7 @@ export function DocBody({
             <>
               <span className="shrink-0">·</span>
               <span className="shrink-0" title={new Date(content.last_modified_ms).toString()}>
-                edited {formatRelative(content.last_modified_ms)}
+                {i18n.rich('edited {value1}', { value1: formatRelative(content.last_modified_ms) })}
               </span>
             </>
           )}
@@ -81,7 +83,11 @@ export function DocBody({
           <button
             type="button"
             onClick={toggleWide}
-            title={wide ? 'Switch to centred reading column' : 'Use the full available width'}
+            title={
+              wide
+                ? i18n.t('Switch to centred reading column')
+                : i18n.t('Use the full available width')
+            }
             aria-pressed={wide}
             className={cn(
               'inline-flex h-5 items-center gap-1 rounded px-1.5 transition-colors',
@@ -89,16 +95,16 @@ export function DocBody({
             )}
           >
             <StretchHorizontal className="h-3 w-3" />
-            <span>Wide</span>
+            <span>{i18n.t('Wide')}</span>
           </button>
           <button
             type="button"
             onClick={onRefresh}
-            title="Re-read this doc from disk"
+            title={i18n.t('Re-read this doc from disk')}
             className="hover:bg-accent/10 hover:text-accent inline-flex h-5 items-center gap-1 rounded px-1.5 transition-colors"
           >
             <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
-            <span>Refresh</span>
+            <span>{i18n.t('Refresh')}</span>
           </button>
         </div>
       </div>

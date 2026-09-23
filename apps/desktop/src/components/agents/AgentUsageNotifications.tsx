@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 import type { AgentSession } from '@runhq/cockpit-types';
 import { useVisibleStore } from '@/lib/useVisibleStore';
@@ -20,6 +22,7 @@ export function AgentUsageNotifications({
   visible?: boolean;
   onOpenSession: (id: string) => void;
 }) {
+  i18n.useLocale();
   const sessions = useVisibleStore(useAgentStore, (state) => state.sessions, visible);
   const saved = useVisibleStore(
     useAgentLibraryStore,
@@ -65,7 +68,7 @@ export function AgentUsageNotifications({
   if (!shown.length) return null;
   return (
     <div
-      aria-label="Agent usage alerts"
+      aria-label={i18n.t('Agent usage alerts')}
       className="border-border max-h-44 overflow-auto border-b bg-amber-400/5 px-4 py-2"
     >
       {shown.map((notice) => (
@@ -76,23 +79,33 @@ export function AgentUsageNotifications({
         >
           <Bell className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
           <div className="flex-1">
-            <button
-              type="button"
-              className="text-fg font-medium hover:underline"
-              onClick={() => onOpenSession(notice.sessionId)}
-            >
-              {notice.title}
-            </button>
-            {' · '}
-            {notice.actual.toLocaleString()} {notice.metric} in its {notice.scope} report reached{' '}
-            {notice.threshold.toLocaleString()}.
-            {notice.level === 'pause'
-              ? ' Queued followups are paused until you change the usage rule.'
-              : ' Usage warning threshold reached.'}
+            {i18n.rich(
+              '{value1}{value2}{value3} {value4} in its {value5} report reached {value6}.{value7}',
+              {
+                value1: (
+                  <button
+                    type="button"
+                    className="text-fg font-medium hover:underline"
+                    onClick={() => onOpenSession(notice.sessionId)}
+                  >
+                    {notice.title}
+                  </button>
+                ),
+                value2: ' · ',
+                value3: notice.actual.toLocaleString(i18n.getFormatLocale()),
+                value4: notice.metric,
+                value5: i18n.enumLabel('usageScope', notice.scope),
+                value6: notice.threshold.toLocaleString(i18n.getFormatLocale()),
+                value7:
+                  notice.level === 'pause'
+                    ? i18n.t(' Queued followups are paused until you change the usage rule.')
+                    : i18n.t(' Usage warning threshold reached.'),
+              },
+            )}
           </div>
           <button
             type="button"
-            aria-label={`Dismiss usage alert for ${notice.title}`}
+            aria-label={i18n.t('Dismiss usage alert for {value1}', { value1: notice.title })}
             className="text-fg-dim p-0.5"
             onClick={() => setDismissed((current) => new Set([...current, notice.key]))}
           >
@@ -111,6 +124,7 @@ export function AgentUsageGuardNotice({
   session: AgentSession;
   queued: boolean;
 }) {
+  i18n.useLocale();
   const saved = useAgentLibraryStore((state) => state.records['preferences:usage']);
   const preferences = agentUsagePreferences(saved?.value);
   const result = evaluateAgentUsage(session.usage, preferences.providers[session.backend]);

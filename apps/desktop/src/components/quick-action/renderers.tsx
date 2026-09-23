@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import {
   ArrowRight,
   ChevronDown,
@@ -39,7 +40,7 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
   if (item.type === 'cmd-header') {
     return (
       <div key={`cmdhdr-${i}`} className="qa-section-header">
-        Commands
+        {i18n.t('Commands')}
       </div>
     );
   }
@@ -99,7 +100,10 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
             <span>{STATUS_LABEL[item.cmds[0]?.status ?? 'stopped']}</span>
             <span>·</span>
             <span>
-              {item.cmds.length} cmd{item.cmds.length !== 1 ? 's' : ''}
+              {i18n.rich('{value1} cmd{plural3}', {
+                value1: item.cmds.length,
+                plural3: item.cmds.length !== 1 ? 's' : '',
+              })}
             </span>
             {item.service.port != null && (
               <>
@@ -112,7 +116,7 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            title={anyRunning ? 'Stop' : 'Start'}
+            title={anyRunning ? i18n.t('Stop') : i18n.t('Start')}
             className={cn(
               'flex h-6 w-6 items-center justify-center rounded transition',
               anyRunning
@@ -312,11 +316,13 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
         <div className="min-w-0 flex-1">
           <div className="text-fg text-[12px] font-semibold">{item.stack.name}</div>
           <div className="text-fg-dim flex items-center gap-2 text-[10px]">
-            <span>{item.stack.service_ids.length} services</span>
+            <span>{i18n.rich('{value1} services', { value1: item.stack.service_ids.length })}</span>
             {item.runningCount > 0 && (
               <>
                 <span>·</span>
-                <span className="text-status-running">{item.runningCount} running</span>
+                <span className="text-status-running">
+                  {i18n.rich('{value1} running', { value1: item.runningCount })}
+                </span>
               </>
             )}
           </div>
@@ -324,7 +330,7 @@ export function renderRow(item: ListItem, i: number, deps: RenderRowDeps): React
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            title={item.runningCount > 0 ? 'Stop all' : 'Start all'}
+            title={item.runningCount > 0 ? i18n.t('Stop all') : i18n.t('Start all')}
             className={cn(
               'flex h-6 w-6 items-center justify-center rounded transition',
               item.runningCount > 0

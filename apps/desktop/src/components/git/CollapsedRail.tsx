@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -34,6 +35,7 @@ interface CollapsedRailProps {
  * still needs a clear way to bring panels back.
  */
 export function CollapsedRail({ icon, label, badge, title, onExpand }: CollapsedRailProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

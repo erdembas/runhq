@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAgentStore } from '@/store/useAgentStore';
@@ -14,6 +16,7 @@ const field =
  * adapter, because two connections for the same product may well be different people's.
  */
 export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
+  i18n.useLocale();
   const tools = useVisibleStore(useAgentStore, (state) => state.tools, visible);
   const records = useVisibleStore(useAgentLibraryStore, (state) => state.records, visible);
   const ready = useVisibleStore(useAgentLibraryStore, (state) => state.ready, visible);
@@ -59,25 +62,26 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
         : current,
     );
   return (
-    <section aria-label="Account pools" className="border-fg/8 mt-4 rounded-xl border p-3">
+    <section
+      aria-label={i18n.t('Account pools')}
+      className="border-fg/8 mt-4 rounded-xl border p-3"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <Layers className="text-accent h-4 w-4" />
-        <h3 className="text-fg text-[12px] font-medium">Account pools</h3>
+        <h3 className="text-fg text-[12px] font-medium">{i18n.t('Account pools')}</h3>
         <button
           type="button"
           disabled={busy}
           onClick={() => setDraft({ id: `pool-${crypto.randomUUID()}`, name: '', accounts: [] })}
           className="hover:bg-fg/5 ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
         >
-          <Plus className="h-3 w-3" />
-          New pool
+          {i18n.rich('{value1}New pool', { value1: <Plus className="h-3 w-3" /> })}
         </button>
       </div>
       <p className="text-fg-dim mt-1 text-[10px] leading-relaxed">
-        A pool is a set of accounts you consider interchangeable. A task aimed at a pool starts on
-        one of them and keeps it for the whole session. The choice uses the connection&rsquo;s
-        declared capabilities, any cool-down after a reported limit, and which account has a free
-        execution slot &mdash; never a guess at remaining quota.
+        {i18n.t(
+          'A pool is a set of accounts you consider interchangeable. A task aimed at a pool starts on one of them and keeps it for the whole session. The choice uses the connection’s declared capabilities, any cool-down after a reported limit, and which account has a free execution slot — never a guess at remaining quota.',
+        )}
       </p>
       {error && (
         <p role="alert" className="text-status-error mt-2 text-[11px]">
@@ -97,17 +101,20 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
           }}
         >
           <label className="text-fg-muted text-[11px]">
-            Pool name
-            <input
-              className={field}
-              value={draft.name}
-              autoFocus
-              placeholder="Claude accounts"
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
+            {i18n.rich('Pool name{value1}', {
+              value1: (
+                <input
+                  className={field}
+                  value={draft.name}
+                  autoFocus
+                  placeholder={i18n.t('Claude accounts')}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                />
+              ),
+            })}
           </label>
           <fieldset className="space-y-1">
-            <legend className="text-fg-muted text-[11px]">Accounts in this pool</legend>
+            <legend className="text-fg-muted text-[11px]">{i18n.t('Accounts in this pool')}</legend>
             {tools.map((tool) => (
               <label key={tool.id} className="text-fg-muted flex items-center gap-2 text-[11px]">
                 <input
@@ -116,8 +123,12 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
                   onChange={() => toggle(tool.id)}
                 />
                 <span className="truncate">{tool.name}</span>
-                {tool.enabled === false && <span className="text-fg-dim">· disabled</span>}
-                {!tool.available && <span className="text-fg-dim">· not installed</span>}
+                {tool.enabled === false && (
+                  <span className="text-fg-dim">{i18n.t('· disabled')}</span>
+                )}
+                {!tool.available && (
+                  <span className="text-fg-dim">{i18n.t('· not installed')}</span>
+                )}
               </label>
             ))}
           </fieldset>
@@ -127,13 +138,13 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
               className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px]"
               onClick={() => setDraft(null)}
             >
-              Cancel
+              {i18n.t('Cancel')}
             </button>
             <button
               className="bg-fg text-surface rounded-lg px-3 py-1 text-[11px] disabled:opacity-40"
               disabled={busy}
             >
-              Save pool
+              {i18n.t('Save pool')}
             </button>
           </div>
         </form>
@@ -150,11 +161,11 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
                   onClick={() => setDraft(pool)}
                   className="hover:bg-fg/5 shrink-0 rounded-lg px-2 py-1"
                 >
-                  Edit
+                  {i18n.t('Edit')}
                 </button>
                 <button
                   type="button"
-                  aria-label={`Remove ${pool.name}`}
+                  aria-label={i18n.t('Remove {value1}', { value1: pool.name })}
                   disabled={busy}
                   onClick={() =>
                     void act(() => useAgentLibraryStore.getState().save(`pool:${pool.id}`, null))
@@ -170,7 +181,7 @@ export function AgentAccountPools({ visible = true }: { visible?: boolean }) {
         </ul>
       ) : (
         <p className="text-fg-muted mt-3 text-[11px]">
-          No pools yet. Add one once you have a second account for the same product.
+          {i18n.t('No pools yet. Add one once you have a second account for the same product.')}
         </p>
       )}
     </section>

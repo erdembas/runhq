@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { matchesWorkspaceSearch, serviceSearchText, stackMatchesSearch } from './sidebarSearch';
 import { useMemo } from 'react';
 import { categoryForTags, CATEGORIES } from '@/lib/categories';
@@ -181,7 +182,7 @@ function groupByStatus(services: ServiceDef[], statuses: Record<string, ServiceS
   if (running.length > 0) {
     out.push({
       key: 'running',
-      label: 'Running',
+      label: i18n.t('Running'),
       dot: 'bg-status-running',
       color: 'text-status-running',
       services: running,
@@ -190,7 +191,7 @@ function groupByStatus(services: ServiceDef[], statuses: Record<string, ServiceS
   if (stopped.length > 0) {
     out.push({
       key: 'stopped',
-      label: 'Stopped',
+      label: i18n.t('Stopped'),
       dot: 'bg-fg-dim/50',
       color: 'text-fg-dim',
       services: stopped,

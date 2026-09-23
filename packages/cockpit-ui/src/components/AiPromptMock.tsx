@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import type { ReactNode } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '../lib/cn';
@@ -56,6 +59,7 @@ export function AiPromptMock({
   compact = false,
   className,
 }: Props) {
+  i18n.useLocale();
   return (
     <div
       className={cn(

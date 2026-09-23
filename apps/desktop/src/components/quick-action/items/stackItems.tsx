@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { Play, RotateCcw, Square } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { isRunning, type FilterMode, type ListItem, type ServiceCmd } from '../types';
@@ -30,7 +31,7 @@ export function buildExpandedStackItems(stack: StackDef, deps: StackItemDeps): L
     {
       type: 'stack-action',
       stackId: stack.id,
-      label: anyRunning ? 'Stop All' : 'Start All',
+      label: anyRunning ? i18n.t('Stop All') : i18n.t('Start All'),
       icon: anyRunning ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />,
       danger: anyRunning,
       run: async () => {
@@ -41,7 +42,7 @@ export function buildExpandedStackItems(stack: StackDef, deps: StackItemDeps): L
     {
       type: 'stack-action',
       stackId: stack.id,
-      label: 'Restart All',
+      label: i18n.t('Restart All'),
       icon: <RotateCcw className="h-3.5 w-3.5" />,
       run: async () => {
         await ipc.restartStack(stack.id);
@@ -100,5 +101,5 @@ export function buildRootStackItems(args: {
     if (q && !stack.name.toLowerCase().includes(q)) continue;
     stackItems.push({ type: 'stack', stack, runningCount: stackRunning });
   }
-  return stackItems.length > 0 ? [{ type: 'header', label: 'Stacks' }, ...stackItems] : [];
+  return stackItems.length > 0 ? [{ type: 'header', label: i18n.t('Stacks') }, ...stackItems] : [];
 }

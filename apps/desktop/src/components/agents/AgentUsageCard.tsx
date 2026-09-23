@@ -1,43 +1,65 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { agentUsageSummary } from './agentLibraryModel';
 
-const count = (value: number | null) => (value === null ? 'Unknown' : value.toLocaleString());
+const count = (value: number | null) =>
+  value === null ? i18n.t('Unknown') : value.toLocaleString(i18n.getFormatLocale());
 const scopeLabels = {
-  thread: 'Thread totals reported by the provider',
-  turn: 'Latest turn reported by the provider',
-  message: 'Latest message reported by the provider',
-  context: 'Current context reported by the provider',
-  reported: 'Latest provider report',
-  unknown: 'No usage reported by the provider',
+  get thread() {
+    return i18n.t('Thread totals reported by the provider');
+  },
+  get turn() {
+    return i18n.t('Latest turn reported by the provider');
+  },
+  get message() {
+    return i18n.t('Latest message reported by the provider');
+  },
+  get context() {
+    return i18n.t('Current context reported by the provider');
+  },
+  get reported() {
+    return i18n.t('Latest provider report');
+  },
+  get unknown() {
+    return i18n.t('No usage reported by the provider');
+  },
 };
 
 export function AgentUsageCard({ usage }: { usage: unknown }) {
+  i18n.useLocale();
   const summary = agentUsageSummary(usage);
   const cost =
     summary.cost === null
-      ? 'Unknown'
-      : `${summary.cost.toLocaleString(undefined, { maximumFractionDigits: 6 })}${summary.currency ? ` ${summary.currency}` : ' (currency not supplied)'}`;
+      ? i18n.t('Unknown')
+      : `${summary.cost.toLocaleString(i18n.getFormatLocale(), { maximumFractionDigits: 6 })}${summary.currency ? ` ${summary.currency}` : i18n.t(' (currency not supplied)')}`;
   return (
     <section
-      aria-label="Reported task usage"
+      aria-label={i18n.t('Reported task usage')}
       className="border-border bg-surface rounded-xl border p-4"
     >
-      <h3 className="text-fg text-[12px] font-medium">Reported usage</h3>
+      <h3 className="text-fg text-[12px] font-medium">{i18n.t('Reported usage')}</h3>
       <p className="text-fg-dim mt-1 text-[11px]">{scopeLabels[summary.scope]}</p>
       <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-[12px] sm:grid-cols-4">
         {[
-          ['Input tokens', count(summary.input)],
-          ['Output tokens', count(summary.output)],
-          ['Total tokens', count(summary.total)],
-          ['Reported cost', cost],
+          [i18n.t('Input tokens'), count(summary.input)],
+          [i18n.t('Output tokens'), count(summary.output)],
+          [i18n.t('Total tokens'), count(summary.total)],
+          [i18n.t('Reported cost'), cost],
           ...(summary.cachedInput !== null
-            ? [['Cache read tokens', count(summary.cachedInput)]]
+            ? [[i18n.t('Cache read tokens'), count(summary.cachedInput)]]
             : []),
           ...(summary.cacheWrite !== null
-            ? [['Cache write tokens', count(summary.cacheWrite)]]
+            ? [[i18n.t('Cache write tokens'), count(summary.cacheWrite)]]
             : []),
-          ...(summary.reasoning !== null ? [['Reasoning tokens', count(summary.reasoning)]] : []),
+          ...(summary.reasoning !== null
+            ? [[i18n.t('Reasoning tokens'), count(summary.reasoning)]]
+            : []),
           ...(summary.contextUsed !== null || summary.contextSize !== null
-            ? [['Context tokens', `${count(summary.contextUsed)} / ${count(summary.contextSize)}`]]
+            ? [
+                [
+                  i18n.t('Context tokens'),
+                  `${count(summary.contextUsed)} / ${count(summary.contextSize)}`,
+                ],
+              ]
             : []),
         ].map(([label, value]) => (
           <div key={label}>
@@ -47,8 +69,9 @@ export function AgentUsageCard({ usage }: { usage: unknown }) {
         ))}
       </dl>
       <p className="text-fg-dim mt-3 text-[10px]">
-        Provider reports can cover different periods. Values are not an account invoice or an
-        estimated charge.
+        {i18n.t(
+          'Provider reports can cover different periods. Values are not an account invoice or an estimated charge.',
+        )}
       </p>
     </section>
   );

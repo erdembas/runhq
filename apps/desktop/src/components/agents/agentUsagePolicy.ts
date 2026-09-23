@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { agentUsageSummary, type AgentUsageSummary } from './agentLibraryModel';
 
 export interface AgentUsageThresholds {
@@ -66,8 +67,8 @@ export function evaluateAgentUsage(raw: unknown, rule: AgentUsageThresholds = {}
     if (actual === null) {
       unsupported.push(
         metric === 'tokens'
-          ? 'Token rule unsupported until the tool reports a total token count.'
-          : 'Cost rule unsupported until the tool reports an explicit USD amount.',
+          ? i18n.t('Token rule unsupported until the tool reports a total token count.')
+          : i18n.t('Cost rule unsupported until the tool reports an explicit USD amount.'),
       );
       return;
     }
@@ -84,7 +85,17 @@ export function evaluateAgentUsage(raw: unknown, rule: AgentUsageThresholds = {}
     alerts,
     unsupported,
     pauseReason: paused.length
-      ? `Queue paused by reported usage: ${paused.map((alert) => `${alert.actual.toLocaleString()} ${alert.metric} ≥ ${alert.threshold.toLocaleString()}`).join('; ')}. Adjust this tool’s rules in Usage to continue.`
+      ? i18n.t(
+          'Queue paused by reported usage: {value1}. Adjust this tool’s rules in Usage to continue.',
+          {
+            value1: paused
+              .map(
+                (alert) =>
+                  `${alert.actual.toLocaleString(i18n.getFormatLocale())} ${alert.metric} ≥ ${alert.threshold.toLocaleString(i18n.getFormatLocale())}`,
+              )
+              .join('; '),
+          },
+        )
       : null,
   };
 }
@@ -99,7 +110,10 @@ export function validateAgentUsagePreferences(preferences: AgentUsagePreferences
           value <= 0 ||
           (field.startsWith('token') && !Number.isSafeInteger(value)))
       )
-        return `${id}: thresholds must be positive${field.startsWith('token') ? ' whole token counts' : ' amounts'}.`;
+        return i18n.t('{id}: thresholds must be positive{value2}.', {
+          id: id,
+          value2: field.startsWith('token') ? i18n.t(' whole token counts') : i18n.t(' amounts'),
+        });
     }
     if (
       (rule.tokenWarning !== undefined &&
@@ -109,7 +123,10 @@ export function validateAgentUsagePreferences(preferences: AgentUsagePreferences
         rule.usdPause !== undefined &&
         rule.usdWarning > rule.usdPause)
     )
-      return `${id}: the warning threshold must be no higher than the queue pause threshold.`;
+      return i18n.t(
+        '{id}: the warning threshold must be no higher than the queue pause threshold.',
+        { id: id },
+      );
   }
   return null;
 }

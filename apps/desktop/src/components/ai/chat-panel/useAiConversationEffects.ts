@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AiChatProvider } from './aiChatProviders';
 import { useEffect } from 'react';
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react';
@@ -71,7 +72,9 @@ function useHydrateConversation({
         if (!cancelled) {
           console.error('Failed to load conversation:', e);
           setProviderError(
-            `Couldn't load conversation: ${e instanceof Error ? e.message : String(e)}`,
+            i18n.t("Couldn't load conversation: {value1}", {
+              value1: e instanceof Error ? e.message : String(e),
+            }),
           );
         }
       }

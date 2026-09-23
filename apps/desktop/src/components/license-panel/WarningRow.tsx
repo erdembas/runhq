@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
@@ -30,6 +31,7 @@ export function WarningRow({
   result: LicenseScanResult;
   projectName: string;
 }) {
+  i18n.useLocale();
   const {
     triggerRef: analyzeTriggerRef,
     onClick: onAnalyzeClick,
@@ -71,8 +73,11 @@ export function WarningRow({
             'gap-0.5 rounded px-1 py-0.5 transition',
             'group-hover/license-row:text-accent/80',
           )}
-          title={`Analyze \`${warning.package}\` (${warning.license}) with AI`}
-          aria-label={`Analyze ${warning.package} license risk with AI`}
+          title={i18n.t('Analyze `{value1}` ({value2}) with AI', {
+            value1: warning.package,
+            value2: warning.license,
+          })}
+          aria-label={i18n.t('Analyze {value1} license risk with AI', { value1: warning.package })}
         >
           <Sparkles size={11} />
         </button>

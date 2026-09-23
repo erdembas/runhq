@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 
 interface CommitFileActionButtonProps {
@@ -15,6 +16,7 @@ export function CommitFileActionButton({
   icon,
   onClick,
 }: CommitFileActionButtonProps) {
+  i18n.useLocale();
   return (
     <button
       onClick={(event) => {
@@ -23,7 +25,7 @@ export function CommitFileActionButton({
       }}
       className={`flex h-5 w-5 items-center justify-center rounded transition ${className}`}
       title={title}
-      aria-label={`${title.replace('this file', '')} ${path}`}
+      aria-label={`${title.replace(i18n.t('this file'), '')} ${path}`}
     >
       {icon}
     </button>

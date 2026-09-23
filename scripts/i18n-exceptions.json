@@ -1,0 +1,6 @@
+{
+  "apps/desktop/src/components/settings/categories/GeneralCategory.tsx": {
+    "Türkçe": "Native language name must remain recognizable in either locale.",
+    "English": "Native language name must remain recognizable in either locale."
+  }
+}

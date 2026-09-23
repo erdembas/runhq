@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useEffect, useRef, type RefObject } from 'react';
 import { Check, LockKeyhole, PenLine, X } from 'lucide-react';
 import type { AgentQuestion } from '@runhq/cockpit-types';
@@ -30,6 +31,7 @@ export function AgentQuestionField({
   onCustom: (value: string) => void;
   onWriting: (writing: boolean) => void;
 }) {
+  i18n.useLocale();
   const hasOptions = question.options.length > 0;
   const canWrite = question.allow_custom !== false;
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -66,8 +68,12 @@ export function AgentQuestionField({
       {hasOptions && (
         <>
           <p className="text-fg-dim text-[11px]">
-            {question.multiple ? 'Select all that apply' : 'Choose one option'}
-            {canWrite ? (question.multiple ? ', or add your own.' : ', or write your own.') : '.'}
+            {question.multiple ? i18n.t('Select all that apply') : i18n.t('Choose one option')}
+            {canWrite
+              ? question.multiple
+                ? i18n.t(', or add your own.')
+                : i18n.t(', or write your own.')
+              : '.'}
           </p>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-2">
             {question.options.map((option) => {
@@ -131,13 +137,15 @@ export function AgentQuestionField({
                 ) : (
                   <PenLine className="h-3 w-3" />
                 )}
-                {question.multiple && hasOptions ? 'Your additional answer' : 'Your answer'}
+                {question.multiple && hasOptions
+                  ? i18n.t('Your additional answer')
+                  : i18n.t('Your answer')}
               </label>
               {hasOptions && (
                 <button
                   type="button"
-                  aria-label="Use only the listed options"
-                  title="Use only the listed options"
+                  aria-label={i18n.t('Use only the listed options')}
+                  title={i18n.t('Use only the listed options')}
                   onClick={() => toggleWriting(false)}
                   className="text-fg-dim hover:bg-fg/5 hover:text-fg rounded p-1 focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
@@ -156,7 +164,7 @@ export function AgentQuestionField({
                 value={custom}
                 onChange={(event) => onCustom(event.target.value)}
                 className="border-border bg-surface text-fg placeholder:text-fg-dim focus:border-fg/30 focus:ring-fg/5 w-full rounded-xl border px-3.5 py-3 text-[13px] outline-none focus:ring-4 disabled:opacity-50"
-                placeholder="Enter your answer…"
+                placeholder={i18n.t('Enter your answer…')}
               />
             ) : (
               <textarea
@@ -169,7 +177,9 @@ export function AgentQuestionField({
                 onChange={(event) => onCustom(event.target.value)}
                 className="border-border bg-surface text-fg placeholder:text-fg-dim focus:border-fg/30 focus:ring-fg/5 max-h-64 min-h-24 w-full resize-y rounded-xl border px-3.5 py-3 text-[13px] leading-relaxed outline-none focus:ring-4 disabled:opacity-50"
                 placeholder={
-                  question.multiple && hasOptions ? 'Add any other details…' : 'Write your answer…'
+                  question.multiple && hasOptions
+                    ? i18n.t('Add any other details…')
+                    : i18n.t('Write your answer…')
                 }
               />
             )}
@@ -182,16 +192,16 @@ export function AgentQuestionField({
             className="text-fg-muted hover:bg-fg/5 hover:text-fg focus-visible:ring-accent/35 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] outline-none focus-visible:ring-2"
           >
             <PenLine className="h-3.5 w-3.5" />
-            {question.multiple ? 'Add your own answer' : 'Write your own answer'}
+            {question.multiple ? i18n.t('Add your own answer') : i18n.t('Write your own answer')}
           </button>
         ))}
       {invalid && (
         <p id={`${id}-error`} role="alert" className="text-status-error text-[12px]">
           {!hasOptions
-            ? 'Write an answer to continue.'
+            ? i18n.t('Write an answer to continue.')
             : canWrite
-              ? 'Choose an option or write an answer to continue.'
-              : 'Choose an option to continue.'}
+              ? i18n.t('Choose an option or write an answer to continue.')
+              : i18n.t('Choose an option to continue.')}
         </p>
       )}
     </fieldset>

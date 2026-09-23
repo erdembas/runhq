@@ -1,3 +1,4 @@
+import * as i18n from '../i18n/core';
 import type { AgentItem } from '@runhq/cockpit-types';
 
 export interface AgentPlanStep {
@@ -64,7 +65,7 @@ export function agentPlanDocument(item: AgentItem): AgentPlanDocument {
       status: match[1]?.toLowerCase() === 'x' ? 'completed' : 'pending',
     }));
   }
-  return { id: item.id, title: item.title || 'Implementation plan', body, steps };
+  return { id: item.id, title: item.title || i18n.t('Implementation plan'), body, steps };
 }
 
 export function collectAgentPlans(items: AgentItem[], planMode: boolean): AgentPlanDocument[] {
@@ -83,7 +84,7 @@ export function collectAgentPlans(items: AgentItem[], planMode: boolean): AgentP
         agentPlanDocument({
           ...item,
           id: `reviewed-${item.id}`,
-          title: 'Reviewed implementation plan',
+          title: i18n.t('Reviewed implementation plan'),
           text: body,
         }),
       );
@@ -94,7 +95,7 @@ export function collectAgentPlans(items: AgentItem[], planMode: boolean): AgentP
       .slice(lastUser + 1)
       .filter((item) => item.kind === 'assistant' && item.text.trim())
       .at(-1);
-    if (response) plans.push(agentPlanDocument({ ...response, title: 'Plan response' }));
+    if (response) plans.push(agentPlanDocument({ ...response, title: i18n.t('Plan response') }));
   }
   return plans;
 }

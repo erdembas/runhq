@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { cn } from '../lib/cn';
 
 export type RuntimeBadgeKey =
@@ -25,20 +28,76 @@ interface Props {
  * self-contained.
  */
 const META: Record<RuntimeBadgeKey, { label: string; tone: string }> = {
-  node: { label: 'NODE', tone: 'text-status-running' },
-  bun: { label: 'BUN', tone: 'text-cat-frontend' },
-  deno: { label: 'DENO', tone: 'text-cat-frontend' },
-  go: { label: 'GO', tone: 'text-cat-database' },
-  rust: { label: 'RUST', tone: 'text-status-error' },
-  dotnet: { label: '.NET', tone: 'text-cat-backend' },
-  python: { label: 'PYTHON', tone: 'text-status-starting' },
-  java: { label: 'JAVA', tone: 'text-status-error' },
-  ruby: { label: 'RUBY', tone: 'text-status-error' },
-  php: { label: 'PHP', tone: 'text-cat-backend' },
-  docker: { label: 'DOCKER', tone: 'text-cat-frontend' },
+  node: {
+    get label() {
+      return i18n.t('NODE');
+    },
+    tone: 'text-status-running',
+  },
+  bun: {
+    get label() {
+      return i18n.t('BUN');
+    },
+    tone: 'text-cat-frontend',
+  },
+  deno: {
+    get label() {
+      return i18n.t('DENO');
+    },
+    tone: 'text-cat-frontend',
+  },
+  go: {
+    get label() {
+      return i18n.t('GO');
+    },
+    tone: 'text-cat-database',
+  },
+  rust: {
+    get label() {
+      return i18n.t('RUST');
+    },
+    tone: 'text-status-error',
+  },
+  dotnet: {
+    get label() {
+      return i18n.t('.NET');
+    },
+    tone: 'text-cat-backend',
+  },
+  python: {
+    get label() {
+      return i18n.t('PYTHON');
+    },
+    tone: 'text-status-starting',
+  },
+  java: {
+    get label() {
+      return i18n.t('JAVA');
+    },
+    tone: 'text-status-error',
+  },
+  ruby: {
+    get label() {
+      return i18n.t('RUBY');
+    },
+    tone: 'text-status-error',
+  },
+  php: {
+    get label() {
+      return i18n.t('PHP');
+    },
+    tone: 'text-cat-backend',
+  },
+  docker: {
+    get label() {
+      return i18n.t('DOCKER');
+    },
+    tone: 'text-cat-frontend',
+  },
 };
 
 export function RuntimeBadge({ runtime, className }: Props) {
+  i18n.useLocale();
   const meta = META[runtime];
   return (
     <span

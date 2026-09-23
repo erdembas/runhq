@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { RefObject } from 'react';
 import { Package } from 'lucide-react';
 import type { OutdatedPackage } from '@/types';
@@ -53,6 +54,7 @@ export function OutdatedPanel({
   scanning: boolean;
   runtime: string | null;
 }) {
+  i18n.useLocale();
   if (!hasScan) {
     return <NotScannedState kind="outdated" onRescan={onRescan} scanning={scanning} />;
   }
@@ -60,8 +62,10 @@ export function OutdatedPanel({
     return (
       <ZeroState
         icon={<Package size={32} className="text-tone-success/80" />}
-        title="All packages up to date"
-        hint="Every direct dependency matches the latest version published on its registry."
+        title={i18n.t('All packages up to date')}
+        hint={i18n.t(
+          'Every direct dependency matches the latest version published on its registry.',
+        )}
       />
     );
   }
@@ -76,7 +80,7 @@ export function OutdatedPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <TriageRail
         total={total}
-        allLabel="All"
+        allLabel={i18n.t('All')}
         active={bumpFilter}
         onChange={(v) => setBumpFilter(v as BumpGroup | 'all')}
         tiles={BUMP_ORDER.filter((b) => counts[b] > 0).map((b) => {
@@ -93,7 +97,7 @@ export function OutdatedPanel({
         searchRef={searchRef}
         query={query}
         setQuery={setQuery}
-        placeholder="Search package…"
+        placeholder={i18n.t('Search package…')}
         shown={filtered.length}
         total={total}
         selectedCount={selected.size}
@@ -102,7 +106,10 @@ export function OutdatedPanel({
       />
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
-          <EmptyState title="No matches" hint="Try clearing the search or the bump filter." />
+          <EmptyState
+            title={i18n.t('No matches')}
+            hint={i18n.t('Try clearing the search or the bump filter.')}
+          />
         ) : (
           <ul className="py-1">
             {filtered.map((p) => (

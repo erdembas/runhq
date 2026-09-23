@@ -4,7 +4,7 @@ import { setImmediate } from 'node:timers';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { URL } from 'node:url';
-import { runInNewContext } from 'node:vm';
+import { runInNewContext } from './helpers/i18n-vm.mjs';
 import ts from 'typescript';
 
 const source = readFileSync(new URL('../src/lib/ipc/terminalIpc.ts', import.meta.url), 'utf8');

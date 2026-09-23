@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useSyncedTheme } from '@/lib/theme';
@@ -23,6 +24,7 @@ import { QuickActionList } from './QuickActionList';
 import { useQuickActionBootstrap } from './useQuickActionBootstrap';
 
 export function QuickActionBar() {
+  i18n.useLocale();
   useSyncedTheme();
 
   const [query, setQuery] = useState('');

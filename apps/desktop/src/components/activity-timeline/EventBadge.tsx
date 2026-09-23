@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 /**
@@ -11,6 +12,7 @@ export function EventBadge({
   cfg: { bg: string; color: string; label: string };
   size: string;
 }) {
+  i18n.useLocale();
   return (
     <span
       className={cn(

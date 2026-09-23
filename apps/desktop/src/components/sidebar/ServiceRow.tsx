@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { GripVertical, Pencil, Play, Square, Trash2 } from 'lucide-react';
 import { MoveToSectionMenu } from '../MoveToSectionMenu';
@@ -32,6 +33,7 @@ export function ServiceRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  i18n.useLocale();
   const isRunning = status === 'running' || status === 'starting';
   const isStarting = status === 'starting';
   const isCrashed = status === 'crashed';
@@ -139,7 +141,7 @@ export function ServiceRow({
             {!selected &&
               (isRunning ? (
                 <IconButton
-                  label="Stop"
+                  label={i18n.t('Stop')}
                   icon={<Square />}
                   size="xs"
                   tone="danger"
@@ -150,7 +152,7 @@ export function ServiceRow({
                 />
               ) : (
                 <IconButton
-                  label="Start"
+                  label={i18n.t('Start')}
                   icon={<Play />}
                   size="xs"
                   tone="accent"
@@ -166,7 +168,7 @@ export function ServiceRow({
               currentSectionId={currentSectionId}
             />
             <IconButton
-              label="Edit"
+              label={i18n.t('Edit')}
               icon={<Pencil />}
               size="xs"
               onClick={(e) => {
@@ -176,7 +178,7 @@ export function ServiceRow({
             />
             {!selected && (
               <IconButton
-                label="Delete"
+                label={i18n.t('Delete')}
                 icon={<Trash2 />}
                 size="xs"
                 tone="danger"
@@ -200,7 +202,9 @@ export function ServiceRow({
           {service.port != null && (
             <span className="text-accent font-medium tabular-nums">:{service.port}</span>
           )}
-          {pid != null && <span className="font-mono tabular-nums">pid {pid}</span>}
+          {pid != null && (
+            <span className="font-mono tabular-nums">{i18n.rich('pid {pid}', { pid: pid })}</span>
+          )}
         </div>
       )}
     </div>

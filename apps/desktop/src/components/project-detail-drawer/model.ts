@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { Package, Shield, ShieldAlert, Skull } from 'lucide-react';
 import type { Advisory, DetectedEditor, OutdatedPackage, ProjectOverview } from '@/types';
 
@@ -102,7 +103,7 @@ export function bumpTone(b: BumpGroup): Tone & { label: string } {
         ring: 'ring-tone-warning/45',
         underline: 'bg-tone-warning',
         icon: Package,
-        label: 'Major',
+        label: i18n.t('Major'),
       };
     case 'minor':
       return {
@@ -111,7 +112,7 @@ export function bumpTone(b: BumpGroup): Tone & { label: string } {
         ring: 'ring-tone-info/40',
         underline: 'bg-tone-info',
         icon: Package,
-        label: 'Minor',
+        label: i18n.t('Minor'),
       };
     case 'patch':
       return {
@@ -120,7 +121,7 @@ export function bumpTone(b: BumpGroup): Tone & { label: string } {
         ring: 'ring-tone-success/40',
         underline: 'bg-tone-success',
         icon: Package,
-        label: 'Patch',
+        label: i18n.t('Patch'),
       };
     default:
       return {
@@ -129,7 +130,7 @@ export function bumpTone(b: BumpGroup): Tone & { label: string } {
         ring: 'ring-fg/30',
         underline: 'bg-fg/40',
         icon: Package,
-        label: 'Other',
+        label: i18n.t('Other'),
       };
   }
 }
@@ -137,12 +138,14 @@ export function bumpTone(b: BumpGroup): Tone & { label: string } {
 // ---- Scan freshness formatter -------------------------------------------
 
 export function scanFreshness(at: number | null): string {
-  if (at == null) return 'Never scanned';
+  if (at == null) return i18n.t('Never scanned');
   const diff = Math.max(0, Date.now() - at);
-  if (diff < 60_000) return 'Scanned just now';
-  if (diff < 3_600_000) return `Scanned ${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `Scanned ${Math.floor(diff / 3_600_000)}h ago`;
-  return `Scanned ${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 60_000) return i18n.t('Scanned just now');
+  if (diff < 3_600_000)
+    return i18n.t('Scanned {value1}m ago', { value1: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000)
+    return i18n.t('Scanned {value1}h ago', { value1: Math.floor(diff / 3_600_000) });
+  return i18n.t('Scanned {value1}d ago', { value1: Math.floor(diff / 86_400_000) });
 }
 
 // ---- Upgrade command helpers -------------------------------------------

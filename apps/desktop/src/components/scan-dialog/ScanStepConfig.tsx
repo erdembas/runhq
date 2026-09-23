@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { CATEGORIES } from '@/lib/categories';
@@ -36,6 +37,7 @@ export function ScanStepConfig({
   onSetCustomLabel,
   onSetCustomCmd,
 }: ScanStepConfigProps) {
+  i18n.useLocale();
   const selected = candidates.filter((c) => selectedProjects.has(c.cwd));
 
   return (
@@ -70,7 +72,7 @@ export function ScanStepConfig({
 
             <div className="mt-2.5">
               <div className="text-fg-dim mb-1 text-[9px] font-semibold tracking-wider uppercase">
-                Category
+                {i18n.t('Category')}
               </div>
               <div className="flex flex-wrap gap-1">
                 {CATEGORIES.map((cat) => (
@@ -93,7 +95,7 @@ export function ScanStepConfig({
 
             <div className="mt-2.5">
               <div className="text-fg-dim mb-1 text-[9px] font-semibold tracking-wider uppercase">
-                Commands
+                {i18n.t('Commands')}
               </div>
               <div className="flex flex-wrap gap-1">
                 {c.suggestions.map((s, i) => {
@@ -137,7 +139,7 @@ export function ScanStepConfig({
                   <input
                     value={customLabel}
                     onChange={(e) => onSetCustomLabel(e.target.value)}
-                    placeholder="Label"
+                    placeholder={i18n.t('Label')}
                     className="border-border bg-surface-muted text-fg placeholder:text-fg-dim focus:border-accent rounded-app-sm h-5 w-20 border px-1.5 text-[10px] focus:outline-none"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') onAddCustom(c.cwd);
@@ -152,7 +154,7 @@ export function ScanStepConfig({
                   <input
                     value={customCmd}
                     onChange={(e) => onSetCustomCmd(e.target.value)}
-                    placeholder="Command (e.g. make dev)"
+                    placeholder={i18n.t('Command (e.g. make dev)')}
                     className="border-border bg-surface-muted text-fg placeholder:text-fg-dim focus:border-accent rounded-app-sm h-5 min-w-0 flex-1 border px-1.5 text-[10px] focus:outline-none"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') onAddCustom(c.cwd);
@@ -169,7 +171,7 @@ export function ScanStepConfig({
                     disabled={!customLabel.trim() || !customCmd.trim()}
                     className="text-accent hover:text-accent/80 disabled:text-fg-dim text-[10px] font-medium transition"
                   >
-                    Add
+                    {i18n.t('Add')}
                   </button>
                   <button
                     type="button"
@@ -180,7 +182,7 @@ export function ScanStepConfig({
                     }}
                     className="text-fg-dim hover:text-fg text-[10px] transition"
                   >
-                    Cancel
+                    {i18n.t('Cancel')}
                   </button>
                 </div>
               ) : (
@@ -189,8 +191,9 @@ export function ScanStepConfig({
                   onClick={() => onSetAddingCustom(c.cwd)}
                   className="text-fg-dim hover:text-fg hover:border-border rounded-app-sm mt-1.5 inline-flex items-center gap-1 border border-dashed border-transparent px-1.5 py-0.5 text-[10px] transition"
                 >
-                  <Plus className="h-2.5 w-2.5" />
-                  Custom command
+                  {i18n.rich('{value1}Custom command', {
+                    value1: <Plus className="h-2.5 w-2.5" />,
+                  })}
                 </button>
               )}
             </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, Sparkles } from 'lucide-react';
 import { AiProviderEmptyState } from '@/components/ai-provider-manager/AiProviderEmptyState';
@@ -10,6 +11,7 @@ import { ipc } from '@/lib/ipc';
 import type { AiProvider, AiTestResult } from '@/types';
 
 export function AiProviderManager() {
+  i18n.useLocale();
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<FormState | null>(null);
@@ -111,10 +113,16 @@ export function AiProviderManager() {
         <>
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-fg-dim text-[11.5px] leading-snug">
-              RunHQ talks to any service that speaks the OpenAI Chat Completions API — cloud
-              gateways (OpenAI, OpenRouter, Groq, …) or a local server on{' '}
-              <span className="text-fg/80 font-mono text-[10.5px]">localhost</span> (Ollama, LM
-              Studio). Add one or more, mark a default, and the AI surfaces will use it.
+              {i18n.rich(
+                'RunHQ talks to any service that speaks the OpenAI Chat Completions API — cloud gateways (OpenAI, OpenRouter, Groq, …) or a local server on {value1} (Ollama, LM Studio). Add one or more, mark a default, and the AI surfaces will use it.',
+                {
+                  value1: (
+                    <span className="text-fg/80 font-mono text-[10.5px]">
+                      {i18n.t('localhost')}
+                    </span>
+                  ),
+                },
+              )}
             </p>
             <Button
               variant="primary"
@@ -122,14 +130,15 @@ export function AiProviderManager() {
               leftIcon={<Plus className="h-3.5 w-3.5" />}
               onClick={startNew}
             >
-              Add Provider
+              {i18n.t('Add Provider')}
             </Button>
           </div>
 
           {loading && (
             <div className="text-fg-dim flex items-center gap-2 py-6 text-[12px]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Loading providers…
+              {i18n.rich('{value1}Loading providers…', {
+                value1: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+              })}
             </div>
           )}
 
@@ -154,9 +163,9 @@ export function AiProviderManager() {
           <div className="border-border mt-5 flex items-start gap-2 border-t pt-3">
             <Sparkles className="text-accent mt-0.5 h-3.5 w-3.5 shrink-0" />
             <p className="text-fg-dim text-[11px] leading-snug">
-              Once a provider is configured, head to the commit panel of any git-tracked service and
-              click the sparkles button next to the message box to generate a commit message from
-              your staged diff.
+              {i18n.t(
+                'Once a provider is configured, head to the commit panel of any git-tracked service and click the sparkles button next to the message box to generate a commit message from your staged diff.',
+              )}
             </p>
           </div>
         </>
@@ -164,10 +173,13 @@ export function AiProviderManager() {
 
       {removing && (
         <ConfirmDialog
-          title="Remove AI provider?"
-          message={`This deletes "${removing.name}" from your config. The provider's API key on disk will be erased. This cannot be undone.`}
+          title={i18n.t('Remove AI provider?')}
+          message={i18n.t(
+            'This deletes "{value1}" from your config. The provider\'s API key on disk will be erased. This cannot be undone.',
+            { value1: removing.name },
+          )}
           tone="danger"
-          confirmLabel="Remove"
+          confirmLabel={i18n.t('Remove')}
           onConfirm={handleRemove}
           onCancel={() => setRemoving(null)}
         />

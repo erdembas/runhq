@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollText, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
@@ -23,6 +25,7 @@ export function HistoryDrawer({
   onClose,
   onSelect,
 }: HistoryDrawerProps) {
+  i18n.useLocale();
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +175,7 @@ export function HistoryDrawer({
     async (item: ConversationSummary) => {
       setMenu(null);
       const confirmed = window.confirm(
-        `Delete "${item.title.slice(0, 40)}"? This cannot be undone.`,
+        i18n.t('Delete "{value1}"? This cannot be undone.', { value1: item.title.slice(0, 40) }),
       );
       if (!confirmed) return;
       try {
@@ -212,16 +215,16 @@ export function HistoryDrawer({
           'bg-surface-raised border-border/70 border-l shadow-xl',
         )}
         role="dialog"
-        aria-label="Chat history"
+        aria-label={i18n.t('Chat history')}
       >
         <header className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
           <ScrollText className="text-fg-dim h-3.5 w-3.5" />
-          <div className="text-fg text-[12px] font-semibold">Chat history</div>
+          <div className="text-fg text-[12px] font-semibold">{i18n.t('Chat history')}</div>
           <span className="flex-1" />
           <button
             type="button"
             onClick={onClose}
-            title="Close"
+            title={i18n.t('Close')}
             className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 w-6 items-center justify-center rounded transition"
           >
             <X className="h-3.5 w-3.5" />
@@ -246,8 +249,9 @@ export function HistoryDrawer({
           )}
           {loading && items.length === 0 ? (
             <div className="text-fg-dim flex items-center gap-2 px-3 py-4 text-[11px]">
-              <span className="bg-fg-dim/40 h-2 w-2 animate-pulse rounded-full" />
-              Loading…
+              {i18n.rich('{value1}Loading…', {
+                value1: <span className="bg-fg-dim/40 h-2 w-2 animate-pulse rounded-full" />,
+              })}
             </div>
           ) : items.length === 0 ? (
             <EmptyState
@@ -257,33 +261,38 @@ export function HistoryDrawer({
             />
           ) : isFlatMode ? (
             renderGroup(
-              appliedQuery ? `Results for "${truncate(appliedQuery, 20)}"` : 'Favorites',
+              appliedQuery
+                ? i18n.t('Results for "{value1}"', { value1: truncate(appliedQuery, 20) })
+                : i18n.t('Favorites'),
               items,
             )
           ) : (
             <>
-              {renderGroup('Pinned', groups.pinned)}
-              {renderGroup('Favorites', groups.favorites)}
-              {renderGroup('Today', groups.today)}
-              {renderGroup('Yesterday', groups.yesterday)}
-              {renderGroup('Older', groups.older)}
+              {renderGroup(i18n.t('Pinned'), groups.pinned)}
+              {renderGroup(i18n.t('Favorites'), groups.favorites)}
+              {renderGroup(i18n.t('Today'), groups.today)}
+              {renderGroup(i18n.t('Yesterday'), groups.yesterday)}
+              {renderGroup(i18n.t('Older'), groups.older)}
             </>
           )}
         </div>
 
         <footer className="border-border/60 flex items-center gap-2 border-t px-3 py-1.5 text-[10.5px]">
           <label className="text-fg-dim hover:text-fg flex cursor-pointer items-center gap-1.5">
-            <input
-              type="checkbox"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-              className="h-3 w-3"
-            />
-            Show archived
+            {i18n.rich('{value1}Show archived', {
+              value1: (
+                <input
+                  type="checkbox"
+                  checked={includeArchived}
+                  onChange={(e) => setIncludeArchived(e.target.checked)}
+                  className="h-3 w-3"
+                />
+              ),
+            })}
           </label>
           {items.length > 0 && (
             <span className="text-fg-dim/60 ml-auto">
-              {items.length} {items.length === 1 ? 'chat' : 'chats'}
+              {items.length} {items.length === 1 ? i18n.t('chat') : i18n.t('chats')}
             </span>
           )}
         </footer>

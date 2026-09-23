@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Search, X } from 'lucide-react';
 
 interface FileSearchInputProps {
@@ -9,8 +10,9 @@ interface FileSearchInputProps {
 export function FileSearchInput({
   value,
   onChange,
-  placeholder = 'Search files…',
+  placeholder = i18n.t('Search files…'),
 }: FileSearchInputProps) {
+  i18n.useLocale();
   return (
     <div className="border-border border-b px-2 py-1.5">
       <div className="border-border bg-surface focus-within:border-accent/50 flex h-7 items-center gap-1.5 rounded border px-2 transition-colors">
@@ -27,7 +29,7 @@ export function FileSearchInput({
           <button
             onClick={() => onChange('')}
             className="text-fg/40 hover:text-fg shrink-0 cursor-pointer transition"
-            title="Clear"
+            title={i18n.t('Clear')}
             type="button"
           >
             <X size={11} />

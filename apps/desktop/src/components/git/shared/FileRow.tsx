@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { FileTypeIcon } from '@/lib/fileIcon';
@@ -28,6 +29,7 @@ export function FileRow({
   compactStats,
   onContextMenu,
 }: FileRowProps) {
+  i18n.useLocale();
   const file = node.file!;
   const iconColor = statusColor[file.status];
   const letterStyle = statusLetterStyle[file.status];

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, FolderPlus, Pencil, Trash2 } from 'lucide-react';
@@ -17,6 +18,7 @@ function ColorSwatchGrid({
   value: SectionColor;
   onPick: (c: SectionColor) => void;
 }) {
+  i18n.useLocale();
   return (
     <div className="grid grid-cols-8 gap-1.5">
       {SECTION_COLORS.map((c) => {
@@ -60,6 +62,7 @@ export function AddSectionButton({
   children?: React.ReactNode;
   className?: string;
 }) {
+  i18n.useLocale();
   const addSection = useAppStore((s) => s.addSection);
   const sections = useAppStore((s) => s.sections);
   const [open, setOpen] = useState(false);
@@ -95,7 +98,7 @@ export function AddSectionButton({
     <div
       ref={popoverRef}
       role="dialog"
-      aria-label="New section"
+      aria-label={i18n.t('New section')}
       style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_W }}
       className="border-border bg-surface-raised rounded-app-lg animate-fade-in z-[60] border p-3 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
     >
@@ -105,7 +108,7 @@ export function AddSectionButton({
           style={{ backgroundColor: sectionColor(color).solid }}
           aria-hidden
         />
-        <span className="text-fg text-[11.5px] font-semibold">New section</span>
+        <span className="text-fg text-[11.5px] font-semibold">{i18n.t('New section')}</span>
       </div>
       <input
         ref={inputRef}
@@ -118,12 +121,12 @@ export function AddSectionButton({
             commit();
           }
         }}
-        placeholder="e.g. Clients"
+        placeholder={i18n.t('e.g. Clients')}
         className="border-border bg-surface rounded-app-sm focus:ring-accent/40 focus:border-accent/50 text-fg w-full border px-2 py-1.5 text-[12px] transition outline-none focus:ring-2"
       />
       <div className="mt-2.5">
         <div className="text-fg-dim mb-1.5 text-[9.5px] font-semibold tracking-[0.14em] uppercase">
-          Color
+          {i18n.t('Color')}
         </div>
         <ColorSwatchGrid value={color} onPick={setColor} />
       </div>
@@ -133,7 +136,7 @@ export function AddSectionButton({
           onClick={() => setOpen(false)}
           className="text-fg-muted hover:text-fg rounded-app-sm px-2 py-1 text-[11px] font-medium transition"
         >
-          Cancel
+          {i18n.t('Cancel')}
         </button>
         <button
           type="button"
@@ -141,7 +144,7 @@ export function AddSectionButton({
           disabled={!name.trim()}
           className="bg-accent text-accent-fg rounded-app-sm px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Create
+          {i18n.t('Create')}
         </button>
       </div>
     </div>
@@ -153,8 +156,8 @@ export function AddSectionButton({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="New section"
-        title="New section"
+        aria-label={i18n.t('New section')}
+        title={i18n.t('New section')}
         className={cn(
           'text-fg-muted hover:bg-surface-overlay hover:text-fg rounded-app-sm inline-flex items-center gap-1 px-1.5 py-1 text-[10.5px] font-medium transition',
           open && 'bg-surface-overlay text-fg',
@@ -164,7 +167,7 @@ export function AddSectionButton({
         {children ?? (
           <>
             <FolderPlus className="h-3 w-3" />
-            <span>Section</span>
+            <span>{i18n.t('Section')}</span>
           </>
         )}
       </button>
@@ -180,6 +183,7 @@ export function AddSectionButton({
  * recolor and delete. Rendered inline inside the section header.
  */
 export function SectionOverflowMenu({ section }: { section: Section }) {
+  i18n.useLocale();
   const renameSection = useAppStore((s) => s.renameSection);
   const recolorSection = useAppStore((s) => s.recolorSection);
   const deleteSection = useAppStore((s) => s.deleteSection);
@@ -224,7 +228,10 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
     // overlapping surfaces.
     setOpen(false);
     setPendingConfirm({
-      message: `Delete section "${section.name}"?\n\nItems inside will move to "Unassigned" — services and stacks are not deleted.`,
+      message: i18n.t(
+        'Delete section "{value1}"?\n\nItems inside will move to "Unassigned" — services and stacks are not deleted.',
+        { value1: section.name },
+      ),
       onConfirm: () => {
         setPendingConfirm(null);
         deleteSection(section.id);
@@ -242,7 +249,7 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
       {renaming ? (
         <div className="p-3">
           <div className="text-fg-dim mb-1.5 text-[9.5px] font-semibold tracking-[0.14em] uppercase">
-            Rename
+            {i18n.t('Rename')}
           </div>
           <input
             ref={renameInputRef}
@@ -266,14 +273,14 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
               onClick={() => setRenaming(false)}
               className="text-fg-muted hover:text-fg rounded-app-sm px-2 py-1 text-[11px] font-medium"
             >
-              Cancel
+              {i18n.t('Cancel')}
             </button>
             <button
               type="button"
               onClick={commitRename}
               className="bg-accent text-accent-fg rounded-app-sm px-2.5 py-1 text-[11px] font-semibold hover:brightness-110"
             >
-              Save
+              {i18n.t('Save')}
             </button>
           </div>
         </div>
@@ -281,7 +288,7 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
         <>
           <div className="p-3">
             <div className="text-fg-dim mb-1.5 text-[9.5px] font-semibold tracking-[0.14em] uppercase">
-              Color
+              {i18n.t('Color')}
             </div>
             <ColorSwatchGrid value={section.color} onPick={(c) => recolorSection(section.id, c)} />
           </div>
@@ -291,16 +298,14 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
               onClick={() => setRenaming(true)}
               className="text-fg hover:bg-surface-overlay flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] transition"
             >
-              <Pencil className="h-3 w-3" />
-              Rename
+              {i18n.rich('{value1}Rename', { value1: <Pencil className="h-3 w-3" /> })}
             </button>
             <button
               type="button"
               onClick={onDelete}
               className="text-status-error hover:bg-status-error/10 flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] transition"
             >
-              <Trash2 className="h-3 w-3" />
-              Delete section
+              {i18n.rich('{value1}Delete section', { value1: <Trash2 className="h-3 w-3" /> })}
             </button>
           </div>
         </>
@@ -317,8 +322,8 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        aria-label={`Section options for ${section.name}`}
-        title="Section options"
+        aria-label={i18n.t('Section options for {value1}', { value1: section.name })}
+        title={i18n.t('Section options')}
         className={cn(
           // Exact twin of the sibling count badge: shared chip geometry
           // (h-[18px] min-w-[22px] px-1) + matching text metrics. We

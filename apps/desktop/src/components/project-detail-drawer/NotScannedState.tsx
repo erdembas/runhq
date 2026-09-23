@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -10,15 +11,18 @@ export function NotScannedState({
   onRescan: () => void;
   scanning: boolean;
 }) {
+  i18n.useLocale();
   const copy =
     kind === 'audit'
       ? {
-          title: 'No audit run yet',
-          hint: 'Scan dependencies to fetch open CVEs and advisories for this project.',
+          title: i18n.t('No audit run yet'),
+          hint: i18n.t('Scan dependencies to fetch open CVEs and advisories for this project.'),
         }
       : {
-          title: 'No outdated check yet',
-          hint: 'Scan dependencies to compare the current lockfile against the latest registry versions.',
+          title: i18n.t('No outdated check yet'),
+          hint: i18n.t(
+            'Scan dependencies to compare the current lockfile against the latest registry versions.',
+          ),
         };
 
   return (
@@ -35,7 +39,7 @@ export function NotScannedState({
         )}
       >
         {scanning ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
-        {scanning ? 'Scanning…' : 'Scan dependencies'}
+        {scanning ? i18n.t('Scanning…') : i18n.t('Scan dependencies')}
       </button>
     </div>
   );

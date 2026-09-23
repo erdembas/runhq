@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { BumpGroup, DetailTab, Severity } from './model';
 import { bumpTone, severityTone } from './model';
 import { TabButton } from './TabButton';
@@ -13,6 +14,7 @@ export function TabRow({
   advisoryCounts: Record<Severity, number>;
   outdatedCounts: Record<BumpGroup, number>;
 }) {
+  i18n.useLocale();
   const advTotal =
     advisoryCounts.critical +
     advisoryCounts.high +
@@ -49,14 +51,14 @@ export function TabRow({
   return (
     <div className="border-border/70 flex shrink-0 border-b">
       <TabButton
-        label="Advisories"
+        label={i18n.t('Advisories')}
         count={advTotal}
         active={tab === 'advisories'}
         onClick={() => setTab('advisories')}
         tone={advTone}
       />
       <TabButton
-        label="Outdated"
+        label={i18n.t('Outdated')}
         count={outTotal}
         active={tab === 'outdated'}
         onClick={() => setTab('outdated')}

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, useState } from 'react';
 import { EyeOff } from 'lucide-react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
@@ -82,6 +83,7 @@ export const ServiceCard = memo(function ServiceCard({
    */
   onOpenOverlay?: (serviceId: string, kind: 'notes' | 'license') => void;
 }) {
+  i18n.useLocale();
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
     onConfirm: () => void;
@@ -242,8 +244,8 @@ export const ServiceCard = memo(function ServiceCard({
           {svc.hide_dashboard && (
             <span
               className="text-fg-dim/70 inline-flex shrink-0"
-              title="Hidden from dashboard headline (workspace-tracking only)"
-              aria-label="Hidden from dashboard"
+              title={i18n.t('Hidden from dashboard headline (workspace-tracking only)')}
+              aria-label={i18n.t('Hidden from dashboard')}
             >
               <EyeOff className="h-3 w-3" />
             </span>
@@ -288,7 +290,10 @@ export const ServiceCard = memo(function ServiceCard({
       <div className="text-fg-muted min-h-[18px] truncate font-mono text-[11px]">
         {svc.cmds.length === 1
           ? svc.cmds[0]?.cmd
-          : `${svc.cmds.length} commands · ${svc.cmds.map((c) => c.name).join(', ')}`}
+          : i18n.t('{value1} commands · {value2}', {
+              value1: svc.cmds.length,
+              value2: svc.cmds.map((c) => c.name).join(', '),
+            })}
       </div>
 
       <ServiceCardActions

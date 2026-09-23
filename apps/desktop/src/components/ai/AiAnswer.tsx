@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -76,6 +77,7 @@ export function AiAnswer({
   showAttribution = true,
   className,
 }: AiAnswerProps) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -130,7 +132,7 @@ export function AiAnswer({
           ) : (
             <Sparkles className="text-accent h-3 w-3" />
           )}
-          <span>{label ?? (isError ? 'AI error' : 'AI')}</span>
+          <span>{label ?? (isError ? i18n.t('AI error') : i18n.t('AI'))}</span>
         </div>
         <div className="flex items-center gap-1">
           {!isStreaming && !isError && stream.text.trim() && (
@@ -138,16 +140,12 @@ export function AiAnswer({
               type="button"
               onClick={handleCopy}
               className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] transition"
-              title="Copy"
+              title={i18n.t('Copy')}
             >
               {copied ? (
-                <>
-                  <Check className="h-3 w-3" /> Copied
-                </>
+                <>{i18n.rich('{value1} Copied', { value1: <Check className="h-3 w-3" /> })}</>
               ) : (
-                <>
-                  <Copy className="h-3 w-3" /> Copy
-                </>
+                <>{i18n.rich('{value1} Copy', { value1: <Copy className="h-3 w-3" /> })}</>
               )}
             </button>
           )}
@@ -156,10 +154,9 @@ export function AiAnswer({
               type="button"
               onClick={onCancel}
               className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] transition"
-              title="Stop"
+              title={i18n.t('Stop')}
             >
-              <Square className="h-3 w-3" />
-              Stop
+              {i18n.rich('{value1}Stop', { value1: <Square className="h-3 w-3" /> })}
             </button>
           )}
           {!isStreaming && onRegenerate && (
@@ -167,9 +164,9 @@ export function AiAnswer({
               type="button"
               onClick={onRegenerate}
               className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] transition"
-              title="Regenerate"
+              title={i18n.t('Regenerate')}
             >
-              <RefreshCw className="h-3 w-3" /> Regenerate
+              {i18n.rich('{value1} Regenerate', { value1: <RefreshCw className="h-3 w-3" /> })}
             </button>
           )}
           {onClose && (
@@ -177,7 +174,7 @@ export function AiAnswer({
               type="button"
               onClick={onClose}
               className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 w-6 items-center justify-center rounded transition"
-              title="Dismiss"
+              title={i18n.t('Dismiss')}
             >
               <X className="h-3 w-3" />
             </button>
@@ -195,7 +192,7 @@ export function AiAnswer({
 
       {isError ? (
         <p className="text-status-error text-[11.5px] leading-snug wrap-break-word">
-          {stream.error ?? 'Something went wrong while talking to the AI provider.'}
+          {stream.error ?? i18n.t('Something went wrong while talking to the AI provider.')}
         </p>
       ) : (
         <div
@@ -243,9 +240,13 @@ export function AiAnswer({
         >
           <Scissors className="text-status-starting h-3 w-3 shrink-0" />
           <span className="text-fg-dim flex-1 leading-snug">
-            Response was cut off (max tokens reached). Increase{' '}
-            <span className="text-fg/70 font-mono">max_output_tokens</span> in AI Settings
-            {onRegenerate ? ' or click Regenerate.' : '.'}
+            {i18n.rich(
+              'Response was cut off (max tokens reached). Increase {value1} in AI Settings{value2}',
+              {
+                value1: <span className="text-fg/70 font-mono">{i18n.t('max_output_tokens')}</span>,
+                value2: onRegenerate ? i18n.t(' or click Regenerate.') : '.',
+              },
+            )}
           </span>
         </div>
       )}
@@ -264,15 +265,26 @@ function AttributionLine({
   usage: AiStreamUsage | null;
   durationMs: number | null;
 }) {
+  i18n.useLocale();
   const parts: string[] = [];
   if (durationMs !== null) {
-    parts.push(durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs} ms`);
+    parts.push(
+      durationMs >= 1000
+        ? i18n.t('{value1}s', {
+            value1: i18n.number(durationMs / 1000, {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1,
+              useGrouping: false,
+            }),
+          })
+        : `${durationMs} ms`,
+    );
   }
   if (usage?.completionTokens != null && usage.completionTokens > 0) {
-    parts.push(`${usage.completionTokens} out`);
+    parts.push(i18n.t('{value1} out', { value1: usage.completionTokens }));
   }
   if (usage?.promptTokens != null && usage.promptTokens > 0) {
-    parts.push(`${usage.promptTokens} in`);
+    parts.push(i18n.t('{value1} in', { value1: usage.promptTokens }));
   }
   if (parts.length === 0) return null;
   return (

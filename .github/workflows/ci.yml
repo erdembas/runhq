@@ -25,6 +25,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm i18n:check
       - run: pnpm agent:test
       - run: node --test apps/desktop/tests/*.test.mjs
       - run: node --test scripts/release-assets.test.mjs

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -31,6 +32,7 @@ interface Props {
 }
 
 export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
+  i18n.useLocale();
   const [result, setResult] = useState<LicenseScanResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +116,10 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
   // payload (e.g. unsupported runtime).
   const canAskAi = result?.scan_supported && result.entries.length > 0;
   const warningsCount = result?.contamination_warnings.length ?? 0;
-  const askAiLabel = warningsCount > 0 ? `Ask AI (${warningsCount})` : 'Ask AI';
+  const askAiLabel =
+    warningsCount > 0
+      ? i18n.t('Ask AI ({warningsCount})', { warningsCount: warningsCount })
+      : i18n.t('Ask AI');
 
   // "Mostly unknown" guard — when the parser walked the dependency
   // tree but couldn't resolve license metadata for >70% of entries
@@ -133,10 +138,10 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
         <div className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5">
           <div className="flex items-center gap-2">
             <Scale className="text-fg-muted h-4 w-4 shrink-0" />
-            <span className="text-fg text-[13px] font-medium">License Compliance</span>
+            <span className="text-fg text-[13px] font-medium">{i18n.t('License Compliance')}</span>
           </div>
           <IconButton
-            label="Close"
+            label={i18n.t('Close')}
             icon={<X className="h-3.5 w-3.5" />}
             onClick={onClose}
             size="sm"
@@ -169,13 +174,13 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
             onClick={() => void runScan()}
             disabled={loading}
           >
-            {loading ? 'Scanning…' : 'Rescan'}
+            {loading ? i18n.t('Scanning…') : i18n.t('Rescan')}
           </Button>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {loading && <div className="text-fg-dim text-[12px]">Scanning licenses…</div>}
+        {loading && <div className="text-fg-dim text-[12px]">{i18n.t('Scanning licenses…')}</div>}
 
         {error && (
           <p className="text-tone-critical-fg rounded-app border-tone-critical/30 bg-tone-critical/5 border p-2 text-[11px]">
@@ -199,7 +204,11 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
                 <Info className="text-tone-warning-fg mt-0.5 h-4 w-4 shrink-0" />
                 <div className="space-y-1 text-[11px] leading-relaxed">
                   <p className="text-fg font-medium">
-                    License scan limited{result.runtime ? ` for ${result.runtime}` : ''}
+                    {i18n.rich('License scan limited{value1}', {
+                      value1: result.runtime
+                        ? i18n.t(' for {value1}', { value1: result.runtime })
+                        : '',
+                    })}
                   </p>
                   {result.scan_message && <p className="text-fg-dim">{result.scan_message}</p>}
                 </div>
@@ -216,32 +225,38 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
               <div className="flex flex-wrap gap-1.5">
                 {result.permissive_count + result.safe_count > 0 && (
                   <Badge tone="success" size="sm">
-                    {result.permissive_count + result.safe_count} permissive
+                    {i18n.rich('{value1} permissive', {
+                      value1: result.permissive_count + result.safe_count,
+                    })}
                   </Badge>
                 )}
                 {result.weak_copyleft_count > 0 && (
                   <Badge tone="warning" size="sm">
-                    {result.weak_copyleft_count} weak copyleft
+                    {i18n.rich('{value1} weak copyleft', { value1: result.weak_copyleft_count })}
                   </Badge>
                 )}
                 {result.strong_copyleft_count > 0 && (
                   <Badge tone="critical" size="sm" icon={<AlertTriangle className="h-3 w-3" />}>
-                    {result.strong_copyleft_count} strong copyleft
+                    {i18n.rich('{value1} strong copyleft', {
+                      value1: result.strong_copyleft_count,
+                    })}
                   </Badge>
                 )}
                 {result.network_copyleft_count > 0 && (
                   <Badge tone="critical" size="sm" icon={<AlertTriangle className="h-3 w-3" />}>
-                    {result.network_copyleft_count} network copyleft
+                    {i18n.rich('{value1} network copyleft', {
+                      value1: result.network_copyleft_count,
+                    })}
                   </Badge>
                 )}
                 {result.proprietary_count > 0 && (
                   <Badge tone="warning" size="sm">
-                    {result.proprietary_count} proprietary
+                    {i18n.rich('{value1} proprietary', { value1: result.proprietary_count })}
                   </Badge>
                 )}
                 {result.unknown_count > 0 && (
                   <Badge tone="neutral" size="sm">
-                    {result.unknown_count} unknown
+                    {i18n.rich('{value1} unknown', { value1: result.unknown_count })}
                   </Badge>
                 )}
               </div>
@@ -264,8 +279,13 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
                     )}
                     <ShieldAlert className="text-tone-critical-fg h-4 w-4" />
                     <span className="text-fg text-[12px] font-medium">
-                      {result.contamination_warnings.length} contamination{' '}
-                      {result.contamination_warnings.length === 1 ? 'warning' : 'warnings'}
+                      {i18n.rich('{value1} contamination {value2}', {
+                        value1: result.contamination_warnings.length,
+                        value2:
+                          result.contamination_warnings.length === 1
+                            ? i18n.t('warning')
+                            : i18n.t('warnings'),
+                      })}
                     </span>
                   </button>
                   {expandedWarnings && (
@@ -300,18 +320,19 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
               !mostlyUnknown && (
                 <div className="border-tone-success/30 bg-tone-success/5 rounded-app flex items-center gap-2 border p-2.5 text-[12px]">
                   <ShieldCheck className="text-tone-success-fg h-4 w-4 shrink-0" />
-                  <span className="text-fg">No copyleft contamination detected</span>
+                  <span className="text-fg">{i18n.t('No copyleft contamination detected')}</span>
                 </div>
               )}
             {result.scan_supported && mostlyUnknown && !result.has_contamination && (
               <div className="border-tone-warning/30 bg-tone-warning/5 rounded-app flex gap-2 border p-2.5 text-[11px] leading-relaxed">
                 <HelpCircle className="text-tone-warning-fg mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  <p className="text-fg font-medium">Scan inconclusive</p>
+                  <p className="text-fg font-medium">{i18n.t('Scan inconclusive')}</p>
                   <p className="text-fg-dim">
-                    {result.unknown_count} of {totalEntries} packages didn't expose a license field,
-                    so we can't certify this tree as contamination-free. Open the dependency list
-                    below to spot-check the unknowns manually.
+                    {i18n.rich(
+                      "{value1} of {totalEntries} packages didn't expose a license field, so we can't certify this tree as contamination-free. Open the dependency list below to spot-check the unknowns manually.",
+                      { value1: result.unknown_count, totalEntries: totalEntries },
+                    )}
                   </p>
                 </div>
               </div>
@@ -349,9 +370,17 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
                 title={
                   canAskAi
                     ? warningsCount > 0
-                      ? `Triage ${warningsCount} license ${warningsCount === 1 ? 'warning' : 'warnings'} with AI — get a prioritised replacement plan`
-                      : 'Analyse this license distribution with AI — even with no warnings, the model can flag unknowns to spot-check'
-                    : 'Ask AI is unavailable — license scan did not run for this project'
+                      ? i18n.t(
+                          'Triage {warningsCount} license {value2} with AI — get a prioritised replacement plan',
+                          {
+                            warningsCount: warningsCount,
+                            value2: warningsCount === 1 ? i18n.t('warning') : i18n.t('warnings'),
+                          },
+                        )
+                      : i18n.t(
+                          'Analyse this license distribution with AI — even with no warnings, the model can flag unknowns to spot-check',
+                        )
+                    : i18n.t('Ask AI is unavailable — license scan did not run for this project')
                 }
               >
                 {askAiLabel}
@@ -365,15 +394,17 @@ export function LicensePanel({ serviceId, serviceName, onClose }: Props) {
                 disabled={writing || !canWriteNotices}
                 title={
                   canWriteNotices
-                    ? 'Write THIRD-PARTY-NOTICES.md to the project root'
-                    : 'Nothing to write — license scan is unavailable for this project'
+                    ? i18n.t('Write THIRD-PARTY-NOTICES.md to the project root')
+                    : i18n.t('Nothing to write — license scan is unavailable for this project')
                 }
               >
-                {writing ? 'Writing…' : 'Write THIRD-PARTY-NOTICES.md'}
+                {writing ? i18n.t('Writing…') : i18n.t('Write THIRD-PARTY-NOTICES.md')}
               </Button>
               {writtenPath && (
                 <span className="text-fg-dim text-[11px]">
-                  Written to <code className="font-mono">{writtenPath}</code>
+                  {i18n.rich('Written to {value1}', {
+                    value1: <code className="font-mono">{writtenPath}</code>,
+                  })}
                 </span>
               )}
             </div>

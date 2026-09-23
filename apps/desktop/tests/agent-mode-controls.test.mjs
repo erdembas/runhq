@@ -1,7 +1,8 @@
+import { i18nView } from './helpers/i18n.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
-import { runInNewContext } from 'node:vm';
+import { runInNewContext } from './helpers/i18n-vm.mjs';
 import { test } from 'node:test';
 import ts from 'typescript';
 
@@ -24,6 +25,7 @@ const compiled = ts.transpileModule(
 runInNewContext(compiled, {
   exports,
   require: (name) => {
+    if (name === '../i18n') return i18nView;
     if (name === 'react/jsx-runtime') return { jsx: element, jsxs: element, Fragment: 'Fragment' };
     if (name === 'react') return { useMemo: (create) => create() };
     if (name === '../lib/agentModelOptions')
@@ -94,6 +96,16 @@ test('ACP only exposes Agent, Plan and Ask buttons actually advertised by the pr
   assert(labels.includes('Ask mode'));
   assert(!labels.includes('Plan mode'));
   assert(!labels.includes('Agent mode'));
+});
+
+test('workflows reuse model controls without exposing a mode that could override the step role', () => {
+  const nodes = controls(['agent', 'plan', 'ask'], undefined, {
+    catalog: { connection: 'codex', models: [], agents: [], modes: ['default', 'plan'] },
+    onMode: undefined,
+    onAgent: undefined,
+  });
+  assert(nodes.some((node) => node.type === 'SearchableSelect' && node.props.label === 'Model'));
+  assert(!nodes.some((node) => node.props['aria-label'] === 'Work mode'));
 });
 
 test('selecting a custom ACP mode survives the mode callback clearing the previous profile', () => {

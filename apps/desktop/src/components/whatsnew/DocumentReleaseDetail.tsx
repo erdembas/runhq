@@ -1,3 +1,5 @@
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Detail view for a `DocumentRelease` — the document-style layout used
  * from 0.10.0 onwards. Replaces the legacy carousel/stacked highlights
@@ -25,7 +27,7 @@
  * so the active TOC entry tracks whichever subsection is currently
  * under the reader's eye.
  */
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
@@ -38,9 +40,15 @@ const BADGE_TONE: Record<HighlightBadge, BadgeTone> = {
 };
 
 const BADGE_LABEL: Record<HighlightBadge, string> = {
-  new: 'New',
-  improved: 'Improved',
-  fix: 'Fixed',
+  get new() {
+    return i18n.t('New');
+  },
+  get improved() {
+    return i18n.t('Improved');
+  },
+  get fix() {
+    return i18n.t('Fixed');
+  },
 };
 
 /**
@@ -134,6 +142,7 @@ export function DocumentReleaseDetail({
   release: DocumentRelease;
   scrollerRef: RefObject<HTMLElement | null>;
 }) {
+  i18n.useLocale();
   const releasedDate = useMemo(() => formatReleaseDate(release.releasedAt), [release.releasedAt]);
   const activeId = useActiveSubsection(scrollerRef, release.version);
 
@@ -150,10 +159,12 @@ export function DocumentReleaseDetail({
         <header className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-fg text-[24px] leading-tight font-semibold tracking-tight">
-              RunHQ {release.version}
+              {i18n.rich('RunHQ {value1}', { value1: release.version })}
             </h2>
             <span className="text-fg-dim/90 text-[12.5px]">·</span>
-            <span className="text-fg-dim text-[12.5px]">Released {releasedDate}</span>
+            <span className="text-fg-dim text-[12.5px]">
+              {i18n.rich('Released {releasedDate}', { releasedDate: releasedDate })}
+            </span>
           </div>
           <p className="text-fg-muted text-[14.5px] leading-relaxed">{release.headline}</p>
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -163,7 +174,7 @@ export function DocumentReleaseDetail({
               rel="noreferrer noopener"
               className="text-fg-dim hover:text-fg text-[11.5px] font-medium underline-offset-2 transition-colors hover:underline"
             >
-              Read full changelog ↗
+              {i18n.t('Read full changelog ↗')}
             </a>
           </div>
         </header>
@@ -175,8 +186,9 @@ export function DocumentReleaseDetail({
         {release.hooks.length > 0 && (
           <section className="border-border bg-surface-raised/30 flex flex-col gap-2 rounded-xl border px-5 py-3.5">
             <div className="text-fg-dim inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-wider uppercase">
-              <Sparkles className="text-accent h-3 w-3" />
-              In this release
+              {i18n.rich('{value1}In this release', {
+                value1: <Sparkles className="text-accent h-3 w-3" />,
+              })}
             </div>
             <ul className="flex flex-col gap-1.5">
               {release.hooks.map((h) => (
@@ -212,11 +224,14 @@ export function DocumentReleaseDetail({
             rel="noreferrer noopener"
             className="text-fg-dim hover:text-fg text-[12.5px] font-medium underline-offset-2 transition-colors hover:underline"
           >
-            Read full changelog ↗
+            {i18n.t('Read full changelog ↗')}
           </a>
           <span className="text-fg-dim/80 text-[10.5px] tracking-wider uppercase">
-            {release.sections.length} section{release.sections.length === 1 ? '' : 's'} ·{' '}
-            {totalSubsections(release.sections)} highlights
+            {i18n.rich('{value1} section{plural3} · {value4} highlights', {
+              value1: release.sections.length,
+              plural3: release.sections.length === 1 ? '' : 's',
+              value4: totalSubsections(release.sections),
+            })}
           </span>
         </footer>
       </div>
@@ -235,11 +250,12 @@ function totalSubsections(sections: ReleaseSection[]): number {
 }
 
 function SectionBlock({ section }: { section: ReleaseSection }) {
+  i18n.useLocale();
   return (
     <section id={section.id} className="flex flex-col gap-7">
       <div className="border-border/70 flex flex-col gap-1 border-b pb-3">
         <span className="text-fg-dim/80 text-[10.5px] font-semibold tracking-[0.18em] uppercase">
-          Section
+          {i18n.t('Section')}
         </span>
         <h3 className="text-fg text-[20px] leading-tight font-semibold tracking-tight">
           {section.title}
@@ -288,11 +304,15 @@ function DocumentReleaseToc({
   activeId: string | null;
   onJump: (id: string) => void;
 }) {
+  i18n.useLocale();
   return (
     <aside className="hidden lg:block">
-      <nav aria-label="In this release" className="sticky top-6 flex flex-col gap-3 text-[12.5px]">
+      <nav
+        aria-label={i18n.t('In this release')}
+        className="sticky top-6 flex flex-col gap-3 text-[12.5px]"
+      >
         <div className="text-fg-dim/80 text-[10.5px] font-semibold tracking-[0.18em] uppercase">
-          In this release
+          {i18n.t('In this release')}
         </div>
         <div className="flex flex-col gap-3.5">
           {sections.map((sec) => (
@@ -336,7 +356,7 @@ function formatReleaseDate(iso: string): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(i18n.getFormatLocale(), {
       year: 'numeric',
       month: 'long',
       day: 'numeric',

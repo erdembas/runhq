@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 interface ScanDeltaBadgeProps {
@@ -6,6 +7,7 @@ interface ScanDeltaBadgeProps {
 }
 
 export function ScanDeltaBadge({ delta, severity }: ScanDeltaBadgeProps) {
+  i18n.useLocale();
   if (delta === 0) return null;
   const sign = delta > 0 ? '+' : '';
   const isRise = delta > 0;
@@ -24,8 +26,8 @@ export function ScanDeltaBadge({ delta, severity }: ScanDeltaBadgeProps) {
         ? 'advisory'
         : 'advisories'
       : abs === 1
-        ? 'outdated package'
-        : 'outdated packages';
+        ? i18n.t('outdated package')
+        : i18n.t('outdated packages');
 
   return (
     <span
@@ -33,8 +35,12 @@ export function ScanDeltaBadge({ delta, severity }: ScanDeltaBadgeProps) {
         'rounded-app-sm ml-0.5 inline-flex shrink-0 items-center px-1 py-0.5 text-[9px] font-bold tabular-nums',
         tone,
       )}
-      title={`${sign}${delta} ${noun} since last scan`}
-      aria-label={`${sign}${delta} since last scan`}
+      title={i18n.t('{sign}{delta} {noun} since last scan', {
+        sign: sign,
+        delta: delta,
+        noun: noun,
+      })}
+      aria-label={i18n.t('{sign}{delta} since last scan', { sign: sign, delta: delta })}
     >
       {sign}
       {delta}

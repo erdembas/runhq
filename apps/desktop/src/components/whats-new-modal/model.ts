@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { BadgeTone } from '@/components/ui/Badge';
 import { useAppStore } from '@/store/useAppStore';
 import type { Highlight, HighlightFallback, WhatsNewActionId } from '@/lib/whatsnew';
@@ -27,9 +28,15 @@ export const BADGE_TONE: Record<NonNullable<Highlight['badge']>, BadgeTone> = {
 };
 
 export const BADGE_LABEL: Record<NonNullable<Highlight['badge']>, string> = {
-  new: 'New',
-  improved: 'Improved',
-  fix: 'Fixed',
+  get new() {
+    return i18n.t('New');
+  },
+  get improved() {
+    return i18n.t('Improved');
+  },
+  get fix() {
+    return i18n.t('Fixed');
+  },
 };
 
 export function runModalStoreAction(actionId: WhatsNewActionId, onClose: () => void): void {
@@ -66,7 +73,7 @@ export function formatReleaseDate(iso: string): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(i18n.getFormatLocale(), {
       year: 'numeric',
       month: 'long',
       day: 'numeric',

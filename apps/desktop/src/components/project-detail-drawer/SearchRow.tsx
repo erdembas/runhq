@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { RefObject } from 'react';
 import { Search, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -41,6 +42,7 @@ export function SearchRow({
    *  also renders the matching `popover` JSX (portaled to body). */
   askAiTriggerRef?: RefObject<HTMLButtonElement>;
 }) {
+  i18n.useLocale();
   return (
     <div className="border-border/60 bg-surface shrink-0 border-b px-3 py-2">
       <div className="border-border focus-within:border-accent/60 bg-surface flex items-center gap-1.5 rounded-md border px-2">
@@ -51,7 +53,7 @@ export function SearchRow({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}
           className="text-fg placeholder:text-fg/30 w-full bg-transparent py-1.5 text-[11px] focus:outline-none"
-          aria-label="Filter packages"
+          aria-label={i18n.t('Filter packages')}
         />
         <kbd className="text-fg/35 border-border hidden rounded border px-1 font-mono text-[9px] sm:inline-block">
           /
@@ -61,7 +63,7 @@ export function SearchRow({
             type="button"
             onClick={() => setQuery('')}
             className="text-fg/30 hover:text-fg"
-            aria-label="Clear search"
+            aria-label={i18n.t('Clear search')}
           >
             <X size={11} />
           </button>
@@ -69,7 +71,9 @@ export function SearchRow({
       </div>
       <div className="mt-1.5 flex items-center justify-between text-[10px]">
         <span className="text-fg/40 tabular-nums">
-          {shown === total ? `${total} total` : `${shown} of ${total}`}
+          {shown === total
+            ? i18n.t('{total} total', { total: total })
+            : i18n.t('{shown} of {total}', { shown: shown, total: total })}
         </span>
         <div className="flex items-center gap-2.5">
           {onAskAi && (
@@ -88,15 +92,17 @@ export function SearchRow({
               )}
               title={
                 askAiDisabled
-                  ? 'Nothing to triage — adjust filters or run a scan first.'
+                  ? i18n.t('Nothing to triage — adjust filters or run a scan first.')
                   : askAiActive
-                    ? 'Hide the AI triage panel'
-                    : 'Ask the AI to rank and recommend a fix order for the visible advisories'
+                    ? i18n.t('Hide the AI triage panel')
+                    : i18n.t(
+                        'Ask the AI to rank and recommend a fix order for the visible advisories',
+                      )
               }
               aria-pressed={askAiActive ?? false}
             >
               <Sparkles size={10} />
-              <span className="font-medium">{askAiLabel ?? 'Ask AI'}</span>
+              <span className="font-medium">{askAiLabel ?? i18n.t('Ask AI')}</span>
             </button>
           )}
           {selectedCount > 0 ? (
@@ -105,7 +111,7 @@ export function SearchRow({
               onClick={onClearSelection}
               className="text-fg/55 hover:text-fg transition"
             >
-              Clear selection
+              {i18n.t('Clear selection')}
             </button>
           ) : (
             shown > 0 && (
@@ -114,7 +120,7 @@ export function SearchRow({
                 onClick={onSelectAll}
                 className="text-fg/55 hover:text-fg transition"
               >
-                Select all visible
+                {i18n.t('Select all visible')}
               </button>
             )
           )}

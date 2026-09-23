@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AiChatProvider } from './aiChatProviders';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
@@ -138,7 +139,7 @@ export function useAiStreamRunner({
     }) => {
       const activeProvider = providerOverride ?? provider;
       if (!activeProvider) {
-        setProviderError('No AI provider configured. Add one from Settings → AI.');
+        setProviderError(i18n.t('No AI provider configured. Add one from Settings → AI.'));
         return;
       }
 

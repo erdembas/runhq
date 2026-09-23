@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { CommandStatus, ServiceDef } from '@/types';
 import { CommandRunItem } from './CommandRunItem';
 
@@ -14,6 +15,7 @@ export function CommandRunStrip({
   onSelect,
   service,
 }: CommandRunStripProps) {
+  i18n.useLocale();
   if (service.cmds.length <= 1) return null;
 
   return (

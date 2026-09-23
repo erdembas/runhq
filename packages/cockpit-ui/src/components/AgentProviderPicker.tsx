@@ -1,4 +1,5 @@
 'use client';
+import * as i18n from '../i18n';
 import type { AgentBackend, AgentBackendId } from '@runhq/cockpit-types';
 import { AgentProviderLogo } from './AgentProviderLogo';
 import { SearchableSelect } from './SearchableSelect';
@@ -26,25 +27,27 @@ export function AgentProviderPicker({
    */
   extraOptions?: { value: string; label: string; group: string; description?: string }[];
 }) {
+  i18n.useLocale();
   const label =
     name || backends?.find((b) => b.id === value)?.name || agentProviderNames[value] || value;
   const options = enabledAgentBackends(backends ?? []).map((b) => ({
     value: b.id,
     label: b.name,
-    group: agentDetectionStatus(b) === 'available' ? 'Installed agents' : 'Needs setup',
+    group:
+      agentDetectionStatus(b) === 'available' ? i18n.t('Installed agents') : i18n.t('Needs setup'),
     description:
       agentDetectionStatus(b) === 'available'
-        ? b.version || 'Installed locally'
+        ? b.version || i18n.t('Installed locally')
         : agentDetectionStatus(b) === 'blocked'
-          ? 'CLI found · needs attention'
-          : 'CLI not found',
+          ? i18n.t('CLI found · needs attention')
+          : i18n.t('CLI not found'),
   }));
   for (const extra of extraOptions ?? [])
     options.push({ ...extra, description: extra.description ?? '' });
   if (!onChange)
     return (
       <span
-        title="Tool for this conversation"
+        title={i18n.t('Tool for this conversation')}
         className="text-fg flex h-8 items-center gap-2 px-2 text-[12px] font-medium"
       >
         <AgentProviderLogo backend={value} />
@@ -53,7 +56,7 @@ export function AgentProviderPicker({
     );
   return (
     <SearchableSelect
-      label="Agent tool"
+      label={i18n.t('Agent tool')}
       value={value}
       onChange={onChange}
       options={options}
@@ -62,12 +65,12 @@ export function AgentProviderPicker({
       leading={<AgentProviderLogo backend={value} />}
       placeholder={
         loading && !options.length
-          ? 'Finding agents…'
+          ? i18n.t('Finding agents…')
           : options.length
-            ? 'Choose an agent'
-            : 'No enabled agents'
+            ? i18n.t('Choose an agent')
+            : i18n.t('No enabled agents')
       }
-      searchPlaceholder="Find an agent…"
+      searchPlaceholder={i18n.t('Find an agent…')}
       menuWidth={300}
     />
   );

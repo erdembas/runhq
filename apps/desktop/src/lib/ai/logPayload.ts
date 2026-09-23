@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /**
  * Build the chat-panel payload for "explain this log line" — the
  * Phase-4 replacement for the standalone `LogTriagePopover`.
@@ -65,7 +66,9 @@ export function buildLogChatPayload(input: LogChatPayloadInput): LogChatPayload 
 
   // Title kept short so it lays out nicely in the History drawer.
   const titleLine = line.length > 80 ? `${line.slice(0, 77)}…` : line;
-  const title = serviceName ? `Log · ${serviceName}: ${titleLine}` : `Log: ${titleLine}`;
+  const title = serviceName
+    ? i18n.t('Log · {serviceName}: {titleLine}', { serviceName: serviceName, titleLine: titleLine })
+    : i18n.t('Log: {titleLine}', { titleLine: titleLine });
 
   return {
     title,

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useState } from 'react';
 import { CrossProjectDiffSidebar } from '@/components/cross-project-diff/CrossProjectDiffSidebar';
 import { CrossProjectDiffTitlebar } from '@/components/cross-project-diff/CrossProjectDiffTitlebar';
 import { RIGHT_RAIL_WIDTH, isMac } from '@/components/cross-project-diff/constants';
@@ -19,6 +21,7 @@ interface Props {
 }
 
 export function CrossProjectDiffViewer({ onClose }: Props) {
+  i18n.useLocale();
   const overview = useAppStore((s) => s.overview);
   const services = useAppStore((s) => s.services);
   const openDiffViewer = useAppStore((s) => s.openDiffViewer);
@@ -200,11 +203,11 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
       // staging bucket it came from to match the contract.
       const unstaged: FileEntry[] = (b?.unstaged?.files ?? []).map((f) => ({
         ...f,
-        section: 'Changes',
+        section: i18n.t('Changes'),
       }));
       const staged: FileEntry[] = (b?.staged?.files ?? []).map((f) => ({
         ...f,
-        section: 'Staged',
+        section: i18n.t('Staged'),
       }));
       const filter = (f: FileEntry) =>
         !q || f.path.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
@@ -290,7 +293,10 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
     const pool = selection.source === 'staged' ? bucket.staged?.files : bucket.unstaged?.files;
     const hit = (pool ?? []).find((f) => f.path === selection.path);
     if (!hit) return null;
-    return { ...hit, section: selection.source === 'staged' ? 'Staged' : 'Changes' };
+    return {
+      ...hit,
+      section: selection.source === 'staged' ? i18n.t('Staged') : i18n.t('Changes'),
+    };
   }, [selection, buckets]);
 
   const totalServices = serviceTrees.length;
@@ -364,7 +370,7 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
           <ResizeHandle
             handleProps={sidebar.handleProps}
             dragging={sidebar.dragging}
-            title="Drag to resize file explorer · double-click to reset"
+            title={i18n.t('Drag to resize file explorer · double-click to reset')}
           />
 
           {/* Right: diff viewport */}
@@ -379,8 +385,8 @@ export function CrossProjectDiffViewer({ onClose }: Props) {
               fileLoading={fileLoading}
               emptyLabel={
                 totalFiles === 0
-                  ? '🎉 All your projects are clean'
-                  : 'Select a file from the sidebar to view its diff'
+                  ? i18n.t('🎉 All your projects are clean')
+                  : i18n.t('Select a file from the sidebar to view its diff')
               }
             />
           </main>

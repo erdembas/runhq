@@ -23,6 +23,8 @@ export function recipeStepsToCreateSteps(
     prompt: step.prompt ?? '',
     depends_on: step.dependsOn ?? (index > 0 ? [steps[index - 1]!.id ?? `s${index}`] : []),
     workspace: step.workspace ?? 'shared',
+    ...(step.continueFrom ? { continue_from: step.continueFrom } : {}),
+    ...(step.reviewPolicy ? { review_policy: step.reviewPolicy } : {}),
   }));
 }
 
@@ -37,5 +39,7 @@ export function createStepsToRecipeSteps(steps: CreateWorkflowStep[]): AgentReci
     prompt: step.prompt,
     dependsOn: step.depends_on,
     workspace: step.workspace,
+    ...(step.continue_from ? { continueFrom: step.continue_from } : {}),
+    ...(step.review_policy ? { reviewPolicy: step.review_policy } : {}),
   }));
 }

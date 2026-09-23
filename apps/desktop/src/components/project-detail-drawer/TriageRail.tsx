@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { RailTile } from './RailTile';
 import type { Tone } from './model';
 
@@ -27,11 +28,12 @@ export function TriageRail({
   onChange: (v: string) => void;
   tiles: Tile[];
 }) {
+  i18n.useLocale();
   return (
     <div
       className="border-border/60 bg-surface shrink-0 border-b px-3 py-2"
       role="tablist"
-      aria-label="Filter by severity"
+      aria-label={i18n.t('Filter by severity')}
     >
       <div className="flex items-stretch gap-1.5 overflow-x-auto">
         <RailTile

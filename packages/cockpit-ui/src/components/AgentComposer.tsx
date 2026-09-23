@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 
 export function AgentComposer({
@@ -25,6 +26,7 @@ export function AgentComposer({
   action: ReactNode;
   children?: ReactNode;
 }) {
+  i18n.useLocale();
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const element = textarea.current;
@@ -60,7 +62,7 @@ export function AgentComposer({
       <div className="px-1 pt-1">
         <textarea
           ref={textarea}
-          aria-label="Message to agent"
+          aria-label={i18n.t('Message to agent')}
           rows={3}
           style={{ outline: 'none', boxShadow: 'none', borderRadius: 0 }}
           className="text-fg placeholder:text-fg-dim/80 block w-full resize-none border-0 bg-transparent px-4 pt-4 pb-3 text-[14px] leading-6 disabled:opacity-60"

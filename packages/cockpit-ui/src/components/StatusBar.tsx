@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Cpu, HardDrive, MoonStar, Network, Settings, Sparkles } from 'lucide-react';
 import { cn } from '../lib/cn';
 
@@ -31,6 +34,7 @@ export function StatusBar({
   releaseNotesHref,
   className,
 }: Props) {
+  i18n.useLocale();
   const memoryMb = Math.round(memoryBytes / (1024 * 1024));
   return (
     <div
@@ -41,35 +45,46 @@ export function StatusBar({
     >
       <div className="flex items-center gap-1">
         <span className="bg-status-running h-1.5 w-1.5 rounded-full" aria-hidden />
-        <span className="text-fg-muted">{running} running</span>
+        <span className="text-fg-muted">
+          {i18n.rich('{running} running', { running: running })}
+        </span>
       </div>
       <div className="flex items-center gap-1">
         <span className="bg-fg-dim h-1.5 w-1.5 rounded-full" aria-hidden />
-        <span className="text-fg-muted">{idle} idle</span>
+        <span className="text-fg-muted">{i18n.rich('{idle} idle', { idle: idle })}</span>
       </div>
       <div className="ml-auto flex items-center gap-3">
         <span className="flex items-center gap-1 tabular-nums">
           <Cpu className="h-3 w-3" />
-          {cpuPercent.toFixed(1)}%
+          {i18n.number(cpuPercent, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+            useGrouping: false,
+          })}
+          %
         </span>
         <span className="flex items-center gap-1 tabular-nums">
-          <HardDrive className="h-3 w-3" />
-          {memoryMb} MB
+          {i18n.rich('{value1}{memoryMb} MB', {
+            value1: <HardDrive className="h-3 w-3" />,
+            memoryMb: memoryMb,
+          })}
         </span>
         <span className="flex items-center gap-1 tabular-nums">
-          <Network className="h-3 w-3" />
-          {ports} ports
+          {i18n.rich('{value1}{ports} ports', {
+            value1: <Network className="h-3 w-3" />,
+            ports: ports,
+          })}
         </span>
         <span className="text-border-strong">·</span>
         <span className="hover:text-fg flex items-center gap-1">
-          <Sparkles className="h-3 w-3" /> Ask AI
+          {i18n.rich('{value1} Ask AI', { value1: <Sparkles className="h-3 w-3" /> })}
         </span>
-        <span className="hover:text-fg flex items-center gap-1">AI</span>
+        <span className="hover:text-fg flex items-center gap-1">{i18n.t('AI')}</span>
         <span className="hover:text-fg flex items-center gap-1">
-          <Settings className="h-3 w-3" /> Settings
+          {i18n.rich('{value1} Settings', { value1: <Settings className="h-3 w-3" /> })}
         </span>
         <span className="hover:text-fg flex items-center gap-1">
-          <MoonStar className="h-3 w-3" /> Dark
+          {i18n.rich('{value1} Dark', { value1: <MoonStar className="h-3 w-3" /> })}
         </span>
         <a
           href={releaseNotesHref ?? 'https://github.com/erdembas/runner-hq/releases'}
@@ -77,8 +92,10 @@ export function StatusBar({
           target="_blank"
           rel="noreferrer"
         >
-          <span className="bg-accent inline-block h-1.5 w-1.5 rounded-sm" />
-          {version ?? 'v1.0.0'} · Release notes
+          {i18n.rich('{value1}{value2} · Release notes', {
+            value1: <span className="bg-accent inline-block h-1.5 w-1.5 rounded-sm" />,
+            value2: version ?? 'v1.0.0',
+          })}
         </a>
       </div>
     </div>

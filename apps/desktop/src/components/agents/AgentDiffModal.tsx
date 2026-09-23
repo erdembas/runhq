@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Columns2, Rows2, X } from 'lucide-react';
@@ -28,6 +29,7 @@ export function AgentDiffModal({
   cwd?: string | null;
   onClose: () => void;
 }) {
+  i18n.useLocale();
   const [viewMode, setViewMode] = useState<DiffViewMode>('side-by-side');
   const { effective } = useTheme();
   const monacoTheme = useMonacoTheme(effective);
@@ -46,7 +48,7 @@ export function AgentDiffModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Change to ${path}`}
+      aria-label={i18n.t('Change to {path}', { path: path })}
       className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-black/60 backdrop-blur-sm"
     >
       <div className="bg-surface-raised flex h-full w-full flex-col overflow-hidden shadow-2xl">
@@ -74,10 +76,10 @@ export function AgentDiffModal({
                     ? 'bg-accent/20 text-accent'
                     : 'text-fg/50 hover:text-fg',
                 )}
-                title="Side-by-side view"
+                title={i18n.t('Side-by-side view')}
               >
                 <Columns2 size={12} />
-                <span className="hidden sm:inline">Split</span>
+                <span className="hidden sm:inline">{i18n.t('Split')}</span>
               </button>
               <button
                 onClick={() => setViewMode('inline')}
@@ -85,15 +87,15 @@ export function AgentDiffModal({
                   'flex items-center gap-1 px-2 py-1 text-[11px] transition',
                   viewMode === 'inline' ? 'bg-accent/20 text-accent' : 'text-fg/50 hover:text-fg',
                 )}
-                title="Inline (unified) view"
+                title={i18n.t('Inline (unified) view')}
               >
                 <Rows2 size={12} />
-                <span className="hidden sm:inline">Inline</span>
+                <span className="hidden sm:inline">{i18n.t('Inline')}</span>
               </button>
             </div>
             <button
               onClick={onClose}
-              aria-label="Close diff"
+              aria-label={i18n.t('Close diff')}
               className="text-fg/50 hover:bg-fg/10 hover:text-fg flex h-6 w-6 items-center justify-center rounded transition"
             >
               <X size={14} />

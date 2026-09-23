@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { WorkspaceGroupHeader } from '@runhq/cockpit-ui';
 import { SectionOverflowMenu } from '../SectionMenus';
@@ -25,6 +26,7 @@ export function SectionBlock({
   serviceIds: string[];
   children: React.ReactNode;
 }) {
+  i18n.useLocale();
   const meta = sectionColor(section.color);
   const moveSidebarItem = useAppStore((s) => s.moveSidebarItem);
   const dragActive = useDragActive();

@@ -139,7 +139,7 @@ export const createUiSlice: AppStoreSlice = (set, get) => ({
     set((s) => {
       const exists = s.mainTabs.some((t) => mainTabKey(t) === SETTINGS_TAB_KEY);
       return {
-        settingsCategory: category ?? 'shortcuts',
+        settingsCategory: category ?? 'general',
         mainTabs: exists
           ? s.mainTabs
           : insertTabRespectingPin(s.mainTabs, SETTINGS_TAB, new Set(s.pinnedMainTabKeys)),

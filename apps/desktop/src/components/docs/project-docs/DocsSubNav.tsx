@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import type { ProjectDoc } from '@/types';
 import { DocsNavModeToggle } from './DocsNavModeToggle';
 import { SubNavButton } from './SubNavButton';
@@ -13,6 +15,7 @@ interface DocsSubNavProps {
 }
 
 export function DocsSubNav({ docs, activePath, onSelect }: DocsSubNavProps) {
+  i18n.useLocale();
   const [mode, setMode] = useState<DocsNavMode>(() => readModePref());
   const topLevel = docs.filter((d) => d.kind !== 'doc');
   const tree = docs.filter((d) => d.kind === 'doc');
@@ -42,7 +45,9 @@ export function DocsSubNav({ docs, activePath, onSelect }: DocsSubNavProps) {
   return (
     <nav className="flex flex-col gap-2 p-2">
       <div className="flex items-center justify-between gap-2 px-0.5">
-        <span className="text-fg-dim text-[10px] font-semibold tracking-wider uppercase">Docs</span>
+        <span className="text-fg-dim text-[10px] font-semibold tracking-wider uppercase">
+          {i18n.t('Docs')}
+        </span>
         <DocsNavModeToggle mode={mode} onModeChange={setNavMode} />
       </div>
       {mode === 'tree' ? (
@@ -66,7 +71,7 @@ export function DocsSubNav({ docs, activePath, onSelect }: DocsSubNavProps) {
           {tree.length > 0 && (
             <>
               <div className="text-fg-dim mt-3 mb-1 px-2 text-[10px] font-semibold tracking-wider uppercase">
-                Docs
+                {i18n.t('Docs')}
               </div>
               {tree.map((d) => (
                 <SubNavButton

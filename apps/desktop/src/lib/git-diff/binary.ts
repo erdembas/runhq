@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 const BINARY_EXTS = new Set([
   'png',
   'jpg',
@@ -105,8 +106,8 @@ export function isBinaryDiff(raw: string, path: string): boolean {
 }
 
 export function humanKind(path: string): string {
-  if (isImagePath(path)) return 'Image';
+  if (isImagePath(path)) return i18n.t('Image');
   const ext = fileExt(path);
-  if (!ext) return 'Binary';
-  return `${ext.toUpperCase()} file`;
+  if (!ext) return i18n.t('Binary');
+  return i18n.t('{value1} file', { value1: ext.toUpperCase() });
 }

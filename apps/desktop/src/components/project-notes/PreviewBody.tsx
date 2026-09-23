@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FileText, Lock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -18,6 +19,7 @@ interface PreviewBodyProps {
 }
 
 export function PreviewBody({ content, serviceName, wide }: PreviewBodyProps) {
+  i18n.useLocale();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [headings, setHeadings] = useState<TocHeading[]>([]);
   const [activeHeading, setActiveHeading] = useState<string | null>(null);
@@ -86,11 +88,14 @@ export function PreviewBody({ content, serviceName, wide }: PreviewBodyProps) {
       <div className="text-fg-dim flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[12.5px]">
         <FileText className="text-fg-dim/60 h-6 w-6" />
         <p className="max-w-sm leading-relaxed">
-          Empty note. Switch to <span className="font-medium">Edit</span> to start writing.
+          {i18n.rich('Empty note. Switch to {value1} to start writing.', {
+            value1: <span className="font-medium">{i18n.t('Edit')}</span>,
+          })}
         </p>
         <p className="text-fg-muted/90 max-w-sm text-[11px] leading-relaxed">
-          <Lock className="mr-1 inline-block h-3 w-3 align-[-2px]" />
-          Local-only — saved to your RunHQ folder, never to the repo.
+          {i18n.rich('{value1}Local-only — saved to your RunHQ folder, never to the repo.', {
+            value1: <Lock className="mr-1 inline-block h-3 w-3 align-[-2px]" />,
+          })}
         </p>
       </div>
     );
@@ -106,7 +111,7 @@ export function PreviewBody({ content, serviceName, wide }: PreviewBodyProps) {
             'text-fg/95 mx-auto text-[13px] leading-relaxed',
             wide ? 'max-w-none' : 'max-w-3xl',
           )}
-          aria-label={`${serviceName} — note preview`}
+          aria-label={i18n.t('{serviceName} — note preview', { serviceName: serviceName })}
         >
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

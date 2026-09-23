@@ -1,18 +1,19 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { licenseContaminationCount } from '@/components/dashboard/healthChips';
 import type { ProjectOverview } from '@/types';
 
 export function staleLabel(lastActivity: string | null): string {
-  if (!lastActivity) return 'Stale';
+  if (!lastActivity) return i18n.t('Stale');
   try {
     const diffMs = Date.now() - new Date(lastActivity).getTime();
-    if (!Number.isFinite(diffMs) || diffMs < 0) return 'Stale';
+    if (!Number.isFinite(diffMs) || diffMs < 0) return i18n.t('Stale');
     const days = Math.floor(diffMs / 86_400_000);
-    if (days >= 365) return `${Math.floor(days / 365)}y idle`;
-    if (days >= 30) return `${Math.floor(days / 30)}mo idle`;
-    if (days >= 7) return `${Math.floor(days / 7)}w idle`;
-    return `${days}d idle`;
+    if (days >= 365) return i18n.t('{value1}y idle', { value1: Math.floor(days / 365) });
+    if (days >= 30) return i18n.t('{value1}mo idle', { value1: Math.floor(days / 30) });
+    if (days >= 7) return i18n.t('{value1}w idle', { value1: Math.floor(days / 7) });
+    return i18n.t('{days}d idle', { days: days });
   } catch {
-    return 'Stale';
+    return i18n.t('Stale');
   }
 }
 

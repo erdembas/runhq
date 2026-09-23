@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, useDeferredValue } from 'react';
 import { AlertTriangle, Loader2, Scissors, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -42,6 +43,7 @@ export const TurnView = memo(function TurnView({
    *  the answer in-place. */
   onContinue?: () => void;
 }) {
+  i18n.useLocale();
   // Defer the markdown source for the streaming turn. React will
   // schedule the markdown re-render at a lower priority than user
   // interaction, so typing in the textarea or scrolling stays
@@ -77,7 +79,7 @@ export const TurnView = memo(function TurnView({
         ) : (
           <Sparkles className="text-accent h-2.5 w-2.5" />
         )}
-        <span>RunHQ AI</span>
+        <span>{i18n.t('RunHQ AI')}</span>
         {modelLabel && (
           <>
             <span className="text-fg-dim/40 font-normal tracking-normal normal-case" aria-hidden>
@@ -118,9 +120,11 @@ export const TurnView = memo(function TurnView({
               </span>
               <span
                 className="border-status-starting/40 bg-status-starting/10 text-status-starting rounded-sm border px-1 py-px text-[9px] font-semibold tracking-normal normal-case"
-                title="This answer ended before the model finished — it was cancelled or interrupted."
+                title={i18n.t(
+                  'This answer ended before the model finished — it was cancelled or interrupted.',
+                )}
               >
-                incomplete
+                {i18n.t('incomplete')}
               </span>
             </>
           )}
@@ -170,8 +174,12 @@ export const TurnView = memo(function TurnView({
         >
           <Scissors className="text-status-starting h-3 w-3 shrink-0" />
           <span className="text-fg-dim flex-1 leading-snug">
-            Response was cut off (max tokens reached). Increase{' '}
-            <span className="text-fg/70 font-mono">max_output_tokens</span> in AI Settings, or:
+            {i18n.rich(
+              'Response was cut off (max tokens reached). Increase {value1} in AI Settings, or:',
+              {
+                value1: <span className="text-fg/70 font-mono">{i18n.t('max_output_tokens')}</span>,
+              },
+            )}
           </span>
           {onContinue && (
             <button
@@ -182,7 +190,7 @@ export const TurnView = memo(function TurnView({
                 'rounded px-2 py-0.5 text-[10.5px] font-semibold transition-colors',
               )}
             >
-              Continue
+              {i18n.t('Continue')}
             </button>
           )}
         </div>
@@ -210,8 +218,9 @@ export const TurnView = memo(function TurnView({
           >
             <AlertTriangle className="text-status-starting h-3 w-3 shrink-0" />
             <span className="text-fg-dim flex-1 leading-snug">
-              Answer looks incomplete — the model may have stopped early or kept its reply in the
-              reasoning trace.
+              {i18n.t(
+                'Answer looks incomplete — the model may have stopped early or kept its reply in the reasoning trace.',
+              )}
             </span>
             {onContinue && (
               <button
@@ -221,9 +230,9 @@ export const TurnView = memo(function TurnView({
                   'bg-accent text-accent-fg hover:bg-accent-hover',
                   'rounded px-2 py-0.5 text-[10.5px] font-semibold transition-colors',
                 )}
-                title="Ask the model to continue and place the final answer here"
+                title={i18n.t('Ask the model to continue and place the final answer here')}
               >
-                Continue
+                {i18n.t('Continue')}
               </button>
             )}
           </div>
@@ -247,8 +256,9 @@ export const TurnView = memo(function TurnView({
         >
           <AlertTriangle className="text-status-error h-3 w-3 shrink-0" />
           <span className="text-fg-dim flex-1 leading-snug">
-            Stream stalled — the model stopped sending tokens. This is usually a flaky upstream; try
-            again or switch models.
+            {i18n.t(
+              'Stream stalled — the model stopped sending tokens. This is usually a flaky upstream; try again or switch models.',
+            )}
           </span>
           {onContinue && (
             <button
@@ -258,9 +268,9 @@ export const TurnView = memo(function TurnView({
                 'bg-accent text-accent-fg hover:bg-accent-hover',
                 'rounded px-2 py-0.5 text-[10.5px] font-semibold transition-colors',
               )}
-              title="Resume from where the stream stalled"
+              title={i18n.t('Resume from where the stream stalled')}
             >
-              Continue
+              {i18n.t('Continue')}
             </button>
           )}
         </div>

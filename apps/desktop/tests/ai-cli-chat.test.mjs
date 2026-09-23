@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { setTimeout } from 'node:timers';
 import { URL } from 'node:url';
 import { TextEncoder } from 'node:util';
-import { runInNewContext } from 'node:vm';
+import { runInNewContext } from './helpers/i18n-vm.mjs';
 import ts from 'typescript';
 
 function load(name) {

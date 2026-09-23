@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { CSSProperties } from 'react';
 import type { DashboardGroupBy, DashboardSortBy } from '@/store/useAppStore';
 import { riskScore } from '@/lib/risk';
@@ -80,10 +81,42 @@ export const GROUP_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { key: 'none', label: 'Section', description: 'Your custom sections' },
-  { key: 'category', label: 'Category', description: 'Backend, frontend, mobile…' },
-  { key: 'runtime', label: 'Runtime', description: 'Node, Rust, Go, Python…' },
-  { key: 'status', label: 'Status', description: 'Running vs stopped' },
+  {
+    key: 'none',
+    get label() {
+      return i18n.t('Section');
+    },
+    get description() {
+      return i18n.t('Your custom sections');
+    },
+  },
+  {
+    key: 'category',
+    get label() {
+      return i18n.t('Category');
+    },
+    get description() {
+      return i18n.t('Backend, frontend, mobile…');
+    },
+  },
+  {
+    key: 'runtime',
+    get label() {
+      return i18n.t('Runtime');
+    },
+    get description() {
+      return i18n.t('Node, Rust, Go, Python…');
+    },
+  },
+  {
+    key: 'status',
+    get label() {
+      return i18n.t('Status');
+    },
+    get description() {
+      return i18n.t('Running vs stopped');
+    },
+  },
 ];
 
 export const SORT_OPTIONS: Array<{
@@ -91,11 +124,51 @@ export const SORT_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { key: 'name', label: 'Name', description: 'Alphabetical (stable)' },
-  { key: 'activity', label: 'Last activity', description: 'Most recent commit first' },
-  { key: 'risk', label: 'Risk', description: 'CVE + outdated composite' },
-  { key: 'memory', label: 'Memory', description: 'Running projects by RSS' },
-  { key: 'cpu', label: 'CPU', description: 'Running projects by CPU%' },
+  {
+    key: 'name',
+    get label() {
+      return i18n.t('Name');
+    },
+    get description() {
+      return i18n.t('Alphabetical (stable)');
+    },
+  },
+  {
+    key: 'activity',
+    get label() {
+      return i18n.t('Last activity');
+    },
+    get description() {
+      return i18n.t('Most recent commit first');
+    },
+  },
+  {
+    key: 'risk',
+    get label() {
+      return i18n.t('Risk');
+    },
+    get description() {
+      return i18n.t('CVE + outdated composite');
+    },
+  },
+  {
+    key: 'memory',
+    get label() {
+      return i18n.t('Memory');
+    },
+    get description() {
+      return i18n.t('Running projects by RSS');
+    },
+  },
+  {
+    key: 'cpu',
+    get label() {
+      return i18n.t('CPU');
+    },
+    get description() {
+      return i18n.t('Running projects by CPU%');
+    },
+  },
 ];
 
 export const TONE_CLASSES: Record<
@@ -148,10 +221,12 @@ export function searchScore(svc: ServiceDef, needle: string): number {
 
 export function scanFreshnessLabel(at: number, now: number): string {
   const diff = Math.max(0, now - at);
-  if (diff < 60_000) return 'Scanned just now';
-  if (diff < 3_600_000) return `Scanned ${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `Scanned ${Math.floor(diff / 3_600_000)}h ago`;
-  return `Scanned ${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 60_000) return i18n.t('Scanned just now');
+  if (diff < 3_600_000)
+    return i18n.t('Scanned {value1}m ago', { value1: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000)
+    return i18n.t('Scanned {value1}h ago', { value1: Math.floor(diff / 3_600_000) });
+  return i18n.t('Scanned {value1}d ago', { value1: Math.floor(diff / 86_400_000) });
 }
 
 export function deriveHeroState(
@@ -161,39 +236,43 @@ export function deriveHeroState(
   if (stats.failed > 0) {
     return {
       count: stats.failed,
-      label: stats.failed === 1 ? 'service needs attention' : 'services need attention',
+      label:
+        stats.failed === 1 ? i18n.t('service needs attention') : i18n.t('services need attention'),
       tone: 'critical',
     };
   }
   if (attention && attention.cveCritical > 0) {
     return {
       count: attention.cveCritical,
-      label: attention.cveCritical === 1 ? 'critical CVE' : 'critical CVEs',
+      label: attention.cveCritical === 1 ? i18n.t('critical CVE') : i18n.t('critical CVEs'),
       tone: 'critical',
     };
   }
   if (attention && attention.licenseRisk > 0) {
     return {
       count: attention.licenseRisk,
-      label: attention.licenseRisk === 1 ? 'project at license risk' : 'projects at license risk',
+      label:
+        attention.licenseRisk === 1
+          ? i18n.t('project at license risk')
+          : i18n.t('projects at license risk'),
       tone: 'critical',
     };
   }
   if (stats.running > 0) {
     return {
       count: stats.running,
-      label: stats.running === 1 ? 'service running' : 'services running',
+      label: stats.running === 1 ? i18n.t('service running') : i18n.t('services running'),
       tone: 'running',
     };
   }
   if (attention && attention.outdated > 0) {
     return {
       count: attention.outdated,
-      label: attention.outdated === 1 ? 'project outdated' : 'projects outdated',
+      label: attention.outdated === 1 ? i18n.t('project outdated') : i18n.t('projects outdated'),
       tone: 'warning',
     };
   }
-  return { label: 'Workspace idle', tone: 'idle' };
+  return { label: i18n.t('Workspace idle'), tone: 'idle' };
 }
 
 export function calculateStats(

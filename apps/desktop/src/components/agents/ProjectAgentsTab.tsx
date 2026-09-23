@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { AgentProject } from '@runhq/cockpit-types';
@@ -14,6 +15,7 @@ export function ProjectAgentsTab({
   name: string;
   visible: boolean;
 }) {
+  i18n.useLocale();
   const [project, setProject] = useState<AgentProject | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -48,15 +50,16 @@ export function ProjectAgentsTab({
           className="border-border text-fg rounded-md border px-3 py-2"
           onClick={() => setAttempt((n) => n + 1)}
         >
-          Retry loading project sessions
+          {i18n.t('Retry loading project sessions')}
         </button>
       </div>
     );
   if (!project)
     return (
       <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 text-[13px]">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading project sessions…
+        {i18n.rich('{value1}Loading project sessions…', {
+          value1: <Loader2 className="h-4 w-4 animate-spin" />,
+        })}
       </div>
     );
   return <AgentWorkspace key={project.id} project={project} visible={visible} />;

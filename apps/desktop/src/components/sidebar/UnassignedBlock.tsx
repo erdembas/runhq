@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { WorkspaceGroupHeader } from '@runhq/cockpit-ui';
 import { useAppStore } from '@/store/useAppStore';
@@ -20,6 +21,7 @@ export function UnassignedBlock({
   serviceIds: string[];
   children: React.ReactNode;
 }) {
+  i18n.useLocale();
   const total = stacksCount + servicesCount;
   const moveSidebarItem = useAppStore((s) => s.moveSidebarItem);
   const dragActive = useDragActive();

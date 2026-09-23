@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ProjectDoc } from '@/types';
 import { DocsTreeNode } from './DocsTreeNode';
 import { buildDocsTree } from './docsTreeModel';
@@ -17,6 +18,7 @@ export function DocsTreeNav({
   onToggleFolder,
   onSelect,
 }: DocsTreeNavProps) {
+  i18n.useLocale();
   const tree = buildDocsTree(docs);
   return (
     <div className="flex flex-col gap-0.5">

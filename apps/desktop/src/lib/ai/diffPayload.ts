@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /**
  * Build the chat-panel payload for "explain this diff" — the Phase-4
  * replacement for the inline AI explainer that lived inside DiffPane.
@@ -87,7 +88,7 @@ export function buildDiffChatPayload(input: DiffChatPayloadInput): DiffChatPaylo
   // drawer will further truncate but giving it a short label up
   // front avoids ambiguous "Diff" entries.
   const baseName = filePath ? (filePath.split('/').pop() ?? filePath) : 'changes';
-  const title = `Diff · ${baseName}`;
+  const title = i18n.t('Diff · {baseName}', { baseName: baseName });
 
   return {
     title,
@@ -223,8 +224,11 @@ export function buildCommitChatPayload(input: CommitChatPayloadInput): DiffChatP
 
   const title =
     scope === 'commit' && commit
-      ? `Commit · ${commit.hashShort}`
-      : `Changeset · ${files.length} file${files.length === 1 ? '' : 's'}`;
+      ? i18n.t('Commit · {value1}', { value1: commit.hashShort })
+      : i18n.t('Changeset · {value1} file{plural2}', {
+          value1: files.length,
+          plural2: files.length === 1 ? '' : 's',
+        });
 
   return {
     title,

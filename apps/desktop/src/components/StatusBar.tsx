@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import {} from 'react';
 import {
   BrainCircuit,
   Cpu,
@@ -41,6 +43,7 @@ export function StatusBar({
   onOpenAiSettings,
   onToggleAiChat,
 }: Props) {
+  i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const ports = useAppStore((s) => s.ports);
@@ -88,10 +91,14 @@ export function StatusBar({
     // left, which read visually centered but rendered slightly lower.
     <div className="border-border/70 bg-surface-raised text-fg-muted flex h-8 shrink-0 items-center justify-between border-t px-4 text-[11px] leading-none">
       <div className="flex items-center gap-4">
-        <Stat dot="bg-status-running" label="running" value={stats.running} />
-        {stats.warn > 0 && <Stat dot="bg-status-starting" label="warn" value={stats.warn} />}
-        {stats.failed > 0 && <Stat dot="bg-status-error" label="failed" value={stats.failed} />}
-        <Stat dot="bg-status-stopped/60" label="idle" value={stats.idle} />
+        <Stat dot="bg-status-running" label={i18n.t('running')} value={stats.running} />
+        {stats.warn > 0 && (
+          <Stat dot="bg-status-starting" label={i18n.t('warn')} value={stats.warn} />
+        )}
+        {stats.failed > 0 && (
+          <Stat dot="bg-status-error" label={i18n.t('failed')} value={stats.failed} />
+        )}
+        <Stat dot="bg-status-stopped/60" label={i18n.t('idle')} value={stats.idle} />
       </div>
       {/* Clickable chrome is wrapped in a subtle "pill" container: idle it
           stays flat & quiet, on hover it lifts with a soft background so the
@@ -102,7 +109,10 @@ export function StatusBar({
         {totals.samples > 0 && (
           <div
             className="mr-2 flex items-center gap-2 font-mono tabular-nums"
-            title={`Aggregate across ${totals.samples} running service${totals.samples === 1 ? '' : 's'}`}
+            title={i18n.t('Aggregate across {value1} running service{plural2}', {
+              value1: totals.samples,
+              plural2: totals.samples === 1 ? '' : 's',
+            })}
           >
             {/* Aggregate thresholds are higher than per-service because
                 multiple running services naturally stack CPU/RAM — two
@@ -122,38 +132,38 @@ export function StatusBar({
           type="button"
           onClick={onOpenPortManager}
           className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
-          title="Listening ports"
+          title={i18n.t('Listening ports')}
         >
           <Network className="h-3 w-3" />
           <span className="tabular-nums">{ports.length}</span>
-          <span className="text-fg-dim">ports</span>
+          <span className="text-fg-dim">{i18n.t('ports')}</span>
         </button>
         <button
           type="button"
           onClick={onToggleAiChat}
           className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
-          title="AI chat (⌘L)"
+          title={i18n.t('AI chat (⌘L)')}
         >
           <Sparkles className="text-accent h-3 w-3" />
-          <span className="text-fg-dim">Ask AI</span>
+          <span className="text-fg-dim">{i18n.t('Ask AI')}</span>
         </button>
         <button
           type="button"
           onClick={onOpenAiSettings}
           className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
-          title="AI providers"
+          title={i18n.t('AI providers')}
         >
           <BrainCircuit className="h-3 w-3" />
-          <span className="text-fg-dim">AI</span>
+          <span className="text-fg-dim">{i18n.t('AI')}</span>
         </button>
         <button
           type="button"
           onClick={onOpenSettings}
           className="hover:bg-surface-overlay hover:text-fg rounded-app-sm flex items-center gap-1.5 px-1.5 py-1 transition"
-          title="Open Settings"
+          title={i18n.t('Open Settings')}
         >
           <SettingsIcon className="h-3 w-3" />
-          <span className="text-fg-dim">Settings</span>
+          <span className="text-fg-dim">{i18n.t('Settings')}</span>
         </button>
         <ThemeMenu />
         {appVersion && (
@@ -173,13 +183,13 @@ export function StatusBar({
           <button
             type="button"
             onClick={() => openReleaseNotes(appVersion)}
-            title={`See what's new in RunHQ ${appVersion}`}
+            title={i18n.t("See what's new in RunHQ {appVersion}", { appVersion: appVersion })}
             className="bg-accent/10 text-fg ring-accent/25 hover:bg-accent/20 hover:ring-accent/45 ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-medium ring-1 transition-colors"
           >
             <Sparkles className="text-accent h-3 w-3" />
             <span className="tabular-nums">v{appVersion}</span>
             <span className="text-fg-dim border-accent/25 border-l pl-1.5 text-[10px] font-medium">
-              Release notes
+              {i18n.t('Release notes')}
             </span>
           </button>
         )}
@@ -189,6 +199,7 @@ export function StatusBar({
 }
 
 function Stat({ dot, label, value }: { dot: string; label: string; value: number }) {
+  i18n.useLocale();
   return (
     <div className="flex items-center gap-1.5">
       <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />

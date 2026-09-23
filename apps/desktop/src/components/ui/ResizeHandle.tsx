@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 interface HandleProps {
@@ -31,10 +32,11 @@ interface Props {
  * behaviour so the muscle memory transfers.
  */
 export function ResizeHandle({ handleProps, dragging, className, title }: Props) {
+  i18n.useLocale();
   return (
     <div
       {...handleProps}
-      title={title ?? 'Drag to resize · double-click to reset · ←/→ to nudge'}
+      title={title ?? i18n.t('Drag to resize · double-click to reset · ←/→ to nudge')}
       className={cn('group relative z-10 w-1 shrink-0 cursor-col-resize select-none', className)}
     >
       <span

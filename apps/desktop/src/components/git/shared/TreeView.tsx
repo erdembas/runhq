@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { FileRow } from '@/components/git/shared/FileRow';
 import { FolderRow } from '@/components/git/shared/FolderRow';
@@ -26,6 +27,7 @@ export function TreeView({
   compactStats,
   onContextMenuFile,
 }: TreeViewProps) {
+  i18n.useLocale();
   if (node.type === 'file' && node.file) {
     return (
       <FileRow

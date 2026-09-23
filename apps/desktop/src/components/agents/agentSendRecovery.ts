@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentSession, AgentTurnInput } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { createAgentRecoveryPersistence } from '@/lib/agentRecoveryPersistence';
@@ -122,7 +123,7 @@ export function createRecoverableAgentSender(deps: {
     complete: (id: string) => {
       const record = deps.recovery.load(id);
       if (record && !record.accepted)
-        throw new Error('Review the unconfirmed send before completing recovery.');
+        throw new Error(i18n.t('Review the unconfirmed send before completing recovery.'));
       deps.recovery.save(null, id);
     },
     send(input: AgentTurnInput): Promise<AgentSession> {
@@ -130,13 +131,17 @@ export function createRecoverableAgentSender(deps: {
       if (current)
         return current.identity === turnIdentity(input)
           ? current.promise
-          : Promise.reject(new Error('Another message is already being sent to this task.'));
+          : Promise.reject(
+              new Error(i18n.t('Another message is already being sent to this task.')),
+            );
       const run = (async () => {
         const previous = deps.recovery.load(input.session_id);
         const same = previous && turnIdentity(previous.turn) === turnIdentity(input);
         if (previous && !same && !previous.accepted)
           throw new Error(
-            'A previous message has an unconfirmed send. Review the conversation and retry the original message before sending different text.',
+            i18n.t(
+              'A previous message has an unconfirmed send. Review the conversation and retry the original message before sending different text.',
+            ),
           );
         const record: AgentDirectSendRecovery = same ? previous : { turn: input };
         deps.recovery.save(record, input.session_id);

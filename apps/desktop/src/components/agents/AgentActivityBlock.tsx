@@ -1,4 +1,6 @@
-import { memo, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { memo, useState } from 'react';
 import {
   Brain,
   Check,
@@ -58,11 +60,12 @@ const ActivityRow = memo(function ActivityRow({
   focused: boolean;
   cwd?: string | null;
 }) {
+  i18n.useLocale();
   const line = describeAgentActivity(item);
   const Icon = ACTIVITY_ICONS[line.icon];
   const running = item.status === 'running';
   const failed = item.status === 'failed';
-  const verb = line.verb === 'Reasoning' && running ? 'Thinking…' : line.verb;
+  const verb = line.verb === 'Reasoning' && running ? i18n.t('Thinking…') : line.verb;
 
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState(false);
@@ -99,8 +102,8 @@ const ActivityRow = memo(function ActivityRow({
         {(line.icon === 'edit' || line.icon === 'write') && (
           <button
             type="button"
-            aria-label={`Open ${path} in the full diff viewer`}
-            title="Open in full diff viewer"
+            aria-label={i18n.t('Open {path} in the full diff viewer', { path: path })}
+            title={i18n.t('Open in full diff viewer')}
             // A summary click toggles the row; this control opens the viewer instead.
             onClick={(event) => {
               event.preventDefault();
@@ -143,7 +146,7 @@ const ActivityRow = memo(function ActivityRow({
               <span className="opacity-50 select-none">{line.sign}</span> {line.text}
             </div>
           ))}
-          {diff.truncated && <div className="text-fg-dim px-2 pt-1">… truncated</div>}
+          {diff.truncated && <div className="text-fg-dim px-2 pt-1">{i18n.t('… truncated')}</div>}
         </div>
       ) : (
         <pre className="border-border text-fg-muted mt-1 mb-1 ml-3 max-h-96 overflow-auto border-l py-2 pr-3 pl-4 break-words whitespace-pre-wrap">
@@ -168,6 +171,7 @@ export function AgentActivityBlock({
   focusItemId?: string;
   cwd?: string | null;
 }) {
+  i18n.useLocale();
   const auto =
     group.running || group.failed > 0 || group.items.some((item) => item.id === focusItemId);
   const [override, setOverride] = useState<boolean | null>(null);
@@ -182,7 +186,9 @@ export function AgentActivityBlock({
   const current = group.items.filter((item) => item.status === 'running').at(-1);
   const step = current ? describeAgentActivity(current) : null;
   const label = step
-    ? [step.verb === 'Reasoning' ? 'Thinking…' : step.verb, step.target].filter(Boolean).join(' ')
+    ? [step.verb === 'Reasoning' ? i18n.t('Thinking…') : step.verb, step.target]
+        .filter(Boolean)
+        .join(' ')
     : summary;
   return (
     <details

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 interface LogXtermDetailTooltipProps {
   detail: string;
   left: number;
@@ -6,6 +7,7 @@ interface LogXtermDetailTooltipProps {
 }
 
 export function LogXtermDetailTooltip({ detail, left, title, top }: LogXtermDetailTooltipProps) {
+  i18n.useLocale();
   return (
     <div
       className="border-border/80 bg-surface-raised/98 text-fg pointer-events-none absolute z-30 max-w-[min(560px,calc(100%-24px))] rounded-md border px-3 py-2 text-[11px] shadow-2xl shadow-black/35 backdrop-blur"

@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpRight, Clock3, Inbox, Search } from 'lucide-react';
 import { AgentRequestCard, AgentProviderLogo, SearchableSelect } from '@runhq/cockpit-ui';
 import { ipc } from '@/lib/ipc';
@@ -10,10 +12,30 @@ import { AgentNotificationSettings } from './AgentNotificationSettings';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 
 const AGENT_DECISION_KINDS = [
-  { value: 'all', label: 'All request types' },
-  { value: 'approval', label: 'Permissions' },
-  { value: 'question', label: 'Questions' },
-  { value: 'form', label: 'Forms' },
+  {
+    value: 'all',
+    get label() {
+      return i18n.t('All request types');
+    },
+  },
+  {
+    value: 'approval',
+    get label() {
+      return i18n.t('Permissions');
+    },
+  },
+  {
+    value: 'question',
+    get label() {
+      return i18n.t('Questions');
+    },
+  },
+  {
+    value: 'form',
+    get label() {
+      return i18n.t('Forms');
+    },
+  },
 ];
 
 export function AgentDecisionInbox({
@@ -25,6 +47,7 @@ export function AgentDecisionInbox({
   projectId?: string;
   onOpenSession: (sessionId: string, requestId?: string) => void;
 }) {
+  i18n.useLocale();
   const sessions = useVisibleStore(useAgentStore, (state) => state.sessions, visible);
   const storedProjects = useVisibleStore(useAgentStore, (state) => state.projects, visible);
   const pendingSince = useVisibleStore(useAgentStore, (state) => state.pendingSince, visible);
@@ -55,7 +78,11 @@ export function AgentDecisionInbox({
       ).entries(),
     ].map(([value, label]) => ({ value, label }));
     return [
-      { value: '', label: 'All projects', description: 'Decisions from every project' },
+      {
+        value: '',
+        label: i18n.t('All projects'),
+        description: i18n.t('Decisions from every project'),
+      },
       ...storedOptions,
       ...extra,
     ];
@@ -87,7 +114,7 @@ export function AgentDecisionInbox({
   };
   return (
     <section
-      aria-label="Agent decision inbox"
+      aria-label={i18n.t('Agent decision inbox')}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={(event) => {
         if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
@@ -97,15 +124,15 @@ export function AgentDecisionInbox({
     >
       <div className="border-border flex flex-wrap items-center gap-2 border-b px-4 py-3">
         <Inbox className="text-accent h-4 w-4" />
-        <h2 className="text-fg text-[13px] font-semibold">Decisions</h2>
+        <h2 className="text-fg text-[13px] font-semibold">{i18n.t('Decisions')}</h2>
         <span aria-live="polite" className="text-fg-dim text-[11px]">
-          {decisions.length} waiting
+          {i18n.rich('{value1} waiting', { value1: decisions.length })}
         </span>
         <div className="ml-auto flex gap-1">
           <button
             type="button"
-            aria-label="Previous request (Alt+Up)"
-            title="Previous request (Alt+↑)"
+            aria-label={i18n.t('Previous request (Alt+Up)')}
+            title={i18n.t('Previous request (Alt+↑)')}
             disabled={!decisions.length}
             onClick={() => navigate(-1)}
             className="text-fg-dim hover:text-fg rounded p-1.5 disabled:opacity-40"
@@ -114,8 +141,8 @@ export function AgentDecisionInbox({
           </button>
           <button
             type="button"
-            aria-label="Next request (Alt+Down)"
-            title="Next request (Alt+↓)"
+            aria-label={i18n.t('Next request (Alt+Down)')}
+            title={i18n.t('Next request (Alt+↓)')}
             disabled={!decisions.length}
             onClick={() => navigate(1)}
             className="text-fg-dim hover:text-fg rounded p-1.5 disabled:opacity-40"
@@ -125,16 +152,16 @@ export function AgentDecisionInbox({
         </div>
         <div className="flex w-full flex-wrap gap-2">
           <SearchableSelect
-            label="Decision project"
+            label={i18n.t('Decision project')}
             indentGrouped
             value={selectedProject}
             options={projectOptions}
             onChange={setSelectedProject}
-            searchPlaceholder="Find a project or group…"
+            searchPlaceholder={i18n.t('Find a project or group…')}
             className="w-52 max-w-full"
           />
           <SearchableSelect
-            label="Decision type"
+            label={i18n.t('Decision type')}
             searchable={false}
             value={kind}
             options={AGENT_DECISION_KINDS}
@@ -145,10 +172,10 @@ export function AgentDecisionInbox({
           <label className="border-border text-fg-dim flex min-w-40 flex-1 items-center gap-2 rounded-lg border px-2">
             <Search className="h-3.5 w-3.5" />
             <input
-              aria-label="Search decisions"
+              aria-label={i18n.t('Search decisions')}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search tasks or requests…"
+              placeholder={i18n.t('Search tasks or requests…')}
               className="text-fg min-w-0 flex-1 bg-transparent py-1.5 text-[12px] outline-none"
             />
           </label>
@@ -166,8 +193,10 @@ export function AgentDecisionInbox({
         {!decisions.length && (
           <div className="text-fg-dim py-12 text-center text-[13px]">
             {all.length
-              ? 'No waiting requests match these filters.'
-              : 'No decisions waiting. Questions and permissions from every task appear here.'}
+              ? i18n.t('No waiting requests match these filters.')
+              : i18n.t(
+                  'No decisions waiting. Questions and permissions from every task appear here.',
+                )}
           </div>
         )}
         {decisions.map(({ key, session, request, since }) => (
@@ -188,7 +217,9 @@ export function AgentDecisionInbox({
               <span className="text-fg-dim">{session.project_name}</span>
               <span
                 className="text-fg-dim ml-auto inline-flex items-center gap-1"
-                title={`Waiting since ${new Date(since).toLocaleString()}`}
+                title={i18n.t('Waiting since {value1}', {
+                  value1: new Date(since).toLocaleString(i18n.getFormatLocale()),
+                })}
               >
                 <Clock3 className="h-3 w-3" />
                 {agentDecisionWait(since, now)}
@@ -198,8 +229,7 @@ export function AgentDecisionInbox({
                 onClick={() => onOpenSession(session.id, request.id)}
                 className="text-accent inline-flex items-center gap-1 rounded px-1.5 py-1 hover:underline"
               >
-                Open task
-                <ArrowUpRight className="h-3 w-3" />
+                {i18n.rich('Open task{value1}', { value1: <ArrowUpRight className="h-3 w-3" /> })}
               </button>
             </div>
             <AgentRequestCard

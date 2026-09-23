@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Fragment, memo, useEffect, useRef, useState, type ElementRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -34,7 +35,17 @@ import { AgentAccountPools } from './AgentAccountPools';
 const field =
   'border-fg/10 bg-fg/3 text-fg focus:border-fg/25 w-full rounded-xl border px-3 py-2 text-[12px]';
 const detectionOrder = { available: 0, blocked: 1, not_found: 2 };
-const detectionLabels = { available: 'Installed', blocked: 'Setup required', not_found: 'Missing' };
+const detectionLabels = {
+  get available() {
+    return i18n.t('Installed');
+  },
+  get blocked() {
+    return i18n.t('Setup required');
+  },
+  get not_found() {
+    return i18n.t('Missing');
+  },
+};
 const configuration = (tool: AgentBackend): AgentTool => ({
   id: tool.id,
   name: tool.name,
@@ -45,6 +56,7 @@ const configuration = (tool: AgentBackend): AgentTool => ({
   enabled: tool.enabled !== false,
 });
 export const AgentToolsHub = memo(function AgentToolsHub() {
+  i18n.useLocale();
   const open = useAgentStore((s) => s.toolsOpen);
   const discovery = useAgentDiscovery(open);
   const tools = useVisibleStore(useAgentStore, (s) => s.tools, open);
@@ -126,7 +138,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
   return (
     <dialog
       ref={dialog}
-      aria-label="Agent tools"
+      aria-label={i18n.t('Agent tools')}
       onCancel={(event) => {
         event.preventDefault();
         if (!document.activeElement?.closest('[data-agent-terminal]'))
@@ -140,23 +152,23 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
             <Wrench className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-[15px] font-semibold">Agent tools</h2>
+            <h2 className="text-[15px] font-semibold">{i18n.t('Agent tools')}</h2>
             <p className="text-fg-dim mt-0.5 text-[11px]">
-              Local agents, connections and terminal sessions
+              {i18n.t('Local agents, connections and terminal sessions')}
             </p>
           </div>
           <span className="flex-1" />
           <button
-            aria-label="Refresh tool detection"
+            aria-label={i18n.t('Refresh tool detection')}
             disabled={discovery.loading}
             onClick={() => void discovery.refresh()}
             className="text-fg-muted hover:bg-fg/5 flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] disabled:opacity-60"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${discovery.loading ? 'animate-spin' : ''}`} />
-            {discovery.loading ? 'Checking…' : 'Re-scan'}
+            {discovery.loading ? i18n.t('Checking…') : i18n.t('Re-scan')}
           </button>
           <button
-            aria-label="Close agent tools"
+            aria-label={i18n.t('Close agent tools')}
             onClick={() => useAgentStore.setState({ toolsOpen: false })}
             className="hover:bg-fg/5 rounded-lg p-2"
           >
@@ -178,10 +190,10 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                 <label className="bg-fg/4 flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3">
                   <Search className="text-fg-dim h-3.5 w-3.5" />
                   <input
-                    aria-label="Search agent tools"
+                    aria-label={i18n.t('Search agent tools')}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Find a tool…"
+                    placeholder={i18n.t('Find a tool…')}
                     style={{ outline: 'none' }}
                     className="min-w-0 bg-transparent py-2 text-[12px]"
                   />
@@ -201,8 +213,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                   }
                   className="bg-fg text-surface flex items-center gap-1.5 rounded-xl px-3 text-[12px]"
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add tool
+                  {i18n.rich('{value1}Add tool', { value1: <Plus className="h-3.5 w-3.5" /> })}
                 </button>
               </div>
               <AgentDiscoverySummary
@@ -242,17 +253,17 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                           </div>
                           <p className="text-fg-dim mt-0.5 text-[10px]">
                             {tool.adapter === 'terminal'
-                              ? 'Terminal interface'
+                              ? i18n.t('Terminal interface')
                               : tool.adapter === 'acp'
-                                ? 'ACP connection'
-                                : 'Native integration'}
-                            {tool.enabled === false && ' · Disabled'}
+                                ? i18n.t('ACP connection')
+                                : i18n.t('Native integration')}
+                            {tool.enabled === false && i18n.t(' · Disabled')}
                           </p>
                         </div>
                         <button
                           type="button"
                           role="switch"
-                          aria-label={`Enable ${tool.name}`}
+                          aria-label={i18n.t('Enable {value1}', { value1: tool.name })}
                           aria-checked={tool.enabled !== false}
                           disabled={busy}
                           onClick={() =>
@@ -269,7 +280,9 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                       </div>
                       {tool.id === 'cursor' && (
                         <p className="text-fg-dim mt-2 text-[10px] leading-relaxed">
-                          Agent, Plan and Ask through the installed CLI's ACP connection.
+                          {i18n.t(
+                            "Agent, Plan and Ask through the installed CLI's ACP connection.",
+                          )}
                         </p>
                       )}
                       <AgentToolDetectionDetails tool={tool} />
@@ -279,22 +292,24 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                           onClick={() => beginEdit(configuration(tool))}
                           className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px]"
                         >
-                          Configure
+                          {i18n.t('Configure')}
                         </button>
                         <button
                           type="button"
-                          title="Create a second connection to this tool for another account"
+                          title={i18n.t(
+                            'Create a second connection to this tool for another account',
+                          )}
                           onClick={() => {
                             const source = configuration(tool);
                             beginEdit({
                               ...source,
                               id: `tool-${crypto.randomUUID()}`,
-                              name: `${source.name} (second account)`,
+                              name: i18n.t('{value1} (second account)', { value1: source.name }),
                             });
                           }}
                           className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px]"
                         >
-                          Add account
+                          {i18n.t('Add account')}
                         </button>
                         {tool.adapter === 'terminal' ? (
                           <button
@@ -323,8 +338,9 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                             }}
                             className="bg-fg/5 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] disabled:opacity-40"
                           >
-                            <Terminal className="h-3 w-3" />
-                            Open terminal
+                            {i18n.rich('{value1}Open terminal', {
+                              value1: <Terminal className="h-3 w-3" />,
+                            })}
                           </button>
                         ) : (
                           <button
@@ -334,14 +350,22 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                                 if (!project) return;
                                 const catalog = await ipc.agentCatalog(tool.id, '', project.id);
                                 setNotice(
-                                  `${tool.name}: connected · ${catalog.models.length} models${catalog.connection === 'acp' ? `${catalog.agents.length ? ` · modes: ${catalog.agents.join(', ')}` : ''}${catalog.can_resume ? ' · session resume supported' : ' · session resume not advertised'}` : ''}`,
+                                  i18n.t('{value1}: connected · {value2} models{value3}', {
+                                    value1: tool.name,
+                                    value2: catalog.models.length,
+                                    value3:
+                                      catalog.connection === 'acp'
+                                        ? `${catalog.agents.length ? i18n.t(' · modes: {value1}', { value1: catalog.agents.join(', ') }) : ''}${catalog.can_resume ? i18n.t(' · session resume supported') : i18n.t(' · session resume not advertised')}`
+                                        : '',
+                                  }),
                                 );
                               })
                             }
                             className="bg-fg/5 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] disabled:opacity-40"
                           >
-                            <Check className="h-3 w-3" />
-                            Test connection
+                            {i18n.rich('{value1}Test connection', {
+                              value1: <Check className="h-3 w-3" />,
+                            })}
                           </button>
                         )}
                         {tool.adapter !== 'terminal' && tool.adapter !== 'acp' && (
@@ -371,8 +395,9 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                             }}
                             className="bg-fg/5 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] disabled:opacity-40"
                           >
-                            <Terminal className="h-3 w-3" />
-                            Open CLI
+                            {i18n.rich('{value1}Open CLI', {
+                              value1: <Terminal className="h-3 w-3" />,
+                            })}
                           </button>
                         )}
                         {(running > 0 || terminalCount > 0) && (
@@ -381,13 +406,18 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                             onClick={() => void action(() => stop(tool.id))}
                             className="text-status-error flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
                           >
-                            <Square className="h-3 w-3" />
-                            Stop ({running + terminalCount})
+                            {i18n.rich('{value1}Stop ({value2})', {
+                              value1: <Square className="h-3 w-3" />,
+                              value2: running + terminalCount,
+                            })}
                           </button>
                         )}
                       </div>
                       <p className="text-fg-dim mt-2 text-[10px]">
-                        {running} working · {terminalCount} terminals open
+                        {i18n.rich('{running} working · {terminalCount} terminals open', {
+                          running: running,
+                          terminalCount: terminalCount,
+                        })}
                       </p>
                     </article>
                   </Fragment>
@@ -396,27 +426,29 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
               {!filtered.length && (
                 <p className="text-fg-dim py-8 text-center text-[12px]">
                   {discovery.loading && !tools.length
-                    ? 'Looking for your agent tools…'
+                    ? i18n.t('Looking for your agent tools…')
                     : discovery.error && !tools.length
-                      ? 'Re-scan to load your local agent tools.'
+                      ? i18n.t('Re-scan to load your local agent tools.')
                       : query.trim()
-                        ? 'No tools match your search.'
+                        ? i18n.t('No tools match your search.')
                         : discovery.ready
-                          ? 'No tools are configured. Add an agent tool to get started.'
-                          : 'Agent detection is starting…'}
+                          ? i18n.t('No tools are configured. Add an agent tool to get started.')
+                          : i18n.t('Agent detection is starting…')}
                 </p>
               )}
               <AgentAccountPools visible={open} />
             </div>
             <p className="border-fg/8 text-fg-dim border-t px-4 py-3 text-[10px] leading-relaxed">
-              Disabling a tool prevents new starts. Existing sessions and terminals keep running.
+              {i18n.t(
+                'Disabling a tool prevents new starts. Existing sessions and terminals keep running.',
+              )}
             </p>
           </section>
           <section className="flex min-w-0 flex-1 flex-col">
             <div className="border-fg/8 flex items-center gap-2 border-b p-3">
-              <span className="text-fg-dim text-[11px]">Project</span>
+              <span className="text-fg-dim text-[11px]">{i18n.t('Project')}</span>
               <SearchableSelect
-                label="Tool project"
+                label={i18n.t('Tool project')}
                 value={project?.id || ''}
                 onChange={setProjectId}
                 options={projectOptions}
@@ -432,7 +464,11 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                   void action(async () => {
                     const { env, invalid } = parseEnvironmentLines(environment);
                     if (invalid)
-                      throw new Error(`Environment needs KEY=value on every line. Fix: ${invalid}`);
+                      throw new Error(
+                        i18n.t('Environment needs KEY=value on every line. Fix: {invalid}', {
+                          invalid: invalid,
+                        }),
+                      );
                     await save({
                       ...edit,
                       args:
@@ -442,114 +478,146 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                       env,
                     });
                     setEdit(null);
-                    setNotice('Tool saved. New sessions use this configuration.');
+                    setNotice(i18n.t('Tool saved. New sessions use this configuration.'));
                   });
                 }}
                 className="overlay-scroll min-h-0 flex-1 space-y-4 overflow-auto p-5"
               >
                 <div className="flex items-center justify-between">
                   <h3 className="text-[14px] font-medium">
-                    {tools.some((t) => t.id === edit.id) ? 'Configure tool' : 'Add an agent tool'}
+                    {tools.some((t) => t.id === edit.id)
+                      ? i18n.t('Configure tool')
+                      : i18n.t('Add an agent tool')}
                   </h3>
                   <button
                     type="button"
-                    aria-label="Close tool configuration"
+                    aria-label={i18n.t('Close tool configuration')}
                     onClick={() => setEdit(null)}
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
                 <label className="block text-[11px]">
-                  Name
-                  <input
-                    required
-                    maxLength={200}
-                    className={`${field} mt-1.5`}
-                    value={edit.name}
-                    onChange={(e) => setEdit({ ...edit, name: e.target.value })}
-                  />
+                  {i18n.rich('Name{value1}', {
+                    value1: (
+                      <input
+                        required
+                        maxLength={200}
+                        className={`${field} mt-1.5`}
+                        value={edit.name}
+                        onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                      />
+                    ),
+                  })}
                 </label>
                 <label className="block text-[11px]">
-                  Connection
-                  <div className="mt-1.5">
-                    <SearchableSelect
-                      label="Tool connection"
-                      value={edit.adapter}
-                      onChange={(value) =>
-                        setEdit({ ...edit, adapter: value as AgentTool['adapter'] })
-                      }
-                      disabled={['codex', 'opencode', 'claude', 'cursor'].includes(edit.id)}
-                      options={[
-                        {
-                          value: 'acp',
-                          label: 'ACP · Integrated conversation',
-                          description: 'Messages, permissions and agent-advertised models / modes',
-                        },
-                        {
-                          value: 'terminal',
-                          label: 'Terminal · Any interactive CLI',
-                          description:
-                            'Use the tool’s own model, login, question and permission UI',
-                        },
-                        ...['codex', 'opencode', 'claude'].map((value) => ({
-                          value,
-                          label: `${value} · Native adapter`,
-                        })),
-                      ]}
-                      className="w-full"
-                    />
-                  </div>
+                  {i18n.rich('Connection{value1}', {
+                    value1: (
+                      <div className="mt-1.5">
+                        <SearchableSelect
+                          label={i18n.t('Tool connection')}
+                          value={edit.adapter}
+                          onChange={(value) =>
+                            setEdit({ ...edit, adapter: value as AgentTool['adapter'] })
+                          }
+                          disabled={['codex', 'opencode', 'claude', 'cursor'].includes(edit.id)}
+                          options={[
+                            {
+                              value: 'acp',
+                              label: i18n.t('ACP · Integrated conversation'),
+                              description: i18n.t(
+                                'Messages, permissions and agent-advertised models / modes',
+                              ),
+                            },
+                            {
+                              value: 'terminal',
+                              label: i18n.t('Terminal · Any interactive CLI'),
+                              description: i18n.t(
+                                'Use the tool’s own model, login, question and permission UI',
+                              ),
+                            },
+                            ...['codex', 'opencode', 'claude'].map((value) => ({
+                              value,
+                              label: i18n.t('{value} · Native adapter', { value: value }),
+                            })),
+                          ]}
+                          className="w-full"
+                        />
+                      </div>
+                    ),
+                  })}
                 </label>
                 <label className="block text-[11px]">
-                  Executable
-                  <input
-                    required
-                    className={`${field} mt-1.5`}
-                    value={edit.executable}
-                    onChange={(e) => setEdit({ ...edit, executable: e.target.value })}
-                    placeholder="Executable name on PATH or absolute path"
-                  />
+                  {i18n.rich('Executable{value1}', {
+                    value1: (
+                      <input
+                        required
+                        className={`${field} mt-1.5`}
+                        value={edit.executable}
+                        onChange={(e) => setEdit({ ...edit, executable: e.target.value })}
+                        placeholder={i18n.t('Executable name on PATH or absolute path')}
+                      />
+                    ),
+                  })}
                 </label>
                 {(edit.adapter === 'acp' || edit.adapter === 'terminal') && (
                   <label className="block text-[11px]">
-                    Arguments · one per line
-                    <textarea
-                      rows={3}
-                      className={`${field} mt-1.5 resize-y font-mono`}
-                      value={args}
-                      onChange={(e) => setArgs(e.target.value)}
-                      placeholder="Each line is passed as one argument"
-                    />
+                    {i18n.rich('Arguments · one per line{value1}', {
+                      value1: (
+                        <textarea
+                          rows={3}
+                          className={`${field} mt-1.5 resize-y font-mono`}
+                          value={args}
+                          onChange={(e) => setArgs(e.target.value)}
+                          placeholder={i18n.t('Each line is passed as one argument')}
+                        />
+                      ),
+                    })}
                   </label>
                 )}
                 <label className="block text-[11px]">
-                  Account environment · KEY=value per line
-                  <textarea
-                    rows={3}
-                    className={`${field} mt-1.5 resize-y font-mono`}
-                    value={environment}
-                    onChange={(e) => setEnvironment(e.target.value)}
-                    placeholder={'CODEX_HOME=/Users/you/.codex-work'}
-                  />
-                  <span className="text-fg-dim mt-1 block leading-relaxed">
-                    Point a second connection at another provider configuration home to run it as a
-                    separate account. Log in to that home yourself with the tool’s own CLI; RunHQ
-                    never creates or stores credentials. PATH and RUNHQ_ names are reserved.
-                  </span>
+                  {i18n.rich('Account environment · KEY=value per line{value1}{value2}', {
+                    value1: (
+                      <textarea
+                        rows={3}
+                        className={`${field} mt-1.5 resize-y font-mono`}
+                        value={environment}
+                        onChange={(e) => setEnvironment(e.target.value)}
+                        placeholder={i18n.t('CODEX_HOME=/Users/you/.codex-work')}
+                      />
+                    ),
+                    value2: (
+                      <span className="text-fg-dim mt-1 block leading-relaxed">
+                        {i18n.t(
+                          'Point a second connection at another provider configuration home to run it as a separate account. Log in to that home yourself with the tool’s own CLI; RunHQ never creates or stores credentials. PATH and RUNHQ_ names are reserved.',
+                        )}
+                      </span>
+                    ),
+                  })}
                 </label>
                 <p className="text-fg-dim text-[11px] leading-relaxed">
-                  {edit.adapter === 'acp'
-                    ? 'Use an installed ACP-compatible executable and the arguments documented by that tool. Capabilities and authentication depend on the agent.'
-                    : edit.adapter === 'terminal'
-                      ? 'Terminal tools run directly in the selected project. Their interactive prompts and controls stay in the embedded terminal.'
-                      : 'Choose a compatible installed CLI for this native integration.'}{' '}
-                  Arguments are passed directly, without shell expansion.
+                  {i18n.rich('{value1} Arguments are passed directly, without shell expansion.', {
+                    value1:
+                      edit.adapter === 'acp'
+                        ? i18n.t(
+                            'Use an installed ACP-compatible executable and the arguments documented by that tool. Capabilities and authentication depend on the agent.',
+                          )
+                        : edit.adapter === 'terminal'
+                          ? i18n.t(
+                              'Terminal tools run directly in the selected project. Their interactive prompts and controls stay in the embedded terminal.',
+                            )
+                          : i18n.t(
+                              'Choose a compatible installed CLI for this native integration.',
+                            ),
+                  })}
                 </p>
                 <button
                   disabled={busy}
                   className="bg-fg text-surface flex items-center gap-2 rounded-xl px-4 py-2 text-[12px]"
                 >
-                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Save tool
+                  {i18n.rich('{value1}Save tool', {
+                    value1: busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+                  })}
                 </button>
               </form>
             ) : null}
@@ -568,7 +636,7 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
                         {t.name} · {t.projectName}
                       </button>
                       <button
-                        aria-label={`Stop ${t.name} terminal`}
+                        aria-label={i18n.t('Stop {value1} terminal', { value1: t.name })}
                         onClick={() =>
                           setTerminals((current) => current.filter((x) => x.id !== t.id))
                         }
@@ -601,13 +669,16 @@ export const AgentToolsHub = memo(function AgentToolsHub() {
               {!terminals.length && (
                 <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
                   <Bot className="text-fg-dim mb-4 h-8 w-8" />
-                  <h3 className="text-[15px] font-medium">A workspace for every tool</h3>
+                  <h3 className="text-[15px] font-medium">
+                    {i18n.t('A workspace for every tool')}
+                  </h3>
                   <p className="text-fg-muted mt-3 max-w-sm text-[12px] leading-relaxed">
-                    Enable a native or ACP tool to use it in the task composer. Open terminal tools
-                    here to use their complete interactive interface.
+                    {i18n.t(
+                      'Enable a native or ACP tool to use it in the task composer. Open terminal tools here to use their complete interactive interface.',
+                    )}
                   </p>
                   <p className="text-fg-dim mt-3 text-[11px]">
-                    Terminal processes stay open when you close this panel.
+                    {i18n.t('Terminal processes stay open when you close this panel.')}
                   </p>
                 </div>
               )}

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useRef, type RefObject } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { buildAdvisoryChatPayload } from '@/lib/ai/advisoryPayload';
@@ -58,6 +59,7 @@ export function AdvisoriesPanel({
   runtime: string | null;
   projectName: string;
 }) {
+  i18n.useLocale();
   // AI triage routes through the unified chat hub on the right
   // rail. The bulk button uses `useAiSurfaceTrigger` so a multi-
   // model setup gets a popover anchored under "Ask AI" instead of
@@ -93,8 +95,10 @@ export function AdvisoriesPanel({
     return (
       <ZeroState
         icon={<ShieldCheck size={32} className="text-tone-success/80" />}
-        title="No known vulnerabilities"
-        hint="The latest audit found no open CVEs for the direct or transitive dependencies of this project."
+        title={i18n.t('No known vulnerabilities')}
+        hint={i18n.t(
+          'The latest audit found no open CVEs for the direct or transitive dependencies of this project.',
+        )}
       />
     );
   }
@@ -110,13 +114,15 @@ export function AdvisoriesPanel({
   // they've filtered to 12 critical rows out of 64 — the model
   // operates on the visible list, and the count makes that explicit.
   const askAiLabel =
-    filtered.length === advisories.length ? `Ask AI (${total})` : `Ask AI (${filtered.length})`;
+    filtered.length === advisories.length
+      ? i18n.t('Ask AI ({total})', { total: total })
+      : i18n.t('Ask AI ({value1})', { value1: filtered.length });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <TriageRail
         total={total}
-        allLabel="All"
+        allLabel={i18n.t('All')}
         active={severityFilter}
         onChange={(v) => setSeverityFilter(v as Severity | 'all')}
         tiles={SEVERITY_ORDER.filter((s) => counts[s] > 0).map((s) => ({
@@ -130,7 +136,7 @@ export function AdvisoriesPanel({
         searchRef={searchRef}
         query={query}
         setQuery={setQuery}
-        placeholder="Search package, CVE, title…"
+        placeholder={i18n.t('Search package, CVE, title…')}
         shown={filtered.length}
         total={total}
         selectedCount={selected.size}
@@ -147,7 +153,10 @@ export function AdvisoriesPanel({
       {askAiPopover}
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
-          <EmptyState title="No matches" hint="Try clearing the search or the severity filter." />
+          <EmptyState
+            title={i18n.t('No matches')}
+            hint={i18n.t('Try clearing the search or the severity filter.')}
+          />
         ) : (
           <ul className="py-1">
             {filtered.map((a, idx) => (

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { X } from 'lucide-react';
 
 interface GitErrorBannerProps {
@@ -6,6 +7,7 @@ interface GitErrorBannerProps {
 }
 
 export function GitErrorBanner({ message, onDismiss }: GitErrorBannerProps) {
+  i18n.useLocale();
   if (!message) return null;
 
   return (
@@ -14,7 +16,7 @@ export function GitErrorBanner({ message, onDismiss }: GitErrorBannerProps) {
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Dismiss error"
+        aria-label={i18n.t('Dismiss error')}
         className="text-status-error/70 hover:text-status-error sticky top-0 shrink-0"
       >
         <X className="h-3 w-3" />

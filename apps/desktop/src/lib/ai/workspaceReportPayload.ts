@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { WorkspaceFacts } from '@/lib/ai/workspaceSummary';
 
 /**
@@ -74,7 +75,7 @@ export function buildWorkspaceReportChatPayload(facts: WorkspaceFacts): Workspac
   ].join('\n');
 
   return {
-    title: 'Workspace report',
+    title: i18n.t('Workspace report'),
     context: {
       kind: 'workspace_report',
       project_count: projectCount,

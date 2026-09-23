@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -95,20 +96,23 @@ export const Badge = forwardRef<HTMLSpanElement, Props>(
   (
     { tone = 'neutral', variant = 'soft', size = 'xs', icon, className, children, ...rest },
     ref,
-  ) => (
-    <span
-      ref={ref}
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-full leading-none whitespace-nowrap ring-1',
-        SIZE[size],
-        TONE_VARIANT[tone][variant],
-        className,
-      )}
-      {...rest}
-    >
-      {icon}
-      {children}
-    </span>
-  ),
+  ) => {
+    i18n.useLocale();
+    return (
+      <span
+        ref={ref}
+        className={cn(
+          'inline-flex shrink-0 items-center rounded-full leading-none whitespace-nowrap ring-1',
+          SIZE[size],
+          TONE_VARIANT[tone][variant],
+          className,
+        )}
+        {...rest}
+      >
+        {icon}
+        {children}
+      </span>
+    );
+  },
 );
 Badge.displayName = 'Badge';

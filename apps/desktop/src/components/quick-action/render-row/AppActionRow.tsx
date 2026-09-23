@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { ListItem } from '../types';
 
@@ -12,6 +13,7 @@ interface AppActionRowProps {
 }
 
 export function AppActionRow({ item, active, index, execute, setCursor }: AppActionRowProps) {
+  i18n.useLocale();
   return (
     <div
       key={item.id}

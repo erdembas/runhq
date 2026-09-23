@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 
 interface FormatButtonProps {
@@ -7,6 +8,7 @@ interface FormatButtonProps {
 }
 
 export function FormatButton({ icon, label, onClick }: FormatButtonProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

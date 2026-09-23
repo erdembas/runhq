@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { CSSProperties } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -23,6 +24,7 @@ export function SortableCommandRow({
   onCmdChange,
   onRemove,
 }: SortableCommandRowProps) {
+  i18n.useLocale();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
   });
@@ -45,19 +47,25 @@ export function SortableCommandRow({
         <GripVertical className="h-3 w-3" />
       </button>
       <Input
-        placeholder="name"
+        placeholder={i18n.t('name')}
         value={name}
         onChange={(event) => onNameChange(event.target.value)}
         className="w-24 shrink-0"
       />
       <Input
         mono
-        placeholder="pnpm dev"
+        placeholder={i18n.t('pnpm dev')}
         value={cmd}
         onChange={(event) => onCmdChange(event.target.value)}
         className="flex-1"
       />
-      <IconButton label="Remove" icon={<Trash2 />} tone="danger" size="xs" onClick={onRemove} />
+      <IconButton
+        label={i18n.t('Remove')}
+        icon={<Trash2 />}
+        tone="danger"
+        size="xs"
+        onClick={onRemove}
+      />
     </div>
   );
 }

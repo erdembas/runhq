@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { makeAnsiConverter } from '@/lib/ansi';
 import type { TimelineEvent } from '@/types';
 import { ListSkeleton } from './ListSkeleton';
@@ -51,6 +52,7 @@ export function ActivityEventList({
   setSelectedId,
   size,
 }: ActivityEventListProps) {
+  i18n.useLocale();
   return (
     <div className="overlay-scroll min-h-0 flex-1 overflow-auto">
       {loading && events.length === 0 && <ListSkeleton isInline={isInline} padX={size.padX} />}

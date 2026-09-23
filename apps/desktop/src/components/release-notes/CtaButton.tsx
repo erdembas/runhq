@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ArrowRight } from 'lucide-react';
 import { runReleaseStoreAction } from './model';
 import type { HighlightCta, WhatsNewActionId } from '@/lib/whatsnew';
@@ -8,6 +9,7 @@ interface CtaButtonProps {
 }
 
 export function CtaButton({ cta, onAfter }: CtaButtonProps) {
+  i18n.useLocale();
   if (cta.kind === 'store-action') {
     const actionId: WhatsNewActionId = cta.actionId;
     return (

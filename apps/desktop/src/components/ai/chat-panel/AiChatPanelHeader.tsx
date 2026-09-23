@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { AlertTriangle, History, Plus, Sparkles, X } from 'lucide-react';
 
 interface Props {
@@ -23,40 +24,39 @@ export function AiChatPanelHeader({
   onHistory,
   onNewChat,
 }: Props) {
+  i18n.useLocale();
   const newDisabled = turnsLength === 0 && !activeConversationId && !isStreaming;
 
   return (
     <>
       <header className="border-border flex items-center gap-2 border-b px-3 py-2">
         <Sparkles className="text-accent h-3.5 w-3.5" />
-        <div className="text-fg text-[12px] font-semibold">AI Chat</div>
+        <div className="text-fg text-[12px] font-semibold">{i18n.t('AI Chat')}</div>
         <span className="flex-1" />
         <button
           type="button"
           onClick={onHistory}
-          title="Chat history"
+          title={i18n.t('Chat history')}
           className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] transition"
         >
-          <History className="h-3 w-3" />
-          History
+          {i18n.rich('{value1}History', { value1: <History className="h-3 w-3" /> })}
         </button>
         {openTabs.length === 0 && (
           <button
             type="button"
             onClick={onNewChat}
             disabled={newDisabled}
-            title="New chat"
+            title={i18n.t('New chat')}
             className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] transition disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Plus className="h-3 w-3" />
-            New
+            {i18n.rich('{value1}New', { value1: <Plus className="h-3 w-3" /> })}
           </button>
         )}
         {!isInline && (
           <button
             type="button"
             onClick={onClose}
-            title="Close (Esc)"
+            title={i18n.t('Close (Esc)')}
             className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-6 w-6 items-center justify-center rounded transition"
           >
             <X className="h-3.5 w-3.5" />

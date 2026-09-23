@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useId, useState, type ReactNode } from 'react';
 import {
   Check,
@@ -59,24 +60,30 @@ export function AgentCanvas({
   promptCopied,
   error,
 }: AgentCanvasProps) {
+  i18n.useLocale();
   const [view, setView] = useState<'preview' | 'source'>('preview');
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [reload, setReload] = useState(0);
   const panelId = useId();
   const selected = artifacts.find((artifact) => artifact.id === selectedId);
   return (
-    <section aria-label="Agent canvas" className="bg-surface flex h-full min-h-0 flex-col">
+    <section
+      aria-label={i18n.t('Agent canvas')}
+      className="bg-surface flex h-full min-h-0 flex-col"
+    >
       <header className="border-border/70 flex shrink-0 items-center gap-3 border-b px-5 py-4">
         <span className="border-accent/20 bg-accent/10 text-accent flex h-9 w-9 items-center justify-center rounded-xl border">
           <Layers3 className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-fg text-[13px] font-semibold">Canvas</h2>
-          <p className="text-fg-dim mt-0.5 text-[11px]">Ideas you can see, edit and try.</p>
+          <h2 className="text-fg text-[13px] font-semibold">{i18n.t('Canvas')}</h2>
+          <p className="text-fg-dim mt-0.5 text-[11px]">
+            {i18n.t('Ideas you can see, edit and try.')}
+          </p>
         </div>
         {!!artifacts.length && (
           <span className="text-fg-dim bg-fg/5 rounded-full px-2.5 py-1 font-mono text-[10px]">
-            {artifacts.length} {artifacts.length === 1 ? 'artifact' : 'artifacts'}
+            {artifacts.length} {artifacts.length === 1 ? i18n.t('artifact') : i18n.t('artifacts')}
           </span>
         )}
       </header>
@@ -90,19 +97,21 @@ export function AgentCanvas({
               </div>
             </div>
             <h3 className="text-fg text-[16px] font-semibold tracking-tight">
-              Make the conversation tangible
+              {i18n.t('Make the conversation tangible')}
             </h3>
             <p className="text-fg-muted mt-2 text-[12px] leading-6">
-              Ask your agent for a prototype, diagram or document. HTML, SVG and Markdown code
-              blocks appear here when they are ready.
+              {i18n.t(
+                'Ask your agent for a prototype, diagram or document. HTML, SVG and Markdown code blocks appear here when they are ready.',
+              )}
             </p>
             <div className="border-border/70 bg-surface-raised mt-6 rounded-xl border p-4 text-left">
               <p className="text-fg-dim text-[10px] font-semibold tracking-wider uppercase">
-                Try a prompt
+                {i18n.t('Try a prompt')}
               </p>
               <p className="text-fg mt-2 text-[12px] leading-5">
-                “Create an interactive project dashboard as a single, self-contained HTML code
-                block. Include all styles and scripts inline.”
+                {i18n.t(
+                  '“Create an interactive project dashboard as a single, self-contained HTML code block. Include all styles and scripts inline.”',
+                )}
               </p>
               {onCopyPrompt && (
                 <button
@@ -111,19 +120,19 @@ export function AgentCanvas({
                   className="text-accent hover:bg-accent/10 focus-visible:outline-accent mt-3 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium"
                 >
                   {promptCopied ? <Check className="h-3 w-3" /> : <Code2 className="h-3 w-3" />}
-                  {promptCopied ? 'Prompt copied' : 'Copy prompt'}
+                  {promptCopied ? i18n.t('Prompt copied') : i18n.t('Copy prompt')}
                 </button>
               )}
             </div>
             <p className="text-fg-dim mt-4 text-[10px]">
-              Works with every agent that returns these code blocks.
+              {i18n.t('Works with every agent that returns these code blocks.')}
             </p>
           </div>
         </div>
       ) : (
         <>
           <nav
-            aria-label="Canvas artifacts"
+            aria-label={i18n.t('Canvas artifacts')}
             className="border-border/60 flex shrink-0 gap-2 overflow-x-auto border-b px-4 py-3"
           >
             {artifacts.map((artifact) => {
@@ -159,7 +168,7 @@ export function AgentCanvas({
             })}
           </nav>
           <div className="border-border/60 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2.5">
-            <div className="bg-fg/5 flex rounded-lg p-0.5" aria-label="Canvas view">
+            <div className="bg-fg/5 flex rounded-lg p-0.5" aria-label={i18n.t('Canvas view')}>
               <button
                 type="button"
                 aria-pressed={view === 'preview'}
@@ -167,8 +176,7 @@ export function AgentCanvas({
                 onClick={() => setView('preview')}
                 className={cn(control, view === 'preview' && 'bg-surface-raised text-fg shadow-sm')}
               >
-                <Play className="h-3 w-3" />
-                Preview
+                {i18n.rich('{value1}Preview', { value1: <Play className="h-3 w-3" /> })}
               </button>
               <button
                 type="button"
@@ -177,19 +185,18 @@ export function AgentCanvas({
                 onClick={() => setView('source')}
                 className={cn(control, view === 'source' && 'bg-surface-raised text-fg shadow-sm')}
               >
-                <Code2 className="h-3 w-3" />
-                Source
+                {i18n.rich('{value1}Source', { value1: <Code2 className="h-3 w-3" /> })}
               </button>
             </div>
             {view === 'preview' && selected.kind !== 'markdown' && (
-              <div className="flex items-center gap-0.5" aria-label="Preview size">
+              <div className="flex items-center gap-0.5" aria-label={i18n.t('Preview size')}>
                 <button
                   type="button"
                   className={cn(control, device === 'desktop' && 'bg-fg/5 text-fg')}
                   onClick={() => setDevice('desktop')}
-                  aria-label="Desktop preview"
+                  aria-label={i18n.t('Desktop preview')}
                   aria-pressed={device === 'desktop'}
-                  title="Desktop preview"
+                  title={i18n.t('Desktop preview')}
                 >
                   <Monitor className="h-3.5 w-3.5" />
                 </button>
@@ -197,9 +204,9 @@ export function AgentCanvas({
                   type="button"
                   className={cn(control, device === 'mobile' && 'bg-fg/5 text-fg')}
                   onClick={() => setDevice('mobile')}
-                  aria-label="Mobile preview"
+                  aria-label={i18n.t('Mobile preview')}
                   aria-pressed={device === 'mobile'}
-                  title="Mobile preview"
+                  title={i18n.t('Mobile preview')}
                 >
                   <Smartphone className="h-3.5 w-3.5" />
                 </button>
@@ -211,8 +218,8 @@ export function AgentCanvas({
                   type="button"
                   onClick={() => setReload((value) => value + 1)}
                   className={control}
-                  aria-label="Restart preview"
-                  title="Restart preview"
+                  aria-label={i18n.t('Restart preview')}
+                  title={i18n.t('Restart preview')}
                 >
                   <RotateCcw className="h-3 w-3" />
                 </button>
@@ -222,26 +229,26 @@ export function AgentCanvas({
                 onClick={onReset}
                 disabled={!modified}
                 className={control}
-                title="Restore agent's original source"
+                title={i18n.t("Restore agent's original source")}
               >
-                Reset
+                {i18n.t('Reset')}
               </button>
               <button
                 type="button"
                 onClick={onDownload}
                 disabled={saving}
                 className={control}
-                title="Download current source"
+                title={i18n.t('Download current source')}
               >
                 <Download className="h-3 w-3" />
-                {saving ? 'Saving…' : 'Save file'}
+                {saving ? i18n.t('Saving…') : i18n.t('Save file')}
               </button>
             </div>
           </div>
           <div id={panelId} className="relative min-h-0 flex-1 overflow-hidden">
             {view === 'source' ? (
               <textarea
-                aria-label={`${selected.title} source`}
+                aria-label={i18n.t('{value1} source', { value1: selected.title })}
                 spellCheck={false}
                 value={source}
                 onChange={(event) => onSourceChange(event.target.value)}
@@ -266,7 +273,7 @@ export function AgentCanvas({
               >
                 <iframe
                   key={`${selected.id}:${reload}:${previewUrl ?? ''}`}
-                  title={`${selected.title} preview`}
+                  title={i18n.t('{value1} preview', { value1: selected.title })}
                   src={previewUrl}
                   srcDoc={previewUrl ? undefined : previewDocument}
                   sandbox={AGENT_CANVAS_SANDBOX}
@@ -290,15 +297,15 @@ export function AgentCanvas({
                   modified ? 'bg-accent' : 'bg-status-running',
                 )}
               />
-              {modified ? 'Local edits' : 'Agent original'}
+              {modified ? i18n.t('Local edits') : i18n.t('Agent original')}
             </span>
-            <span>{source.split('\n').length} lines</span>
+            <span>{i18n.rich('{value1} lines', { value1: source.split('\n').length })}</span>
             <span className="ml-auto">
               {selected.kind === 'html'
-                ? 'Inline HTML · sandboxed preview'
+                ? i18n.t('Inline HTML · sandboxed preview')
                 : selected.kind === 'svg'
-                  ? 'SVG image preview'
-                  : 'Markdown document'}
+                  ? i18n.t('SVG image preview')
+                  : i18n.t('Markdown document')}
             </span>
           </footer>
         </>

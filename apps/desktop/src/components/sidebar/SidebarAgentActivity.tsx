@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AgentActivityBadge, type AgentActivitySummary } from '@runhq/cockpit-ui';
 import { useAgentStore } from '@/store/useAgentStore';
@@ -13,6 +14,7 @@ import { SidebarAgentActivityContext, useSidebarAgentActivity } from './useSideb
 const projectResolutions = new Map<string, Promise<string | undefined>>();
 
 export function SidebarAgentActivityProvider({ children }: { children: ReactNode }) {
+  i18n.useLocale();
   const services = useAppStore((state) => state.services);
   const projects = useAgentStore((state) => state.projects);
   const selectActivitySessions = useMemo(createAgentActivitySelector, []);
@@ -79,6 +81,7 @@ export function SidebarAgentActivity({
   compact?: boolean;
   className?: string;
 }) {
+  i18n.useLocale();
   const activity = useSidebarAgentActivity(serviceIds);
   if (!activity) return null;
   return (

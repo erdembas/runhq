@@ -8,6 +8,7 @@ import {
   elicitationResponse,
 } from './protocol.mjs';
 import { claudeImageInput, validateAttachments } from './attachments.mjs';
+import { claudeApproval } from './permissions.mjs';
 
 export async function runClaude(ctx, catalog = false, queryProvider = query) {
   const cfg = ctx.config;
@@ -121,6 +122,7 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
                 );
               }
             },
+            claudeApproval(name),
           )
           .catch(reject);
       }),

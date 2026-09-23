@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useDroppable } from '@dnd-kit/core';
 
 interface TabEndSlotProps {
@@ -6,6 +7,7 @@ interface TabEndSlotProps {
 }
 
 export function TabEndSlot({ groupId, insertIndex }: TabEndSlotProps) {
+  i18n.useLocale();
   const { setNodeRef, isOver } = useDroppable({
     id: `tab-slot:end:${groupId}`,
     data: { kind: 'tab-slot', groupId, insertIndex },

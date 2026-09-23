@@ -1,6 +1,8 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 export function ListSkeleton({ isInline, padX }: { isInline: boolean; padX: string }) {
+  i18n.useLocale();
   void isInline;
   return (
     <div className="animate-pulse">

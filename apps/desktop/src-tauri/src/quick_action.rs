@@ -98,7 +98,7 @@ pub(crate) fn install_quick_action_window(
     };
 
     let qa_window = tauri::WebviewWindowBuilder::new(app, "quick-action", qa_url)
-        .title("Quick Action")
+        .title(crate::tray::localize(app.handle(), "Quick Action"))
         .inner_size(1200.0, 900.0)
         .center()
         .decorations(false)

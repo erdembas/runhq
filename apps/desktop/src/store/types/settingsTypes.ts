@@ -1,1 +1,1 @@
-export type SettingsCategoryId = 'shortcuts' | 'ai' | 'data' | 'about' | 'danger';
+export type SettingsCategoryId = 'general' | 'shortcuts' | 'ai' | 'data' | 'about' | 'danger';

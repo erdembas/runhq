@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { cn } from '@/lib/cn';
@@ -10,6 +11,7 @@ interface SplitPaneProps {
 }
 
 export function SplitPane({ node, renderChild, onResize }: SplitPaneProps) {
+  i18n.useLocale();
   const latestSizes = useRef<[number, number]>(node.sizes);
   const flushTimer = useRef<number | null>(null);
 

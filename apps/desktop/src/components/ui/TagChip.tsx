@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { categoryForTags } from '@/lib/categories';
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function TagChip({ tag, onRemove, onClick, active, size = 'sm' }: Props) {
+  i18n.useLocale();
   const category = categoryForTags([tag]);
   const sizing = size === 'md' ? 'text-[11px] px-2 py-0.5' : 'text-[11px] px-1.5 py-0.5';
   return (
@@ -36,7 +38,7 @@ export function TagChip({ tag, onRemove, onClick, active, size = 'sm' }: Props) 
             onRemove();
           }}
           className="flex h-3 w-3 items-center justify-center opacity-60 hover:opacity-100"
-          aria-label={`Remove ${tag}`}
+          aria-label={i18n.t('Remove {tag}', { tag: tag })}
         >
           <X className="h-2 w-2" />
         </button>

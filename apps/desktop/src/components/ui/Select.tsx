@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -57,13 +59,14 @@ export function Select<V extends string = string>({
   value,
   onChange,
   options,
-  placeholder = 'Select…',
+  placeholder = i18n.t('Select…'),
   ariaLabel,
   size = 'sm',
   className,
   leading,
   disabled,
 }: SelectProps<V>) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<TriggerRect | null>(null);
   const [activeIdx, setActiveIdx] = useState<number>(-1);
@@ -271,7 +274,7 @@ export function Select<V extends string = string>({
           >
             <FocusOnMount />
             {options.length === 0 ? (
-              <div className={cn('text-fg/40 px-2 py-2 text-[11.5px]')}>No options</div>
+              <div className={cn('text-fg/40 px-2 py-2 text-[11.5px]')}>{i18n.t('No options')}</div>
             ) : (
               options.map((opt, i) => {
                 const isSelected = opt.value === value;
@@ -334,6 +337,7 @@ export function Select<V extends string = string>({
 }
 
 function FocusOnMount() {
+  i18n.useLocale();
   const ref = useRef<HTMLSpanElement | null>(null);
   useEffect(() => {
     // Move focus into the popover so keyboard nav works immediately. We

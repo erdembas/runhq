@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { AlertTriangle, Check, Copy, FileEdit, Maximize2, X, XCircle, Zap } from 'lucide-react';
 import type { makeAnsiConverter } from '@/lib/ansi';
 import { cn } from '@/lib/cn';
@@ -43,6 +44,7 @@ export function ActivityEventRow({
   selected,
   size,
 }: ActivityEventRowProps) {
+  i18n.useLocale();
   const cfg = eventConfig[event.event_type] ?? defaultConfig;
   const tsMs = new Date(event.timestamp).getTime();
   const isFresh = Date.now() - tsMs < 10_000;
@@ -127,10 +129,10 @@ export function ActivityEventRow({
             {isFresh && (
               <span
                 className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-400"
-                title="Just now"
+                title={i18n.t('Just now')}
               >
                 <span className="h-1 w-1 animate-pulse rounded-full bg-emerald-400" />
-                <span className={cn('tracking-wide uppercase', size.micro)}>new</span>
+                <span className={cn('tracking-wide uppercase', size.micro)}>{i18n.t('new')}</span>
               </span>
             )}
             {childStats && childStats.total > 0 && (
@@ -165,7 +167,10 @@ export function ActivityEventRow({
             )}
             <span
               className={cn('text-fg/40 ml-auto shrink-0 tabular-nums', size.meta)}
-              title={`${formatTime(event.timestamp)} · id #${event.id}`}
+              title={i18n.t('{value1} · id #{value2}', {
+                value1: formatTime(event.timestamp),
+                value2: event.id,
+              })}
             >
               {timeAgo(tsMs, now)}
             </span>
@@ -204,7 +209,10 @@ export function ActivityEventRow({
               <div className="mt-3 flex items-center gap-3">
                 <span
                   className={cn('text-fg/40 flex items-center gap-1.5 tabular-nums', size.micro)}
-                  title={`${formatTime(event.timestamp)} · id #${event.id}`}
+                  title={i18n.t('{value1} · id #{value2}', {
+                    value1: formatTime(event.timestamp),
+                    value2: event.id,
+                  })}
                 >
                   <span className="font-mono">{formatTime(event.timestamp)}</span>
                   <span className="text-fg/20">·</span>
@@ -222,10 +230,10 @@ export function ActivityEventRow({
                         ? 'bg-emerald-500/15 text-emerald-400'
                         : 'hover:bg-fg/8 text-fg/60 hover:text-fg/85',
                     )}
-                    title="Copy event"
+                    title={i18n.t('Copy event')}
                   >
                     {detailCopied ? <Check size={12} /> : <Copy size={12} />}
-                    {detailCopied ? 'Copied' : 'Copy'}
+                    {detailCopied ? i18n.t('Copied') : i18n.t('Copy')}
                   </button>
                   <button
                     type="button"
@@ -234,17 +242,16 @@ export function ActivityEventRow({
                       'hover:bg-fg/8 text-fg/60 hover:text-fg/85 flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition',
                       size.meta,
                     )}
-                    title="Open full view"
+                    title={i18n.t('Open full view')}
                   >
-                    <Maximize2 size={12} />
-                    Full view
+                    {i18n.rich('{value1}Full view', { value1: <Maximize2 size={12} /> })}
                   </button>
                   <button
                     type="button"
                     onClick={onClose}
                     className="hover:bg-fg/8 text-fg/40 hover:text-fg/70 rounded-md p-1.5 transition"
-                    title="Close (Esc)"
-                    aria-label="Close"
+                    title={i18n.t('Close (Esc)')}
+                    aria-label={i18n.t('Close')}
                   >
                     <X size={12} />
                   </button>

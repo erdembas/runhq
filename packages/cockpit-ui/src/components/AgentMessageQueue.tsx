@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { ArrowDown, ArrowUp, ListOrdered, Loader2, Play, X } from 'lucide-react';
 
 export function AgentMessageQueue({
@@ -17,18 +18,21 @@ export function AgentMessageQueue({
   onMove: (id: string, direction: -1 | 1) => void;
   onResume: () => void;
 }) {
+  i18n.useLocale();
   if (!entries.length) return null;
   const button = 'text-fg-dim hover:text-fg rounded p-1 disabled:opacity-25';
   return (
     <section
-      aria-label="Queued messages"
+      aria-label={i18n.t('Queued messages')}
       className="border-border bg-surface-raised rounded-xl border px-3 py-2"
     >
       <div className="flex items-center gap-2 text-[11px]">
         <ListOrdered className="text-accent h-3.5 w-3.5" />
-        <span className="text-fg font-medium">Up next · {entries.length}</span>
+        <span className="text-fg font-medium">
+          {i18n.rich('Up next · {value1}', { value1: entries.length })}
+        </span>
         <span className="text-fg-dim min-w-0 flex-1">
-          {paused ? 'Paused' : 'Runs after this task completes'}
+          {paused ? i18n.t('Paused') : i18n.t('Runs after this task completes')}
         </span>
         {paused && (
           <button
@@ -36,8 +40,7 @@ export function AgentMessageQueue({
             onClick={onResume}
             className="text-accent flex items-center gap-1 disabled:opacity-40"
           >
-            <Play className="h-3 w-3" />
-            Resume queue
+            {i18n.rich('{value1}Resume queue', { value1: <Play className="h-3 w-3" /> })}
           </button>
         )}
       </div>
@@ -56,7 +59,7 @@ export function AgentMessageQueue({
                 {entry.prompt}
               </p>
               <button
-                aria-label={`Move queued message ${index + 1} up`}
+                aria-label={i18n.t('Move queued message {value1} up', { value1: index + 1 })}
                 disabled={
                   index === 0 || entry.state !== 'queued' || entries[index - 1]?.state !== 'queued'
                 }
@@ -66,7 +69,7 @@ export function AgentMessageQueue({
                 <ArrowUp className="h-3 w-3" />
               </button>
               <button
-                aria-label={`Move queued message ${index + 1} down`}
+                aria-label={i18n.t('Move queued message {value1} down', { value1: index + 1 })}
                 disabled={
                   index === entries.length - 1 ||
                   entry.state !== 'queued' ||
@@ -78,7 +81,7 @@ export function AgentMessageQueue({
                 <ArrowDown className="h-3 w-3" />
               </button>
               <button
-                aria-label={`Remove queued message ${index + 1}`}
+                aria-label={i18n.t('Remove queued message {value1}', { value1: index + 1 })}
                 disabled={entry.state === 'sending'}
                 onClick={() => onRemove(entry.request_id)}
                 className={button}
@@ -95,7 +98,7 @@ export function AgentMessageQueue({
         ))}
       </ol>
       <p className="text-fg-dim mt-1 text-[10px]">
-        Queue stays active across tabs while RunHQ is open. Closing the app clears it.
+        {i18n.t('Queue stays active across tabs while RunHQ is open. Closing the app clears it.')}
       </p>
     </section>
   );

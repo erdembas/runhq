@@ -13,10 +13,10 @@ const until = async (predicate) => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 };
-function fixture(backend, onEvent = () => {}) {
+function fixture(backend, onEvent = () => {}, config = {}) {
   const events = [];
   const ctx = new Context(
-    { cwd: process.cwd(), native_id: 'saved-thread', mode: 'plan', prompt: 'Hello' },
+    { cwd: process.cwd(), native_id: 'saved-thread', mode: 'plan', prompt: 'Hello', ...config },
     (e) => {
       events.push(e);
       onEvent(e);
@@ -30,7 +30,9 @@ function fixture(backend, onEvent = () => {}) {
         fileURLToPath(new URL(`./fixtures/${backend}.mjs`, import.meta.url)),
         ...(backend === 'opencode' ? [args.at(-1)] : []),
       ],
-      options,
+      config.permission_policy
+        ? { ...options, env: { ...options?.env, RUNHQ_TEST_AUTO_PERMISSION: '1' } }
+        : options,
     );
   return { ctx, events };
 }
@@ -290,3 +292,25 @@ test('Claude passes pinned model IDs and Agent / Plan permissions unchanged', as
     }
   }
 });
+
+test(
+  'OpenCode automatically allows external folders but still waits for answers to questions',
+  { timeout: 15000 },
+  async () => {
+    const { ctx, events } = fixture('opencode', () => {}, {
+      mode: 'default',
+      permission_policy: 'read',
+    });
+    try {
+      const turn = runOpenCode(ctx);
+      turn.catch(() => {});
+      await until(() => ctx.requests.has('q1'));
+      assert(!events.some((event) => event.type === 'request' && event.request.id === 'p1'));
+      assert(events.some((event) => event.item?.kind === 'automatic_approval'));
+      await ctx.answer('q1', { answers: { 0: ['A', 'B'] } });
+      assert.equal((await turn).status, 'completed');
+    } finally {
+      ctx.close();
+    }
+  },
+);

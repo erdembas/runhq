@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import {} from 'react';
 import { Search, Zap } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { useAppStore } from '@/store/useAppStore';
@@ -8,6 +10,7 @@ import type { Status } from '@/types';
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 export function TitleBar() {
+  i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
 
@@ -43,7 +46,7 @@ export function TitleBar() {
         <span className="bg-accent/15 text-accent rounded-app-sm inline-flex h-5 w-5 items-center justify-center">
           <Zap className="h-3 w-3" />
         </span>
-        <span className="text-fg text-[12px] font-semibold tracking-tight">RunHQ</span>
+        <span className="text-fg text-[12px] font-semibold tracking-tight">{i18n.t('RunHQ')}</span>
       </div>
 
       {/*
@@ -56,10 +59,10 @@ export function TitleBar() {
           type="button"
           onClick={openQuickAction}
           className="border-border/70 bg-surface-muted/70 hover:bg-surface-overlay hover:border-border-strong/70 text-fg-dim hover:text-fg-muted rounded-app-sm pointer-events-auto flex h-7 w-[360px] max-w-[42vw] items-center gap-2 border px-2.5 text-[11.5px] transition"
-          aria-label="Open Quick Action"
+          aria-label={i18n.t('Open Quick Action')}
         >
           <Search className="h-3 w-3 shrink-0" />
-          <span className="truncate">Search services, stacks, actions…</span>
+          <span className="truncate">{i18n.t('Search services, stacks, actions…')}</span>
           <kbd className="border-border bg-surface text-fg-dim ml-auto shrink-0 rounded border px-1 font-mono text-[10px]">
             ⌘K
           </kbd>
@@ -70,8 +73,12 @@ export function TitleBar() {
       <div data-tauri-drag-region className="ml-auto flex items-center gap-2">
         {runningCount > 0 && (
           <span className="bg-status-running/15 text-status-running rounded-app-sm flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-semibold">
-            <span className="bg-status-running animate-breathe h-1.5 w-1.5 rounded-full" />
-            {runningCount} running
+            {i18n.rich('{value1}{runningCount} running', {
+              value1: (
+                <span className="bg-status-running animate-breathe h-1.5 w-1.5 rounded-full" />
+              ),
+              runningCount: runningCount,
+            })}
           </span>
         )}
       </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 export const WIDE_PREF_KEY = 'runhq.notes.wideLayout';
 
 export function readWidePref(): boolean {
@@ -34,9 +35,10 @@ export function cssEscape(id: string): string {
 export function formatRelativeMs(ms: number): string {
   if (!ms) return '';
   const diff = Date.now() - ms;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
-  if (diff < 30 * 86_400_000) return `${Math.round(diff / 86_400_000)}d ago`;
-  return new Date(ms).toLocaleDateString();
+  if (diff < 60_000) return i18n.t('just now');
+  if (diff < 3_600_000) return i18n.t('{value1}m ago', { value1: Math.round(diff / 60_000) });
+  if (diff < 86_400_000) return i18n.t('{value1}h ago', { value1: Math.round(diff / 3_600_000) });
+  if (diff < 30 * 86_400_000)
+    return i18n.t('{value1}d ago', { value1: Math.round(diff / 86_400_000) });
+  return new Date(ms).toLocaleDateString(i18n.getFormatLocale());
 }

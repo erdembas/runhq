@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useRef, useState } from 'react';
 import { FileText, Paperclip, Plus, X } from 'lucide-react';
 import {
@@ -27,6 +28,7 @@ export function AgentContextTray({
   adapter?: string;
   disabled?: boolean;
 }) {
+  i18n.useLocale();
   const context = useAgentContext(draftKey, projectId);
   const records = useAgentLibraryStore((s) => s.records);
   const projects = useAgentStore((s) => s.projects);
@@ -61,8 +63,8 @@ export function AgentContextTray({
   };
   const add = async (entry: AgentContextEntry) => {
     if (new TextEncoder().encode(entry.content).length > 192 * 1024)
-      throw new Error('Context exceeds 192 KiB. Select a smaller excerpt.');
-    if (context.entries.length >= 12) throw new Error('Attach at most 12 context items.');
+      throw new Error(i18n.t('Context exceeds 192 KiB. Select a smaller excerpt.'));
+    if (context.entries.length >= 12) throw new Error(i18n.t('Attach at most 12 context items.'));
     const attachmentError = validateAgentAttachments(
       agentContextImages([...context.entries, entry]),
     );
@@ -72,7 +74,7 @@ export function AgentContextTray({
       4 * 1024 * 1024
     )
       throw new Error(
-        'Saved context exceeds 4 MiB. Remove an attachment or choose a smaller image.',
+        i18n.t('Saved context exceeds 4 MiB. Remove an attachment or choose a smaller image.'),
       );
     await context.set([...context.entries, entry]);
   };
@@ -86,21 +88,26 @@ export function AgentContextTray({
           aria-expanded={expanded}
           className="text-fg-muted hover:text-fg flex items-center gap-1.5 rounded py-1 disabled:opacity-40"
         >
-          <Paperclip className="h-3.5 w-3.5" />
-          Context{context.entries.length > 0 && ` · ${context.entries.length}`}
+          {i18n.rich('{value1}Context{value2}', {
+            value1: <Paperclip className="h-3.5 w-3.5" />,
+            value2: context.entries.length > 0 && ` · ${context.entries.length}`,
+          })}
         </button>
         {context.entries.map((entry) => (
           <span
             key={entry.id}
             className="bg-fg/5 text-fg-muted flex max-w-52 items-center gap-1 rounded-md px-2 py-1"
-            title={`${entry.source}\nCaptured ${new Date(entry.capturedAt).toLocaleString()}`}
+            title={i18n.t('{value1}\nCaptured {value2}', {
+              value1: entry.source,
+              value2: new Date(entry.capturedAt).toLocaleString(i18n.getFormatLocale()),
+            })}
           >
             <FileText className="h-3 w-3 shrink-0" />
             <span className="truncate">{entry.name}</span>
             <button
               type="button"
               disabled={disabled || busy}
-              aria-label={`Remove ${entry.name}`}
+              aria-label={i18n.t('Remove {value1}', { value1: entry.name })}
               onClick={() =>
                 void action(() => context.set(context.entries.filter((e) => e.id !== entry.id)))
               }
@@ -118,14 +125,15 @@ export function AgentContextTray({
             className="ml-2 underline"
             onClick={() => void useAgentLibraryStore.getState().refresh()}
           >
-            Reload context
+            {i18n.t('Reload context')}
           </button>
         </p>
       )}
       {!imagesSupported && agentContextImages(context.entries).length > 0 && (
         <p role="alert" className="text-status-error py-2">
-          This agent connection does not support image attachments. Choose Codex or Claude, or
-          remove the image.
+          {i18n.t(
+            'This agent connection does not support image attachments. Choose Codex or Claude, or remove the image.',
+          )}
         </p>
       )}
       {expanded && (
@@ -134,28 +142,32 @@ export function AgentContextTray({
           className="mt-2 space-y-3 disabled:opacity-50"
         >
           <p className="text-fg-dim">
-            Snapshots stay with this draft. Inspect the captured content before sending.
+            {i18n.t('Snapshots stay with this draft. Inspect the captured content before sending.')}
           </p>
           <label className="text-fg-muted flex flex-wrap items-center gap-2">
-            Source project
-            <SearchableSelect
-              label="Context source project"
-              compact
-              value={sourceProjectId}
-              options={projects.map((project) => ({
-                value: project.id,
-                label: project.name,
-                description: project.id === projectId ? 'This task' : project.path,
-              }))}
-              onChange={setSourceProject}
-              searchPlaceholder="Find a project…"
-              className="max-w-full min-w-0"
-            />
+            {i18n.rich('Source project{value1}', {
+              value1: (
+                <SearchableSelect
+                  label={i18n.t('Context source project')}
+                  compact
+                  value={sourceProjectId}
+                  options={projects.map((project) => ({
+                    value: project.id,
+                    label: project.name,
+                    description: project.id === projectId ? i18n.t('This task') : project.path,
+                  }))}
+                  onChange={setSourceProject}
+                  searchPlaceholder={i18n.t('Find a project…')}
+                  className="max-w-full min-w-0"
+                />
+              ),
+            })}
           </label>
           {sourceProjectId !== projectId && (
             <p className="text-accent">
-              Cross-project reference: files and decisions below come from the selected project.
-              This task keeps its own workspace.
+              {i18n.t(
+                'Cross-project reference: files and decisions below come from the selected project. This task keeps its own workspace.',
+              )}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -164,45 +176,45 @@ export function AgentContextTray({
               className="border-border hover:bg-fg/5 rounded-md border px-2 py-1.5"
               onClick={() => fileInput.current?.click()}
             >
-              Attach text file
+              {i18n.t('Attach text file')}
             </button>
             <button
               type="button"
               disabled={!imagesSupported}
               title={
                 imagesSupported
-                  ? 'Selected model must support image input'
-                  : 'Native image input is available for Codex and Claude'
+                  ? i18n.t('Selected model must support image input')
+                  : i18n.t('Native image input is available for Codex and Claude')
               }
               className="border-border hover:bg-fg/5 rounded-md border px-2 py-1.5 disabled:opacity-40"
               onClick={() => imageInput.current?.click()}
             >
-              Attach image
+              {i18n.t('Attach image')}
             </button>
             <input
               ref={imageInput}
               type="file"
               accept={AGENT_IMAGE_MIME_TYPES.join(',')}
               className="hidden"
-              aria-label="Attach image context"
+              aria-label={i18n.t('Attach image context')}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
                 if (!file) return;
                 void action(async () => {
                   if (file.size > MAX_AGENT_IMAGE_BYTES)
-                    throw new Error('Image exceeds 2.25 MiB. Choose a smaller image.');
+                    throw new Error(i18n.t('Image exceeds 2.25 MiB. Choose a smaller image.'));
                   const data = await new Promise<string>((resolve, reject) => {
                     const reader = new globalThis.FileReader();
                     reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-                    reader.onerror = () => reject(new Error('Image could not be read'));
+                    reader.onerror = () => reject(new Error(i18n.t('Image could not be read')));
                     reader.readAsDataURL(file);
                   });
                   await add({
                     ...context.make(
                       file.name,
-                      `Image supplied as native ${file.type} input`,
-                      `Selected image: ${file.name}`,
+                      i18n.t('Image supplied as native {value1} input', { value1: file.type }),
+                      i18n.t('Selected image: {value1}', { value1: file.name }),
                     ),
                     attachment: { name: file.name, mime_type: file.type as 'image/png', data },
                   });
@@ -213,21 +225,29 @@ export function AgentContextTray({
               ref={fileInput}
               type="file"
               className="hidden"
-              aria-label="Attach text context"
+              aria-label={i18n.t('Attach text context')}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
                 if (!file) return;
                 void action(async () => {
                   if (file.size > 192 * 1024)
-                    throw new Error('File exceeds 192 KiB. Paste a selected excerpt instead.');
+                    throw new Error(
+                      i18n.t('File exceeds 192 KiB. Paste a selected excerpt instead.'),
+                    );
                   if (file.type.startsWith('image/'))
-                    throw new Error('Use image attachments for screenshots.');
+                    throw new Error(i18n.t('Use image attachments for screenshots.'));
                   const content = new globalThis.TextDecoder('utf-8', { fatal: true }).decode(
                     await file.arrayBuffer(),
                   );
-                  if (content.includes('\0')) throw new Error('Choose a UTF-8 text file.');
-                  await add(context.make(file.name, content, `Selected file: ${file.name}`));
+                  if (content.includes('\0')) throw new Error(i18n.t('Choose a UTF-8 text file.'));
+                  await add(
+                    context.make(
+                      file.name,
+                      content,
+                      i18n.t('Selected file: {value1}', { value1: file.name }),
+                    ),
+                  );
                 });
               }}
             />
@@ -239,22 +259,22 @@ export function AgentContextTray({
                   void action(async () =>
                     add(
                       context.make(
-                        'Working changes',
+                        i18n.t('Working changes'),
                         await ipc.agentWorkspaceDiff(sessionId),
-                        `Task ${sessionId} · working diff`,
+                        i18n.t('Task {sessionId} · working diff', { sessionId: sessionId }),
                       ),
                     ),
                   )
                 }
               >
-                Attach current diff
+                {i18n.t('Attach current diff')}
               </button>
             )}
             {memories.length > 0 && (
               <SearchableSelect
-                label="Attach a project decision"
+                label={i18n.t('Attach a project decision')}
                 compact
-                placeholder="Add a saved decision…"
+                placeholder={i18n.t('Add a saved decision…')}
                 value=""
                 options={memories.map((m) => ({ value: m.id, label: m.title }))}
                 onChange={(value) => {
@@ -265,7 +285,9 @@ export function AgentContextTray({
                         ...context.make(
                           memory.title,
                           memory.content,
-                          `Project memory · ${memory.sourceSessionId || memory.id}`,
+                          i18n.t('Project memory · {value1}', {
+                            value1: memory.sourceSessionId || memory.id,
+                          }),
                         ),
                         projectId: memory.projectId,
                       }),
@@ -276,8 +298,8 @@ export function AgentContextTray({
           </div>
           <div className="flex gap-2">
             <input
-              aria-label="Workspace file path"
-              placeholder="Workspace path, e.g. src/App.tsx"
+              aria-label={i18n.t('Workspace file path')}
+              placeholder={i18n.t('Workspace path, e.g. src/App.tsx')}
               value={path}
               onChange={(e) => setPath(e.target.value)}
               className="bg-surface border-border text-fg min-w-0 flex-1 rounded-md border px-2 py-1.5"
@@ -303,24 +325,24 @@ export function AgentContextTray({
               }
             >
               <Plus className="h-4 w-4" />
-              <span className="sr-only">Attach workspace file</span>
+              <span className="sr-only">{i18n.t('Attach workspace file')}</span>
             </button>
           </div>
           <div className="space-y-2">
             <input
-              aria-label="Excerpt title"
-              placeholder="Log excerpt or note title"
+              aria-label={i18n.t('Excerpt title')}
+              placeholder={i18n.t('Log excerpt or note title')}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="bg-surface border-border text-fg w-full rounded-md border px-2 py-1.5"
             />
             <textarea
-              aria-label="Context excerpt"
+              aria-label={i18n.t('Context excerpt')}
               rows={3}
               value={excerpt}
               maxLength={150000}
               onChange={(e) => setExcerpt(e.target.value)}
-              placeholder="Paste selected logs, a note, or reference text…"
+              placeholder={i18n.t('Paste selected logs, a note, or reference text…')}
               className="bg-surface border-border text-fg w-full rounded-md border px-2 py-1.5"
             />
             <button
@@ -330,29 +352,38 @@ export function AgentContextTray({
               onClick={() =>
                 void action(async () => {
                   await add(
-                    context.make(label.trim() || 'Selected excerpt', excerpt, 'Pasted excerpt'),
+                    context.make(
+                      label.trim() || 'Selected excerpt',
+                      excerpt,
+                      i18n.t('Pasted excerpt'),
+                    ),
                   );
                   setExcerpt('');
                   setLabel('');
                 })
               }
             >
-              Add excerpt
+              {i18n.t('Add excerpt')}
             </button>
           </div>
           {context.entries.map((entry) => (
             <details key={entry.id} className="text-fg-muted rounded-md">
-              <summary className="cursor-pointer py-1">Inspect {entry.name}</summary>
+              <summary className="cursor-pointer py-1">
+                {i18n.rich('Inspect {value1}', { value1: entry.name })}
+              </summary>
               <p className="text-fg-dim break-all">
-                {projects.find((project) => project.id === entry.projectId)?.name ||
-                  entry.projectId}{' '}
-                · {entry.source} · {new Date(entry.capturedAt).toLocaleString()} ·{' '}
-                {Math.ceil(
-                  (entry.attachment
-                    ? entry.attachment.data.length * 0.75
-                    : new TextEncoder().encode(entry.content).length) / 1024,
-                )}{' '}
-                KiB snapshot
+                {i18n.rich('{value1} · {value2} · {value3} · {value4} KiB snapshot', {
+                  value1:
+                    projects.find((project) => project.id === entry.projectId)?.name ||
+                    entry.projectId,
+                  value2: entry.source,
+                  value3: new Date(entry.capturedAt).toLocaleString(i18n.getFormatLocale()),
+                  value4: Math.ceil(
+                    (entry.attachment
+                      ? entry.attachment.data.length * 0.75
+                      : new TextEncoder().encode(entry.content).length) / 1024,
+                  ),
+                })}
               </p>
               {entry.attachment ? (
                 <img

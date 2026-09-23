@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
 import { formatReleaseDate } from './model';
@@ -12,6 +13,7 @@ interface ReleaseRowProps {
 }
 
 export function ReleaseRow({ release, selected, isRunning, isLatest, onSelect }: ReleaseRowProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"
@@ -34,8 +36,8 @@ export function ReleaseRow({ release, selected, isRunning, isLatest, onSelect }:
           v{release.version}
         </span>
         <div className="ml-auto flex items-center gap-1">
-          {isLatest && <Badge tone="accent">Latest</Badge>}
-          {isRunning && <Badge tone="success">Running</Badge>}
+          {isLatest && <Badge tone="accent">{i18n.t('Latest')}</Badge>}
+          {isRunning && <Badge tone="success">{i18n.t('Running')}</Badge>}
         </div>
       </div>
       <span className="text-fg-dim/90 ml-4 truncate text-[11px]">

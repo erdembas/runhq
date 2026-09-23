@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { ArrowDown, ArrowUp, GitBranch } from 'lucide-react';
 import type { GitStatus } from '@runhq/cockpit-types';
 import { cn } from '../lib/cn';
@@ -28,6 +29,7 @@ export function GitStatusTrigger({
   onToggle,
   onOpenDiff,
 }: GitStatusTriggerProps) {
+  i18n.useLocale();
   if (git === undefined) {
     return (
       <div
@@ -48,7 +50,7 @@ export function GitStatusTrigger({
     <button
       type="button"
       onClick={onToggle}
-      title={branch ? `Branch: ${branch}` : 'Detached HEAD'}
+      title={branch ? i18n.t('Branch: {branch}', { branch: branch }) : i18n.t('Detached HEAD')}
       className={cn(
         'border-border rounded-app-sm flex items-center gap-1 border font-medium transition',
         compact ? 'h-6 px-1.5 text-[11px]' : 'h-7 gap-1.5 px-2 text-[12px]',
@@ -61,7 +63,7 @@ export function GitStatusTrigger({
         className={cn(compact ? 'h-3 w-3' : 'h-3 w-3', open ? 'text-accent' : 'text-fg-dim')}
       />
       <span className={cn('truncate', compact ? 'max-w-[100px]' : 'max-w-[140px]')}>
-        {branch ?? (head_short ? `(${head_short})` : 'detached')}
+        {branch ?? (head_short ? `(${head_short})` : i18n.t('detached'))}
       </span>
       {ahead > 0 && (
         <span className="text-status-running inline-flex items-center tabular-nums">
@@ -83,8 +85,13 @@ export function GitStatusTrigger({
             onOpenDiff();
           }}
           className="bg-status-starting/80 hover:bg-status-starting ml-0.5 h-1.5 w-1.5 rounded-full"
-          title={`${dirty_count} changed file${dirty_count === 1 ? '' : 's'} — click to view diff`}
-          aria-label={`${dirty_count} uncommitted changes — view diff`}
+          title={i18n.t('{dirty_count} changed file{plural2} — click to view diff', {
+            dirty_count: dirty_count,
+            plural2: dirty_count === 1 ? '' : 's',
+          })}
+          aria-label={i18n.t('{dirty_count} uncommitted changes — view diff', {
+            dirty_count: dirty_count,
+          })}
         />
       )}
     </button>

@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { GitBranch, RefreshCw, Search, Tag, X } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { cn } from '@/lib/cn';
@@ -113,6 +115,7 @@ function laneColor(lane: number): string {
 }
 
 export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPanelProps) {
+  i18n.useLocale();
   const [commits, setCommits] = useState<CommitSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [branchFilter, setBranchFilter] = useState<string>('__all__');
@@ -178,11 +181,11 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
 
   const branchOptions: BranchPickerOption[] = useMemo(() => {
     const out: BranchPickerOption[] = [
-      { value: '__all__', label: 'All branches' },
-      { value: '__head__', label: 'Current HEAD only' },
+      { value: '__all__', label: i18n.t('All branches') },
+      { value: '__head__', label: i18n.t('Current HEAD only') },
     ];
     for (const b of branches) {
-      out.push({ value: b, label: b, group: 'Branches' });
+      out.push({ value: b, label: b, group: i18n.t('Branches') });
     }
     return out;
   }, [branches]);
@@ -209,7 +212,7 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
             type="text"
             value={commitSearch}
             onChange={(e) => setCommitSearch(e.target.value)}
-            placeholder="Search commits, hashes, authors…"
+            placeholder={i18n.t('Search commits, hashes, authors…')}
             spellCheck={false}
             className="text-fg placeholder:text-fg/30 min-w-0 flex-1 bg-transparent text-[11px] outline-none"
           />
@@ -217,7 +220,7 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
             <button
               onClick={() => setCommitSearch('')}
               className="text-fg/40 hover:text-fg shrink-0 cursor-pointer transition"
-              title="Clear"
+              title={i18n.t('Clear')}
               type="button"
             >
               <X size={11} />
@@ -227,12 +230,16 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
         <span className="text-fg/40 shrink-0 text-[11px] tabular-nums">
           {commitSearchTrim
             ? `${matchedCount}/${commits.length}`
-            : `${commits.length} commit${commits.length === 1 ? '' : 's'}`}
+            : i18n.t('{value1} commit{plural2}', {
+                value1: commits.length,
+                plural2: commits.length === 1 ? '' : 's',
+              })}
         </span>
         {loading && (
           <span className="text-fg/40 flex shrink-0 items-center gap-1 text-[11px]">
-            <RefreshCw size={11} className="animate-spin" />
-            Loading…
+            {i18n.rich('{value1}Loading…', {
+              value1: <RefreshCw size={11} className="animate-spin" />,
+            })}
           </span>
         )}
       </div>
@@ -240,7 +247,7 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
       <div className="min-h-0 flex-1 overflow-auto">
         {commits.length === 0 && !loading ? (
           <div className="text-fg/40 flex h-full items-center justify-center text-xs">
-            No commits yet
+            {i18n.t('No commits yet')}
           </div>
         ) : (
           <div className="relative" style={{ minHeight: svgHeight, paddingLeft: graphWidth }}>
@@ -341,7 +348,7 @@ export function GraphPanel({ serviceId, refreshTick, onSelectCommit }: GraphPane
                         {c.refs.map((ref) => {
                           const clean = ref.replace(/^HEAD -> /, '');
                           const isHead = ref.startsWith('HEAD ');
-                          const isTag = clean.startsWith('tag: ');
+                          const isTag = clean.startsWith(i18n.t('tag: '));
                           return (
                             <span
                               key={ref}

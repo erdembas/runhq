@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -9,6 +10,7 @@ interface CardOverflowItemProps {
 }
 
 export function CardOverflowItem({ icon, label, onClick, danger }: CardOverflowItemProps) {
+  i18n.useLocale();
   return (
     <button
       role="menuitem"

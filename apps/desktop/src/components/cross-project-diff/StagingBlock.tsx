@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { TreeView } from '@/components/git/shared';
 import { buildTree } from '@/lib/gitDiff';
@@ -28,6 +29,7 @@ export function StagingBlock({
   source,
   onSelect,
 }: StagingBlockProps) {
+  i18n.useLocale();
   const selectedFile =
     selection && selection.serviceId === serviceId && selection.source === source
       ? selection.path

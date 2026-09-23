@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -11,6 +12,7 @@ export function BulkBar({
   commands: string[];
   onClear: () => void;
 }) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (copied) {
@@ -28,10 +30,12 @@ export function BulkBar({
     <div className="border-border/70 bg-surface/95 shrink-0 border-t px-3 py-2 backdrop-blur">
       <div className="flex items-center gap-2">
         <span className="text-fg/80 text-[11px] font-medium tabular-nums">
-          {selectedCount} selected
+          {i18n.rich('{selectedCount} selected', { selectedCount: selectedCount })}
         </span>
         <span className="text-fg/35 text-[10px] tabular-nums">
-          {hasScript ? `(${commands.length} commands)` : '(no commands available)'}
+          {hasScript
+            ? i18n.t('({value1} commands)', { value1: commands.length })
+            : i18n.t('(no commands available)')}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -39,7 +43,7 @@ export function BulkBar({
             onClick={onClear}
             className="text-fg/55 hover:text-fg hover:bg-fg/5 rounded px-2 py-1 text-[11px] transition"
           >
-            Clear
+            {i18n.t('Clear')}
           </button>
           <button
             type="button"
@@ -63,7 +67,7 @@ export function BulkBar({
             )}
           >
             {copied ? <Check size={11} /> : <Copy size={11} />}
-            {copied ? 'Script copied' : 'Copy commands as script'}
+            {copied ? i18n.t('Script copied') : i18n.t('Copy commands as script')}
           </button>
         </div>
       </div>

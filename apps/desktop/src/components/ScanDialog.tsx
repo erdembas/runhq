@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function ScanDialog({ path, onClose }: Props) {
+  i18n.useLocale();
   const [loading, setLoading] = useState(true);
   const [candidates, setCandidates] = useState<ProjectCandidate[]>([]);
   const [step, setStep] = useState<ScanStep>(1);
@@ -141,7 +143,7 @@ export function ScanDialog({ path, onClose }: Props) {
 
   return (
     <Dialog
-      title={step === 1 ? 'Detected projects' : 'Configure imports'}
+      title={step === 1 ? i18n.t('Detected projects') : i18n.t('Configure imports')}
       subtitle={path}
       onClose={onClose}
       size="lg"
@@ -149,20 +151,28 @@ export function ScanDialog({ path, onClose }: Props) {
         <>
           <span className="text-fg-dim mr-auto text-[10px]">
             {step === 1
-              ? `${selectedProjects.size} project${selectedProjects.size !== 1 ? 's' : ''} selected`
-              : `${totalCommands} command${totalCommands !== 1 ? 's' : ''} across ${selectedProjects.size} project${selectedProjects.size !== 1 ? 's' : ''}`}
+              ? i18n.t('{value1} project{plural2} selected', {
+                  value1: selectedProjects.size,
+                  plural2: selectedProjects.size !== 1 ? 's' : '',
+                })
+              : i18n.t('{totalCommands} command{plural2} across {value3} project{plural4}', {
+                  totalCommands: totalCommands,
+                  plural2: totalCommands !== 1 ? 's' : '',
+                  value3: selectedProjects.size,
+                  plural4: selectedProjects.size !== 1 ? 's' : '',
+                })}
           </span>
           {step === 1 ? (
             <>
               <Button variant="ghost" onClick={onClose}>
-                Cancel
+                {i18n.t('Cancel')}
               </Button>
               <Button
                 variant="primary"
                 onClick={() => setStep(2)}
                 disabled={selectedProjects.size === 0}
               >
-                Next
+                {i18n.t('Next')}
               </Button>
             </>
           ) : (
@@ -172,7 +182,7 @@ export function ScanDialog({ path, onClose }: Props) {
                 onClick={() => setStep(1)}
                 leftIcon={<ArrowLeft className="h-3 w-3" />}
               >
-                Back
+                {i18n.t('Back')}
               </Button>
               <Button
                 variant="primary"
@@ -180,7 +190,7 @@ export function ScanDialog({ path, onClose }: Props) {
                 disabled={totalCommands === 0}
                 rightIcon={<ArrowRight className="h-3 w-3" />}
               >
-                Import
+                {i18n.t('Import')}
               </Button>
             </>
           )}
@@ -189,7 +199,7 @@ export function ScanDialog({ path, onClose }: Props) {
     >
       {candidates.length === 0 ? (
         <div className="text-fg-dim py-6 text-center text-[11px]">
-          Nothing runnable detected. Try a different folder or add a service manually.
+          {i18n.t('Nothing runnable detected. Try a different folder or add a service manually.')}
         </div>
       ) : step === 1 ? (
         <ScanStepProjects

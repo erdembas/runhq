@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import {} from 'react';
 import { AlertCircle, CheckCircle2, Loader2, Pencil, Star, Trash2, Zap } from 'lucide-react';
 import {
   commitLanguageLabel,
@@ -25,6 +27,7 @@ export function AiProviderRow({
   onRemove,
   onSetDefault,
 }: AiProviderRowProps) {
+  i18n.useLocale();
   const maskedKey = useMemo(() => maskApiKey(provider.api_key), [provider.api_key]);
   const baseLabel = useMemo(() => {
     try {
@@ -45,7 +48,7 @@ export function AiProviderRow({
       <button
         type="button"
         onClick={onSetDefault}
-        title={provider.default ? 'Default provider' : 'Use as default'}
+        title={provider.default ? i18n.t('Default provider') : i18n.t('Use as default')}
         className={cn(
           'flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition',
           provider.default
@@ -61,7 +64,7 @@ export function AiProviderRow({
           <span className="text-fg truncate text-[12.5px] font-semibold">{provider.name}</span>
           {provider.default && (
             <span className="bg-accent/15 text-accent rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider uppercase">
-              Default
+              {i18n.t('Default')}
             </span>
           )}
         </div>
@@ -72,15 +75,15 @@ export function AiProviderRow({
           <span>·</span>
           <span className="truncate">{provider.model}</span>
           <span>·</span>
-          <span title="API key (masked)">{maskedKey}</span>
+          <span title={i18n.t('API key (masked)')}>{maskedKey}</span>
           <span>·</span>
-          <span title="Response language" className="truncate">
+          <span title={i18n.t('Response language')} className="truncate">
             {languageLabel(provider.response_language)}
           </span>
           {commitLanguage?.value && commitLanguage.value !== 'inherit' && (
             <>
               <span>·</span>
-              <span title="Commit message language" className="truncate">
+              <span title={i18n.t('Commit message language')} className="truncate">
                 ✎ {commitLanguageLabel(provider.commit_language, provider.response_language)}
               </span>
             </>
@@ -88,8 +91,10 @@ export function AiProviderRow({
           {provider.max_output_tokens != null && provider.max_output_tokens > 0 && (
             <>
               <span>·</span>
-              <span title="Max output tokens (per-provider cap)">
-                ≤ {provider.max_output_tokens.toLocaleString()} tok
+              <span title={i18n.t('Max output tokens (per-provider cap)')}>
+                {i18n.rich('≤ {value1} tok', {
+                  value1: provider.max_output_tokens.toLocaleString(i18n.getFormatLocale()),
+                })}
               </span>
             </>
           )}
@@ -110,10 +115,13 @@ export function AiProviderRow({
             )}
             <span className="truncate">
               {test.busy
-                ? 'Testing connection…'
+                ? i18n.t('Testing connection…')
                 : test.ok
-                  ? `Connected · ${test.latency_ms} ms${test.model ? ` · ${test.model}` : ''}`
-                  : (test.message ?? 'Connection failed')}
+                  ? i18n.t('Connected · {value1} ms{value2}', {
+                      value1: test.latency_ms,
+                      value2: test.model ? ` · ${test.model}` : '',
+                    })
+                  : (test.message ?? i18n.t('Connection failed'))}
             </span>
           </div>
         )}
@@ -125,16 +133,15 @@ export function AiProviderRow({
           onClick={onTest}
           disabled={test?.busy}
           className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-7 items-center gap-1 rounded px-2 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-50"
-          title="Test connection"
+          title={i18n.t('Test connection')}
         >
-          <Zap className="h-3 w-3" />
-          Test
+          {i18n.rich('{value1}Test', { value1: <Zap className="h-3 w-3" /> })}
         </button>
         <button
           type="button"
           onClick={onEdit}
           className="text-fg-dim hover:bg-fg/10 hover:text-fg flex h-7 w-7 items-center justify-center rounded transition"
-          title="Edit"
+          title={i18n.t('Edit')}
         >
           <Pencil className="h-3 w-3" />
         </button>
@@ -142,7 +149,7 @@ export function AiProviderRow({
           type="button"
           onClick={onRemove}
           className="text-fg-dim flex h-7 w-7 items-center justify-center rounded transition hover:bg-rose-500/10 hover:text-rose-500"
-          title="Remove"
+          title={i18n.t('Remove')}
         >
           <Trash2 className="h-3 w-3" />
         </button>
@@ -152,7 +159,7 @@ export function AiProviderRow({
 }
 
 function maskApiKey(key: string): string {
-  if (!key) return '(no key)';
+  if (!key) return i18n.t('(no key)');
   const trimmed = key.trim();
   if (trimmed.length <= 8) return '••••';
   return `${trimmed.slice(0, 3)}••••${trimmed.slice(-3)}`;

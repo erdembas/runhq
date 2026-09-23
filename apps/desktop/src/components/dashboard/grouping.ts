@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { DashboardGroupBy } from '@/store/useAppStore';
 import { categoryForTags, CATEGORIES } from '@/lib/categories';
 import { inferRuntimeFromCmds, runtimeFromTags, runtimeMeta, RUNTIMES } from '@/lib/runtimes';
@@ -50,7 +51,7 @@ function buildSectionGroups(
   }
   const unassigned = bySection.get(UNASSIGNED);
   if (unassigned?.length) {
-    result.push({ key: UNASSIGNED, label: 'Unassigned', services: unassigned });
+    result.push({ key: UNASSIGNED, label: i18n.t('Unassigned'), services: unassigned });
   }
   return result;
 }
@@ -73,7 +74,7 @@ function buildStatusGroups(
   if (running.length) {
     out.push({
       key: 'running',
-      label: 'Running',
+      label: i18n.t('Running'),
       dotClass: 'bg-status-running',
       labelClass: 'text-status-running',
       services: running,
@@ -82,7 +83,7 @@ function buildStatusGroups(
   if (stopped.length) {
     out.push({
       key: 'stopped',
-      label: 'Stopped',
+      label: i18n.t('Stopped'),
       dotClass: 'bg-fg-dim/50',
       labelClass: 'text-fg-dim',
       services: stopped,

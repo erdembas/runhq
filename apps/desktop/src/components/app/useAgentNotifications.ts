@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useEffect } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { isPermissionGranted } from '@tauri-apps/plugin-notification';
@@ -41,7 +42,9 @@ export function useAgentNotifications() {
             useAgentNotificationStore
               .getState()
               .setError(
-                'Notifications are blocked by your system. Enable them for RunHQ in notification settings.',
+                i18n.t(
+                  'Notifications are blocked by your system. Enable them for RunHQ in notification settings.',
+                ),
               );
           return;
         }
@@ -63,7 +66,9 @@ export function useAgentNotifications() {
           useAgentNotificationStore
             .getState()
             .setError(
-              'A notification could not be delivered. Check your system notification settings.',
+              i18n.t(
+                'A notification could not be delivered. Check your system notification settings.',
+              ),
             );
       }
     };

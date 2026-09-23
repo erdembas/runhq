@@ -1,4 +1,6 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 export function HeroLogo() {
+  i18n.useLocale();
   return (
     <div className="relative flex h-28 w-28 items-center justify-center">
       <div

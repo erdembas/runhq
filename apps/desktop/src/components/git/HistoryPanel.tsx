@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef } from 'react';
 import { FolderTree, History } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { type FileEntry, buildTree } from '@/lib/gitDiff';
@@ -32,6 +34,7 @@ export function HistoryPanel({
   viewMode,
   refreshTick,
 }: HistoryPanelProps) {
+  i18n.useLocale();
   const store = useHistoryPanelStoreRef();
   const panel = useHistoryPanelStore(store, (state) => state);
   const patch = panel.patch;
@@ -296,11 +299,11 @@ export function HistoryPanel({
 
   const branchOptions: BranchPickerOption[] = useMemo(() => {
     const out: BranchPickerOption[] = [
-      { value: '__head__', label: 'Current HEAD' },
-      { value: '__all__', label: 'All branches' },
+      { value: '__head__', label: i18n.t('Current HEAD') },
+      { value: '__all__', label: i18n.t('All branches') },
     ];
     for (const b of panel.branches) {
-      out.push({ value: b, label: b, group: 'Branches' });
+      out.push({ value: b, label: b, group: i18n.t('Branches') });
     }
     return out;
   }, [panel.branches]);
@@ -310,13 +313,13 @@ export function HistoryPanel({
       {commitsCollapsed ? (
         <CollapsedRail
           icon={<History size={12} />}
-          label="Commits"
+          label={i18n.t('Commits')}
           badge={
             commitSearchTrim
               ? `${filteredCommits.length}/${panel.commits.length}`
               : panel.commits.length || undefined
           }
-          title="Show commit list"
+          title={i18n.t('Show commit list')}
           onExpand={() => setCommitsCollapsed(false)}
         />
       ) : (
@@ -339,7 +342,7 @@ export function HistoryPanel({
         <ResizeHandle
           handleProps={commitsSidebar.handleProps}
           dragging={commitsSidebar.dragging}
-          title="Drag to resize commit list · double-click to reset"
+          title={i18n.t('Drag to resize commit list · double-click to reset')}
         />
       )}
 
@@ -350,13 +353,13 @@ export function HistoryPanel({
       {filesCollapsed ? (
         <CollapsedRail
           icon={<FolderTree size={12} />}
-          label="Files"
+          label={i18n.t('Files')}
           badge={
             panel.commitDiff && panel.commitDiff.files.length > 0
               ? panel.commitDiff.files.length
               : undefined
           }
-          title="Show changed files"
+          title={i18n.t('Show changed files')}
           onExpand={() => setFilesCollapsed(false)}
         />
       ) : (
@@ -377,7 +380,7 @@ export function HistoryPanel({
         <ResizeHandle
           handleProps={filesSidebar.handleProps}
           dragging={filesSidebar.dragging}
-          title="Drag to resize file explorer · double-click to reset"
+          title={i18n.t('Drag to resize file explorer · double-click to reset')}
         />
       )}
 

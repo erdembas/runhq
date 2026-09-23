@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -8,6 +9,7 @@ export function SelectCheckbox({
   selected: boolean;
   onToggle: () => void;
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"
@@ -23,7 +25,7 @@ export function SelectCheckbox({
           ? 'bg-accent border-accent text-white'
           : 'border-fg/25 hover:border-fg/50 opacity-0 group-hover/row:opacity-100 focus:opacity-100',
       )}
-      aria-label={selected ? 'Deselect row' : 'Select row'}
+      aria-label={selected ? i18n.t('Deselect row') : i18n.t('Select row')}
     >
       {selected && <Check size={9} strokeWidth={3} />}
     </button>

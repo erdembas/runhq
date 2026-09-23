@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { GripVertical, Layers, Pencil, Play, Square, Trash2 } from 'lucide-react';
 import { MoveToSectionMenu } from '../MoveToSectionMenu';
@@ -35,6 +36,7 @@ export function StackRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  i18n.useLocale();
   const anyRunning = running > 0;
   const hasAgentActivity = !!useSidebarAgentActivity(serviceIds)?.targetSessionId;
   const [dragging, setDragging] = useState(false);
@@ -74,7 +76,11 @@ export function StackRow({
         <Layers className="text-fg-dim h-3.5 w-3.5 shrink-0" />
         <span
           className="min-w-0 flex-1 truncate text-[12.5px] font-medium"
-          title={`${name} · ${running}/${total} services running`}
+          title={i18n.t('{name} · {running}/{total} services running', {
+            name: name,
+            running: running,
+            total: total,
+          })}
         >
           {name}
         </span>
@@ -120,7 +126,7 @@ export function StackRow({
             {!active &&
               (anyRunning ? (
                 <IconButton
-                  label="Stop all"
+                  label={i18n.t('Stop all')}
                   icon={<Square />}
                   size="xs"
                   onClick={(e) => {
@@ -130,7 +136,7 @@ export function StackRow({
                 />
               ) : (
                 <IconButton
-                  label="Start all"
+                  label={i18n.t('Start all')}
                   icon={<Play />}
                   size="xs"
                   tone="accent"
@@ -142,7 +148,7 @@ export function StackRow({
               ))}
             <MoveToSectionMenu kind="stack" itemId={stackId} currentSectionId={currentSectionId} />
             <IconButton
-              label="Edit stack"
+              label={i18n.t('Edit stack')}
               icon={<Pencil />}
               size="xs"
               onClick={(e) => {
@@ -152,7 +158,7 @@ export function StackRow({
             />
             {!active && (
               <IconButton
-                label="Delete stack"
+                label={i18n.t('Delete stack')}
                 icon={<Trash2 />}
                 size="xs"
                 tone="danger"

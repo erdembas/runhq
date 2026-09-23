@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -20,6 +21,7 @@ export function CommitSectionHeader({
   onToggle,
   actions,
 }: CommitSectionHeaderProps) {
+  i18n.useLocale();
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const showRatio = searching && typeof totalCount === 'number' && totalCount !== count;
 

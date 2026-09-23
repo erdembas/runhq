@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -21,6 +22,7 @@ export function ActionButton({
   title,
   badge,
 }: ActionButtonProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

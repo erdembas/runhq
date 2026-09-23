@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { OutdatedPackage } from '@/types';
@@ -19,6 +20,7 @@ export function OutdatedRow({
   onOpenUrl: (url: string) => void;
   runtime: string | null;
 }) {
+  i18n.useLocale();
   const tone = bumpTone((pkg.bump as BumpGroup | null) ?? 'other');
   const registryUrl = pkg.homepage || registryFallbackUrl(pkg.name);
   const cmd = upgradeCommandForOutdated(runtime, pkg);
@@ -71,11 +73,11 @@ export function OutdatedRow({
           'opacity-0 group-hover/row:opacity-100 focus-within:opacity-100',
         )}
       >
-        {cmd && <CopyButton value={cmd} label="Copy upgrade command" />}
+        {cmd && <CopyButton value={cmd} label={i18n.t('Copy upgrade command')} />}
         {registryUrl && (
           <IconBtn
             size="sm"
-            label={pkg.homepage ? 'Open package page' : 'Open on npm'}
+            label={pkg.homepage ? i18n.t('Open package page') : i18n.t('Open on npm')}
             onClick={() => onOpenUrl(registryUrl)}
           >
             <ExternalLink size={11} />

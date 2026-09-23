@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /**
  * Decide whether a fenced code block surfaced in the DOCS tab is
  * safe to expose a "Run" affordance on, and surface a short reason
@@ -173,8 +174,8 @@ export function evaluateRunCandidate(
       runnable: false,
       command: raw.trim(),
       reason: lang
-        ? `Run is only available on shell blocks (got ${lang}).`
-        : 'Run is only available on shell blocks.',
+        ? i18n.t('Run is only available on shell blocks (got {lang}).', { lang: lang })
+        : i18n.t('Run is only available on shell blocks.'),
     };
   }
 
@@ -188,13 +189,13 @@ export function evaluateRunCandidate(
     .filter((l) => l.length > 0 && !l.startsWith('#'));
 
   if (lines.length === 0) {
-    return { runnable: false, command: raw.trim(), reason: 'Empty command.' };
+    return { runnable: false, command: raw.trim(), reason: i18n.t('Empty command.') };
   }
   if (lines.length > 1) {
     return {
       runnable: false,
       command: raw.trim(),
-      reason: 'Multi-line scripts must be reviewed and run manually.',
+      reason: i18n.t('Multi-line scripts must be reviewed and run manually.'),
     };
   }
 
@@ -205,7 +206,7 @@ export function evaluateRunCandidate(
       return {
         runnable: false,
         command,
-        reason: `Command contains shell metacharacter "${meta}".`,
+        reason: i18n.t('Command contains shell metacharacter "{meta}".', { meta: meta }),
       };
     }
   }
@@ -216,14 +217,14 @@ export function evaluateRunCandidate(
         return {
           runnable: false,
           command,
-          reason: `Command contains the forbidden token "${token}".`,
+          reason: i18n.t('Command contains the forbidden token "{token}".', { token: token }),
         };
       }
     } else if (token.test(command)) {
       return {
         runnable: false,
         command,
-        reason: 'Command matches a destructive-pattern denylist.',
+        reason: i18n.t('Command matches a destructive-pattern denylist.'),
       };
     }
   }
@@ -239,7 +240,10 @@ export function evaluateRunCandidate(
     return {
       runnable: false,
       command,
-      reason: `"${candidate}" is not on the run-allow-list. Copy and run manually if you trust it.`,
+      reason: i18n.t(
+        '"{candidate}" is not on the run-allow-list. Copy and run manually if you trust it.',
+        { candidate: candidate },
+      ),
     };
   }
 

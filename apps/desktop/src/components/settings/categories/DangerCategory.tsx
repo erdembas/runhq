@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useState } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +15,7 @@ import { SettingsPageShell, SettingsSection } from '../SettingsView';
  * dialog before firing.
  */
 export function DangerCategory({ description }: { description?: string }) {
+  i18n.useLocale();
   return (
     <SettingsPageShell description={description}>
       {/*
@@ -34,15 +36,24 @@ export function DangerCategory({ description }: { description?: string }) {
       <div className="border-status-error bg-status-error/10 ring-status-error/20 rounded-app-sm mb-5 flex items-start gap-3 border p-3">
         <AlertTriangle className="text-status-error mt-0.5 h-4 w-4 shrink-0" />
         <div className="text-fg text-[11px] leading-relaxed">
-          <strong className="text-status-error">These actions cannot be undone.</strong> Make sure
-          you have a backup of your config directory (see Data &amp; Cache → Storage location)
-          before running any operation here.
+          {i18n.rich(
+            '{value1} Make sure you have a backup of your config directory (see Data & Cache → Storage location) before running any operation here.',
+            {
+              value1: (
+                <strong className="text-status-error">
+                  {i18n.t('These actions cannot be undone.')}
+                </strong>
+              ),
+            },
+          )}
         </div>
       </div>
 
       <SettingsSection
-        title="Workspace reset"
-        description="Remove every service, stack, and section from this workspace. The underlying project directories on disk are untouched — only the RunHQ workspace state is wiped."
+        title={i18n.t('Workspace reset')}
+        description={i18n.t(
+          'Remove every service, stack, and section from this workspace. The underlying project directories on disk are untouched — only the RunHQ workspace state is wiped.',
+        )}
       >
         <FullReset />
       </SettingsSection>
@@ -51,6 +62,7 @@ export function DangerCategory({ description }: { description?: string }) {
 }
 
 function FullReset() {
+  i18n.useLocale();
   const [pending, setPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const services = useAppStore((s) => s.services);
@@ -79,8 +91,11 @@ function FullReset() {
       <div className="border-border/50 bg-surface/40 rounded-app-sm flex items-center justify-between gap-3 border px-3 py-3">
         <div className="text-fg-dim text-[11px]">
           {services.length === 0
-            ? 'No services to remove.'
-            : `${services.length} service${services.length === 1 ? '' : 's'} will be removed.`}
+            ? i18n.t('No services to remove.')
+            : i18n.t('{value1} service{plural2} will be removed.', {
+                value1: services.length,
+                plural2: services.length === 1 ? '' : 's',
+              })}
         </div>
         <Button
           variant="danger"
@@ -89,12 +104,12 @@ function FullReset() {
           onClick={() => setPending(true)}
           disabled={services.length === 0 || busy}
         >
-          {busy ? 'Resetting…' : 'Full Reset'}
+          {busy ? i18n.t('Resetting…') : i18n.t('Full Reset')}
         </Button>
       </div>
       {pending && (
         <ConfirmDialog
-          message="Delete all services, stacks, and sections?"
+          message={i18n.t('Delete all services, stacks, and sections?')}
           onConfirm={doReset}
           onCancel={() => setPending(false)}
         />

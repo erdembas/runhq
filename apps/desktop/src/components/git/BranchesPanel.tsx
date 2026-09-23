@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect } from 'react';
 import { GitBranch, RefreshCw } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { type FileEntry, buildTree } from '@/lib/gitDiff';
@@ -33,6 +35,7 @@ export function BranchesPanel({
   viewMode,
   refreshTick,
 }: BranchesPanelProps) {
+  i18n.useLocale();
   const store = useBranchesPanelStoreRef();
   const branch = useBranchesPanelStore(store, (state) => state);
   const patch = branch.patch;
@@ -145,7 +148,7 @@ export function BranchesPanel({
   // "Branches" so the picker UI matches every other branch dropdown
   // in the app.
   const branchOptions: BranchPickerOption[] = useMemo(
-    () => branch.branches.map((b) => ({ value: b, label: b, group: 'Branches' })),
+    () => branch.branches.map((b) => ({ value: b, label: b, group: i18n.t('Branches') })),
     [branch.branches],
   );
 
@@ -159,14 +162,14 @@ export function BranchesPanel({
         <div className="border-border space-y-1.5 border-b px-2 py-2">
           <div className="text-fg/50 flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase">
             <GitBranch size={11} />
-            <span>Compare branches</span>
+            <span>{i18n.t('Compare branches')}</span>
           </div>
           <div className="flex items-center gap-1 text-[11px]">
             <BranchPicker
               value={branch.baseBranch}
               onChange={(baseBranch) => patch({ baseBranch })}
               options={branchOptions}
-              placeholder="Base…"
+              placeholder={i18n.t('Base…')}
               className="min-w-0 flex-1"
             />
             <span className="text-fg/40">…</span>
@@ -174,7 +177,7 @@ export function BranchesPanel({
               value={branch.headBranch}
               onChange={(headBranch) => patch({ headBranch })}
               options={branchOptions}
-              placeholder="Head…"
+              placeholder={i18n.t('Head…')}
               className="min-w-0 flex-1"
             />
           </div>
@@ -188,15 +191,19 @@ export function BranchesPanel({
             }
             className="border-border bg-accent/10 text-accent hover:bg-accent/20 flex w-full items-center justify-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <RefreshCw size={11} className={branch.loading ? 'animate-spin' : ''} />
-            Compare
+            {i18n.rich('{value1}Compare', {
+              value1: <RefreshCw size={11} className={branch.loading ? 'animate-spin' : ''} />,
+            })}
           </button>
         </div>
 
         {/* Status legend */}
         <div className="border-border flex items-center gap-1 border-b px-2 py-1">
           <span className="text-fg/50 text-[10px]">
-            {entries.length} file{entries.length === 1 ? '' : 's'}
+            {i18n.rich('{value1} file{plural3}', {
+              value1: entries.length,
+              plural3: entries.length === 1 ? '' : 's',
+            })}
           </span>
           <span className="ml-auto flex items-center gap-1 text-[9px] tabular-nums">
             <span className="text-emerald-400/80">+{totalAdditions}</span>
@@ -215,17 +222,24 @@ export function BranchesPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {!branch.diff && !branch.loading && (
-            <p className="text-fg/40 px-3 py-2 text-xs">Select two branches and press Compare.</p>
+            <p className="text-fg/40 px-3 py-2 text-xs">
+              {i18n.t('Select two branches and press Compare.')}
+            </p>
           )}
-          {branch.loading && <p className="text-fg/40 px-3 py-2 text-xs">Loading diff…</p>}
+          {branch.loading && (
+            <p className="text-fg/40 px-3 py-2 text-xs">{i18n.t('Loading diff…')}</p>
+          )}
           {branch.diff && !branch.loading && entries.length === 0 && (
             <p className="text-fg/40 px-3 py-2 text-xs">
-              {branch.baseBranch} and {branch.headBranch} are identical.
+              {i18n.rich('{value1} and {value2} are identical.', {
+                value1: branch.baseBranch,
+                value2: branch.headBranch,
+              })}
             </p>
           )}
           {branch.diff && !branch.loading && entries.length > 0 && filteredEntries.length === 0 && (
             <p className="text-fg/40 px-3 py-2 text-xs">
-              No files match &ldquo;{branch.fileSearch}&rdquo;
+              {i18n.rich('No files match “{value1}”', { value1: branch.fileSearch })}
             </p>
           )}
           {filteredEntries.length > 0 && (
@@ -244,7 +258,7 @@ export function BranchesPanel({
       <ResizeHandle
         handleProps={sidebar.handleProps}
         dragging={sidebar.dragging}
-        title="Drag to resize file explorer · double-click to reset"
+        title={i18n.t('Drag to resize file explorer · double-click to reset')}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -258,8 +272,8 @@ export function BranchesPanel({
           fileLoading={branch.fileLoading}
           emptyLabel={
             !branch.diff
-              ? 'Select two branches above and press Compare'
-              : 'Select a file to view its diff'
+              ? i18n.t('Select two branches above and press Compare')
+              : i18n.t('Select a file to view its diff')
           }
         />
       </div>

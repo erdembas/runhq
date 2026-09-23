@@ -2,10 +2,12 @@
 mod attachments;
 mod db;
 mod discovery;
+mod permissions;
 mod process;
 mod registry;
 #[cfg(test)]
 mod tests;
+mod titles;
 mod types;
 mod workspace_data;
 pub use workspace_data::*;
@@ -96,6 +98,9 @@ impl AgentManager {
         }
         let mut sessions = HashMap::new();
         for mut session in db.sessions()? {
+            if titles::repair_legacy_title(&mut session, &db)? {
+                db.save(&session)?;
+            }
             if session.active() {
                 session.status = "interrupted".into();
                 session.turn_started_at = None;
@@ -219,6 +224,7 @@ impl AgentManager {
                     return Err(invalid("Title must contain 1–200 characters"));
                 }
                 s.title = title.chars().take(200).collect();
+                s.title_source = "manual".into();
             }
             if let Some(archived) = archived {
                 if s.active() {
@@ -512,6 +518,12 @@ impl AgentManager {
             } else {
                 input.title.chars().take(200).collect()
             },
+            title_source: if input.title.trim().is_empty() {
+                "auto"
+            } else {
+                "manual"
+            }
+            .into(),
             model: input.model,
             effort: input.effort,
             mode: input.mode,
@@ -673,6 +685,11 @@ impl AgentManager {
             }
             session.model = input.model.clone();
             session.effort = input.effort.clone();
+            if session.title_source == "auto" {
+                let original = state.db.first_user_prompt(&session.id)?;
+                session.title =
+                    titles::fallback_title(original.as_deref().unwrap_or(&input.prompt));
+            }
             session.status = "starting".into();
             session.turn_started_at = Some(now());
             session.last_error = None;
@@ -770,7 +787,17 @@ impl AgentManager {
                 .take()
                 .ok_or_else(|| AppError::other("Missing bridge output"))?,
         );
-        let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"read_only_review":session.workflow_read_only});
+        let title_prompt = if session.title_source == "auto" {
+            self.state
+                .lock()
+                .db
+                .first_user_prompt(&session.id)?
+                .map(|text| titles::title_prompt(&text))
+        } else {
+            None
+        };
+        let permission_policy = self.permission_policy()?;
+        let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"title_prompt":title_prompt,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"read_only_review":session.workflow_read_only,"permission_policy":permission_policy});
         stdin
             .write_all(format!("{}\n", json!({"type":"start","config":config})).as_bytes())
             .await?;
@@ -831,6 +858,12 @@ impl AgentManager {
     fn apply_event(&self, id: &str, run_id: &str, event: Value) -> AppResult<()> {
         self.mutate(id, |s, db| {
             match event["type"].as_str().unwrap_or("") {
+                "title" if s.title_source == "auto" => {
+                    if let Some(title) = event["title"].as_str().and_then(titles::generated_title) {
+                        s.title = title;
+                        s.title_source = "generated".into();
+                    }
+                }
                 "native" => s.native_id = event["id"].as_str().map(str::to_string),
                 "status" if s.status != "cancelling" && s.pending.is_empty() => {
                     s.status = "running".into()

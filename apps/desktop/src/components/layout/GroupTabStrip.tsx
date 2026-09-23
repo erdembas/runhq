@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Tab strip for a single layout group. Drag source per tab,
  * drop targets per tab gap (reorder / insert into this group).
@@ -17,9 +18,15 @@ import { TabStripItem } from './TabStripItem';
 import type { GroupNode, Tab, TabKind } from './layoutModel';
 
 const RESTORE_LABEL: Record<'docs' | 'notes' | 'agents', string> = {
-  agents: 'Agents',
-  docs: 'Docs',
-  notes: 'Notes',
+  get agents() {
+    return i18n.t('Agents');
+  },
+  get docs() {
+    return i18n.t('Docs');
+  },
+  get notes() {
+    return i18n.t('Notes');
+  },
 };
 
 const RESTORE_ICON: Record<'docs' | 'notes' | 'agents', typeof BookOpen> = {
@@ -66,6 +73,7 @@ export function GroupTabStrip({
   onRestore,
   groupFocused,
 }: Props) {
+  i18n.useLocale();
   const visibleIds = group.tabs.filter((id) => {
     const t = tabs[id];
     if (!t) return false;
@@ -93,7 +101,7 @@ export function GroupTabStrip({
     const Icon = RESTORE_ICON[kind];
     return {
       id: `restore-${kind}`,
-      label: `Restore ${RESTORE_LABEL[kind]}`,
+      label: i18n.t('Restore {value1}', { value1: RESTORE_LABEL[kind] }),
       icon: <Icon className="h-3.5 w-3.5" />,
       onClick: () => onRestore?.(kind),
     };
@@ -135,16 +143,16 @@ export function GroupTabStrip({
             usability checks; the captions break that ambiguity. */}
         <TabStripAction
           icon={<Plus className="h-3 w-3" />}
-          label="New Terminal"
-          title="New terminal in this pane"
+          label={i18n.t('New Terminal')}
+          title={i18n.t('New terminal in this pane')}
           onClick={onAddTerminal}
         />
         {showRestore && (
           <div ref={restoreBtnRef}>
             <TabStripAction
               icon={<Undo2 className="h-3 w-3" />}
-              label="Restore Tab"
-              title="Restore a closed tab"
+              label={i18n.t('Restore Tab')}
+              title={i18n.t('Restore a closed tab')}
               onClick={openRestoreMenu}
             />
           </div>
@@ -152,8 +160,8 @@ export function GroupTabStrip({
         {onReset && (
           <TabStripAction
             icon={<RotateCcw className="h-3 w-3" />}
-            label="Reset Layout"
-            title="Reset layout to default"
+            label={i18n.t('Reset Layout')}
+            title={i18n.t('Reset layout to default')}
             onClick={onReset}
           />
         )}

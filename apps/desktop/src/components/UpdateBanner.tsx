@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Loader2, RotateCw } from 'lucide-react';
 import { check, type Update } from '@tauri-apps/plugin-updater';
@@ -32,11 +33,19 @@ type UpdateState =
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n < 1024 * 1024)
+    return `${i18n.number(n / 1024, { minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false })} KB`;
+  return i18n.t('{value1} MB', {
+    value1: i18n.number(n / (1024 * 1024), {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+      useGrouping: false,
+    }),
+  });
 }
 
 export function UpdateBanner() {
+  i18n.useLocale();
   const [state, setState] = useState<UpdateState>({ phase: 'idle' });
   // We cache the `Update` resource returned by `check()` so the install click
   // doesn't have to hit the update endpoint a second time. The handle is
@@ -149,7 +158,13 @@ export function UpdateBanner() {
           <>
             <span className="bg-accent h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden />
             <span className="truncate">
-              <span className="text-accent font-semibold">RunHQ {state.version}</span> available
+              {i18n.rich('{value1} available', {
+                value1: (
+                  <span className="text-accent font-semibold">
+                    {i18n.rich('RunHQ {value1}', { value1: state.version })}
+                  </span>
+                ),
+              })}
             </span>
           </>
         )}
@@ -158,13 +173,24 @@ export function UpdateBanner() {
           <>
             <Loader2 className="text-accent h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2.4} />
             <span className="truncate">
-              Downloading <span className="font-medium">RunHQ {state.version}</span>
-              <span className="text-fg-muted ml-1 tabular-nums">
-                {' · '}
-                {state.total != null
-                  ? `${formatBytes(state.loaded)} of ${formatBytes(state.total)}`
-                  : formatBytes(state.loaded)}
-              </span>
+              {i18n.rich('Downloading {value1}{value2}', {
+                value1: (
+                  <span className="font-medium">
+                    {i18n.rich('RunHQ {value1}', { value1: state.version })}
+                  </span>
+                ),
+                value2: (
+                  <span className="text-fg-muted ml-1 tabular-nums">
+                    {' · '}
+                    {state.total != null
+                      ? i18n.t('{value1} of {value2}', {
+                          value1: formatBytes(state.loaded),
+                          value2: formatBytes(state.total),
+                        })
+                      : formatBytes(state.loaded)}
+                  </span>
+                ),
+              })}
             </span>
             {pct != null && (
               <>
@@ -187,8 +213,16 @@ export function UpdateBanner() {
           <>
             <Loader2 className="text-accent h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2.4} />
             <span className="truncate">
-              Installing <span className="font-medium">RunHQ {state.version}</span>
-              <span className="text-fg-muted ml-1">· restarting in a moment…</span>
+              {i18n.rich('Installing {value1}{value2}', {
+                value1: (
+                  <span className="font-medium">
+                    {i18n.rich('RunHQ {value1}', { value1: state.version })}
+                  </span>
+                ),
+                value2: (
+                  <span className="text-fg-muted ml-1">{i18n.t('· restarting in a moment…')}</span>
+                ),
+              })}
             </span>
           </>
         )}
@@ -197,10 +231,18 @@ export function UpdateBanner() {
           <>
             <CheckCircle2 className="text-accent h-3.5 w-3.5 shrink-0" strokeWidth={2.4} />
             <span className="truncate">
-              <span className="font-medium">RunHQ {state.version}</span> installed.
-              <span className="text-fg-muted ml-1">
-                Quit and reopen RunHQ to finish the update.
-              </span>
+              {i18n.rich('{value1} installed.{value2}', {
+                value1: (
+                  <span className="font-medium">
+                    {i18n.rich('RunHQ {value1}', { value1: state.version })}
+                  </span>
+                ),
+                value2: (
+                  <span className="text-fg-muted ml-1">
+                    {i18n.t('Quit and reopen RunHQ to finish the update.')}
+                  </span>
+                ),
+              })}
             </span>
           </>
         )}
@@ -209,7 +251,7 @@ export function UpdateBanner() {
           <>
             <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400" strokeWidth={2.4} />
             <span className="truncate">
-              <span className="font-medium text-red-300">Update failed.</span>
+              <span className="font-medium text-red-300">{i18n.t('Update failed.')}</span>
               {state.message && (
                 <span className="text-fg-muted ml-1 truncate">{state.message}</span>
               )}
@@ -224,7 +266,7 @@ export function UpdateBanner() {
           onClick={install}
           className="btn-primary rounded-app-sm shrink-0 px-3 py-1 text-[11px] font-medium"
         >
-          Update &amp; Restart
+          {i18n.t('Update & Restart')}
         </button>
       )}
 
@@ -234,7 +276,7 @@ export function UpdateBanner() {
           onClick={quit}
           className="btn-primary rounded-app-sm shrink-0 px-3 py-1 text-[11px] font-medium"
         >
-          Quit RunHQ
+          {i18n.t('Quit RunHQ')}
         </button>
       )}
 
@@ -244,8 +286,9 @@ export function UpdateBanner() {
           onClick={install}
           className="btn-chrome rounded-app-sm flex shrink-0 items-center gap-1 px-2.5 py-1 text-[11px] font-medium"
         >
-          <RotateCw className="h-3 w-3" strokeWidth={2.4} />
-          Retry
+          {i18n.rich('{value1}Retry', {
+            value1: <RotateCw className="h-3 w-3" strokeWidth={2.4} />,
+          })}
         </button>
       )}
     </div>

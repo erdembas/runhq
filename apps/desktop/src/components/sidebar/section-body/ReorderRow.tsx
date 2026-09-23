@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState, type ReactNode } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/cn';
@@ -37,6 +38,7 @@ export function ReorderRow({
   itemKeyFor: string;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   const moveSidebarItem = useAppStore((s) => s.moveSidebarItem);
   const [edge, setEdge] = useState<DropEdge | null>(null);
 

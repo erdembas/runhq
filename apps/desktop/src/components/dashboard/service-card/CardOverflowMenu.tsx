@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -44,6 +45,7 @@ export function CardOverflowMenu({
   onToggleHidden,
   onDelete,
 }: CardOverflowMenuProps) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -111,7 +113,7 @@ export function CardOverflowMenu({
       <button
         ref={triggerRef}
         type="button"
-        title="More actions"
+        title={i18n.t('More actions')}
         aria-haspopup="menu"
         aria-expanded={open}
         onMouseDown={(e) => e.stopPropagation()}
@@ -145,33 +147,33 @@ export function CardOverflowMenu({
           >
             <CardOverflowItem
               icon={<Pencil className="h-3.5 w-3.5" />}
-              label="Edit service"
+              label={i18n.t('Edit service')}
               onClick={select(onEdit)}
             />
             <CardOverflowItem
               icon={<FolderOpen className="h-3.5 w-3.5" />}
-              label="Open folder"
+              label={i18n.t('Open folder')}
               onClick={select(onOpenFolder)}
             />
             <CardOverflowItem
               icon={<FileText className="h-3.5 w-3.5" />}
-              label="Project notes"
+              label={i18n.t('Project notes')}
               onClick={select(onNotes)}
             />
             <CardOverflowItem
               icon={<Scale className="h-3.5 w-3.5" />}
-              label="License compliance"
+              label={i18n.t('License compliance')}
               onClick={select(onLicense)}
             />
             <CardOverflowItem
               icon={isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              label={isHidden ? 'Show on dashboard' : 'Hide from dashboard'}
+              label={isHidden ? i18n.t('Show on dashboard') : i18n.t('Hide from dashboard')}
               onClick={select(onToggleHidden)}
             />
             <div className="border-border/60 my-1 border-t" aria-hidden />
             <CardOverflowItem
               icon={<Trash2 className="h-3.5 w-3.5" />}
-              label="Delete service"
+              label={i18n.t('Delete service')}
               onClick={select(onDelete)}
               danger
             />

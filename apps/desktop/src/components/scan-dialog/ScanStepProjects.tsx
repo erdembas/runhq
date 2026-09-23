@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { runtimeMeta } from '@/lib/runtimes';
@@ -14,6 +15,7 @@ export function ScanStepProjects({
   selectedProjects,
   onToggle,
 }: ScanStepProjectsProps) {
+  i18n.useLocale();
   return (
     <div className="space-y-1.5">
       {candidates.map((c) => {
@@ -33,7 +35,7 @@ export function ScanStepProjects({
                 <div className="text-fg truncate text-[11px] font-medium">{c.name}</div>
                 {c.project_name && c.project_name !== c.name ? (
                   <div className="text-fg-dim truncate text-[10px]">
-                    <span className="text-fg-muted">Project:</span> {c.project_name}
+                    <span className="text-fg-muted">{i18n.t('Project:')}</span> {c.project_name}
                   </div>
                 ) : (
                   <div className="text-fg-dim truncate text-[10px]" title={c.cwd}>

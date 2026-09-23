@@ -2,6 +2,7 @@ import { createServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { pretty, questionsFrom, requireAnswers } from './protocol.mjs';
 import { validateAttachments } from './attachments.mjs';
+import { openCodeApproval } from './permissions.mjs';
 
 export async function* sseEvents(body) {
   const decoder = new TextDecoder();
@@ -218,6 +219,7 @@ export async function runOpenCode(ctx, catalog = false) {
                 response: value.decision,
               });
           },
+          openCodeApproval(p.permission ?? p.type),
         );
       }
       if (e.type === 'question.asked') {

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { ProjectOverview } from '@/types';
 
 /**
@@ -42,8 +43,8 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
     const total = p.audit.critical + p.audit.high + p.audit.medium + p.audit.low;
     if (total > 0) {
       const parts = [
-        p.audit.critical ? `${p.audit.critical} critical` : null,
-        p.audit.high ? `${p.audit.high} high` : null,
+        p.audit.critical ? i18n.t('{value1} critical', { value1: p.audit.critical }) : null,
+        p.audit.high ? i18n.t('{value1} high', { value1: p.audit.high }) : null,
         p.audit.medium ? `${p.audit.medium} medium` : null,
         p.audit.low ? `${p.audit.low} low` : null,
       ].filter(Boolean);
@@ -59,9 +60,15 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
   const license = p.license;
   if (license && license.has_contamination) {
     const parts = [
-      license.network_copyleft_count ? `${license.network_copyleft_count} network copyleft` : null,
-      license.strong_copyleft_count ? `${license.strong_copyleft_count} strong copyleft` : null,
-      license.proprietary_count ? `${license.proprietary_count} proprietary` : null,
+      license.network_copyleft_count
+        ? i18n.t('{value1} network copyleft', { value1: license.network_copyleft_count })
+        : null,
+      license.strong_copyleft_count
+        ? i18n.t('{value1} strong copyleft', { value1: license.strong_copyleft_count })
+        : null,
+      license.proprietary_count
+        ? i18n.t('{value1} proprietary', { value1: license.proprietary_count })
+        : null,
     ].filter(Boolean);
     const totalWarnings =
       license.network_copyleft_count + license.strong_copyleft_count + license.proprietary_count;
@@ -135,7 +142,7 @@ export function buildWhyChatPayload(p: ProjectOverview): WhyChatPayload {
   ].join('\n');
 
   return {
-    title: `Why? · ${p.name}`,
+    title: i18n.t('Why? · {value1}', { value1: p.name }),
     context: { project: facts, headline },
     draftPrompt: `Why is "${p.name}" flagged, and what should I do first?`,
     contextSystemMessage,

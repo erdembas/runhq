@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Activity, PanelRightOpen } from 'lucide-react';
 import type { DailySummary } from '@/types';
 
@@ -8,14 +9,15 @@ interface ActivityCollapsedRailProps {
 }
 
 export function ActivityCollapsedRail({ onClick, onFocus, summary }: ActivityCollapsedRailProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"
       onClick={onClick}
       onFocus={onFocus}
       className="bg-surface border-border/40 hover:bg-fg/3 group flex h-full w-11 shrink-0 flex-col items-center gap-3 border-l pt-3.5 transition"
-      title="Click to pin · hover to peek"
-      aria-label="Expand activity timeline"
+      title={i18n.t('Click to pin · hover to peek')}
+      aria-label={i18n.t('Expand activity timeline')}
     >
       <div className="bg-accent/10 text-accent group-hover:bg-accent/20 flex h-7 w-7 items-center justify-center rounded-md transition">
         <Activity className="h-3.5 w-3.5" />
@@ -25,7 +27,10 @@ export function ActivityCollapsedRail({ onClick, onFocus, summary }: ActivityCol
           {summary.commits > 0 && (
             <span
               className="text-[10.5px] font-semibold text-violet-400 tabular-nums"
-              title={`${summary.commits} commit${summary.commits === 1 ? '' : 's'} today`}
+              title={i18n.t('{value1} commit{plural2} today', {
+                value1: summary.commits,
+                plural2: summary.commits === 1 ? '' : 's',
+              })}
             >
               {summary.commits}
             </span>
@@ -33,9 +38,10 @@ export function ActivityCollapsedRail({ onClick, onFocus, summary }: ActivityCol
           {summary.services_started > 0 && (
             <span
               className="text-[10.5px] font-semibold text-emerald-400 tabular-nums"
-              title={`${summary.services_started} start${
-                summary.services_started === 1 ? '' : 's'
-              } today`}
+              title={i18n.t('{value1} start{plural2} today', {
+                value1: summary.services_started,
+                plural2: summary.services_started === 1 ? '' : 's',
+              })}
             >
               {summary.services_started}
             </span>
@@ -43,7 +49,10 @@ export function ActivityCollapsedRail({ onClick, onFocus, summary }: ActivityCol
           {summary.errors > 0 && (
             <span
               className="relative text-[10.5px] font-semibold text-rose-400 tabular-nums"
-              title={`${summary.errors} error${summary.errors === 1 ? '' : 's'} today`}
+              title={i18n.t('{value1} error{plural2} today', {
+                value1: summary.errors,
+                plural2: summary.errors === 1 ? '' : 's',
+              })}
             >
               {summary.errors}
               <span className="absolute -top-0.5 -right-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-rose-400" />

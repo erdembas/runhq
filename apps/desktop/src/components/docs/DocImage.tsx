@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { ImageOff } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
@@ -63,6 +64,7 @@ interface DocImageProps {
  *     naturally and the user can spot the offender.
  */
 export function DocImage({ serviceId, baseDir, src, alt, width, height, align }: DocImageProps) {
+  i18n.useLocale();
   const [resolved, setResolved] = useState<string | null>(() => initialResolved(src));
   const [failed, setFailed] = useState(false);
 
@@ -102,11 +104,11 @@ export function DocImage({ serviceId, baseDir, src, alt, width, height, align }:
   if (failed || !resolved) {
     return (
       <span
-        title={src ? `Couldn't load ${src}` : 'Missing image'}
+        title={src ? i18n.t("Couldn't load {src}", { src: src }) : i18n.t('Missing image')}
         className="border-border/40 bg-surface-muted/40 text-fg-dim my-1 inline-flex items-center gap-1.5 rounded border px-2 py-1 align-middle text-[11px]"
       >
         <ImageOff className="h-3 w-3" />
-        <span className="max-w-[280px] truncate font-mono">{src ?? 'image'}</span>
+        <span className="max-w-[280px] truncate font-mono">{src ?? i18n.t('image')}</span>
       </span>
     );
   }

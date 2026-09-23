@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 interface FilterChipProps {
@@ -8,6 +9,7 @@ interface FilterChipProps {
 }
 
 export function FilterChip({ active, onClick, label, icon }: FilterChipProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { ServiceDef, ServiceStatus, Status } from '@/types';
 import { SidebarAgentActivity } from './SidebarAgentActivity';
@@ -15,6 +16,7 @@ export function CollapsedServiceList({
   selectedServiceId,
   onSelect,
 }: CollapsedServiceListProps) {
+  i18n.useLocale();
   return (
     <div className="flex flex-col items-center gap-1 py-2">
       {services.map((service) => {

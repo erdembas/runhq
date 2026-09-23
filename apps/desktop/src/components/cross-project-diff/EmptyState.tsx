@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { FileDiff, RefreshCw } from 'lucide-react';
 
 interface EmptyStateProps {
@@ -6,11 +7,12 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ search, anyLoading }: EmptyStateProps) {
+  i18n.useLocale();
   if (anyLoading) {
     return (
       <div className="text-fg/40 flex flex-col items-center gap-2 p-6 text-[12px]">
         <RefreshCw size={18} className="animate-spin" />
-        <span>Loading diffs…</span>
+        <span>{i18n.t('Loading diffs…')}</span>
       </div>
     );
   }
@@ -18,7 +20,9 @@ export function EmptyState({ search, anyLoading }: EmptyStateProps) {
   if (search) {
     return (
       <div className="text-fg/40 p-6 text-center text-[12px]">
-        No files match <span className="text-fg/70 font-mono">{search}</span>
+        {i18n.rich('No files match {value1}', {
+          value1: <span className="text-fg/70 font-mono">{search}</span>,
+        })}
       </div>
     );
   }
@@ -28,9 +32,9 @@ export function EmptyState({ search, anyLoading }: EmptyStateProps) {
       <div className="bg-status-running/10 text-status-running flex h-12 w-12 items-center justify-center rounded-full">
         <FileDiff size={24} />
       </div>
-      <p className="text-fg/80 font-medium">All projects clean</p>
+      <p className="text-fg/80 font-medium">{i18n.t('All projects clean')}</p>
       <p className="text-fg/40 max-w-[240px] text-[11px]">
-        No uncommitted changes anywhere. Switch branches with confidence.
+        {i18n.t('No uncommitted changes anywhere. Switch branches with confidence.')}
       </p>
     </div>
   );

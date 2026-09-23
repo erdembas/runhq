@@ -1,8 +1,10 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export function CopyButton({ value, label }: { value: string; label: string }) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
 
   return (
@@ -18,8 +20,8 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
           /* clipboard unavailable */
         }
       }}
-      title={copied ? 'Copied' : `${label}: ${value}`}
-      aria-label={copied ? 'Copied to clipboard' : label}
+      title={copied ? i18n.t('Copied') : `${label}: ${value}`}
+      aria-label={copied ? i18n.t('Copied to clipboard') : label}
       className={cn(
         'rounded p-1 transition',
         copied ? 'text-tone-success-fg' : 'text-fg/45 hover:text-accent hover:bg-fg/5',

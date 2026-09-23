@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Cpu, Loader2, MemoryStick, Plus, RefreshCw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function DashboardHeader({ model }: Props) {
+  i18n.useLocale();
   const heroState = deriveHeroState(model.stats, model.attentionStats);
   const heroTone = TONE_CLASSES[heroState.tone];
 
@@ -21,13 +23,15 @@ export function DashboardHeader({ model }: Props) {
           <span className="inline-flex items-center gap-1.5">
             <span aria-hidden className={cn('h-2 w-2 rounded-full', heroTone.dot)} />
             <span className="text-fg-muted font-semibold tracking-[0.14em] uppercase">
-              Workspace
+              {i18n.t('Workspace')}
             </span>
           </span>
           <span className="text-fg-dim/40">·</span>
           <span>
-            <span className="tabular-nums">{model.total}</span> service
-            {model.total === 1 ? '' : 's'}
+            {i18n.rich('{value1} service{plural3}', {
+              value1: <span className="tabular-nums">{model.total}</span>,
+              plural3: model.total === 1 ? '' : 's',
+            })}
           </span>
           {model.appVersion && (
             <>
@@ -60,9 +64,9 @@ export function DashboardHeader({ model }: Props) {
             model.workspaceReport.onClick();
           }}
           disabled={model.services.length === 0}
-          title="AI report across all projects"
+          title={i18n.t('AI report across all projects')}
         >
-          Analyze Workspace
+          {i18n.t('Analyze Workspace')}
         </Button>
         <Button
           variant="primary"
@@ -70,7 +74,7 @@ export function DashboardHeader({ model }: Props) {
           leftIcon={<Plus className="h-4 w-4" />}
           onClick={() => model.openEditor(null)}
         >
-          New service
+          {i18n.t('New service')}
         </Button>
         <DashboardActionsMenu
           onDiscover={model.onScan}
@@ -79,10 +83,10 @@ export function DashboardHeader({ model }: Props) {
           disableRescan={model.overviewScanning || !model.overview}
           rescanLabel={
             model.overviewScanning
-              ? 'Scanning…'
+              ? i18n.t('Scanning…')
               : model.overview?.has_dependency_scan
-                ? 'Rescan deps'
-                : 'Scan deps'
+                ? i18n.t('Rescan deps')
+                : i18n.t('Scan deps')
           }
         />
         {model.workspaceReport.popover}
@@ -92,6 +96,7 @@ export function DashboardHeader({ model }: Props) {
 }
 
 export function DashboardBackdrop({ model }: Props) {
+  i18n.useLocale();
   const heroTone = TONE_CLASSES[deriveHeroState(model.stats, model.attentionStats).tone];
   if (!heroTone.backdrop) return null;
   return (
@@ -106,22 +111,29 @@ export function DashboardBackdrop({ model }: Props) {
 }
 
 function ScanStatus({ model }: Props) {
+  i18n.useLocale();
   if (model.lastScanAt != null && !model.overviewScanning) {
     return (
       <>
         <span className="text-fg-dim/40">·</span>
-        <span title={`Dependency scan completed ${new Date(model.lastScanAt).toLocaleString()}`}>
-          {scanFreshnessLabel(model.lastScanAt, model.now).replace('Scanned ', 'Last scan ')}
+        <span
+          title={i18n.t('Dependency scan completed {value1}', {
+            value1: new Date(model.lastScanAt).toLocaleString(i18n.getFormatLocale()),
+          })}
+        >
+          {scanFreshnessLabel(model.lastScanAt, model.now).replace(
+            i18n.t('Scanned '),
+            i18n.t('Last scan '),
+          )}
         </span>
         <button
           type="button"
           onClick={() => void model.runScan()}
           disabled={model.overviewScanning}
           className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition disabled:opacity-50"
-          title="Re-run npm outdated / cargo audit / license scan across all projects"
+          title={i18n.t('Re-run npm outdated / cargo audit / license scan across all projects')}
         >
-          <RefreshCw className="h-3 w-3" />
-          Rescan
+          {i18n.rich('{value1}Rescan', { value1: <RefreshCw className="h-3 w-3" /> })}
         </button>
       </>
     );
@@ -131,8 +143,7 @@ function ScanStatus({ model }: Props) {
       <>
         <span className="text-fg-dim/40">·</span>
         <span className="text-fg-muted inline-flex items-center gap-1">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Scanning…
+          {i18n.rich('{value1}Scanning…', { value1: <Loader2 className="h-3 w-3 animate-spin" /> })}
         </span>
       </>
     );
@@ -146,10 +157,9 @@ function ScanStatus({ model }: Props) {
             type="button"
             onClick={() => void model.runScan()}
             className="text-fg-dim hover:text-accent inline-flex items-center gap-1 transition"
-            title="Run npm outdated / cargo audit / license scan across all projects"
+            title={i18n.t('Run npm outdated / cargo audit / license scan across all projects')}
           >
-            <Sparkles className="h-3 w-3" />
-            Run first scan
+            {i18n.rich('{value1}Run first scan', { value1: <Sparkles className="h-3 w-3" /> })}
           </button>
         </>
       )}
@@ -160,12 +170,18 @@ function ScanStatus({ model }: Props) {
             type="button"
             onClick={() => void model.runStaleRescan()}
             className="border-tone-warning/30 bg-tone-warning-bg/25 text-tone-warning-fg hover:bg-tone-warning-bg/45 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition"
-            title={`${model.staleScanServiceIds.length} project${
-              model.staleScanServiceIds.length === 1 ? '' : 's'
-            } not scanned in 7+ days — click to rescan only the stale ones`}
+            title={i18n.t(
+              '{value1} project{plural2} not scanned in 7+ days — click to rescan only the stale ones',
+              {
+                value1: model.staleScanServiceIds.length,
+                plural2: model.staleScanServiceIds.length === 1 ? '' : 's',
+              },
+            )}
           >
-            <span className="bg-tone-warning/70 inline-block h-1.5 w-1.5 rounded-full" />
-            {model.staleScanServiceIds.length} stale
+            {i18n.rich('{value1}{value2} stale', {
+              value1: <span className="bg-tone-warning/70 inline-block h-1.5 w-1.5 rounded-full" />,
+              value2: model.staleScanServiceIds.length,
+            })}
           </button>
         </>
       )}
@@ -174,6 +190,7 @@ function ScanStatus({ model }: Props) {
 }
 
 function HeaderSubline({ model }: Props) {
+  i18n.useLocale();
   if (model.stats.running === 0 && model.stats.starting === 0 && model.ports.length === 0) {
     return null;
   }
@@ -183,9 +200,10 @@ function HeaderSubline({ model }: Props) {
         <>
           <span
             className="inline-flex items-center gap-1 tabular-nums"
-            title={`Aggregate memory across ${model.stats.running} running project${
-              model.stats.running > 1 ? 's' : ''
-            }`}
+            title={i18n.t('Aggregate memory across {value1} running project{plural2}', {
+              value1: model.stats.running,
+              plural2: model.stats.running > 1 ? 's' : '',
+            })}
           >
             <MemoryStick className="text-fg-dim h-3 w-3" />
             {formatBytes(model.totals.mem)}
@@ -193,9 +211,10 @@ function HeaderSubline({ model }: Props) {
           <span className="text-fg-dim/50">·</span>
           <span
             className="inline-flex items-center gap-1 tabular-nums"
-            title={`Aggregate CPU across ${model.stats.running} running project${
-              model.stats.running > 1 ? 's' : ''
-            }`}
+            title={i18n.t('Aggregate CPU across {value1} running project{plural2}', {
+              value1: model.stats.running,
+              plural2: model.stats.running > 1 ? 's' : '',
+            })}
           >
             <Cpu className="text-fg-dim h-3 w-3" />
             {formatPercent(model.totals.cpu)}
@@ -208,8 +227,10 @@ function HeaderSubline({ model }: Props) {
       {model.stats.starting > 0 && (
         <>
           <span className="text-status-starting inline-flex items-center gap-1 tabular-nums">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {model.stats.starting} starting
+            {i18n.rich('{value1}{value2} starting', {
+              value1: <Loader2 className="h-3 w-3 animate-spin" />,
+              value2: model.stats.starting,
+            })}
           </span>
           {model.ports.length > 0 && <span className="text-fg-dim/50">·</span>}
         </>
@@ -217,9 +238,15 @@ function HeaderSubline({ model }: Props) {
       {model.ports.length > 0 && (
         <span
           className="tabular-nums"
-          title={`${model.ports.length} listening port${model.ports.length === 1 ? '' : 's'}`}
+          title={i18n.t('{value1} listening port{plural2}', {
+            value1: model.ports.length,
+            plural2: model.ports.length === 1 ? '' : 's',
+          })}
         >
-          {model.ports.length} port{model.ports.length === 1 ? '' : 's'}
+          {i18n.rich('{value1} port{plural3}', {
+            value1: model.ports.length,
+            plural3: model.ports.length === 1 ? '' : 's',
+          })}
         </span>
       )}
     </p>

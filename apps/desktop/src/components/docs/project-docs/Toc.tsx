@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { Heading } from './types';
@@ -9,11 +10,11 @@ interface TocProps {
 }
 
 export function Toc({ headings, activeId, onSelect }: TocProps) {
+  i18n.useLocale();
   return (
     <nav className="sticky top-2">
       <div className="text-fg-dim mb-2 flex items-center gap-1 px-1 text-[10px] font-semibold tracking-wider uppercase">
-        <ShieldCheck className="h-3 w-3" />
-        On this page
+        {i18n.rich('{value1}On this page', { value1: <ShieldCheck className="h-3 w-3" /> })}
       </div>
       <ul className="flex flex-col gap-0.5">
         {headings.map((h) => (

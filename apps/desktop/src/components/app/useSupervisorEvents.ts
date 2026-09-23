@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useEffect, useRef } from 'react';
 import { events, ipc } from '@/lib/ipc';
 import { logKey, useAppStore } from '@/store/useAppStore';
@@ -80,7 +81,9 @@ export function useSupervisorEvents() {
             const running = commands.filter((c) => c.status === 'running').map((c) => c.name);
             const names = running.length > 0 ? running : commands.map((c) => c.name);
             description =
-              names.length > 0 ? `Started ${name} — ${names.join(', ')}` : `Started ${name}`;
+              names.length > 0
+                ? i18n.t('Started {name} — {value2}', { name: name, value2: names.join(', ') })
+                : i18n.t('Started {name}', { name: name });
           } else if (lifecycle === 'stopped') {
             eventType = 'service_stopped';
             const parts = commands.map((command) => {
@@ -88,7 +91,9 @@ export function useSupervisorEvents() {
               return `${command.name}${code}`;
             });
             description =
-              parts.length > 0 ? `Stopped ${name} — ${parts.join(', ')}` : `Stopped ${name}`;
+              parts.length > 0
+                ? i18n.t('Stopped {name} — {value2}', { name: name, value2: parts.join(', ') })
+                : i18n.t('Stopped {name}', { name: name });
           } else {
             eventType = 'service_crashed';
             const failed = commands
@@ -98,7 +103,9 @@ export function useSupervisorEvents() {
                 return `${command.name}${err}`;
               });
             description =
-              failed.length > 0 ? `Crashed ${name} — ${failed.join('; ')}` : `Crashed ${name}`;
+              failed.length > 0
+                ? i18n.t('Crashed {name} — {value2}', { name: name, value2: failed.join('; ') })
+                : i18n.t('Crashed {name}', { name: name });
           }
 
           ipc

@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '../i18n';
+import * as i18n from '../i18n';
+import {} from 'react';
 import { cn } from '../lib/cn';
 
 interface Props {
@@ -20,6 +22,7 @@ interface Props {
  *  grid — density over detail. The fill tapers to `accent`-tinted
  *  transparency so the line reads crisp against any surface color. */
 export function Sparkline({ data, width = 120, height = 32, ceiling, className }: Props) {
+  i18n.useLocale();
   const path = useMemo(() => {
     if (!data || data.length === 0) return null;
     const safeData = data.map((v) => Math.max(0, v));
@@ -51,7 +54,7 @@ export function Sparkline({ data, width = 120, height = 32, ceiling, className }
         className={cn('flex items-center justify-center text-[9px]', className)}
         style={{ width, height }}
       >
-        <span className="text-fg-dim/60">no data</span>
+        <span className="text-fg-dim/60">{i18n.t('no data')}</span>
       </div>
     );
   }

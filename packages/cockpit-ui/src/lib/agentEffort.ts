@@ -1,13 +1,30 @@
+import * as i18n from '../i18n/core';
 const effortOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const labels: Record<string, string> = {
-  none: 'None',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-  ultra: 'Ultra',
+  get none() {
+    return i18n.t('None');
+  },
+  get minimal() {
+    return i18n.t('Minimal');
+  },
+  get low() {
+    return i18n.t('Low');
+  },
+  get medium() {
+    return i18n.t('Medium');
+  },
+  get high() {
+    return i18n.t('High');
+  },
+  get xhigh() {
+    return i18n.t('Extra high');
+  },
+  get max() {
+    return i18n.t('Max');
+  },
+  get ultra() {
+    return i18n.t('Ultra');
+  },
 };
 
 /** Provider variants can be arbitrary names; only known reasoning levels have an order. */
@@ -22,5 +39,5 @@ export function agentEffortLevels(values: string[]) {
   };
 }
 export function effortLabel(value: string) {
-  return value ? (labels[value] ?? value) : 'Auto';
+  return value ? (labels[value] ?? value) : i18n.t('Auto');
 }

@@ -9,6 +9,10 @@ use tokio_util::sync::CancellationToken;
 const OUTPUT_LIMIT: usize = 128 * 1024;
 const PATCH_LIMIT: usize = 8 * 1024 * 1024;
 
+#[path = "workflow_controls.rs"]
+mod controls;
+pub use controls::UpdateWorkflowSteps;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowCheck {
     pub command: String,
@@ -50,6 +54,9 @@ pub struct WorkflowStep {
     /// The session that ran this step, once one exists.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Reuse this earlier producing step's conversation, including provider-native context.
+    #[serde(default)]
+    pub continue_from: Option<String>,
     /// The single predecessor this step used to declare. Kept in sync with `depends_on.first()` so
     /// a build that predates the graph still reads the chain it understands.
     #[serde(default)]
@@ -98,6 +105,18 @@ pub struct WorkflowStep {
     /// Why this step failed or is blocked, in the words the screen shows.
     #[serde(default)]
     pub error: Option<String>,
+    /// Empty preserves the behaviour of workflows saved before review decisions existed.
+    #[serde(default)]
+    pub review_policy: String,
+    #[serde(default)]
+    pub review_outcome: Option<String>,
+    #[serde(default)]
+    pub review_summary: Option<String>,
+    #[serde(default)]
+    pub review_decision: Option<String>,
+    /// Automatic corrections are bounded to one attempt before asking the person.
+    #[serde(default)]
+    pub review_fix_attempts: u32,
 }
 
 impl WorkflowStep {
@@ -112,6 +131,7 @@ impl WorkflowStep {
             effort: String::new(),
             mode: String::new(),
             session_id: None,
+            continue_from: None,
             input_step_id: None,
             depends_on: vec![],
             prompt: String::new(),
@@ -127,6 +147,11 @@ impl WorkflowStep {
             started_at: None,
             finished_at: None,
             error: None,
+            review_policy: String::new(),
+            review_outcome: None,
+            review_summary: None,
+            review_decision: None,
+            review_fix_attempts: 0,
         }
     }
     /// Whether this step runs in a checkout of its own rather than the workflow's.
@@ -206,6 +231,7 @@ fn workflow_declared_graph(
             model: step.model.clone(),
             effort: step.effort.clone(),
             mode: step.mode.clone(),
+            continue_from: step.continue_from.clone(),
             // The session the workflow was created with owns its shared checkout, so the first
             // step is that session — unless it asked to work somewhere of its own, in which case
             // the shared checkout stays what the results are applied to.
@@ -237,6 +263,11 @@ fn workflow_declared_graph(
             started_at: None,
             finished_at: None,
             error: None,
+            review_policy: step.review_policy.clone(),
+            review_outcome: None,
+            review_summary: None,
+            review_decision: None,
+            review_fix_attempts: 0,
         });
     }
     steps
@@ -351,6 +382,7 @@ pub(super) fn workflow_step_stage(stage: &str) -> bool {
             | "review_ready"
             | "review_failed"
             | "checks_ready"
+            | "awaiting_review"
     )
 }
 
@@ -421,6 +453,11 @@ pub struct WorkflowWorktree {
     pub missing: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStartDependency {
+    pub session_id: String,
+    pub title: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentWorkflow {
     pub id: String,
     pub project_id: String,
@@ -453,6 +490,15 @@ pub struct AgentWorkflow {
     pub cleaned: bool,
     #[serde(default)]
     pub auto_progress: bool,
+    /// Launch intent is persisted before the background scheduler starts, independently of UI.
+    #[serde(default)]
+    pub launch_pending: bool,
+    #[serde(default)]
+    pub start_after: Option<WorkflowStartDependency>,
+    #[serde(default)]
+    pub editing: bool,
+    #[serde(default)]
+    pub edit_revision: u64,
     /// How many of this workflow's steps may run at once. 0 derives the bound from the capacity
     /// settings, so a workflow does not have to restate what the account limits already say.
     #[serde(default)]
@@ -473,7 +519,7 @@ pub struct AgentWorkflow {
 }
 /// A step as the creating screen states it. The session, status and input revision are RunHQ's to
 /// fill in as the workflow runs, so they are not accepted from the caller.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CreateWorkflowStep {
     pub role: String,
     pub target: String,
@@ -498,6 +544,10 @@ pub struct CreateWorkflowStep {
     /// `""`/`shared`, or `own` for a checkout of this step's alone.
     #[serde(default)]
     pub workspace: String,
+    #[serde(default)]
+    pub continue_from: Option<String>,
+    #[serde(default)]
+    pub review_policy: String,
 }
 pub const MAX_WORKFLOW_STEPS: usize = 64;
 /// A step's own instruction is bounded like the workflow objective it stands in for.
@@ -629,7 +679,9 @@ impl AgentWorkflow {
     fn dependencies_ready(&self, step: &WorkflowStep) -> bool {
         step.depends_on.iter().all(|id| {
             self.step(id).is_some_and(|dependency| {
-                dependency.status == "completed" && !self.awaiting_join(dependency)
+                dependency.status == "completed"
+                    && !dependency.review_needs_decision()
+                    && !self.awaiting_join(dependency)
             })
         })
     }
@@ -697,6 +749,9 @@ impl AgentWorkflow {
         }
         if !running.is_empty() {
             return "reviewing".into();
+        }
+        if self.awaiting_review() {
+            return "awaiting_review".into();
         }
         if let Some(stopped) = self
             .steps
@@ -780,6 +835,18 @@ impl AgentManager {
     }
     pub(super) fn recover_workflows(&self) -> AppResult<()> {
         for mut w in self.workflow_rows()? {
+            if w.launch_pending {
+                w.launch_pending = false;
+                w.auto_progress = false;
+                w.generation += 1;
+                if !w.steps.iter().any(|step| step.started_at.is_some())
+                    && !matches!(w.stage.as_str(), "setting_up" | "checking" | "integrating")
+                {
+                    w.stage = "launch_paused".into();
+                }
+                w.error = Some("Queued start paused after restart. Review the preceding task and choose when to start again.".into());
+                self.save_workflow(&mut w)?;
+            }
             if w.auto_progress && !matches!(w.stage.as_str(), "integrated" | "ready") {
                 w.auto_progress = false;
                 w.error = Some("Automatic progression paused after restart. Inspect the workspace and choose the next step explicitly.".into());
@@ -843,6 +910,17 @@ impl AgentManager {
                 || w.steps
                     .iter()
                     .any(|step| step.session_id.as_deref() == Some(&session.id));
+            if belongs
+                && (w.editing
+                    || w.awaiting_review()
+                    || w.start_after.is_some()
+                    || matches!(
+                        w.stage.as_str(),
+                        "waiting" | "launching" | "launch_failed" | "launch_paused"
+                    ))
+            {
+                return Err(invalid("This workflow is waiting to start. Choose its start timing from Workflows first."));
+            }
             if belongs && (w.cleaned || w.stage == "integrated") {
                 return Err(invalid("This workflow has been integrated or cleaned up. Create a new task for further changes."));
             }
@@ -908,6 +986,9 @@ impl AgentManager {
                     step.status = if completed { "completed" } else { "failed" }.into();
                     step.finished_at = Some(now());
                     step.error = if completed { None } else { failure.clone() };
+                    if completed && !workflow_role_produces(&step.role) {
+                        self.workflow_set_review_result(step);
+                    }
                 }
             }
             if shared_result {
@@ -939,6 +1020,30 @@ impl AgentManager {
                     w.error = Some(format!(
                         "Recording what step {id:?} produced failed: {error}"
                     ));
+                }
+            }
+            if !w.editing && !w.steps.iter().any(|step| step.status == "running") {
+                let automatic = w
+                    .steps
+                    .iter()
+                    .find(|step| {
+                        step.review_needs_decision()
+                            && step.review_policy == "auto_fix"
+                            && step.review_fix_attempts == 0
+                            && step.review_outcome.as_deref() == Some("findings")
+                    })
+                    .map(|step| step.id.clone());
+                if let Some(id) = automatic {
+                    let mut corrected = w.clone();
+                    match self.workflow_insert_review_fix(&mut corrected, &id) {
+                        Ok(()) => *w = corrected,
+                        Err(error) => {
+                            let step = w.steps.iter_mut().find(|step| step.id == id).unwrap();
+                            step.review_fix_attempts = 1;
+                            step.review_summary =
+                                Some(format!("Automatic correction could not be added: {error}"));
+                        }
+                    }
                 }
             }
             w.stage = w.steps_stage();
@@ -1004,7 +1109,7 @@ impl AgentManager {
                 "Give this workflow an objective, or an instruction for every task, with bounded acceptance criteria",
             ));
         }
-        validate_commands(&input.check_commands, true)?;
+        validate_commands(&input.check_commands, false)?;
         validate_commands(&input.setup_commands, false)?;
         // A declared step list is checked before anything is created, so an unusable division of
         // labour is refused rather than half-built.
@@ -1141,6 +1246,10 @@ impl AgentManager {
             updated_at: now(),
             cleaned: false,
             auto_progress: input.auto_progress,
+            launch_pending: false,
+            start_after: None,
+            editing: false,
+            edit_revision: 0,
             concurrency: input.concurrency,
             joined: vec![],
             generation: 0,
@@ -1273,7 +1382,7 @@ impl AgentManager {
         let _gate = self.workflow_gate.lock().await;
         let mut w = self.workflow(id)?;
         self.reconcile_workflow(&mut w).await?;
-        if !Self::workflow_idle(&w.stage) || w.cleaned {
+        if !Self::workflow_idle(&w.stage) || !Self::workflow_accepts_steps(&w) {
             return Err(invalid(
                 "Finish setup or stop the current workflow step first",
             ));
@@ -1324,16 +1433,51 @@ impl AgentManager {
         if !w.setup_commands.is_empty() && !commands_passed(&w.setup_commands, &w.setup) {
             return Err(invalid("Complete the setup commands before implementation"));
         }
-        let target = match &step.session_id {
+        let continued_session =
+            if let Some(previous_id) = &step.continue_from {
+                let previous = w
+                    .step(previous_id)
+                    .ok_or_else(|| invalid("The conversation's previous step is missing"))?;
+                if !workflow_role_produces(&step.role)
+                    || !workflow_role_produces(&previous.role)
+                    || step.owns_workspace()
+                    || previous.owns_workspace()
+                    || previous.target != step.target
+                    || previous.status != "completed"
+                    || !w.ancestors(&step.id).contains(previous_id)
+                {
+                    return Err(invalid(
+                        "Continue a completed prompt on the same agent and shared working copy",
+                    ));
+                }
+                Some(previous.session_id.clone().ok_or_else(|| {
+                    invalid("The previous prompt has no conversation to continue")
+                })?)
+            } else {
+                None
+            };
+        let existing_session = step.session_id.clone().or(continued_session);
+        let target = match &existing_session {
             Some(id) => self.session(id)?.backend,
             None => self.resolve_step_target(&step.target, false)?,
         };
-        // The first producing step owns the session created with the workflow; a later one opens its
-        // own, because a session belongs to the account that started it. A step that asked for a
+        // The first producing step owns the session created with the workflow; later steps open
+        // their own unless they explicitly continue an earlier conversation. A step that asked for a
         // checkout of its own gets one here, branched from what its dependencies produced — that is
         // what lets two producing steps run at the same time, since one checkout never carries two.
-        let session = match &step.session_id {
-            Some(id) => self.session(id)?,
+        let session = match &existing_session {
+            Some(id) => {
+                let session = self.session(id)?;
+                if session.workflow_read_only
+                    || Path::new(&session.cwd).canonicalize()?
+                        != Path::new(step.step_cwd(w)).canonicalize()?
+                {
+                    return Err(invalid(
+                        "The conversation no longer belongs to this workflow's working copy",
+                    ));
+                }
+                session
+            }
             None if step.owns_workspace() => {
                 let base = self.workflow_branch_point(w, &step).await?;
                 let created = self
@@ -1468,8 +1612,21 @@ impl AgentManager {
                 session_id: session.id,
                 request_id: uuid::Uuid::new_v4().to_string(),
                 prompt,
-                model: session.model,
-                effort: session.effort,
+                // Explicit continuation steps own their settings, including a return to Auto.
+                // Migrated workflows still inherit the original session's saved defaults.
+                model: if step.continue_from.is_none() && step.model.is_empty() {
+                    session.model
+                } else {
+                    step.model.clone()
+                },
+                effort: if step.continue_from.is_none()
+                    && step.model.is_empty()
+                    && step.effort.is_empty()
+                {
+                    session.effort
+                } else {
+                    step.effort.clone()
+                },
                 mode: Some(workflow_step_mode(&step.role, &session.adapter).to_string()),
                 agent: Some(String::new()),
                 attachments: vec![],
@@ -1572,12 +1729,18 @@ impl AgentManager {
             current.started_at = Some(now());
             current.finished_at = None;
             current.error = None;
+            current.review_outcome = None;
+            current.review_summary = None;
+            current.review_decision = None;
             if current.target.is_empty() {
                 current.target = reviewer.backend.clone();
             }
         }
         self.save_workflow(w)?;
-        let prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", workflow_step_task(w, &step), w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
+        let mut prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", workflow_step_task(w, &step), w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
+        if !matches!(step.review_policy.as_str(), "" | "continue") {
+            prompt.push_str("\n\nEnd your final response with exactly one line in this format (not a code block):\nRUNHQ_REVIEW_RESULT: {\"verdict\":\"pass\",\"summary\":\"Brief reason\"}\nUse verdict \"findings\" when any actionable issue remains. Use \"pass\" only when no actionable issues remain. Keep detailed findings above this line. This verdict describes the review; it is not approval to apply changes.");
+        }
         if let Err(error) = self
             .start(AgentTurnInput {
                 session_id: reviewer.id,
@@ -2058,7 +2221,9 @@ impl AgentManager {
         Ok(w)
     }
     fn require_validated(&self, w: &AgentWorkflow) -> AppResult<()> {
-        if w.stage != "ready"
+        if w.editing
+            || w.awaiting_review()
+            || w.stage != "ready"
             || !commands_passed(&w.check_commands, &w.checks)
             || w.checks
                 .iter()
@@ -2400,6 +2565,12 @@ fn validate_declared_graph(declared: &[CreateWorkflowStep]) -> AppResult<()> {
         if step.prompt.len() > MAX_STEP_PROMPT {
             return Err(invalid(format!("The instruction for {id:?} is too long")));
         }
+        if !matches!(
+            step.review_policy.as_str(),
+            "" | "continue" | "on_findings" | "approval" | "auto_fix"
+        ) {
+            return Err(invalid("Unknown review decision policy"));
+        }
         if !matches!(step.workspace.trim(), "" | "shared" | "own") {
             return Err(invalid(format!(
                 "Step {id:?} asks for an unknown checkout: {}",
@@ -2437,12 +2608,33 @@ fn validate_declared_graph(declared: &[CreateWorkflowStep]) -> AppResult<()> {
         .filter(|(_, step)| workflow_role_produces(&step.role))
         .map(|(id, _)| id)
         .collect();
+    let mut continued = std::collections::BTreeSet::new();
     for (index, step) in declared.iter().enumerate() {
         if dependencies[index].is_empty() && !workflow_role_produces(&step.role) {
             return Err(invalid(format!(
                 "Step {:?} reviews work that nothing has produced yet; every step that starts on its own must produce work",
                 ids[index]
             )));
+        }
+        if let Some(previous_id) = &step.continue_from {
+            let previous = ids
+                .iter()
+                .position(|id| id == previous_id)
+                .map(|at| &declared[at]);
+            if !workflow_role_produces(&step.role)
+                || step.workspace.trim() == "own"
+                || !ancestors[index].contains(previous_id)
+                || !previous.is_some_and(|previous| {
+                    workflow_role_produces(&previous.role)
+                        && previous.workspace.trim() != "own"
+                        && previous.target == step.target
+                })
+            {
+                return Err(invalid(format!("Step {:?} must continue an earlier producing step on the same agent and shared working copy", ids[index])));
+            }
+            if !continued.insert(previous_id) {
+                return Err(invalid("A conversation cannot fork into two continuations; chain the prompts or use separate conversations"));
+            }
         }
         if !workflow_role_produces(&step.role)
             && !ancestors[index].iter().any(|id| producers.contains(&id))
@@ -2646,6 +2838,9 @@ impl AgentManager {
         let mut w = self.workflow(id)?;
         self.reconcile_workflow(&mut w).await?;
         if w.cleaned
+            || w.editing
+            || w.awaiting_review()
+            || w.start_after.is_some()
             || matches!(
                 w.stage.as_str(),
                 "integrated" | "integrating" | "implementing" | "reviewing"
@@ -2756,6 +2951,8 @@ impl AgentManager {
             w.stage = "review_ready".into();
         } else if cancellation.is_cancelled() {
             w.stage = "cancelled".into();
+            w.launch_pending = false;
+            w.auto_progress = false;
         } else {
             w.stage = match (setup, failed) {
                 (true, false) => "implementation_ready",
@@ -2807,6 +3004,9 @@ impl AgentManager {
         }
         // Anything that finishes after this belongs to a generation the workflow has left behind.
         w.generation += 1;
+        w.launch_pending = false;
+        w.auto_progress = false;
+        w.start_after = None;
         w.stage = "cancelled".into();
         w.error = Some("Stopped by you. Workspace and evidence were retained; choose the next step explicitly.".into());
         self.save_workflow(&mut w)?;
@@ -3057,6 +3257,444 @@ mod tests {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+
+    async fn launch_fixture(
+        auto_progress: bool,
+    ) -> (
+        tempfile::TempDir,
+        Arc<AgentManager>,
+        AgentWorkflow,
+        AgentSession,
+    ) {
+        let (temp, manager, repo) = super::tests::repository();
+        let project = manager.add_project("Launch fixture".into(), repo).unwrap();
+        let mut tool = manager.tool("codex").unwrap();
+        tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+        manager.save_tool(tool).unwrap();
+        std::fs::write(
+            temp.path().join("bridge.cjs"),
+            r#"
+const fs = require('node:fs'), path = require('node:path');
+require('node:readline').createInterface({input: process.stdin}).on('line', line => {
+  const message = JSON.parse(line); if (message.type !== 'start') return;
+  const cfg = message.config;
+  if (!cfg.read_only_review) fs.appendFileSync(path.join(cfg.cwd, 'README.md'), 'Queued change\n');
+  process.stdout.write(JSON.stringify({type:'finished', status:'completed'}) + '\n');
+  process.exit(0);
+});
+"#,
+        )
+        .unwrap();
+        let preceding = manager
+            .create(
+                serde_json::from_value(json!({
+                    "project_id": project.id, "backend": "codex", "title": "Already working"
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let preceding = manager
+            .mutate(&preceding.id, |s, _| {
+                s.status = "running".into();
+                Ok(())
+            })
+            .unwrap();
+        let workflow = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: project.id,
+                backend: "codex".into(),
+                reviewer_backend: "codex".into(),
+                objective: "Run these prompts".into(),
+                base_ref: "HEAD".into(),
+                setup_commands: vec!["echo setup > setup-ran".into()],
+                check_commands: vec!["echo verified".into()],
+                auto_progress,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        (temp, manager, workflow, preceding)
+    }
+
+    async fn wait_for_workflow(manager: &AgentManager, id: &str, stage: &str) -> AgentWorkflow {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let w = manager.workflow(id).unwrap();
+                if w.stage == stage {
+                    return w;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("Expected {stage}, got {:?}", manager.workflow(id)))
+    }
+
+    #[tokio::test]
+    async fn queued_launch_waits_for_success_before_setup_and_survives_leaving_the_ui() {
+        for automatic in [false, true] {
+            let (_temp, manager, workflow, preceding) = launch_fixture(automatic).await;
+            let queued = manager
+                .workflow_launch(&workflow.id, Some(preceding.id.clone()))
+                .await
+                .unwrap();
+            assert_eq!(queued.stage, "waiting");
+            assert_eq!(
+                manager
+                    .workflow(&workflow.id)
+                    .unwrap()
+                    .start_after
+                    .unwrap()
+                    .session_id,
+                preceding.id
+            );
+            // Neither a manual start nor setup may skip the saved dependency.
+            assert!(manager.workflow_run_step(&workflow.id).await.is_err());
+            assert!(manager
+                .workflow_run_named_step(&workflow.id, "implement")
+                .await
+                .is_err());
+            assert!(manager.workflow_commands(&workflow.id, true).await.is_err());
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            assert!(!Path::new(&workflow.cwd).join("setup-ran").exists());
+            assert_eq!(
+                manager
+                    .session(&workflow.implementation_session_id)
+                    .unwrap()
+                    .status,
+                "idle"
+            );
+            manager
+                .mutate(&preceding.id, |s, _| {
+                    s.status = "completed".into();
+                    Ok(())
+                })
+                .unwrap();
+            manager.workflow_notify();
+            // No UI polling, schedule or start calls advance this run.
+            let stage = if automatic { "ready" } else { "review_ready" };
+            let done = if automatic {
+                wait_for_workflow(&manager, &workflow.id, stage).await
+            } else {
+                // Manual progression stops after the first turn; reconciliation is read-only.
+                tokio::time::timeout(Duration::from_secs(20), async {
+                    loop {
+                        let rows = manager.workflows().await.unwrap();
+                        if let Some(w) = rows
+                            .into_iter()
+                            .find(|w| w.id == workflow.id && w.stage == stage)
+                        {
+                            break w;
+                        }
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .unwrap()
+            };
+            assert!(!done.launch_pending);
+            assert!(done.start_after.is_none());
+            assert!(Path::new(&workflow.cwd).join("setup-ran").exists());
+            assert_eq!(done.auto_progress, automatic);
+            assert_ne!(done.cwd, preceding.cwd);
+        }
+    }
+
+    #[tokio::test]
+    async fn queued_launch_pauses_on_predecessor_failure_and_can_start_now_independently() {
+        let (_temp, manager, workflow, preceding) = launch_fixture(true).await;
+        manager
+            .workflow_launch(&workflow.id, Some(preceding.id.clone()))
+            .await
+            .unwrap();
+        manager
+            .mutate(&preceding.id, |s, _| {
+                s.status = "failed".into();
+                Ok(())
+            })
+            .unwrap();
+        manager.workflow_notify();
+        let paused = wait_for_workflow(&manager, &workflow.id, "launch_failed").await;
+        assert!(!paused.launch_pending && !paused.auto_progress);
+        assert!(!Path::new(&workflow.cwd).join("setup-ran").exists());
+        assert!(paused.error.unwrap().contains("preceding task"));
+        // A person explicitly changes the timing; the failed task itself is never restarted.
+        manager.workflow_launch(&workflow.id, None).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let w = manager.workflow(&workflow.id).unwrap();
+                if w.steps[0].started_at.is_some() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(manager.session(&preceding.id).unwrap().status, "failed");
+        assert!(manager
+            .workflow(&workflow.id)
+            .unwrap()
+            .start_after
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn immediate_launch_runs_without_waiting_for_other_project_tasks() {
+        let (_temp, manager, workflow, preceding) = launch_fixture(true).await;
+        let launched = manager.workflow_launch(&workflow.id, None).await.unwrap();
+        assert_eq!(launched.stage, "launching");
+        let ready = wait_for_workflow(&manager, &workflow.id, "ready").await;
+        assert!(ready.start_after.is_none() && !ready.launch_pending);
+        assert_eq!(manager.session(&preceding.id).unwrap().status, "running");
+    }
+
+    #[tokio::test]
+    async fn queued_launch_cancellation_restart_and_project_boundaries_are_enforced() {
+        for restart in [false, true] {
+            let (_temp, manager, workflow, preceding) = launch_fixture(true).await;
+            assert!(manager
+                .workflow_launch(&workflow.id, Some("missing".into()))
+                .await
+                .is_err());
+            assert!(manager
+                .workflow_launch(
+                    &workflow.id,
+                    Some(workflow.implementation_session_id.clone())
+                )
+                .await
+                .is_err());
+            manager
+                .mutate(&preceding.id, |s, _| {
+                    s.project_id = "another-project".into();
+                    Ok(())
+                })
+                .unwrap();
+            assert!(manager
+                .workflow_launch(&workflow.id, Some(preceding.id.clone()))
+                .await
+                .is_err());
+            manager
+                .mutate(&preceding.id, |s, _| {
+                    s.project_id = workflow.project_id.clone();
+                    Ok(())
+                })
+                .unwrap();
+            manager
+                .workflow_launch(&workflow.id, Some(preceding.id.clone()))
+                .await
+                .unwrap();
+            if restart {
+                manager.recover_workflows().unwrap();
+            } else {
+                manager.workflow_cancel(&workflow.id).await.unwrap();
+            }
+            assert_eq!(manager.session(&preceding.id).unwrap().status, "running");
+            manager
+                .mutate(&preceding.id, |s, _| {
+                    s.status = "completed".into();
+                    Ok(())
+                })
+                .unwrap();
+            manager.workflow_notify();
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let paused = manager.workflow(&workflow.id).unwrap();
+            assert!(!paused.launch_pending);
+            assert_eq!(
+                paused.stage,
+                if restart {
+                    "launch_paused"
+                } else {
+                    "cancelled"
+                }
+            );
+            assert!(!Path::new(&workflow.cwd).join("setup-ran").exists());
+        }
+    }
+
+    fn prompt_queue_steps(same_conversation: bool) -> Vec<CreateWorkflowStep> {
+        [
+            ("prompt1", "implement", "QUEUE_FIRST", None),
+            ("review1", "review", "REVIEW_FIRST", Some("prompt1")),
+            ("prompt2", "implement", "QUEUE_SECOND", Some("review1")),
+            ("review2", "review", "REVIEW_SECOND", Some("prompt2")),
+        ]
+        .into_iter()
+        .map(|(id, role, prompt, after)| CreateWorkflowStep {
+            id: Some(id.into()),
+            role: role.into(),
+            target: "codex".into(),
+            prompt: prompt.into(),
+            depends_on: Some(after.into_iter().map(str::to_string).collect()),
+            continue_from: (same_conversation && id == "prompt2").then(|| "prompt1".into()),
+            ..Default::default()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn prompt_queue_continuation_requires_one_earlier_compatible_conversation() {
+        assert!(validate_declared_graph(&prompt_queue_steps(true)).is_ok());
+        assert!(validate_declared_graph(&prompt_queue_steps(false)).is_ok());
+        for invalid_source in ["missing", "review1", "prompt2", "review2"] {
+            let mut steps = prompt_queue_steps(true);
+            steps[2].continue_from = Some(invalid_source.into());
+            assert!(validate_declared_graph(&steps).is_err(), "{invalid_source}");
+        }
+        let mut steps = prompt_queue_steps(true);
+        steps[2].target = "claude".into();
+        assert!(validate_declared_graph(&steps).is_err());
+        let mut steps = prompt_queue_steps(true);
+        steps[0].workspace = "own".into();
+        assert!(validate_declared_graph(&steps).is_err());
+        let mut steps = prompt_queue_steps(true);
+        steps[2].workspace = "own".into();
+        assert!(validate_declared_graph(&steps).is_err());
+        let mut steps = prompt_queue_steps(true);
+        steps.push(CreateWorkflowStep {
+            id: Some("fork".into()),
+            role: "implement".into(),
+            target: "codex".into(),
+            depends_on: Some(vec!["prompt2".into()]),
+            continue_from: Some("prompt1".into()),
+            ..Default::default()
+        });
+        assert!(validate_declared_graph(&steps)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot fork"));
+    }
+
+    #[tokio::test]
+    async fn prompt_queues_automatically_run_reviews_and_resume_the_selected_conversation() {
+        assert!(
+            super::super::executable("node").is_some(),
+            "Node is required for the fixture agent"
+        );
+        for (same_conversation, next_model, next_effort) in [
+            (false, "fixture-next", "low"),
+            (true, "fixture-next", ""),
+            (true, "", ""),
+        ] {
+            let (temp, manager, repo) = super::tests::repository();
+            let project = manager.add_project("Queue fixture".into(), repo).unwrap();
+            let mut tool = manager.tool("codex").unwrap();
+            tool.executable = std::env::current_exe().unwrap().to_string_lossy().into();
+            manager.save_tool(tool).unwrap();
+            std::fs::write(temp.path().join("bridge.cjs"), r#"
+const fs = require('node:fs'), path = require('node:path');
+const emit = value => process.stdout.write(JSON.stringify(value) + '\n');
+require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+  const message = JSON.parse(line); if (message.type !== 'start') return;
+  const cfg = message.config;
+  const stage = cfg.read_only_review
+    ? (cfg.prompt.includes('REVIEW_SECOND') ? 'review2' : 'review1')
+    : (cfg.prompt.includes('QUEUE_SECOND') ? 'prompt2' : 'prompt1');
+  fs.appendFileSync(path.join(__dirname, 'queue-calls.jsonl'), JSON.stringify({ stage, native: cfg.native_id, review: cfg.read_only_review, prompt: cfg.prompt, model: cfg.model, effort: cfg.effort }) + '\n');
+  emit({ type: 'native', id: cfg.native_id || `native-${stage}` });
+  if (!cfg.read_only_review) fs.appendFileSync(path.join(cfg.cwd, 'README.md'), stage + '\n');
+  emit({ type: 'item', item: { id: stage, kind: 'assistant', title: 'Result', text: cfg.read_only_review ? 'REVIEW_FINDINGS_SENTINEL' : 'Done', status: 'completed' } });
+  emit({ type: 'finished', status: 'completed' });
+  process.exit(0);
+});
+"#).unwrap();
+            let mut steps = prompt_queue_steps(same_conversation);
+            steps[0].model = "fixture-first".into();
+            steps[0].effort = "high".into();
+            steps[2].model = next_model.into();
+            steps[2].effort = next_effort.into();
+            for index in [1, 3] {
+                steps[index].model = "fixture-review".into();
+                steps[index].effort = "medium".into();
+            }
+            let workflow = manager
+                .workflow_create(CreateAgentWorkflow {
+                    project_id: project.id,
+                    backend: "codex".into(),
+                    reviewer_backend: "codex".into(),
+                    objective: "Queued edits".into(),
+                    base_ref: "HEAD".into(),
+                    check_commands: vec!["echo verified".into()],
+                    auto_progress: true,
+                    steps,
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            manager.workflow_schedule(&workflow.id).await.unwrap();
+            // Start once, as in the UI. Only automatic progression may advance subsequent steps.
+            let ready = tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    let current = manager.workflow(&workflow.id).unwrap();
+                    assert!(!current.stage.ends_with("failed"), "{:?}", current.error);
+                    if current.stage == "ready" {
+                        break current;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                panic!("Queue did not finish: {:?}", manager.workflow(&workflow.id))
+            });
+            let calls: Vec<Value> = std::fs::read_to_string(temp.path().join("queue-calls.jsonl"))
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                calls
+                    .iter()
+                    .map(|call| call["stage"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["prompt1", "review1", "prompt2", "review2"]
+            );
+            assert_eq!(
+                calls[2]["native"].as_str(),
+                same_conversation.then_some("native-prompt1")
+            );
+            for (index, model, effort) in [
+                (0, "fixture-first", "high"),
+                (1, "fixture-review", "medium"),
+                (2, next_model, next_effort),
+                (3, "fixture-review", "medium"),
+            ] {
+                assert_eq!(calls[index]["model"].as_str().unwrap_or_default(), model);
+                assert_eq!(calls[index]["effort"].as_str().unwrap_or_default(), effort);
+            }
+            assert!(
+                calls[1]["native"].is_null() && calls[3]["native"].is_null(),
+                "reviews must start independent conversations"
+            );
+            assert!(calls[2]["prompt"]
+                .as_str()
+                .unwrap()
+                .contains("REVIEW_FINDINGS_SENTINEL"));
+            let first = ready.step("prompt1").unwrap().session_id.as_ref().unwrap();
+            let second = ready.step("prompt2").unwrap().session_id.as_ref().unwrap();
+            assert_eq!(first == second, same_conversation);
+            assert_ne!(
+                ready.step("review1").unwrap().session_id.as_ref(),
+                Some(first)
+            );
+            let snapshot = manager.snapshot(second, None).unwrap();
+            assert_eq!(
+                snapshot
+                    .items
+                    .iter()
+                    .filter(|item| item.kind == "user")
+                    .count(),
+                if same_conversation { 2 } else { 1 }
+            );
+            assert_eq!(ready.checks[0].status, "passed");
+            assert!(
+                !std::fs::read_to_string(Path::new(&ready.target).join("README.md"))
+                    .unwrap()
+                    .contains("prompt2")
+            );
+        }
+    }
 
     /// A real three-role workflow against installed provider CLIs.
     ///

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { Tone } from './model';
 
@@ -14,6 +15,7 @@ export function TabButton({
   onClick: () => void;
   tone: Tone | null;
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"

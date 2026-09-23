@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useAppDataBootstrap } from '@/components/app/useAppDataBootstrap';
@@ -20,6 +21,7 @@ import { useContextMenu } from '@/lib/context-menu';
 import { useUiZoomShortcuts } from '@/lib/ui-zoom';
 
 export default function App() {
+  i18n.useLocale();
   const openEditor = useAppStore((s) => s.openEditor);
   const openStackEditor = useAppStore((s) => s.openStackEditor);
   const setScanPath = useShellUiStore((s) => s.setScanPath);
@@ -31,12 +33,12 @@ export default function App() {
 
   const contextItems = useCallback(
     (): Array<{ label: string; action?: () => void; separator?: boolean; shortcut?: string }> => [
-      { label: 'New Service…', action: () => openEditor(null), shortcut: '⌘N' },
-      { label: 'New Stack…', action: () => openStackEditor(null) },
-      { label: 'Discover projects…', action: startScan },
+      { label: i18n.t('New Service…'), action: () => openEditor(null), shortcut: '⌘N' },
+      { label: i18n.t('New Stack…'), action: () => openStackEditor(null) },
+      { label: i18n.t('Discover projects…'), action: startScan },
       { separator: true, label: '' },
       {
-        label: 'Reload',
+        label: i18n.t('Reload'),
         action: () => window.location.reload(),
       },
     ],

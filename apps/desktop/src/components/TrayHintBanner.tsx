@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { useSyncedTheme } from '@/lib/theme';
 import { Zap, X } from 'lucide-react';
@@ -77,6 +78,7 @@ function readIsDark(): boolean {
 }
 
 export function TrayHintBanner() {
+  i18n.useLocale();
   // Primary theme sync path: Tauri event bus. The `storage` listener
   // below stays as a belt-and-suspenders fallback for the rare case
   // where the event bus isn't ready yet (cold webview boot).
@@ -249,7 +251,7 @@ export function TrayHintBanner() {
               letterSpacing: '-0.01em',
             }}
           >
-            RunHQ is still running
+            {i18n.t('RunHQ is still running')}
           </div>
           <div
             style={{
@@ -263,11 +265,11 @@ export function TrayHintBanner() {
               gap: 4,
             }}
           >
-            <span>Press</span>
+            <span>{i18n.t('Press')}</span>
             <Kbd className="text-[10px]">{mod}</Kbd>
             <Kbd className="text-[10px]">⇧</Kbd>
             <Kbd className="text-[10px]">K</Kbd>
-            <span>to bring it back.</span>
+            <span>{i18n.t('to bring it back.')}</span>
           </div>
         </div>
 
@@ -277,7 +279,7 @@ export function TrayHintBanner() {
             e.stopPropagation();
             dismiss();
           }}
-          aria-label="Dismiss"
+          aria-label={i18n.t('Dismiss')}
           style={{
             flex: '0 0 auto',
             width: 20,

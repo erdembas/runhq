@@ -16,7 +16,7 @@ pub(crate) fn install_tray_hint_window(
     };
 
     let th_window = tauri::WebviewWindowBuilder::new(app, "tray-hint", th_url)
-        .title("RunHQ Hint")
+        .title(crate::tray::localize(app.handle(), "RunHQ Hint"))
         .inner_size(TRAY_HINT_W, TRAY_HINT_H)
         .decorations(false)
         .transparent(true)

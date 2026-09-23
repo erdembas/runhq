@@ -256,6 +256,11 @@ impl AgentManager {
             return Err(invalid("Unknown workspace record type"));
         }
         if let Some(value) = &value {
+            if key == "preferences:permissions"
+                && !super::permissions::valid_policy(&value["policy"])
+            {
+                return Err(invalid("Unknown agent permission policy"));
+            }
             let limit = if key.starts_with("context:") {
                 4 * 1024 * 1024
             } else {

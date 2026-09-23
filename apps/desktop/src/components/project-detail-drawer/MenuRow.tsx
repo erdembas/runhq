@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -12,6 +13,7 @@ export function MenuRow({
   index: number;
   close: () => void;
 }) {
+  i18n.useLocale();
   const [subOpen, setSubOpen] = useState(false);
 
   if (item.separator) {

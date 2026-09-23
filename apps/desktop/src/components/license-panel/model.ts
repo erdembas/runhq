@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { LicenseRisk } from '@/types';
 
 /**
@@ -21,11 +22,25 @@ export const RISK_TONE: Record<
 };
 
 export const RISK_LABEL: Record<LicenseRisk, string> = {
-  safe: 'Safe',
-  permissive: 'Permissive',
-  weak_copyleft: 'Weak Copyleft',
-  strong_copyleft: 'Strong Copyleft',
-  network_copyleft: 'Network Copyleft',
-  proprietary: 'Proprietary',
-  unknown: 'Unknown',
+  get safe() {
+    return i18n.t('Safe');
+  },
+  get permissive() {
+    return i18n.t('Permissive');
+  },
+  get weak_copyleft() {
+    return i18n.t('Weak Copyleft');
+  },
+  get strong_copyleft() {
+    return i18n.t('Strong Copyleft');
+  },
+  get network_copyleft() {
+    return i18n.t('Network Copyleft');
+  },
+  get proprietary() {
+    return i18n.t('Proprietary');
+  },
+  get unknown() {
+    return i18n.t('Unknown');
+  },
 };

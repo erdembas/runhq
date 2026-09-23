@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -21,6 +22,7 @@ import {
 } from './sidebar';
 
 export function SidebarRail() {
+  i18n.useLocale();
   return (
     <SidebarAgentActivityProvider>
       <SidebarRailContent />
@@ -29,6 +31,7 @@ export function SidebarRail() {
 }
 
 function SidebarRailContent() {
+  i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const selectedServiceId = useAppStore((s) => s.selectedServiceId);
@@ -123,7 +126,7 @@ function SidebarRailContent() {
   const requestDeleteService = useCallback(
     (svc: ServiceDef) => {
       setPendingConfirm({
-        message: `Delete "${svc.name}"?`,
+        message: i18n.t('Delete "{value1}"?', { value1: svc.name }),
         onConfirm: async () => {
           setPendingConfirm(null);
           await ipc.stopService(svc.id).catch(() => undefined);
@@ -138,7 +141,7 @@ function SidebarRailContent() {
   const requestDeleteStack = useCallback(
     (stack: StackDef) => {
       setPendingConfirm({
-        message: `Delete stack "${stack.name}"?`,
+        message: i18n.t('Delete stack "{value1}"?', { value1: stack.name }),
         onConfirm: async () => {
           setPendingConfirm(null);
           await ipc.removeStack(stack.id);
@@ -185,8 +188,8 @@ function SidebarRailContent() {
           <div className="border-border/70 bg-surface/50 focus-within:border-accent/30 mx-3 mb-3 flex items-center gap-2 rounded-lg border px-2.5">
             <Search className="text-fg-dim h-3.5 w-3.5 shrink-0" />
             <input
-              aria-label="Search workspace"
-              placeholder="Find projects, groups…"
+              aria-label={i18n.t('Search workspace')}
+              placeholder={i18n.t('Find projects, groups…')}
               className="text-fg placeholder:text-fg-dim min-w-0 flex-1 bg-transparent py-2 text-[11.5px] outline-none"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -200,7 +203,7 @@ function SidebarRailContent() {
             {search && (
               <button
                 type="button"
-                aria-label="Clear workspace search"
+                aria-label={i18n.t('Clear workspace search')}
                 className="text-fg-dim hover:text-fg p-0.5"
                 onClick={() => setSearch('')}
               >
@@ -213,7 +216,10 @@ function SidebarRailContent() {
         {expanded && hiddenCount > 0 && (
           <div className="border-border/60 mx-3 mb-1 flex items-center gap-2 rounded-[6px] border border-dashed px-2 py-1">
             <span className="text-fg-dim text-[10.5px]">
-              Showing {filteredServices.length} · {hiddenCount} hidden
+              {i18n.rich('Showing {value1} · {hiddenCount} hidden', {
+                value1: filteredServices.length,
+                hiddenCount: hiddenCount,
+              })}
             </span>
           </div>
         )}
@@ -229,7 +235,9 @@ function SidebarRailContent() {
 
         {expanded && !useSectionLayout && flatGroups.length === 0 && (
           <div className="text-fg-dim px-3 py-6 text-center text-[12px]">
-            {services.length === 0 ? 'No services yet.' : 'No matches for this filter.'}
+            {services.length === 0
+              ? i18n.t('No services yet.')
+              : i18n.t('No matches for this filter.')}
           </div>
         )}
 
@@ -269,9 +277,9 @@ function SidebarRailContent() {
             onDeleteStack={requestDeleteStack}
             emptyMessage={
               services.length === 0 && stacks.length === 0
-                ? 'No services yet.'
+                ? i18n.t('No services yet.')
                 : hiddenCount > 0
-                  ? 'No matches for this filter.'
+                  ? i18n.t('No matches for this filter.')
                   : undefined
             }
           />

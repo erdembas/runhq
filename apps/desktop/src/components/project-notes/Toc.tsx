@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ListTree } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { TocHeading } from './types';
@@ -9,11 +10,11 @@ interface TocProps {
 }
 
 export function Toc({ activeId, headings, onSelect }: TocProps) {
+  i18n.useLocale();
   return (
     <nav className="sticky top-2">
       <div className="text-fg-dim mb-2 flex items-center gap-1 px-1 text-[10px] font-semibold tracking-wider uppercase">
-        <ListTree className="h-3 w-3" />
-        On this note
+        {i18n.rich('{value1}On this note', { value1: <ListTree className="h-3 w-3" /> })}
       </div>
       <ul className="flex flex-col gap-0.5">
         {headings.map((heading) => (

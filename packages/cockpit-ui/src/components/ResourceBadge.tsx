@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Cpu, MemoryStick } from 'lucide-react';
 import type { ResourceSample } from '@runhq/cockpit-types';
 import { cn } from '../lib/cn';
@@ -16,6 +19,7 @@ interface Props {
  *  Renders `—` for services without a sample yet so the slot doesn't shift
  *  width when the first resource event arrives 2 seconds in. */
 export function ResourceBadge({ sample, compact = false, className }: Props) {
+  i18n.useLocale();
   const cpu = sample?.cpu_percent;
   const mem = sample?.memory_bytes;
   const cpuTone = cpuToneClass(cpu ?? 0);
@@ -30,8 +34,11 @@ export function ResourceBadge({ sample, compact = false, className }: Props) {
         )}
         title={
           sample
-            ? `CPU ${formatPercent(cpu!)} · RSS ${formatBytes(mem!)}`
-            : 'Waiting for first sample…'
+            ? i18n.t('CPU {value1} · RSS {value2}', {
+                value1: formatPercent(cpu!),
+                value2: formatBytes(mem!),
+              })
+            : i18n.t('Waiting for first sample…')
         }
       >
         <span className={cn('tabular-nums', cpuTone)}>{sample ? formatPercent(cpu!) : '—'}</span>

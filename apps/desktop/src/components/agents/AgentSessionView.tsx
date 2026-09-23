@@ -1,4 +1,6 @@
-import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 import {
   Archive,
   ArrowDown,
@@ -70,6 +72,8 @@ import {
 } from './agentComposerPolicy';
 import { AgentTaskLinks } from './AgentTaskLinks';
 import { AgentUsageGuardNotice } from './AgentUsageNotifications';
+import { AgentSessionProject } from './AgentSessionProject';
+import { AgentUserMessage } from './AgentUserMessage';
 
 const emptyQueue: never[] = [];
 const emptyItems: AgentItem[] = [];
@@ -79,10 +83,13 @@ const quietButton =
 const TranscriptItem = memo(function TranscriptItem({
   item,
   providerName,
+  request,
 }: {
   item: AgentItem;
   providerName: string;
+  request?: AgentItem;
 }) {
+  i18n.useLocale();
   if (item.kind === 'assistant')
     return (
       <article className="text-fg min-w-0 text-[13px] leading-relaxed break-words">
@@ -108,18 +115,20 @@ const TranscriptItem = memo(function TranscriptItem({
           <p className="text-fg-dim mt-1 break-words whitespace-pre-wrap">{details.prompt}</p>
         )}
         <p className="text-fg-dim mt-1 text-[11px]">
-          Ran inside {providerName}; RunHQ reports it but does not schedule it.
+          {i18n.rich('Ran inside {providerName}; RunHQ reports it but does not schedule it.', {
+            providerName: providerName,
+          })}
         </p>
       </article>
     );
   }
-  if (item.kind === 'user')
-    return (
-      <article className="bg-fg/5 text-fg ml-6 rounded-lg px-4 py-3 text-[13px] break-words whitespace-pre-wrap">
-        <div className="text-fg-dim mb-1 text-[11px]">{item.title}</div>
-        {item.text}
-      </article>
-    );
+  if (item.kind === 'user') return <AgentUserMessage item={item} request={request} />;
+  const title =
+    item.kind === 'automatic_approval'
+      ? item.status === 'failed'
+        ? i18n.t('Automatic approval failed: {request}', { request: item.title })
+        : i18n.t('Automatically approved: {request}', { request: item.title })
+      : item.title;
   return (
     <details
       className={`group rounded-md text-[12px] ${item.status === 'failed' ? 'border-status-error/20 bg-status-error/5 text-status-error border' : 'text-fg-dim'}`}
@@ -133,8 +142,8 @@ const TranscriptItem = memo(function TranscriptItem({
         ) : (
           <Check className="h-3.5 w-3.5 shrink-0" />
         )}
-        <span className="min-w-0 flex-1 truncate" title={item.title}>
-          {item.title}
+        <span className="min-w-0 flex-1 truncate" title={title}>
+          {title}
         </span>
         <ChevronRight
           className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90"
@@ -159,6 +168,7 @@ export function AgentSessionView({
   focusItemId?: string;
   onHandoff?: (items: AgentItem[]) => void;
 }) {
+  i18n.useLocale();
   const viewId = useId();
   const { snapshot, error: snapshotError, loadOlder } = useAgentSnapshot(session.id, visible);
   const toolEnabled = useVisibleStore(
@@ -230,6 +240,10 @@ export function AgentSessionView({
     model,
   );
   const items = snapshot?.items ?? emptyItems;
+  const requests = useMemo(
+    () => new Map(items.filter((item) => item.kind === 'request').map((item) => [item.id, item])),
+    [items],
+  );
   const focused = useRef('');
   const loadingFocusPage = useRef<number | null>(null);
   useEffect(() => {
@@ -414,6 +428,7 @@ export function AgentSessionView({
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="border-border shrink-0 border-b px-4 pt-2.5 pb-2">
+        <AgentSessionProject session={session} />
         <div className="flex items-center gap-2">
           <h2
             className="text-fg min-w-0 flex-1 truncate text-[13px] font-medium"
@@ -428,18 +443,22 @@ export function AgentSessionView({
               disabled={active || busy}
               onClick={() => onHandoff(items)}
               className={quietButton}
-              title="Choose another agent and review a context handoff"
+              title={i18n.t('Choose another agent and review a context handoff')}
             >
               <ArrowRightLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Hand off</span>
+              <span className="hidden sm:inline">{i18n.t('Hand off')}</span>
             </button>
           )}
           <button
             type="button"
-            aria-label={detailsExpanded ? 'Hide session details' : 'Show session details'}
+            aria-label={
+              detailsExpanded ? i18n.t('Hide session details') : i18n.t('Show session details')
+            }
             aria-expanded={detailsExpanded}
             aria-controls={`${viewId}-details`}
-            title={detailsExpanded ? 'Hide session details' : 'Show session details'}
+            title={
+              detailsExpanded ? i18n.t('Hide session details') : i18n.t('Show session details')
+            }
             className={quietButton}
             onClick={() => setDetailsExpanded((expanded) => !expanded)}
           >
@@ -449,7 +468,7 @@ export function AgentSessionView({
           </button>
         </div>
         <nav
-          aria-label="Session views"
+          aria-label={i18n.t('Session views')}
           className="overlay-scroll mt-1 flex min-w-0 items-center gap-0.5 overflow-x-auto"
         >
           <button
@@ -460,16 +479,17 @@ export function AgentSessionView({
               setCanvasOpen(false);
             }}
           >
-            <MessageSquare className="h-3.5 w-3.5" />
-            Chat
+            {i18n.rich('{value1}Chat', { value1: <MessageSquare className="h-3.5 w-3.5" /> })}
           </button>
           <button
             aria-pressed={tab === 'plan'}
             className={quietButton}
             onClick={() => setTab('plan')}
           >
-            <ListChecks className="h-3.5 w-3.5" />
-            Plan{plans.length ? ` · ${plans.length}` : ''}
+            {i18n.rich('{value1}Plan{value2}', {
+              value1: <ListChecks className="h-3.5 w-3.5" />,
+              value2: plans.length ? ` · ${plans.length}` : '',
+            })}
           </button>
           <button
             aria-pressed={canvasOpen && tab === 'chat'}
@@ -479,8 +499,10 @@ export function AgentSessionView({
               setTab('chat');
             }}
           >
-            <PanelsTopLeft className="h-3.5 w-3.5" />
-            Canvas{artifacts.length ? ` · ${artifacts.length}` : ''}
+            {i18n.rich('{value1}Canvas{value2}', {
+              value1: <PanelsTopLeft className="h-3.5 w-3.5" />,
+              value2: artifacts.length ? ` · ${artifacts.length}` : '',
+            })}
           </button>
           <button
             aria-pressed={tab === 'diff'}
@@ -490,8 +512,7 @@ export function AgentSessionView({
               void refreshDiff();
             }}
           >
-            <FileDiff className="h-3.5 w-3.5" />
-            Changes
+            {i18n.rich('{value1}Changes', { value1: <FileDiff className="h-3.5 w-3.5" /> })}
           </button>
           <button
             aria-pressed={tab === 'terminal'}
@@ -501,8 +522,7 @@ export function AgentSessionView({
               setTab('terminal');
             }}
           >
-            <TerminalSquare className="h-3.5 w-3.5" />
-            Terminal
+            {i18n.rich('{value1}Terminal', { value1: <TerminalSquare className="h-3.5 w-3.5" /> })}
           </button>
         </nav>
         {routingNote && (
@@ -522,7 +542,7 @@ export function AgentSessionView({
                   }}
                 >
                   <input
-                    aria-label="Session title"
+                    aria-label={i18n.t('Session title')}
                     autoFocus
                     className="bg-surface border-border text-fg min-w-0 flex-1 basis-40 rounded border px-2 py-1 text-[13px]"
                     maxLength={200}
@@ -532,14 +552,13 @@ export function AgentSessionView({
                       if (e.key === 'Escape') setRenaming(false);
                     }}
                   />
-                  <button className={quietButton}>Save</button>
+                  <button className={quietButton}>{i18n.t('Save')}</button>
                   <button type="button" className={quietButton} onClick={() => setRenaming(false)}>
-                    Cancel
+                    {i18n.t('Cancel')}
                   </button>
                 </form>
               )}
               <div className="text-fg-dim flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                <span className="min-w-0 truncate">{session.project_name}</span>
                 <span className="flex min-w-0 items-center gap-1.5">
                   <AgentProviderLogo backend={session.backend} className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">
@@ -547,45 +566,37 @@ export function AgentSessionView({
                   </span>
                 </span>
                 <span className="min-w-0 truncate">
-                  {session.model || 'Agent default'}
+                  {session.model || i18n.t('Agent default')}
                   {session.effort ? ` · ${session.effort}` : ''}
                 </span>
-                {session.branch && (
-                  <span className="flex min-w-0 items-center gap-1">
-                    <GitBranch className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{session.branch}</span>
-                  </span>
-                )}
               </div>
-              <p className="text-fg-dim truncate text-[11px]" title={session.cwd}>
-                {session.cwd}
-              </p>
               <div className="flex flex-wrap items-center gap-1">
                 <button
-                  aria-label="Rename session"
+                  aria-label={i18n.t('Rename session')}
                   className={quietButton}
                   onClick={() => {
                     setTitle(session.title);
                     setRenaming(true);
                   }}
                 >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Rename
+                  {i18n.rich('{value1}Rename', { value1: <Pencil className="h-3.5 w-3.5" /> })}
                 </button>
                 <button
                   className={quietButton}
-                  aria-label="Copy conversation"
+                  aria-label={i18n.t('Copy conversation')}
                   onClick={() => void copy()}
                 >
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copied ? 'Copied' : 'Copy'}
+                  {copied ? i18n.t('Copied') : i18n.t('Copy')}
                 </button>
                 <EditorDropdown cwd={session.cwd} cmds={[]} size="sm" />
                 <div className="flex-1" />
                 <button
                   disabled={active}
                   className={quietButton}
-                  aria-label={session.archived ? 'Restore session' : 'Archive session'}
+                  aria-label={
+                    session.archived ? i18n.t('Restore session') : i18n.t('Archive session')
+                  }
                   onClick={() =>
                     void action(async () => {
                       useAgentStore
@@ -595,7 +606,7 @@ export function AgentSessionView({
                   }
                 >
                   <Archive className="h-3.5 w-3.5" />
-                  {session.archived ? 'Restore' : 'Archive'}
+                  {session.archived ? i18n.t('Restore') : i18n.t('Archive')}
                 </button>
               </div>
             </div>
@@ -616,7 +627,9 @@ export function AgentSessionView({
           onClick={() => setTab('chat')}
           className="bg-accent/10 text-accent px-5 py-2 text-left text-[12px]"
         >
-          {session.pending.length} request(s) need your response →
+          {i18n.rich('{value1} request(s) need your response →', {
+            value1: session.pending.length,
+          })}
         </button>
       )}
       <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
@@ -637,7 +650,7 @@ export function AgentSessionView({
               >
                 {snapshot?.before && (
                   <button className={`${quietButton} mx-auto`} onClick={() => void loadOlder()}>
-                    Load earlier activity
+                    {i18n.t('Load earlier activity')}
                   </button>
                 )}
                 {!snapshot && !snapshotError && (
@@ -646,10 +659,11 @@ export function AgentSessionView({
                 {snapshot && !items.length && (
                   <div className="text-fg-muted mx-auto max-w-md py-10 text-center text-[13px]">
                     <MessageSquare className="text-accent mx-auto mb-4 h-7 w-7" />
-                    <p className="text-fg mb-2 font-medium">Your workspace is ready</p>
+                    <p className="text-fg mb-2 font-medium">{i18n.t('Your workspace is ready')}</p>
                     <p>
-                      Describe a task. Tool activity and changes will appear here. When the agent
-                      asks a question or needs permission, you can respond in this conversation.
+                      {i18n.t(
+                        'Describe a task. Tool activity and changes will appear here. When the agent asks a question or needs permission, you can respond in this conversation.',
+                      )}
                     </p>
                   </div>
                 )}
@@ -667,6 +681,7 @@ export function AgentSessionView({
                       <TranscriptItem
                         item={group.item}
                         providerName={session.backend_name || session.backend}
+                        request={requests.get(group.item.id.replace(/^answer:/, 'request:'))}
                       />
                     </div>
                   ) : (
@@ -686,10 +701,13 @@ export function AgentSessionView({
                     <PanelsTopLeft className="h-5 w-5" />
                     <span>
                       <strong className="block font-medium">
-                        Open canvas · {artifacts.length} artifact{artifacts.length === 1 ? '' : 's'}
+                        {i18n.rich('Open canvas · {value1} artifact{plural3}', {
+                          value1: artifacts.length,
+                          plural3: artifacts.length === 1 ? '' : 's',
+                        })}
                       </strong>
                       <span className="text-fg-muted text-[11px]">
-                        Preview, edit and export alongside this conversation
+                        {i18n.t('Preview, edit and export alongside this conversation')}
                       </span>
                     </span>
                   </button>
@@ -699,8 +717,9 @@ export function AgentSessionView({
                     onClick={() => setTab('plan')}
                     className="flex items-center gap-2 rounded-lg bg-violet-400/10 px-4 py-2.5 text-[12px] text-violet-500"
                   >
-                    <ListChecks className="h-4 w-4" />
-                    Review your plan and build →
+                    {i18n.rich('{value1}Review your plan and build →', {
+                      value1: <ListChecks className="h-4 w-4" />,
+                    })}
                   </button>
                 )}
                 {session.pending.map((request) => (
@@ -718,15 +737,15 @@ export function AgentSessionView({
                   <div className="text-fg-muted flex items-center gap-2 text-[12px]">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     {session.status === 'starting'
-                      ? 'Connecting to your agent…'
+                      ? i18n.t('Connecting to your agent…')
                       : session.status === 'cancelling'
-                        ? 'Waiting for the agent to stop…'
-                        : 'The agent is working…'}
+                        ? i18n.t('Waiting for the agent to stop…')
+                        : i18n.t('The agent is working…')}
                   </div>
                 )}
               </div>
               <button
-                aria-label="Follow latest activity"
+                aria-label={i18n.t('Follow latest activity')}
                 className="bg-surface-raised border-border text-fg-muted absolute right-4 bottom-3 rounded-full border p-1.5 shadow-sm"
                 onClick={() => {
                   follow.current = true;
@@ -753,17 +772,28 @@ export function AgentSessionView({
                 <div className="border-border text-fg-muted flex items-start justify-between gap-3 border-b px-5 py-2 text-[11px]">
                   <div className="min-w-0">
                     <span>
-                      Current checkout diff
-                      {session.base_revision
-                        ? ` · task started at ${session.base_revision.slice(0, 7)}`
-                        : ' · no starting revision recorded for this directory'}
+                      {i18n.rich('Current checkout diff{value1}', {
+                        value1: session.base_revision
+                          ? i18n.t(' · task started at {value1}', {
+                              value1: session.base_revision.slice(0, 7),
+                            })
+                          : i18n.t(' · no starting revision recorded for this directory'),
+                      })}
                     </span>
                     {preExisting.length > 0 && (
                       <span className="text-fg-dim mt-0.5 block">
-                        {preExisting.length} file{preExisting.length === 1 ? '' : 's'} already had
-                        uncommitted changes when this task started, so edits there are not
-                        necessarily the agent&rsquo;s: {preExisting.slice(0, 6).join(', ')}
-                        {preExisting.length > 6 ? ` and ${preExisting.length - 6} more` : ''}
+                        {i18n.rich(
+                          '{value1} file{plural3} already had uncommitted changes when this task started, so edits there are not necessarily the agent’s: {value4}{value5}',
+                          {
+                            value1: preExisting.length,
+                            plural3: preExisting.length === 1 ? '' : 's',
+                            value4: preExisting.slice(0, 6).join(', '),
+                            value5:
+                              preExisting.length > 6
+                                ? i18n.t(' and {value1} more', { value1: preExisting.length - 6 })
+                                : '',
+                          },
+                        )}
                       </span>
                     )}
                   </div>
@@ -772,19 +802,25 @@ export function AgentSessionView({
                     disabled={diffBusy}
                     onClick={() => void refreshDiff()}
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${diffBusy ? 'animate-spin' : ''}`} />
-                    Refresh
+                    {i18n.rich('{value1}Refresh', {
+                      value1: (
+                        <RefreshCw className={`h-3.5 w-3.5 ${diffBusy ? 'animate-spin' : ''}`} />
+                      ),
+                    })}
                   </button>
                 </div>
                 <pre className="text-fg overlay-scroll flex-1 overflow-auto p-5 font-mono text-[12px] break-words whitespace-pre-wrap">
-                  {diff || (diffBusy ? 'Loading changes…' : 'No tracked working-tree changes.')}
+                  {diff ||
+                    (diffBusy
+                      ? i18n.t('Loading changes…')
+                      : i18n.t('No tracked working-tree changes.'))}
                 </pre>
               </div>
             )}
             {terminalOpened && (
               <div className={`min-h-0 flex-1 flex-col ${tab === 'terminal' ? 'flex' : 'hidden'}`}>
                 <div className="text-fg-dim border-border border-b px-5 py-2 text-[11px]">
-                  Workspace shell · independent of the agent turn
+                  {i18n.t('Workspace shell · independent of the agent turn')}
                 </div>
                 <TerminalPane id={`agent-shell-${session.id}-${viewId}`} cwd={session.cwd} />
               </div>
@@ -794,8 +830,9 @@ export function AgentSessionView({
             <AgentUsageGuardNotice session={session} queued={queued.length > 0} />
             {historyOnly && (
               <p role="status" className="text-fg-muted bg-fg/5 rounded-lg px-3 py-2 text-[11px]">
-                Imported history · read-only even when restored from the archive. Add selected
-                messages as context to a new task to continue the work.
+                {i18n.t(
+                  'Imported history · read-only even when restored from the archive. Add selected messages as context to a new task to continue the work.',
+                )}
               </p>
             )}
             {recoveryState.error && (
@@ -808,28 +845,34 @@ export function AgentSessionView({
                 role="status"
                 className="border-accent/20 bg-accent/5 text-fg-muted rounded-lg border px-3 py-2 text-[11px]"
               >
-                A previous send needs reconciliation. Inspect the conversation before retrying.
-                <div className="mt-2 flex gap-3">
-                  <button
-                    disabled={active || busy || readOnly || !toolEnabled}
-                    className="text-accent"
-                    onClick={() => void reconcileSend()}
-                  >
-                    Reconcile original message
-                  </button>
-                  <button
-                    disabled={active || busy}
-                    className="text-fg-dim"
-                    onClick={() =>
-                      void action(async () => {
-                        recoverableAgentSender.discard(session.id);
-                        refreshRecovery((value) => value + 1);
-                      })
-                    }
-                  >
-                    I reviewed the result · dismiss recovery
-                  </button>
-                </div>
+                {i18n.rich(
+                  'A previous send needs reconciliation. Inspect the conversation before retrying.{value1}',
+                  {
+                    value1: (
+                      <div className="mt-2 flex gap-3">
+                        <button
+                          disabled={active || busy || readOnly || !toolEnabled}
+                          className="text-accent"
+                          onClick={() => void reconcileSend()}
+                        >
+                          {i18n.t('Reconcile original message')}
+                        </button>
+                        <button
+                          disabled={active || busy}
+                          className="text-fg-dim"
+                          onClick={() =>
+                            void action(async () => {
+                              recoverableAgentSender.discard(session.id);
+                              refreshRecovery((value) => value + 1);
+                            })
+                          }
+                        >
+                          {i18n.t('I reviewed the result · dismiss recovery')}
+                        </button>
+                      </div>
+                    ),
+                  },
+                )}
               </div>
             )}
             <AgentMessageQueue
@@ -848,7 +891,7 @@ export function AgentSessionView({
                 onClick={() => useAgentStore.setState({ toolsOpen: true })}
                 className="text-accent text-[11px]"
               >
-                This tool is disabled. Open Agent tools to enable it.
+                {i18n.t('This tool is disabled. Open Agent tools to enable it.')}
               </button>
             )}
             <AgentComposer
@@ -863,12 +906,12 @@ export function AgentSessionView({
               disabled={readOnly || !context.ready}
               placeholder={
                 historyOnly
-                  ? 'Imported history is read-only'
+                  ? i18n.t('Imported history is read-only')
                   : session.archived
-                    ? 'Restore this session to continue'
+                    ? i18n.t('Restore this session to continue')
                     : active
-                      ? 'Add a follow-up to the queue…'
-                      : 'Describe a task, ask a question, or continue…'
+                      ? i18n.t('Add a follow-up to the queue…')
+                      : i18n.t('Describe a task, ask a question, or continue…')
               }
               controls={
                 <>
@@ -900,7 +943,7 @@ export function AgentSessionView({
                   {!!catalog?.commands.length && (
                     <button
                       type="button"
-                      aria-label="Available commands"
+                      aria-label={i18n.t('Available commands')}
                       aria-expanded={advanced}
                       onClick={() => setAdvanced(!advanced)}
                       className={`hover:bg-fg/5 rounded-lg p-2 ${advanced ? 'bg-fg/5 text-fg' : 'text-fg-dim'}`}
@@ -914,14 +957,13 @@ export function AgentSessionView({
                 active ? (
                   <>
                     <button
-                      aria-label="Queue message"
-                      title="Run after the current task completes"
+                      aria-label={i18n.t('Queue message')}
+                      title={i18n.t('Run after the current task completes')}
                       disabled={!hasContent || busy || readOnly || !toolEnabled}
                       onClick={enqueue}
                       className={quietButton}
                     >
-                      <ListPlus className="h-4 w-4" />
-                      Queue
+                      {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
                     </button>
                     {(session.adapter || session.backend) === 'codex' &&
                       session.status === 'running' && (
@@ -933,8 +975,10 @@ export function AgentSessionView({
                           }
                           title={
                             context.entries.length
-                              ? 'Queue this message to include its attached context. Send while working supports plain text only.'
-                              : 'Send a plain-text update to the running task'
+                              ? i18n.t(
+                                  'Queue this message to include its attached context. Send while working supports plain text only.',
+                                )
+                              : i18n.t('Send a plain-text update to the running task')
                           }
                           className={quietButton}
                           onClick={() => {
@@ -956,12 +1000,12 @@ export function AgentSessionView({
                             }).finally(() => setBusy(false));
                           }}
                         >
-                          Send while working
+                          {i18n.t('Send while working')}
                         </button>
                       )}
                     <button
-                      aria-label="Stop agent"
-                      title="Stop agent"
+                      aria-label={i18n.t('Stop agent')}
+                      title={i18n.t('Stop agent')}
                       disabled={session.status === 'cancelling'}
                       className="border-border text-fg flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
                       onClick={() => void action(() => ipc.agentInterrupt(session.id))}
@@ -971,18 +1015,17 @@ export function AgentSessionView({
                   </>
                 ) : queued.length ? (
                   <button
-                    aria-label="Queue message"
+                    aria-label={i18n.t('Queue message')}
                     disabled={!hasContent || busy || readOnly || !toolEnabled}
                     onClick={enqueue}
                     className={quietButton}
                   >
-                    <ListPlus className="h-4 w-4" />
-                    Queue
+                    {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
                   </button>
                 ) : (
                   <button
-                    aria-label="Send message"
-                    title="Send · ⌘ / Ctrl + Enter"
+                    aria-label={i18n.t('Send message')}
+                    title={i18n.t('Send · ⌘ / Ctrl + Enter')}
                     className="bg-fg text-surface hover:bg-fg/85 disabled:bg-fg/8 disabled:text-fg-dim flex h-8 w-8 items-center justify-center rounded-xl shadow-sm transition-colors disabled:shadow-none"
                     disabled={!hasContent || busy || readOnly || !toolEnabled}
                     onClick={() => void send()}
@@ -1010,7 +1053,7 @@ export function AgentSessionView({
                 >
                   {!!catalog?.commands.length && (
                     <details className="text-fg-dim text-[11px] sm:col-span-2">
-                      <summary className="cursor-pointer">Available commands</summary>
+                      <summary className="cursor-pointer">{i18n.t('Available commands')}</summary>
                       <p className="mt-2 break-words">
                         {catalog.commands.map((command) => `/${command}`).join(', ')}
                       </p>
@@ -1021,20 +1064,26 @@ export function AgentSessionView({
             </AgentComposer>
             {catalogError && (
               <p role="status" className="text-fg-muted text-[11px]">
-                Models could not be loaded. Your current model is preserved.{' '}
-                <button onClick={discover} className="text-accent">
-                  Retry
-                </button>
+                {i18n.rich(
+                  'Models could not be loaded. Your current model is preserved. {value1}',
+                  {
+                    value1: (
+                      <button onClick={discover} className="text-accent">
+                        {i18n.t('Retry')}
+                      </button>
+                    ),
+                  },
+                )}
               </p>
             )}
             <p className="text-fg-dim px-1 text-[11px]">
               {active
-                ? 'You can switch projects while this task runs.'
-                : '⌘ / Ctrl + Enter to send'}
+                ? i18n.t('You can switch projects while this task runs.')
+                : i18n.t('⌘ / Ctrl + Enter to send')}
             </p>
             {session.usage != null && (
               <details className="text-fg-dim text-[11px]">
-                <summary className="cursor-pointer">Reported usage</summary>
+                <summary className="cursor-pointer">{i18n.t('Reported usage')}</summary>
                 <AgentUsageCard usage={session.usage} />
               </details>
             )}
@@ -1042,7 +1091,7 @@ export function AgentSessionView({
         </div>
         {tab === 'chat' && canvasOpen && (
           <aside
-            aria-label="Session canvas"
+            aria-label={i18n.t('Session canvas')}
             className="border-border bg-surface-raised flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col xl:h-auto xl:w-[48%] xl:border-l"
           >
             <AgentCanvasPanel sessionId={session.id} items={items} />

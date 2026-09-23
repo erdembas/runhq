@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Binary, ExternalLink, FileImage } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
@@ -21,26 +22,27 @@ interface BinaryPreviewProps {
 }
 
 export function BinaryPreview({ path, status, additions, deletions, cwd }: BinaryPreviewProps) {
+  i18n.useLocale();
   const isImage = isImagePath(path);
   const kind = humanKind(path);
   const ext = fileExt(path);
   const fullPath = cwd ? `${cwd.replace(/\/$/, '')}/${path}` : null;
   const Icon = isImage ? FileImage : Binary;
   const statusVerb: Record<FileDiffStatus, string> = {
-    added: 'Added to working tree',
-    modified: 'Modified — contents changed',
-    deleted: 'Deleted from working tree',
-    renamed: 'Renamed',
-    copied: 'Copied',
-    untracked: 'New untracked file',
+    added: i18n.t('Added to working tree'),
+    modified: i18n.t('Modified — contents changed'),
+    deleted: i18n.t('Deleted from working tree'),
+    renamed: i18n.t('Renamed'),
+    copied: i18n.t('Copied'),
+    untracked: i18n.t('New untracked file'),
   };
   const headline: Record<FileDiffStatus, string> = {
-    added: 'New binary file',
-    modified: 'Binary file changed',
-    deleted: 'Binary file removed',
-    renamed: 'Binary file renamed',
-    copied: 'Binary file copied',
-    untracked: 'Untracked binary file',
+    added: i18n.t('New binary file'),
+    modified: i18n.t('Binary file changed'),
+    deleted: i18n.t('Binary file removed'),
+    renamed: i18n.t('Binary file renamed'),
+    copied: i18n.t('Binary file copied'),
+    untracked: i18n.t('Untracked binary file'),
   };
 
   return (
@@ -57,8 +59,10 @@ export function BinaryPreview({ path, status, additions, deletions, cwd }: Binar
       <div className="space-y-1">
         <h3 className="text-fg text-base font-semibold tracking-tight">{headline[status]}</h3>
         <p className="text-fg/60 max-w-md text-xs">
-          Monaco doesn&apos;t render {kind.toLowerCase()} diffs — Git tracks this file as binary, so
-          a line-by-line comparison isn&apos;t meaningful.
+          {i18n.rich(
+            "Monaco doesn't render {value1} diffs — Git tracks this file as binary, so a line-by-line comparison isn't meaningful.",
+            { value1: kind.toLowerCase() },
+          )}
         </p>
       </div>
       <div className="border-border bg-surface-muted/40 flex items-center gap-3 rounded-md border px-3 py-2 text-[11px]">
@@ -91,8 +95,7 @@ export function BinaryPreview({ path, status, additions, deletions, cwd }: Binar
           className="border-border bg-surface-muted/60 text-fg/80 hover:bg-fg/10 hover:text-fg flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-medium transition"
           title={fullPath}
         >
-          <ExternalLink size={12} />
-          Open in default app
+          {i18n.rich('{value1}Open in default app', { value1: <ExternalLink size={12} /> })}
         </button>
       )}
     </div>

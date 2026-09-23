@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode, Ref, RefObject } from 'react';
 import { EmptyState } from '../AiChatEmptyState';
 import { TurnView } from '../AiChatTurnView';
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function AiChatMessageList({ turns, scrollRef, onContinue, children }: Props) {
+  i18n.useLocale();
   return (
     <div
       ref={scrollRef as Ref<HTMLDivElement>}

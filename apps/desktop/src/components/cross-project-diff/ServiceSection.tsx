@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import {
   ArrowDown,
   ArrowUp,
@@ -34,6 +35,7 @@ export function ServiceSection({
   onSelect,
   onOpenInDiffViewer,
 }: ServiceSectionProps) {
+  i18n.useLocale();
   const {
     project,
     unstagedTree,
@@ -96,12 +98,12 @@ export function ServiceSection({
         <button
           type="button"
           onClick={onOpenInDiffViewer}
-          title="Open in full diff viewer (Commit / History / Graph)"
+          title={i18n.t('Open in full diff viewer (Commit / History / Graph)')}
           className={cn(
             'text-fg/50 hover:text-fg hover:bg-surface-raised flex h-5 w-5 shrink-0 items-center justify-center rounded transition',
             'opacity-0 group-hover:opacity-100 focus:opacity-100',
           )}
-          aria-label={`Open ${project.name} in diff viewer`}
+          aria-label={i18n.t('Open {value1} in diff viewer', { value1: project.name })}
         >
           <ExternalLink size={11} />
         </button>
@@ -116,17 +118,20 @@ export function ServiceSection({
           )}
           {loading && !error && (
             <div className="text-fg/40 flex items-center gap-1.5 px-3 py-2 text-[11px]">
-              <RefreshCw size={10} className="animate-spin" />
-              Loading…
+              {i18n.rich('{value1}Loading…', {
+                value1: <RefreshCw size={10} className="animate-spin" />,
+              })}
             </div>
           )}
           {!loading && !error && totalFiles === 0 && (
-            <div className="text-fg/30 px-3 py-1.5 text-[11px] italic">no matching files</div>
+            <div className="text-fg/30 px-3 py-1.5 text-[11px] italic">
+              {i18n.t('no matching files')}
+            </div>
           )}
 
           {stagedFiles > 0 && (
             <StagingBlock
-              label="Staged"
+              label={i18n.t('Staged')}
               hintIcon={<GitCommit size={10} />}
               count={stagedFiles}
               tree={stagedTree}
@@ -141,7 +146,7 @@ export function ServiceSection({
 
           {unstagedFiles > 0 && (
             <StagingBlock
-              label="Changes"
+              label={i18n.t('Changes')}
               hintIcon={<FileDiff size={10} />}
               count={unstagedFiles}
               tree={unstagedTree}

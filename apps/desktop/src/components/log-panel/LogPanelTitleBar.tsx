@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { Eye, EyeOff, FolderOpen, Globe, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -45,6 +46,7 @@ export function LogPanelTitleBar({
   projectMeta,
   service,
 }: LogPanelTitleBarProps) {
+  i18n.useLocale();
   return (
     <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2.5">
@@ -94,29 +96,31 @@ export function LogPanelTitleBar({
           <>
             <ProjectAgentButton serviceId={service.id} />
             <IconButton
-              label={service.hide_dashboard ? 'Show on dashboard' : 'Hide from dashboard'}
+              label={
+                service.hide_dashboard ? i18n.t('Show on dashboard') : i18n.t('Hide from dashboard')
+              }
               icon={service.hide_dashboard ? <EyeOff /> : <Eye />}
               size="sm"
               className={cn(service.hide_dashboard && 'text-accent hover:!text-accent')}
               onClick={onHideToggle}
             />
-            <IconButton label="Edit" icon={<Pencil />} size="sm" onClick={onEdit} />
+            <IconButton label={i18n.t('Edit')} icon={<Pencil />} size="sm" onClick={onEdit} />
             <IconButton
-              label="Delete"
+              label={i18n.t('Delete')}
               icon={<Trash2 />}
               size="sm"
               tone="danger"
               onClick={onDelete}
             />
             <IconButton
-              label="Open folder"
+              label={i18n.t('Open folder')}
               icon={<FolderOpen />}
               size="sm"
               onClick={onOpenFolder}
             />
             {service.port != null && (
               <IconButton
-                label={`Open ${localUrl(service.port)}`}
+                label={i18n.t('Open {value1}', { value1: localUrl(service.port) })}
                 icon={<Globe />}
                 size="sm"
                 tone="accent"

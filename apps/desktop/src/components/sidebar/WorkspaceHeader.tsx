@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { FileDiff } from 'lucide-react';
 import { SidebarFilterMenu } from '../SidebarFilterMenu';
 import { useAppStore } from '@/store/useAppStore';
@@ -11,6 +12,7 @@ export function WorkspaceHeader({
   runningCount: number;
   stacksCount: number;
 }) {
+  i18n.useLocale();
   // Cross-project dirty count is computed here (rather than passed down)
   // because `WorkspaceHeader` is the natural surface for workspace-scope
   // summary chips, and wiring yet another prop through SidebarRail would
@@ -28,26 +30,38 @@ export function WorkspaceHeader({
   return (
     <div className="flex items-center gap-1.5 px-3 pt-3 pb-1.5">
       <span className="text-fg-dim text-[10.5px] font-semibold tracking-[0.18em] uppercase">
-        Workspace
+        {i18n.t('Workspace')}
       </span>
       <span className="bg-surface-muted text-fg-muted rounded-app-sm px-1.5 text-[10px] tabular-nums">
         {servicesCount + stacksCount}
       </span>
       {runningCount > 0 && (
         <span className="bg-status-running/15 text-status-running rounded-app-sm px-1.5 text-[10px] tabular-nums">
-          {runningCount} on
+          {i18n.rich('{runningCount} on', { runningCount: runningCount })}
         </span>
       )}
       {dirtyProjectCount > 0 && (
         <button
           type="button"
           onClick={openCrossProjectDiff}
-          title={`${dirtyFileCount} uncommitted file${dirtyFileCount === 1 ? '' : 's'} across ${dirtyProjectCount} project${dirtyProjectCount === 1 ? '' : 's'} — click to review`}
+          title={i18n.t(
+            '{dirtyFileCount} uncommitted file{plural2} across {dirtyProjectCount} project{plural4} — click to review',
+            {
+              dirtyFileCount: dirtyFileCount,
+              plural2: dirtyFileCount === 1 ? '' : 's',
+              dirtyProjectCount: dirtyProjectCount,
+              plural4: dirtyProjectCount === 1 ? '' : 's',
+            },
+          )}
           className="bg-status-starting/15 text-status-starting hover:bg-status-starting/25 rounded-app-sm inline-flex items-center gap-1 px-1.5 text-[10px] font-medium tabular-nums transition"
-          aria-label={`Review ${dirtyFileCount} uncommitted changes across projects`}
+          aria-label={i18n.t('Review {dirtyFileCount} uncommitted changes across projects', {
+            dirtyFileCount: dirtyFileCount,
+          })}
         >
-          <FileDiff size={9} strokeWidth={2.2} />
-          {dirtyProjectCount} dirty
+          {i18n.rich('{value1}{dirtyProjectCount} dirty', {
+            value1: <FileDiff size={9} strokeWidth={2.2} />,
+            dirtyProjectCount: dirtyProjectCount,
+          })}
         </button>
       )}
       <div className="ml-auto flex items-center gap-0.5">

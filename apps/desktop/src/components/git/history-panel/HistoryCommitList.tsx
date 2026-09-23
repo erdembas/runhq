@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronLeft, GitBranch, RefreshCw, Tag } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { authorHue, initialsFor, timeAgo } from '@/lib/gitDiff';
@@ -25,6 +26,7 @@ export function HistoryCommitList({
   width,
   onCollapse,
 }: HistoryCommitListProps) {
+  i18n.useLocale();
   return (
     <div className="border-border flex shrink-0 flex-col border-r" style={{ width }}>
       <div className="border-border flex items-center gap-2 border-b px-3 py-2">
@@ -42,8 +44,8 @@ export function HistoryCommitList({
         <button
           type="button"
           onClick={onCollapse}
-          title="Hide commit list"
-          aria-label="Hide commit list"
+          title={i18n.t('Hide commit list')}
+          aria-label={i18n.t('Hide commit list')}
           className="text-fg/40 hover:bg-fg/10 hover:text-fg flex h-5 w-5 shrink-0 items-center justify-center rounded transition"
         >
           <ChevronLeft size={12} />
@@ -53,22 +55,23 @@ export function HistoryCommitList({
       <FileSearchInput
         value={panel.commitSearch}
         onChange={(commitSearch) => patch({ commitSearch })}
-        placeholder="Search commits…"
+        placeholder={i18n.t('Search commits…')}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {panel.loading && (
           <p className="text-fg/40 flex items-center gap-2 px-3 py-3 text-xs">
-            <RefreshCw size={11} className="animate-spin" />
-            Loading commits…
+            {i18n.rich('{value1}Loading commits…', {
+              value1: <RefreshCw size={11} className="animate-spin" />,
+            })}
           </p>
         )}
         {!panel.loading && panel.commits.length === 0 && (
-          <p className="text-fg/40 px-3 py-3 text-xs">No commits yet</p>
+          <p className="text-fg/40 px-3 py-3 text-xs">{i18n.t('No commits yet')}</p>
         )}
         {!panel.loading && panel.commits.length > 0 && filteredCommits.length === 0 && (
           <p className="text-fg/40 px-3 py-3 text-xs">
-            No commits match &ldquo;{panel.commitSearch}&rdquo;
+            {i18n.rich('No commits match “{value1}”', { value1: panel.commitSearch })}
           </p>
         )}
         {filteredCommits.map((commit) => {
@@ -112,7 +115,7 @@ export function HistoryCommitList({
                     {commit.refs.map((ref) => {
                       const clean = ref.replace(/^HEAD -> /, '');
                       const isHead = ref.startsWith('HEAD ');
-                      const isTag = clean.startsWith('tag: ');
+                      const isTag = clean.startsWith(i18n.t('tag: '));
 
                       return (
                         <span

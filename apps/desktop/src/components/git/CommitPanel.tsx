@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef } from 'react';
 import { ipc } from '@/lib/ipc';
 import { type FileEntry, buildTree } from '@/lib/gitDiff';
 import { useAppStore } from '@/store/useAppStore';
@@ -34,6 +36,7 @@ export function CommitPanel({
   refreshTick,
   onAfterMutation,
 }: CommitPanelProps) {
+  i18n.useLocale();
   const store = useCommitPanelStoreRef();
   const panel = useCommitPanelStore(store, (state) => state);
   const patch = panel.patch;
@@ -94,11 +97,11 @@ export function CommitPanel({
   // into the search box never blocks "Stage all" — that always operates
   // on the full set, matching how VSCode behaves.
   const stagedEntriesAll: FileEntry[] = useMemo(
-    () => panel.staged?.files.map((f) => ({ ...f, section: 'Staged' })) ?? [],
+    () => panel.staged?.files.map((f) => ({ ...f, section: i18n.t('Staged') })) ?? [],
     [panel.staged],
   );
   const unstagedEntriesAll: FileEntry[] = useMemo(
-    () => panel.unstaged?.files.map((f) => ({ ...f, section: 'Changes' })) ?? [],
+    () => panel.unstaged?.files.map((f) => ({ ...f, section: i18n.t('Changes') })) ?? [],
     [panel.unstaged],
   );
 
@@ -311,7 +314,7 @@ export function CommitPanel({
       <ResizeHandle
         handleProps={sidebar.handleProps}
         dragging={sidebar.dragging}
-        title="Drag to resize file explorer · double-click to reset"
+        title={i18n.t('Drag to resize file explorer · double-click to reset')}
       />
 
       {/* Right: diff of the selected file */}
@@ -326,8 +329,8 @@ export function CommitPanel({
           fileLoading={panel.fileLoading}
           emptyLabel={
             stagedEntries.length + unstagedEntries.length === 0
-              ? 'Working tree is clean. Nothing to commit.'
-              : 'Select a file to view its changes'
+              ? i18n.t('Working tree is clean. Nothing to commit.')
+              : i18n.t('Select a file to view its changes')
           }
         />
       </div>

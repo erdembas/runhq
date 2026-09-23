@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { create } from 'zustand';
 import {
   readAgentNotificationPreferences,
@@ -28,8 +29,9 @@ export const useAgentNotificationStore = create<AgentNotificationStore>((set, ge
       set({ error: null });
     } catch {
       set({
-        error:
+        error: i18n.t(
           'These notification settings apply for this session, but could not be saved. Free local storage and try again.',
+        ),
       });
     }
   };

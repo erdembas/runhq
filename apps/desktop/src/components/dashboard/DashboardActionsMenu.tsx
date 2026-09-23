@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronDown, FolderSearch, Layers, RefreshCw } from 'lucide-react';
@@ -31,6 +32,7 @@ export function DashboardActionsMenu({
   disableRescan: boolean;
   rescanLabel: string;
 }) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -64,12 +66,12 @@ export function DashboardActionsMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="More workspace actions"
+        title={i18n.t('More workspace actions')}
         rightIcon={
           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
         }
       >
-        Actions
+        {i18n.t('Actions')}
       </Button>
       {open && (
         <div
@@ -78,21 +80,21 @@ export function DashboardActionsMenu({
         >
           <MenuItem
             icon={<FolderSearch className="h-3.5 w-3.5" />}
-            label="Discover projects"
-            hint="Walk parent folders"
+            label={i18n.t('Discover projects')}
+            hint={i18n.t('Walk parent folders')}
             onClick={select(onDiscover)}
           />
           <MenuItem
             icon={<Layers className="h-3.5 w-3.5" />}
-            label="New stack"
-            hint="Group services"
+            label={i18n.t('New stack')}
+            hint={i18n.t('Group services')}
             onClick={select(onNewStack)}
           />
           <div className="border-border/60 my-1 border-t" aria-hidden />
           <MenuItem
             icon={<RefreshCw className="h-3.5 w-3.5" />}
             label={rescanLabel}
-            hint="npm outdated · cargo audit · license scan"
+            hint={i18n.t('npm outdated · cargo audit · license scan')}
             onClick={select(onRescan)}
             disabled={disableRescan}
           />
@@ -112,6 +114,7 @@ const MenuItem = forwardRef<
     disabled?: boolean;
   }
 >(function MenuItem({ icon, label, hint, onClick, disabled }, ref) {
+  i18n.useLocale();
   return (
     <button
       ref={ref}

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Check, Copy } from 'lucide-react';
 import type { makeAnsiConverter } from '@/lib/ansi';
 import { cn } from '@/lib/cn';
@@ -27,6 +28,7 @@ export function ActivityEventModal({
   onClose,
   onCopy,
 }: ActivityEventModalProps) {
+  i18n.useLocale();
   if (!event) return null;
   const cfg = eventConfig[event.event_type] ?? defaultConfig;
   const { heading, body } = splitEventDescription(event);
@@ -56,7 +58,7 @@ export function ActivityEventModal({
             onClick={onClose}
             className="text-fg/60 hover:text-fg/90 hover:bg-fg/8 rounded-md px-3 py-1.5 text-[12px] font-medium transition"
           >
-            Close
+            {i18n.t('Close')}
           </button>
           <button
             onClick={() => onCopy(event)}
@@ -68,7 +70,7 @@ export function ActivityEventModal({
             )}
           >
             {detailCopied ? <Check size={13} /> : <Copy size={13} />}
-            {detailCopied ? 'Copied' : 'Copy'}
+            {detailCopied ? i18n.t('Copied') : i18n.t('Copy')}
           </button>
         </>
       }

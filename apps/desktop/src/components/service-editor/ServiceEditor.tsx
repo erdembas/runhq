@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Settings, Terminal, Variable } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
@@ -23,6 +25,7 @@ interface Props {
 }
 
 export function ServiceEditor({ service, onClose }: Props) {
+  i18n.useLocale();
   const store = useServiceEditorStoreRef(service);
   const form = useServiceEditorStore(store, (state) => state);
   const patch = form.patch;
@@ -58,10 +61,10 @@ export function ServiceEditor({ service, onClose }: Props) {
 
   const tabs = useMemo<Tab<TabKey>[]>(
     () => [
-      { key: 'general', label: 'General', icon: <Terminal className="h-3 w-3" /> },
+      { key: 'general', label: i18n.t('General'), icon: <Terminal className="h-3 w-3" /> },
       {
         key: 'env',
-        label: 'Environment',
+        label: i18n.t('Environment'),
         icon: <Variable className="h-3 w-3" />,
         badge: form.envRows.length ? (
           // `surface-muted` reads as a clear "chip on the dialog body" — the
@@ -72,7 +75,7 @@ export function ServiceEditor({ service, onClose }: Props) {
           </span>
         ) : undefined,
       },
-      { key: 'advanced', label: 'Advanced', icon: <Settings className="h-3 w-3" /> },
+      { key: 'advanced', label: i18n.t('Advanced'), icon: <Settings className="h-3 w-3" /> },
     ],
     [form.envRows.length],
   );
@@ -117,19 +120,19 @@ export function ServiceEditor({ service, onClose }: Props) {
     const validCmds = state.cmds.filter((c) => c.cmd.trim() && c.name.trim());
     if (!state.name.trim() || !state.cwd.trim() || validCmds.length === 0) {
       state.patch({
-        error: 'Name, folder, and at least one command are all required.',
+        error: i18n.t('Name, folder, and at least one command are all required.'),
         tab: 'general',
       });
       return;
     }
     const parsedPort = state.port.trim() ? Number(state.port) : null;
     if (parsedPort !== null && (!Number.isFinite(parsedPort) || parsedPort <= 0)) {
-      state.patch({ error: 'Port must be a positive number.', tab: 'general' });
+      state.patch({ error: i18n.t('Port must be a positive number.'), tab: 'general' });
       return;
     }
     const parsedGrace = Number(state.graceMs);
     if (!Number.isFinite(parsedGrace) || parsedGrace < 0) {
-      state.patch({ error: 'Grace period must be zero or greater.', tab: 'advanced' });
+      state.patch({ error: i18n.t('Grace period must be zero or greater.'), tab: 'advanced' });
       return;
     }
 
@@ -196,7 +199,9 @@ export function ServiceEditor({ service, onClose }: Props) {
 
   return (
     <Dialog
-      title={isEdit ? `Edit service — ${service.name}` : 'Add service'}
+      title={
+        isEdit ? i18n.t('Edit service — {value1}', { value1: service.name }) : i18n.t('Add service')
+      }
       subtitle={isEdit ? service.id : undefined}
       onClose={onClose}
       size="lg"
@@ -206,10 +211,14 @@ export function ServiceEditor({ service, onClose }: Props) {
             <span className="text-status-error mr-auto text-[10px]">{form.error}</span>
           )}
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {i18n.t('Cancel')}
           </Button>
           <Button variant="primary" disabled={form.saving} onClick={() => void submit()}>
-            {form.saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create service'}
+            {form.saving
+              ? i18n.t('Saving…')
+              : isEdit
+                ? i18n.t('Save changes')
+                : i18n.t('Create service')}
           </Button>
         </>
       }

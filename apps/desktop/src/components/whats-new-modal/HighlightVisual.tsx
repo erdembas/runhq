@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { resolveMediaSrc } from '@/lib/whatsnew/resolveMediaSrc';
@@ -10,6 +11,7 @@ interface HighlightVisualProps {
 }
 
 export function HighlightVisual({ highlight, themeSuffix }: HighlightVisualProps) {
+  i18n.useLocale();
   const { media, fallback } = highlight;
   const [errored, setErrored] = useState(false);
 

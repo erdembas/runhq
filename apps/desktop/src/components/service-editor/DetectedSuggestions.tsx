@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import {} from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { CommandEntry, ProjectCandidate } from '@/types';
@@ -19,6 +21,7 @@ export function DetectedSuggestions({
   selectedPm: NodePackageManager;
   onPmChange: (pm: NodePackageManager) => void;
 }) {
+  i18n.useLocale();
   const isNode = detected?.runtime === 'node';
 
   const rewrittenSuggestions = useMemo(() => {
@@ -34,7 +37,7 @@ export function DetectedSuggestions({
     return (
       <div className="text-fg-dim flex items-center gap-1.5 text-[10px]">
         <Loader2 className="h-2.5 w-2.5 animate-spin" />
-        <span>Inspecting folder…</span>
+        <span>{i18n.t('Inspecting folder…')}</span>
       </div>
     );
   }
@@ -45,7 +48,7 @@ export function DetectedSuggestions({
     <div className="border-border/60 bg-surface-muted/40 rounded-app-sm space-y-1.5 border border-dashed p-2">
       <div className="text-fg-muted flex items-center gap-1 text-[9px] tracking-wide uppercase">
         <Sparkles className="text-accent h-2.5 w-2.5" />
-        <span>Detected</span>
+        <span>{i18n.t('Detected')}</span>
         <span className="bg-accent/10 text-accent rounded-app-sm px-1 py-0.5 text-[9px] tracking-normal normal-case">
           {detected.runtime}
         </span>
@@ -78,7 +81,11 @@ export function DetectedSuggestions({
               key={`${s.label}:${s.cmd}`}
               type="button"
               onClick={() => onPick(s)}
-              title={active ? `${s.cmd} (already added)` : `Add as command: ${s.cmd}`}
+              title={
+                active
+                  ? i18n.t('{value1} (already added)', { value1: s.cmd })
+                  : i18n.t('Add as command: {value1}', { value1: s.cmd })
+              }
               className={cn(
                 'rounded-app-sm group inline-flex max-w-full items-center gap-1.5 border px-2.5 py-1 text-[12px] transition',
                 active

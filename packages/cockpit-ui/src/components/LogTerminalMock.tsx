@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useMemo } from 'react';
 import { cn } from '../lib/cn';
 
@@ -54,6 +55,7 @@ const KIND_PREFIX: Record<LogLineFixture['kind'], { glyph: string; tone: string 
  * this component is purely for visual storytelling.
  */
 export function LogTerminalMock({ title, rightSlot, lines, caret = true, className }: Props) {
+  i18n.useLocale();
   const renderedLines = useMemo(
     () =>
       lines.map((line, idx) => {

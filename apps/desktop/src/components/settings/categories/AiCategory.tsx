@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { AiProviderManager } from '@/components/AiProviderManager';
 import { SettingsPageShell } from '../SettingsView';
 
@@ -23,6 +24,7 @@ import { SettingsPageShell } from '../SettingsView';
  * moment management moved inline.
  */
 export function AiCategory() {
+  i18n.useLocale();
   return (
     <SettingsPageShell>
       <AiProviderManager />

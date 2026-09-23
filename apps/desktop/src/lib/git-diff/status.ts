@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { FileDiffStatus } from '@/types';
 
 /** VSCode-style single-letter status badges. */
@@ -47,10 +48,22 @@ export const statusLetterStyle: Record<FileDiffStatus, { background: string; col
 };
 
 export const statusLabel: Record<FileDiffStatus, string> = {
-  added: 'Added',
-  modified: 'Modified',
-  deleted: 'Deleted',
-  renamed: 'Renamed',
-  copied: 'Copied',
-  untracked: 'Untracked',
+  get added() {
+    return i18n.t('Added');
+  },
+  get modified() {
+    return i18n.t('Modified');
+  },
+  get deleted() {
+    return i18n.t('Deleted');
+  },
+  get renamed() {
+    return i18n.t('Renamed');
+  },
+  get copied() {
+    return i18n.t('Copied');
+  },
+  get untracked() {
+    return i18n.t('Untracked');
+  },
 };

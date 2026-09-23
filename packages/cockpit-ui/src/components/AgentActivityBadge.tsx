@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { Bot, CheckCheck, CircleAlert, Square } from 'lucide-react';
 import { agentActivityLabel, type AgentActivitySummary } from '../lib/agentActivity';
 import { cn } from '../lib/cn';
@@ -20,6 +21,7 @@ export function AgentActivityBadge({
   onClick: () => void;
   className?: string;
 }) {
+  i18n.useLocale();
   const active = activity.working + activity.starting;
   const attention = activity.waiting + activity.issues;
   const label = agentActivityLabel(activity);
@@ -43,8 +45,8 @@ export function AgentActivityBadge({
     <button
       type="button"
       data-agent-activity
-      title={`${name} agents: ${label}. Open task.`}
-      aria-label={`${name} agents: ${label}. Open task.`}
+      title={i18n.t('{name} agents: {label}. Open task.', { name: name, label: label })}
+      aria-label={i18n.t('{name} agents: {label}. Open task.', { name: name, label: label })}
       onClick={(event) => {
         event.stopPropagation();
         onClick();

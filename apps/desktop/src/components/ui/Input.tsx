@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -6,19 +7,22 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ mono, className, ...rest }, ref) => (
-    <input
-      ref={ref}
-      className={cn(
-        'border-border bg-surface-raised text-fg rounded-app-sm w-full border px-2.5 py-1.5 text-[12px]',
-        'placeholder:text-fg-dim',
-        'focus:border-accent transition focus:outline-none',
-        mono && 'font-mono',
-        className,
-      )}
-      {...rest}
-    />
-  ),
+  ({ mono, className, ...rest }, ref) => {
+    i18n.useLocale();
+    return (
+      <input
+        ref={ref}
+        className={cn(
+          'border-border bg-surface-raised text-fg rounded-app-sm w-full border px-2.5 py-1.5 text-[12px]',
+          'placeholder:text-fg-dim',
+          'focus:border-accent transition focus:outline-none',
+          mono && 'font-mono',
+          className,
+        )}
+        {...rest}
+      />
+    );
+  },
 );
 Input.displayName = 'Input';
 
@@ -27,21 +31,24 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ mono, className, rows = 4, ...rest }, ref) => (
-    <textarea
-      ref={ref}
-      rows={rows}
-      className={cn(
-        'border-border bg-surface-raised text-fg rounded-app-sm w-full border px-2.5 py-1.5 text-[12px]',
-        'placeholder:text-fg-dim',
-        'focus:border-accent transition focus:outline-none',
-        'resize-y leading-snug',
-        mono && 'font-mono',
-        className,
-      )}
-      {...rest}
-    />
-  ),
+  ({ mono, className, rows = 4, ...rest }, ref) => {
+    i18n.useLocale();
+    return (
+      <textarea
+        ref={ref}
+        rows={rows}
+        className={cn(
+          'border-border bg-surface-raised text-fg rounded-app-sm w-full border px-2.5 py-1.5 text-[12px]',
+          'placeholder:text-fg-dim',
+          'focus:border-accent transition focus:outline-none',
+          'resize-y leading-snug',
+          mono && 'font-mono',
+          className,
+        )}
+        {...rest}
+      />
+    );
+  },
 );
 Textarea.displayName = 'Textarea';
 
@@ -54,6 +61,7 @@ interface FieldProps {
 }
 
 export function Field({ label, hint, error, children, className }: FieldProps) {
+  i18n.useLocale();
   return (
     <div className={cn('space-y-1', className)}>
       <label className="text-fg-dim block text-[11px] font-semibold tracking-[0.14em] uppercase">

@@ -1,6 +1,8 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { FolderSearch, Loader2 } from 'lucide-react';
 
 export function ScanLoadingOverlay({ path, onClose }: { path: string; onClose: () => void }) {
+  i18n.useLocale();
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -17,7 +19,7 @@ export function ScanLoadingOverlay({ path, onClose }: { path: string; onClose: (
           </div>
         </div>
         <div className="text-center">
-          <div className="text-fg text-[11px] font-semibold">Scanning folder…</div>
+          <div className="text-fg text-[11px] font-semibold">{i18n.t('Scanning folder…')}</div>
           <div className="text-fg-dim mt-1 max-w-xs truncate text-[10px]" title={path}>
             {path}
           </div>

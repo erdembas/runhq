@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useMemo, useState } from 'react';
 import type React from 'react';
 import {
@@ -99,7 +100,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
     return [
       {
         id: 'pin',
-        label: zoneSiblings.isPinned ? 'Unpin Tab' : 'Pin Tab',
+        label: zoneSiblings.isPinned ? i18n.t('Unpin Tab') : i18n.t('Pin Tab'),
         icon: zoneSiblings.isPinned ? <PinOff size={12} /> : <Pin size={12} />,
         disabled: isDashboard,
         onClick: () => {
@@ -109,7 +110,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       },
       {
         id: 'move-left',
-        label: 'Move Left',
+        label: i18n.t('Move Left'),
         icon: <ArrowLeft size={12} />,
         disabled: isDashboard || !zoneSiblings.canLeft,
         onClick: () => {
@@ -119,7 +120,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       },
       {
         id: 'move-right',
-        label: 'Move Right',
+        label: i18n.t('Move Right'),
         icon: <ArrowRight size={12} />,
         disabled: isDashboard || !zoneSiblings.canRight,
         onClick: () => {
@@ -130,7 +131,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       { id: 'sep-pin', separator: true },
       {
         id: 'close',
-        label: 'Close',
+        label: i18n.t('Close'),
         icon: <X size={12} />,
         disabled: isDashboard,
         onClick: () => {
@@ -140,7 +141,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       },
       {
         id: 'close-others',
-        label: 'Close Others',
+        label: i18n.t('Close Others'),
         icon: <ListX size={12} />,
         disabled: othersCount === 0,
         hint: othersCount > 0 ? String(othersCount) : undefined,
@@ -151,7 +152,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       },
       {
         id: 'close-to-right',
-        label: 'Close to the Right',
+        label: i18n.t('Close to the Right'),
         icon: <ChevronsRight size={12} />,
         disabled: tabsToRight === 0,
         hint: tabsToRight > 0 ? String(tabsToRight) : undefined,
@@ -162,7 +163,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       },
       {
         id: 'close-to-left',
-        label: 'Close to the Left',
+        label: i18n.t('Close to the Left'),
         icon: <ChevronsLeft size={12} />,
         disabled: tabsToLeft === 0,
         hint: tabsToLeft > 0 ? String(tabsToLeft) : undefined,
@@ -174,7 +175,7 @@ export function useMainTabContextMenu(args: MainTabContextMenuArgs) {
       { id: 'sep-1', separator: true },
       {
         id: 'close-all',
-        label: 'Close All',
+        label: i18n.t('Close All'),
         icon: <Trash2 size={12} />,
         disabled: closeAllCount === 0,
         hint: closeAllCount > 0 ? String(closeAllCount) : undefined,

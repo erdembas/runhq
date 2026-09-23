@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { WorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
 
 /**
@@ -67,13 +68,21 @@ export function workflowTasksInExecutionOrder<T extends { id: string; depends_on
   tasks: T[],
 ): T[] {
   const index = workflowTaskIndex(tasks);
-  if (index.size !== tasks.length) throw new Error('Workflow task keys must be unique.');
+  if (index.size !== tasks.length) throw new Error(i18n.t('Workflow task keys must be unique.'));
   for (const task of tasks)
     for (const dependency of task.depends_on)
       if (!index.has(dependency))
-        throw new Error(`Task “${task.id}” depends on unknown task “${dependency}”.`);
+        throw new Error(
+          i18n.t('Task “{value1}” depends on unknown task “{dependency}”.', {
+            value1: task.id,
+            dependency: dependency,
+          }),
+        );
   const { order, cycle } = workflowTopologicalOrder(tasks);
-  if (cycle) throw new Error(`Workflow tasks depend on each other: ${cycle.join(' → ')}.`);
+  if (cycle)
+    throw new Error(
+      i18n.t('Workflow tasks depend on each other: {value1}.', { value1: cycle.join(' → ') }),
+    );
   return order.map((id) => index.get(id)!);
 }
 
@@ -161,7 +170,7 @@ export function workflowBlockedBy(steps: WorkflowStep[], id: string): string[] {
     const other = index.get(dependency);
     if (!other) return true;
     if (other.status !== 'completed') return true;
-    return workflowAwaitingJoin(other);
+    return workflowAwaitingJoin(other) || workflowReviewNeedsDecision(other);
   });
 }
 
@@ -185,6 +194,17 @@ export function workflowRunnableTasks(steps: WorkflowStep[]): WorkflowStep[] {
 
 export type WorkflowTaskLane = 'blocked' | 'attention' | 'working' | 'ready' | 'completed';
 
+export function workflowReviewNeedsDecision(step: WorkflowStep) {
+  return (
+    step.status === 'completed' &&
+    !workflowRoleProduces(step.role) &&
+    !!step.review_policy &&
+    step.review_policy !== 'continue' &&
+    !step.review_decision &&
+    (step.review_policy === 'approval' || step.review_outcome !== 'passed')
+  );
+}
+
 /**
  * Which lane a task belongs in.
  *
@@ -198,6 +218,7 @@ export function workflowTaskLane(
   runnable = false,
 ): WorkflowTaskLane {
   if (
+    workflowReviewNeedsDecision(step) ||
     step.status === 'failed' ||
     step.status === 'blocked' ||
     step.merge?.status === 'conflict' ||
@@ -283,9 +304,15 @@ export function workflowPollInterval(
   const busy = workflows.some(
     (workflow) =>
       workflow.steps.some((step) => step.status === 'running') ||
-      ['implementing', 'reviewing', 'checking', 'setting_up', 'integrating'].includes(
-        workflow.stage,
-      ),
+      [
+        'waiting',
+        'launching',
+        'implementing',
+        'reviewing',
+        'checking',
+        'setting_up',
+        'integrating',
+      ].includes(workflow.stage),
   );
   return busy ? 1500 : 5000;
 }

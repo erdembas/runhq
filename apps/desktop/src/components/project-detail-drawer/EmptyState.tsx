@@ -1,4 +1,6 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 export function EmptyState({ title, hint }: { title: string; hint: string }) {
+  i18n.useLocale();
   return (
     <div className="flex flex-col items-center justify-center gap-1 px-6 py-12 text-center">
       <p className="text-fg/60 text-[12px] font-medium">{title}</p>

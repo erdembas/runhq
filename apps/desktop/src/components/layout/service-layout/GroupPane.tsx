@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useMemo } from 'react';
 import { GroupTabStrip } from '../GroupTabStrip';
 import { PaneDropZones } from '../PaneDropZones';
@@ -38,6 +39,7 @@ export function GroupPane({
   dragActive,
   focused,
 }: GroupPaneProps) {
+  i18n.useLocale();
   const visibleIds = useMemo(
     () => group.tabs.filter((id) => tabs[id] && (tabs[id]!.kind !== 'docs' || includeDocs)),
     [group.tabs, tabs, includeDocs],
