@@ -22,7 +22,9 @@ import {
   type AgentCadence,
   type AgentSchedule,
 } from './agentSchedule';
-import { AgentWorkflowSteps } from './AgentWorkflowSteps';
+import { AgentWorkflowTasks } from './AgentWorkflowTasks';
+import { createStepsToRecipeSteps, recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
+import { workflowTasksInExecutionOrder } from './agentWorkflowGraph';
 import { newWorkflowStep } from './agentWorkflowStepPolicy';
 import {
   isPoolTarget,
@@ -254,9 +256,7 @@ export function AgentLibrary({
     });
   };
   const start = (recipe: AgentRecipe, workflow: boolean) => {
-    const params = recipeParameters(
-      [recipe.prompt, recipe.acceptance, recipe.setupCommands, recipe.checkCommands].join('\n'),
-    );
+    const params = recipeParameters(recipe);
     if (params.length) {
       setParameters({});
       setLaunch({ recipe, workflow });
@@ -717,7 +717,16 @@ export function AgentLibrary({
             onSubmit={(e) => {
               e.preventDefault();
               void action(async () => {
-                const recipe = parseRecipe(editor);
+                const recipe = parseRecipe({
+                  ...editor,
+                  workflowSteps: editor.workflowSteps
+                    ? createStepsToRecipeSteps(
+                        workflowTasksInExecutionOrder(
+                          recipeStepsToCreateSteps(editor.workflowSteps),
+                        ),
+                      )
+                    : undefined,
+                });
                 await useAgentLibraryStore.getState().save(`recipe:${recipe.id}`, {
                   ...recipe,
                   version: records[`recipe:${recipe.id}`] ? recipe.version + 1 : recipe.version,
@@ -841,9 +850,11 @@ export function AgentLibrary({
               </p>
               {editor.workflowSteps?.length ? (
                 <div className="mt-3">
-                  <AgentWorkflowSteps
-                    steps={editor.workflowSteps}
-                    onChange={(workflowSteps) => setEditor({ ...editor, workflowSteps })}
+                  <AgentWorkflowTasks
+                    steps={recipeStepsToCreateSteps(editor.workflowSteps)}
+                    onChange={(steps) =>
+                      setEditor({ ...editor, workflowSteps: createStepsToRecipeSteps(steps) })
+                    }
                     producers={producers}
                     reviewers={reviewTools}
                     poolOptions={workflowPoolOptions}
@@ -859,10 +870,16 @@ export function AgentLibrary({
                   onClick={() =>
                     setEditor({
                       ...editor,
-                      workflowSteps: [
-                        newWorkflowStep('implement', editor.backend || producers[0]?.id || ''),
-                        newWorkflowStep('review', reviewTools[0]?.id ?? ''),
-                      ],
+                      workflowSteps: createStepsToRecipeSteps([
+                        newWorkflowStep(
+                          'implement',
+                          editor.backend || producers[0]?.id || '',
+                          'implement',
+                        ),
+                        newWorkflowStep('review', reviewTools[0]?.id ?? '', 'review', [
+                          'implement',
+                        ]),
+                      ]),
                     })
                   }
                 >
@@ -1102,14 +1119,7 @@ export function AgentLibrary({
             }}
           >
             <h3 className="text-fg font-medium">{launch.recipe.name}</h3>
-            {recipeParameters(
-              [
-                launch.recipe.prompt,
-                launch.recipe.acceptance,
-                launch.recipe.setupCommands,
-                launch.recipe.checkCommands,
-              ].join('\n'),
-            ).map((key) => (
+            {recipeParameters(launch.recipe).map((key) => (
               <label key={key} className="text-fg-muted block text-[12px]">
                 {key}
                 <input

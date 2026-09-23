@@ -168,16 +168,18 @@ export async function runOpenCode(ctx, catalog = false) {
           ctx.item(
             part.id,
             part.type === 'text' ? 'assistant' : 'reasoning',
-            'OpenCode',
+            part.type === 'text' ? 'OpenCode' : 'Reasoning',
             part.text,
             part.time?.end ? 'completed' : 'running',
           );
         } else if (part.type === 'tool') {
           const state = part.state ?? {};
+          // A tool part arrives before its title is resolved, so an empty title must fall back to
+          // the tool name rather than leaving a nameless row in the transcript.
           ctx.item(
             part.id,
             'tool',
-            state.title ?? part.tool,
+            state.title || part.tool || 'Tool',
             pretty({ input: state.input, output: state.output, error: state.error }),
             state.status ?? 'running',
           );

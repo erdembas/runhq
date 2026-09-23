@@ -87,6 +87,12 @@ test(
         'Do not present the echoed user prompt as an assistant response',
       );
       assert.equal(ctx.items.get('final').text, 'Received both answers');
+      assert.equal(ctx.items.get('thinking').title, 'Reasoning');
+      assert.equal(
+        ctx.items.get('nameless').title,
+        'bash',
+        'Name a tool row the provider left untitled',
+      );
       assert(events.some((e) => e.type === 'native' && e.id === 'saved-thread'));
     } finally {
       ctx.close();

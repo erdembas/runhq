@@ -153,7 +153,7 @@ export async function runCodex(ctx, catalog = false) {
         ctx.item(
           i.id,
           kind,
-          i.command ?? i.name ?? i.type,
+          i.command || i.name || i.type,
           text,
           message.method === 'item/started' ? 'running' : (i.status ?? 'completed'),
         );

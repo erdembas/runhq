@@ -68,6 +68,24 @@ const server = createServer(async (request, response) => {
     setTimeout(() => json(true), 100);
     emit('message.part.updated', {
       part: {
+        id: 'thinking',
+        sessionID: 'saved-thread',
+        type: 'reasoning',
+        text: 'Weighing options',
+        time: { end: 1 },
+      },
+    });
+    emit('message.part.updated', {
+      part: {
+        id: 'nameless',
+        sessionID: 'saved-thread',
+        type: 'tool',
+        tool: 'bash',
+        state: { title: '', status: 'completed', input: { command: 'ls' }, output: 'RunHQ.sln' },
+      },
+    });
+    emit('message.part.updated', {
+      part: {
         id: 'final',
         sessionID: 'saved-thread',
         type: 'text',

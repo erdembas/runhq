@@ -31,41 +31,102 @@ export interface AgentRecipe {
    */
   workflowSteps?: AgentRecipeStep[];
 }
-/** A workflow step as a recipe stores it. Sessions and revisions belong to a run, not a recipe. */
+/**
+ * A workflow task as a recipe stores it. Sessions and revisions belong to a run, not a recipe.
+ *
+ * `id`, `prompt`, `dependsOn` and `workspace` are optional because recipes saved before a workflow
+ * was a graph carry none of them: such a list meant a chain of roles under one objective, and it is
+ * read back as exactly that.
+ */
 export interface AgentRecipeStep {
+  id?: string;
   role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
   target: string;
   model: string;
   effort: string;
   mode: string;
+  prompt?: string;
+  dependsOn?: string[];
+  workspace?: 'shared' | 'own';
 }
 const WORKFLOW_ROLES = ['plan', 'implement', 'review', 'revise', 'validate'];
-const MAX_RECIPE_STEPS = 8;
+export const MAX_RECIPE_STEPS = 64;
 
 /**
  * Read a saved division of labour. A recipe is exportable and importable, so this is a trust
- * boundary: an unknown role or an over-long list is refused rather than carried into a workflow.
+ * boundary: an unknown role, an unknown dependency, a cycle or an over-long list is refused rather
+ * than carried into a workflow.
  */
 export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new Error('Invalid recipe steps');
   if (value.length > MAX_RECIPE_STEPS)
-    throw new Error(`A recipe holds up to ${MAX_RECIPE_STEPS} steps`);
-  return value.map((raw) => {
+    throw new Error(`A recipe holds up to ${MAX_RECIPE_STEPS} tasks`);
+  const steps = value.map((raw) => {
     const step = object(raw);
     if (!WORKFLOW_ROLES.includes(String(step.role)))
       throw new Error(`Invalid recipe step role: ${String(step.role)}`);
-    for (const field of ['target', 'model', 'effort', 'mode']) {
+    for (const field of ['target', 'model', 'effort', 'mode', 'id']) {
       const entry = step[field];
       if (entry !== undefined && (typeof entry !== 'string' || entry.length > 200))
         throw new Error(`Invalid recipe step ${field}`);
     }
+    if (
+      step.prompt !== undefined &&
+      (typeof step.prompt !== 'string' || step.prompt.length > 128 * 1024)
+    )
+      throw new Error('Invalid recipe step instruction');
+    if (
+      step.dependsOn !== undefined &&
+      (!Array.isArray(step.dependsOn) || step.dependsOn.some((entry) => typeof entry !== 'string'))
+    )
+      throw new Error('Invalid recipe step dependencies');
+    if (step.workspace !== undefined && !['shared', 'own'].includes(String(step.workspace)))
+      throw new Error(`Invalid recipe step checkout: ${String(step.workspace)}`);
     return {
+      id: step.id as string | undefined,
       role: step.role as AgentRecipeStep['role'],
       target: (step.target as string) ?? '',
       model: (step.model as string) ?? '',
       effort: (step.effort as string) ?? '',
       mode: (step.mode as string) ?? '',
+      prompt: step.prompt as string | undefined,
+      dependsOn: step.dependsOn as string[] | undefined,
+      workspace: step.workspace as AgentRecipeStep['workspace'],
+    };
+  });
+  return migrateRecipeStepGraph(steps);
+}
+
+/**
+ * Fill in what a graph needs from what a saved list recorded.
+ *
+ * A list that declares no dependencies at all meant "one after another", so it is read back as that
+ * chain — the same behaviour it always had. A list that declares some is an authored graph and is
+ * honoured as written, with unknown names, duplicates and cycles refused.
+ */
+export function migrateRecipeStepGraph(steps: AgentRecipeStep[]): AgentRecipeStep[] {
+  const ids = steps.map((step, index) => step.id?.trim() || `s${index + 1}`);
+  if (new Set(ids).size !== ids.length) throw new Error('Recipe tasks must have unique keys');
+  const declared = steps.some((step) => step.dependsOn !== undefined);
+  return steps.map((step, index) => {
+    const dependsOn = declared ? (step.dependsOn ?? []) : index > 0 ? [ids[index - 1]!] : [];
+    for (const dependency of dependsOn) {
+      const at = ids.indexOf(dependency);
+      if (at < 0)
+        throw new Error(`Recipe task “${ids[index]}” depends on unknown task “${dependency}”`);
+      // A dependency may only point backwards, which is what makes a cycle impossible to save.
+      if (at >= index)
+        throw new Error(
+          `Recipe task “${ids[index]}” depends on “${dependency}”, which is not declared before it`,
+        );
+    }
+    return {
+      ...step,
+      id: ids[index]!,
+      prompt: step.prompt ?? '',
+      dependsOn,
+      workspace: step.workspace ?? 'shared',
     };
   });
 }
@@ -182,9 +243,30 @@ export function agentUsageSummary(raw: unknown): AgentUsageSummary {
   };
 }
 
-export function recipeParameters(prompt: string): string[] {
+/** The `{{parameters}}` in one piece of text. */
+export function recipeParametersIn(text: string): string[] {
   return [
-    ...new Set([...prompt.matchAll(/\{\{\s*([a-zA-Z][\w-]*)\s*\}\}/g)].map((match) => match[1]!)),
+    ...new Set([...text.matchAll(/\{\{\s*([a-zA-Z][\w-]*)\s*\}\}/g)].map((match) => match[1]!)),
+  ];
+}
+/**
+ * Every parameter a recipe asks for, wherever it is written.
+ *
+ * A task's own instruction counts: otherwise a `{{ticket}}` inside one would reach the agent
+ * unsubstituted, which is the one failure the parameter dialog exists to prevent.
+ */
+export function recipeParameters(recipe: AgentRecipe | string): string[] {
+  if (typeof recipe === 'string') return recipeParametersIn(recipe);
+  return [
+    ...new Set(
+      [
+        recipe.prompt,
+        recipe.acceptance,
+        recipe.setupCommands,
+        recipe.checkCommands,
+        ...(recipe.workflowSteps ?? []).map((step) => step.prompt ?? ''),
+      ].flatMap(recipeParametersIn),
+    ),
   ];
 }
 export function resolveRecipe(recipe: AgentRecipe, values: Record<string, string>): AgentRecipe {
@@ -199,6 +281,14 @@ export function resolveRecipe(recipe: AgentRecipe, values: Record<string, string
     acceptance: substitute(recipe.acceptance),
     setupCommands: substitute(recipe.setupCommands),
     checkCommands: substitute(recipe.checkCommands),
+    ...(recipe.workflowSteps
+      ? {
+          workflowSteps: recipe.workflowSteps.map((step) => ({
+            ...step,
+            prompt: step.prompt ? substitute(step.prompt) : step.prompt,
+          })),
+        }
+      : {}),
   };
 }
 export function parseRecipe(value: unknown): AgentRecipe {

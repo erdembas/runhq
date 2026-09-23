@@ -1,6 +1,6 @@
 # RunHQ Roadmap
 
-Updated: 2026-09-18
+Updated: 2026-09-23
 
 ## Product Direction
 
@@ -19,9 +19,15 @@ verified live or included in a published release. **Partial** identifies an exis
 specific gaps. **Planned** is prioritized work; **Later** has no delivery commitment. Phase order
 expresses dependencies rather than release dates.
 
-A1-A11 below are implemented in the repository. They are covered by unit/integration tests and a
+A1-A12 below are implemented in the repository. They are covered by unit/integration tests and a
 fixture-driven UI walkthrough of the shared Agents surfaces; live runs against every provider and
 platform are a separate, ongoing verification effort.
+
+The 2.2.0 release candidate adds dependency graphs, parallel task worktrees, a workflow task board,
+graph-preserving recipes and grouped activity with full-screen tool diffs. Release validation also
+covers pooled scheduling without nested locks, cooldown/capacity admission, scheduling newly ready
+tasks while siblings run, and preserving multiline instructions in the graph editor. These checks
+do not close the separate product gaps in the [September product review](docs/PRODUCT_REVIEW_2026-09-22.md).
 
 The previous 40-item roadmap is preserved in the [historical product backlog](docs/ROADMAP_BACKLOG.md).
 Its feature numbers remain available for older discussions; this document supersedes its priorities
@@ -60,6 +66,7 @@ outside those locks.
 | A9  | Searchable agent history and project memory | P2       | Implemented | Reuse prior decisions and results across conversations.                            |
 | A10 | Provider accounts and limit-aware routing   | P1       | Implemented | Run more work by spreading it over the accounts you already pay for.               |
 | A11 | Composable multi-provider workflows         | P1       | Implemented | Assign each step of a task to the agent and model that suit it.                    |
+| A12 | Many tasks per workflow, run in parallel    | P1       | Implemented | Write dozens of instructions, say what waits for what, and let them run at once.   |
 
 ### A1. Durable Queues and Task Recovery
 
@@ -433,6 +440,61 @@ advertised one.
 **Acceptance:** run one workflow whose plan, implementation and review are performed by different
 providers and models, see each step's account and input revision, and repeat the same division of
 labor in another project from a saved recipe.
+
+### A12. Many Tasks per Workflow, Run in Parallel
+
+**Baseline (2026-09-22):** a workflow was one objective run by a chain of at most eight role-steps in
+one checkout. A step had no instruction of its own — the role name was the only thing separating one
+from the next — `input_step_id` held a single predecessor, and the engine advanced one step at a
+time. Concurrency existed in the core (one turn per checkout root, global and per-provider slots) but
+no workflow used it.
+
+- Give every task its own instruction, so a workflow can carry dozens of separate pieces of work
+  under one shared brief and one set of acceptance criteria.
+- Replace the single predecessor with `depends_on`, so order is declared rather than implied, and
+  everything that waits for nothing in common is free to run together.
+- Let a producing task ask for a checkout of its own, so parallel work is real rather than serialised
+  by the one rule that cannot bend: a checkout never carries two agents.
+- Apply each parallel result to the workflow's own checkout in the declared order, reporting a
+  disagreement with the paths Git named instead of resolving it.
+- Schedule what can run — bounded by the checkout, the account slots and the workflow's own limit —
+  and leave what cannot as waiting rather than failed.
+
+**Delivered:** `WorkflowStep` carries `prompt`, `depends_on`, `workspace`, the checkout it opened,
+the tree and commit it produced and how that result landed. A dependency may only name a task
+declared before it, which makes a cycle impossible to express and keeps the stored list in
+topological order — the order results are applied in. Rows and recipes written before the graph are
+read as the chain they always were, and `input_step_id` is still written for anything that reads it.
+
+The workflow-level stage is now derived from the graph rather than owned by a single step, while the
+phases that own the whole checkout — setup, checks, integration — keep writing their own. Every
+safeguard was generalised with it: all running steps settle from their own sessions, every stale
+review returns to the queue, stopping ends every step's session, cleanup removes every worktree the
+workflow opened, and a step's session cannot be deleted out from under its evidence. Integration is
+unlocked only by a review of the finished, joined tree; a review of one branch is advisory.
+
+A producing task in its own checkout branches from what its dependencies produced — merged in the
+object database when there are several, refused with the conflicted paths when they disagree — and
+its result is recorded as a commit on that worktree's own branch so the next task has a revision to
+start from. The scheduler starts everything that is free, resolves a pool to a free account at the
+moment a task starts, and skips rather than fails a task whose checkout or account is busy.
+
+The screen follows the same shape: a task table (key, instruction, account, dependencies, checkout)
+replaces the ordered step editor, and a five-lane board — Needs you, Working, Ready, Waiting, Done —
+replaces the read-only strip, saying what each task waits on and how much it holds up. A dependency
+that would close a loop is unavailable rather than rejected afterwards, and two producers that would
+collide in one checkout are reported with a one-click repair.
+
+**Verified (2026-09-22):** two independent tasks ran at the same time in checkouts of their own
+against the fixture provider, their results were applied to the workflow's checkout in the declared
+order, the review read the joined result and the recorded checks passed against exactly that tree —
+with nothing reaching the project itself. A second walk had both tasks rewrite the same line: the
+first landed, the second was held with the conflicted path, the shared checkout was left as the first
+result, and preview refused. Live provider runs of a fan-out remain part of the ongoing verification
+effort.
+
+**Acceptance:** write a dozen tasks with their own instructions and agents, declare what waits for
+what, watch the unblocked ones run together, and integrate one reviewed result.
 
 ## Delivery Sequence
 

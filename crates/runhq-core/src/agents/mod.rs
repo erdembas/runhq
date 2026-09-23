@@ -9,6 +9,8 @@ mod tests;
 mod types;
 mod workspace_data;
 pub use workspace_data::*;
+mod workflow_scheduler;
+pub use workflow_scheduler::*;
 mod workflows;
 pub use workflows::*;
 
@@ -58,6 +60,10 @@ pub struct AgentManager {
     sink: ChangeSink,
     workflow_gate: tokio::sync::Mutex<()>,
     workflow_cancellations: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
+    /// Raised when a turn finishes, so a workflow's scheduler looks at its graph immediately
+    /// instead of at its next tick.
+    workflow_wake: Arc<tokio::sync::Notify>,
+    workflow_schedulers: Mutex<std::collections::HashSet<(String, u64)>>,
 }
 fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -115,6 +121,8 @@ impl AgentManager {
             sink,
             workflow_gate: tokio::sync::Mutex::new(()),
             workflow_cancellations: Mutex::new(HashMap::new()),
+            workflow_wake: workflow_scheduler::workflow_wake(),
+            workflow_schedulers: Mutex::new(std::collections::HashSet::new()),
         };
         manager.recover_workflows()?;
         Ok(manager)
@@ -226,7 +234,7 @@ impl AgentManager {
     }
     pub fn delete_session(&self, id: &str) -> AppResult<()> {
         let mut state = self.state.lock();
-        if state.db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1)", [id], |row| row.get::<_, bool>(0)).map_err(|e| AppError::other(e.to_string()))? {
+        if state.db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workflows w, json_each(json_extract(w.data,'$.steps')) s WHERE json_extract(s.value,'$.session_id')=?1)", [id], |row| row.get::<_, bool>(0)).map_err(|e| AppError::other(e.to_string()))? {
             return Err(invalid("This task belongs to a saved workflow. Archive it to retain the review and validation evidence."));
         }
         if state.running.contains_key(id) || state.sessions.get(id).is_some_and(|s| s.active()) {
@@ -734,6 +742,9 @@ impl AgentManager {
             }) {
                 tracing::error!("could not persist agent completion: {error}");
             }
+            // A finished turn may be the step a workflow was waiting on, so its scheduler looks
+            // again now rather than at its next tick.
+            manager.workflow_notify();
         });
         Ok(session)
     }

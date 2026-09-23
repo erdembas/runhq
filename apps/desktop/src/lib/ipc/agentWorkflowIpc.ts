@@ -18,24 +18,52 @@ export interface WorkflowPreview {
   patch: string;
   conflict: string | null;
 }
+/** How a step's result landed in the workflow's shared checkout. A conflict is never resolved. */
+export interface WorkflowStepMerge {
+  applied_at: number;
+  base_revision: string;
+  source_fingerprint: string;
+  target_fingerprint: string | null;
+  patch_bytes: number;
+  status: 'applied' | 'conflict' | 'empty';
+  conflict: string | null;
+}
 /**
- * One agent's part of a workflow. `target` is a connection id or a `pool:` target, because the
- * account is only chosen when the step starts; `input_step_id` names the step whose revision this
- * one begins from, and null means the workflow's own base.
+ * One task in a workflow. `target` is a connection id or a `pool:` target, because the account is
+ * only chosen when the task starts; `depends_on` names every task that must finish first, and an
+ * empty list is a task that waits for nothing. `input_step_id` is the first of those, kept for
+ * readers that predate the graph.
  */
 export interface WorkflowStep {
   id: string;
-  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+  role: WorkflowRole;
   target: string;
   model: string;
   effort: string;
   mode: string;
   session_id: string | null;
   input_step_id: string | null;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  depends_on: string[];
+  /** This task's own instruction. Empty means it is described by the workflow objective alone. */
+  prompt: string;
+  /** `shared` runs in the workflow's checkout; `own` gets one of its own, so it can run beside a sibling. */
+  workspace: WorkflowWorkspace;
+  cwd: string | null;
+  root: string | null;
+  status: WorkflowStepStatus;
   /** The workspace revision this step actually started from, recorded when it starts. */
   input_revision: string | null;
+  output_tree: string | null;
+  output_revision: string | null;
+  merge: WorkflowStepMerge | null;
+  generation: number;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string | null;
 }
+export type WorkflowRole = 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+export type WorkflowWorkspace = 'shared' | 'own';
+export type WorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked';
 export interface AgentWorkflow {
   id: string;
   project_id: string;
@@ -65,6 +93,10 @@ export interface AgentWorkflow {
   updated_at: number;
   cleaned: boolean;
   auto_progress: boolean;
+  /** How many tasks may run at once. 0 derives the bound from the capacity settings. */
+  concurrency: number;
+  /** Tasks whose results were applied to the shared checkout, in the order they landed. */
+  joined: string[];
   transferred_files: {
     path: string;
     source: string;
@@ -106,22 +138,34 @@ export interface CreateAgentWorkflow {
   setup_commands: string[];
   check_commands: string[];
   auto_progress: boolean;
-  /** The roles to run, in order. Empty keeps the two-role shape built from the backend fields. */
+  /** How many tasks may run at once. 0 lets the capacity settings decide. */
+  concurrency: number;
+  /** The tasks to run. Empty keeps the two-role shape built from the backend fields. */
   steps: CreateWorkflowStep[];
 }
-/** A step as the creating screen states it; session, status and revision are RunHQ's to fill in. */
+/** A task as the creating screen states it; session, status and revision are RunHQ's to fill in. */
 export interface CreateWorkflowStep {
-  role: WorkflowStep['role'];
+  /** The key this task is known by, and that other tasks name in `depends_on`. */
+  id: string;
+  role: WorkflowRole;
   target: string;
   model: string;
   effort: string;
   mode: string;
+  /** This task's own instruction. */
+  prompt: string;
+  /** Tasks that must finish first. An empty list is a task that starts straight away. */
+  depends_on: string[];
+  workspace: WorkflowWorkspace;
 }
 export const agentWorkflowIpc = {
   list: () => invoke<AgentWorkflow[]>('agent_workflows'),
   create: (input: CreateAgentWorkflow) => invoke<AgentWorkflow>('agent_workflow_create', { input }),
   implement: (id: string) => invoke<AgentWorkflow>('agent_workflow_implement', { id }),
-  runStep: (id: string) => invoke<AgentWorkflow>('agent_workflow_run_step', { id }),
+  runStep: (id: string, stepId?: string) =>
+    invoke<AgentWorkflow>('agent_workflow_run_step', { id, stepId }),
+  /** Start every task that can run now, and land the results that are ready. */
+  schedule: (id: string) => invoke<AgentWorkflow>('agent_workflow_schedule', { id }),
   review: (id: string) => invoke<AgentWorkflow>('agent_workflow_review', { id }),
   setup: (id: string) => invoke<AgentWorkflow>('agent_workflow_setup', { id }),
   checks: (id: string) => invoke<AgentWorkflow>('agent_workflow_checks', { id }),

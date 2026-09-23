@@ -110,8 +110,91 @@ test('a recipe can save a division of labour, and refuses one it cannot run', ()
   assert.throws(() => parseRecipeSteps([{ role: 'deploy', target: 'codex' }]), /step role/);
   assert.throws(() => parseRecipeSteps('two steps'), /Invalid recipe steps/);
   assert.throws(
-    () => parseRecipeSteps(Array.from({ length: 9 }, () => ({ role: 'review', target: 'a' }))),
-    /up to 8 steps/,
+    () => parseRecipeSteps(Array.from({ length: 65 }, () => ({ role: 'review', target: 'a' }))),
+    /up to 64 tasks/,
   );
   assert.throws(() => parseRecipeSteps([{ role: 'review', target: 7 }]), /step target/);
+});
+
+test('a recipe saved before tasks had their own instructions reads as the chain it was', () => {
+  // Nothing in this list says what depends on what, which is what an ordered list of roles meant.
+  const migrated = parseRecipeSteps([
+    { role: 'plan', target: 'claude', model: '', effort: '', mode: '' },
+    { role: 'implement', target: 'codex', model: '', effort: '', mode: '' },
+    { role: 'review', target: 'claude', model: '', effort: '', mode: '' },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(migrated)).map((step) => [
+      step.id,
+      step.dependsOn,
+      step.prompt,
+      step.workspace,
+    ]),
+    [
+      ['s1', [], '', 'shared'],
+      ['s2', ['s1'], '', 'shared'],
+      ['s3', ['s2'], '', 'shared'],
+    ],
+  );
+  // A list that declares a graph keeps it, rather than having a chain forced on it.
+  const graph = parseRecipeSteps([
+    { id: 'api', role: 'implement', target: 'codex', prompt: 'write the endpoint' },
+    { id: 'ui', role: 'implement', target: 'codex', dependsOn: [], workspace: 'own' },
+    { id: 'rev', role: 'review', target: 'claude', dependsOn: ['api', 'ui'] },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(graph)).map((step) => [step.id, step.dependsOn]),
+    [
+      ['api', []],
+      ['ui', []],
+      ['rev', ['api', 'ui']],
+    ],
+  );
+  assert.equal(graph[0].prompt, 'write the endpoint');
+  // An imported file is untrusted, so a graph that cannot run is refused before it is offered.
+  assert.throws(
+    () => parseRecipeSteps([{ id: 'a', role: 'implement', target: 'codex', dependsOn: ['b'] }]),
+    /unknown task/,
+  );
+  assert.throws(
+    () =>
+      parseRecipeSteps([
+        { id: 'a', role: 'implement', target: 'codex', dependsOn: ['b'] },
+        { id: 'b', role: 'review', target: 'claude', dependsOn: ['a'] },
+      ]),
+    /not declared before it/,
+  );
+  assert.throws(
+    () =>
+      parseRecipeSteps([
+        { id: 'a', role: 'implement', target: 'codex' },
+        { id: 'a', role: 'review', target: 'claude', dependsOn: ['a'] },
+      ]),
+    /unique keys/,
+  );
+  assert.throws(
+    () => parseRecipeSteps([{ id: 'a', role: 'implement', target: 'codex', workspace: 'branch' }]),
+    /step checkout/,
+  );
+});
+
+test('a parameter inside a task instruction is asked for and substituted', () => {
+  const saved = parseRecipe({
+    ...recipe,
+    prompt: 'Start work',
+    workflowSteps: [
+      { id: 'api', role: 'implement', target: 'codex', prompt: 'Fix {{ticket}} in the API' },
+      { id: 'rev', role: 'review', target: 'claude', dependsOn: ['api'] },
+    ],
+  });
+  // The task's own instruction is scanned alongside everything else the recipe asks for.
+  assert.ok([...recipeParameters(saved)].includes('ticket'));
+  const resolved = resolveRecipe(saved, { ticket: 'RUN-42', branch: 'main', goal: 'none' });
+  assert.equal(resolved.workflowSteps[0].prompt, 'Fix RUN-42 in the API');
+  // Resolving hands back a copy; the saved recipe still asks the question.
+  assert.equal(saved.workflowSteps[0].prompt, 'Fix {{ticket}} in the API');
+  assert.throws(
+    () => resolveRecipe(saved, { branch: 'main', goal: 'none' }),
+    /Enter a value for ticket/,
+  );
 });

@@ -81,10 +81,16 @@ const lines = (value: string) =>
 const activeStages = ['setting_up', 'implementing', 'reviewing', 'checking', 'integrating'];
 
 import { useAgentProjectOptions } from './useAgentProjectOptions';
-import { AgentWorkflowSteps } from './AgentWorkflowSteps';
+import { AgentWorkflowTasks } from './AgentWorkflowTasks';
+import { AgentWorkflowBoard } from './AgentWorkflowBoard';
 import {
-  WORKFLOW_ROLE_LABELS,
+  workflowPollInterval,
+  workflowRunnableTasks,
+  workflowTasksInExecutionOrder,
+} from './agentWorkflowGraph';
+import {
   newWorkflowStep,
+  workflowRoleProduces,
   workflowStepsProblem,
 } from './agentWorkflowStepPolicy';
 
@@ -184,17 +190,46 @@ export function AgentWorkflowHub({
   const [steps, setSteps] = useState<CreateWorkflowStep[]>([]);
   // The default division of labour is the one this screen always ran: implement, then review.
   useEffect(() => {
-    setSteps((current) =>
-      current.length
-        ? current
-        : initialRecipe?.steps?.length
-          ? // A recipe that saved its own division of labour defines the steps outright.
-            initialRecipe.steps
-          : [
-              { ...newWorkflowStep('implement', backend || available[0]?.id || ''), model, effort },
-              newWorkflowStep('review', reviewer || reviewers[0]?.id || ''),
-            ],
-    );
+    setSteps((current) => {
+      if (current.length) {
+        // Discovery can finish after the editor first mounts. Fill missing defaults without
+        // replacing any account the person already chose.
+        let changed = false;
+        const next = current.map((step) => {
+          const target =
+            step.target ||
+            (workflowRoleProduces(step.role)
+              ? backend || available[0]?.id || ''
+              : reviewer || reviewers[0]?.id || '');
+          if (target === step.target) return step;
+          changed = true;
+          return { ...step, target };
+        });
+        return changed ? next : current;
+      }
+      const seeded = initialRecipe?.steps?.length
+        ? // A recipe that saved its own division of labour defines the steps outright.
+          initialRecipe.steps
+        : [
+            {
+              ...newWorkflowStep('implement', backend || available[0]?.id || '', 'implement'),
+              model,
+              effort,
+            },
+            newWorkflowStep('review', reviewer || reviewers[0]?.id || '', 'review', ['implement']),
+          ];
+      // Older recipes recorded roles under one objective, with no separate task instruction.
+      return seeded.map((step) => ({
+        ...step,
+        prompt:
+          step.prompt ||
+          (initialRecipe?.prompt.trim()
+            ? workflowRoleProduces(step.role)
+              ? initialRecipe.prompt
+              : 'Independently inspect the completed work against the workflow objective and acceptance criteria. Report findings with file references.'
+            : ''),
+      }));
+    });
   }, [available, reviewers, backend, reviewer, model, effort, initialRecipe]);
   const stepsProblem = workflowStepsProblem(steps);
   const chosenProject = projectId || newProject || projects[0]?.id || '';
@@ -223,13 +258,17 @@ export function AgentWorkflowHub({
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      // While several agents are moving at once the board has to keep up; while nothing is
+      // running there is nothing to keep up with.
+      let interval = 5000;
       try {
         const next = await agentWorkflowIpc.list();
+        interval = workflowPollInterval(next);
         if (live) setWorkflows(next);
       } catch (e) {
         if (live) setError(String(e));
       }
-      if (live) timer = setTimeout(() => void poll(), 5000);
+      if (live) timer = setTimeout(() => void poll(), interval);
     };
     void poll();
     return () => {
@@ -293,13 +332,15 @@ export function AgentWorkflowHub({
         effort: steps[0]?.effort || effort,
         reviewer_backend: steps.find((step) => step.role === 'review')?.target || chosenReviewer,
         reviewer_model: steps.find((step) => step.role === 'review')?.model || reviewModel,
-        steps,
+        steps: workflowTasksInExecutionOrder(steps),
         objective,
         acceptance,
         base_ref: baseRef,
         setup_commands: lines(setup),
         check_commands: lines(checks),
         auto_progress: autoProgress,
+        // 0 lets the account capacity settings decide how many tasks run at once.
+        concurrency: 0,
       });
       setCreating(false);
       return workflow;
@@ -314,10 +355,7 @@ export function AgentWorkflowHub({
     return tools.find((tool) => tool.id === target)?.name ?? target;
   };
   const running = !!current && activeStages.includes(current.stage);
-  // The step the workflow is on: the running one, else the first that has not completed.
-  const currentStep =
-    current?.steps?.find((step) => step.status === 'running') ??
-    current?.steps?.find((step) => step.status !== 'completed');
+  const readyCount = current ? workflowRunnableTasks(current.steps ?? []).length : 0;
   const implementationSession = current ? sessions[current.implementation_session_id] : undefined;
   const implementationActive =
     !!implementationSession && agentIsActive(implementationSession.status);
@@ -457,7 +495,7 @@ export function AgentWorkflowHub({
                 />
               </label>
             </div>
-            <AgentWorkflowSteps
+            <AgentWorkflowTasks
               steps={steps}
               onChange={setSteps}
               producers={available}
@@ -473,14 +511,13 @@ export function AgentWorkflowHub({
               </p>
             )}
             <label className={label}>
-              Objective
+              Shared brief &middot; optional
               <textarea
-                required
-                rows={4}
+                rows={3}
                 className={field}
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
-                placeholder="What should this workflow deliver?"
+                placeholder="Context every task should have. Each task says its own work above."
               />
             </label>
             <label className={label}>
@@ -520,8 +557,8 @@ export function AgentWorkflowHub({
                 checked={autoProgress}
                 onChange={(e) => setAutoProgress(e.target.checked)}
               />
-              After implementation completes, automatically run one independent review and the
-              recorded checks. Pause on failure or restart; applying always waits for me.
+              Automatically run eligible tasks and recorded checks. Pause on failure or restart;
+              applying always waits for me.
             </label>
             <p className="text-fg-dim text-[11px]">
               Commands run in the isolated project directory with a 10 minute limit each. Their
@@ -532,9 +569,9 @@ export function AgentWorkflowHub({
               disabled={
                 busy ||
                 !chosenProject ||
-                // The step list is now what has to be runnable, and it says why when it is not.
+                // The task list is what has to be runnable, and it says why when it is not. The
+                // brief is optional, because a task that carries its own instruction has said it.
                 !!stepsProblem ||
-                !objective.trim() ||
                 !lines(checks).length
               }
             >
@@ -595,39 +632,19 @@ export function AgentWorkflowHub({
                 {/* The order the workflow runs, and where each step stands. Read-only: the shape
                     is decided when the workflow is created, and a step is started explicitly. */}
                 {!!current.steps?.length && (
-                  <ol className="mt-4 flex flex-wrap items-stretch gap-1.5">
-                    {current.steps.map((step, index) => (
-                      <li
-                        key={step.id}
-                        className={`border-fg/10 min-w-0 rounded-lg border px-2 py-1.5 text-[10px] ${
-                          step.id === currentStep?.id ? 'border-accent/60 bg-accent/5' : ''
-                        } ${step.status === 'completed' ? 'opacity-70' : ''}`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-fg-dim">{index + 1}</span>
-                          <strong className="text-fg font-medium">
-                            {WORKFLOW_ROLE_LABELS[step.role] ?? step.role}
-                          </strong>
-                          <span
-                            className={
-                              step.status === 'failed' ? 'text-status-error' : 'text-fg-dim'
-                            }
-                          >
-                            {step.status}
-                          </span>
-                        </div>
-                        <div className="text-fg-dim mt-0.5 truncate">
-                          {providerName(step.target) || 'Account chosen at start'}
-                          {step.model ? ` · ${step.model}` : ''}
-                        </div>
-                        <div className="text-fg-dim mt-0.5 truncate font-mono">
-                          {step.input_revision
-                            ? `in ${step.input_revision.slice(0, 12)}`
-                            : 'not started'}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
+                  <div className="mt-4">
+                    <AgentWorkflowBoard
+                      workflow={current}
+                      sessions={sessions}
+                      providerName={providerName}
+                      busy={busy}
+                      onStart={(stepId) =>
+                        void action(() => agentWorkflowIpc.runStep(current.id, stepId))
+                      }
+                      onOpen={open}
+                      onStartReady={() => void action(() => agentWorkflowIpc.schedule(current.id))}
+                    />
+                  </div>
                 )}
                 <div className="text-fg-dim mt-4 space-y-1 font-mono text-[10px] break-all">
                   <p>Base: {current.base_revision}</p>
@@ -638,7 +655,7 @@ export function AgentWorkflowHub({
                   <p>
                     Progression:{' '}
                     {current.auto_progress
-                      ? 'Automatic review and checks · one pass'
+                      ? 'Automatic eligible tasks and checks'
                       : 'Start each step explicitly'}
                   </p>
                 </div>
@@ -711,19 +728,16 @@ export function AgentWorkflowHub({
                     </button>
                   )}
                 {!current.cleaned &&
-                  !running &&
                   current.stage !== 'integrated' &&
                   !['setup_ready', 'setup_failed'].includes(current.stage) &&
-                  currentStep && (
+                  readyCount > 0 && (
                     <button
                       type="button"
                       className={button}
-                      disabled={busy || implementationActive || reviewActive}
-                      onClick={() => void action(() => agentWorkflowIpc.runStep(current.id))}
+                      disabled={busy}
+                      onClick={() => void action(() => agentWorkflowIpc.schedule(current.id))}
                     >
-                      <Play className="h-3.5 w-3.5" />{' '}
-                      {currentStep.status === 'failed' ? 'Retry' : 'Run'}{' '}
-                      {WORKFLOW_ROLE_LABELS[currentStep.role] ?? currentStep.role}
+                      <Play className="h-3.5 w-3.5" /> Start {readyCount} unblocked
                     </button>
                   )}
                 <button
