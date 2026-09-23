@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /**
  * Scheduled recipe runs. RunHQ does not execute anything while it is closed, so a schedule is a
  * statement about when to start work *while RunHQ is running*, never a promise of background
@@ -29,26 +30,26 @@ export function parseCadence(value: unknown): AgentCadence {
   if (raw.kind === 'interval') {
     const hours = raw.hours;
     if (!Number.isInteger(hours) || (hours as number) < 1 || (hours as number) > MAX_INTERVAL_HOURS)
-      throw new Error('Choose an interval between 1 hour and 14 days');
+      throw new Error(i18n.t('Choose an interval between 1 hour and 14 days'));
     return { kind: 'interval', hours: hours as number };
   }
   if (raw.kind === 'daily' || raw.kind === 'weekly') {
     if (typeof raw.time !== 'string' || !TIME.test(raw.time))
-      throw new Error('Enter a time as HH:MM');
+      throw new Error(i18n.t('Enter a time as HH:MM'));
     if (raw.kind === 'daily') return { kind: 'daily', time: raw.time };
     if (!Number.isInteger(raw.day) || (raw.day as number) < 0 || (raw.day as number) > 6)
-      throw new Error('Choose a weekday');
+      throw new Error(i18n.t('Choose a weekday'));
     return { kind: 'weekly', day: raw.day as number, time: raw.time };
   }
-  throw new Error('Choose how often this recipe should run');
+  throw new Error(i18n.t('Choose how often this recipe should run'));
 }
 
 export function parseSchedule(value: unknown): AgentSchedule {
   const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   for (const field of ['id', 'recipeId', 'projectId'])
     if (typeof raw[field] !== 'string' || !(raw[field] as string).trim())
-      throw new Error(`A schedule needs ${field}`);
-  if (typeof raw.enabled !== 'boolean') throw new Error('Invalid schedule state');
+      throw new Error(i18n.t('A schedule needs {field}', { field: field }));
+  if (typeof raw.enabled !== 'boolean') throw new Error(i18n.t('Invalid schedule state'));
   return {
     id: raw.id as string,
     recipeId: raw.recipeId as string,
@@ -133,7 +134,7 @@ export function scheduleDecision(
   blocked?: (schedule: AgentSchedule) => string | null,
 ): AgentScheduleDecision {
   const idle = { schedule, due: false, missed: 0 };
-  if (!schedule.enabled) return { ...idle, reason: 'Paused' };
+  if (!schedule.enabled) return { ...idle, reason: i18n.t('Paused') };
   const since = schedule.lastRunAt ?? now;
   let next = nextScheduledRun(schedule.cadence, since);
   if (next > now) return { ...idle, reason: null };
@@ -148,8 +149,18 @@ export function scheduleDecision(
 
 export function describeCadence(cadence: AgentCadence): string {
   if (cadence.kind === 'interval')
-    return cadence.hours === 1 ? 'Every hour' : `Every ${cadence.hours} hours`;
-  if (cadence.kind === 'daily') return `Every day at ${cadence.time}`;
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return `Every ${days[cadence.day]} at ${cadence.time}`;
+    return cadence.hours === 1
+      ? i18n.t('Every hour')
+      : i18n.t('Every {value1} hours', { value1: cadence.hours });
+  if (cadence.kind === 'daily') return i18n.t('Every day at {value1}', { value1: cadence.time });
+  const days = [
+    i18n.t('Sunday'),
+    i18n.t('Monday'),
+    i18n.t('Tuesday'),
+    i18n.t('Wednesday'),
+    i18n.t('Thursday'),
+    i18n.t('Friday'),
+    i18n.t('Saturday'),
+  ];
+  return i18n.t('Every {value1} at {value2}', { value1: days[cadence.day], value2: cadence.time });
 }

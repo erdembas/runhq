@@ -1,8 +1,10 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { statusLetterStyle } from '@/lib/gitDiff';
 
 export function GitStatusLegend() {
+  i18n.useLocale();
   return (
-    <div className="flex items-center gap-1" title="Added · Modified · Deleted · Renamed">
+    <div className="flex items-center gap-1" title={i18n.t('Added · Modified · Deleted · Renamed')}>
       {(
         [
           ['added', 'A'],

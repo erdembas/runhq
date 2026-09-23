@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import {
   ArrowUpRight,
   CircleCheck,
@@ -20,9 +21,15 @@ import { AgentTaskTemplates, type AgentTaskTemplate } from './AgentTaskTemplates
 const lanes = [
   {
     id: 'attention',
-    label: 'Needs attention',
-    detail: 'Questions, approvals & issues',
-    empty: 'All clear. No tasks need your attention.',
+    get label() {
+      return i18n.t('Needs attention');
+    },
+    get detail() {
+      return i18n.t('Questions, approvals & issues');
+    },
+    get empty() {
+      return i18n.t('All clear. No tasks need your attention.');
+    },
     icon: CircleHelp,
     tone: 'text-accent',
     background: 'bg-accent/10',
@@ -30,9 +37,15 @@ const lanes = [
   },
   {
     id: 'working',
-    label: 'Working',
-    detail: 'Agents making progress',
-    empty: 'Running tasks will appear here.',
+    get label() {
+      return i18n.t('Working');
+    },
+    get detail() {
+      return i18n.t('Agents making progress');
+    },
+    get empty() {
+      return i18n.t('Running tasks will appear here.');
+    },
     icon: Loader2,
     tone: 'text-cat-frontend',
     background: 'bg-cat-frontend/10',
@@ -40,9 +53,15 @@ const lanes = [
   },
   {
     id: 'ready',
-    label: 'Ready',
-    detail: 'Ready to start or continue',
-    empty: 'New and stopped tasks will appear here.',
+    get label() {
+      return i18n.t('Ready');
+    },
+    get detail() {
+      return i18n.t('Ready to start or continue');
+    },
+    get empty() {
+      return i18n.t('New and stopped tasks will appear here.');
+    },
     icon: Inbox,
     tone: 'text-fg-muted',
     background: 'bg-fg/6',
@@ -50,9 +69,15 @@ const lanes = [
   },
   {
     id: 'completed',
-    label: 'Completed',
-    detail: 'Agent responses ready to review',
-    empty: 'Completed responses will appear here.',
+    get label() {
+      return i18n.t('Completed');
+    },
+    get detail() {
+      return i18n.t('Agent responses ready to review');
+    },
+    get empty() {
+      return i18n.t('Completed responses will appear here.');
+    },
     icon: CircleCheck,
     tone: 'text-status-running',
     background: 'bg-status-running/10',
@@ -61,6 +86,7 @@ const lanes = [
 ] as const;
 
 function TaskCard({ session, onSelect }: { session: AgentSession; onSelect: () => void }) {
+  i18n.useLocale();
   const request = session.pending[0];
   return (
     <button
@@ -76,7 +102,10 @@ function TaskCard({ session, onSelect }: { session: AgentSession; onSelect: () =
           {session.backend_name || agentProviderNames[session.backend] || session.backend}
         </span>
         {session.unread && (
-          <span className="bg-accent h-1.5 w-1.5 rounded-full" aria-label="Unread update" />
+          <span
+            className="bg-accent h-1.5 w-1.5 rounded-full"
+            aria-label={i18n.t('Unread update')}
+          />
         )}
         <ArrowUpRight className="text-fg-dim group-hover:text-fg h-3.5 w-3.5" aria-hidden />
       </div>
@@ -87,7 +116,9 @@ function TaskCard({ session, onSelect }: { session: AgentSession; onSelect: () =
       {request ? (
         <p className="text-accent bg-accent/6 mt-3 line-clamp-2 rounded-md px-2 py-1.5 text-[11px] leading-relaxed break-words">
           {request.title ||
-            (request.kind === 'approval' ? 'Approval requested' : 'Your answer is needed')}
+            (request.kind === 'approval'
+              ? i18n.t('Approval requested')
+              : i18n.t('Your answer is needed'))}
         </p>
       ) : session.last_error ? (
         <p className="text-status-error mt-3 line-clamp-2 text-[11px] leading-relaxed break-words">
@@ -98,13 +129,13 @@ function TaskCard({ session, onSelect }: { session: AgentSession; onSelect: () =
         <AgentStatusBadge status={session.status} />
         <span className="text-fg-dim flex items-center gap-1.5 text-[10px]">
           {session.mode === 'plan' && (
-            <span title="Plan mode">
-              <ListChecks className="h-3.5 w-3.5" aria-label="Plan mode" />
+            <span title={i18n.t('Plan mode')}>
+              <ListChecks className="h-3.5 w-3.5" aria-label={i18n.t('Plan mode')} />
             </span>
           )}
           {session.isolated && (
-            <span title={session.branch || 'Isolated worktree'}>
-              <GitBranch className="h-3.5 w-3.5" aria-label="Isolated worktree" />
+            <span title={session.branch || i18n.t('Isolated worktree')}>
+              <GitBranch className="h-3.5 w-3.5" aria-label={i18n.t('Isolated worktree')} />
             </span>
           )}
         </span>
@@ -132,25 +163,26 @@ export function AgentMissionControl({
   onTemplate: (template: AgentTaskTemplate) => void;
   onLane?: (lane: AgentTaskLane) => void;
 }) {
+  i18n.useLocale();
   const groups = groupAgentTasks(sessions);
   return (
     <section
       className="overlay-scroll min-h-0 min-w-0 flex-1 overflow-auto"
-      aria-label="Agent mission control"
+      aria-label={i18n.t('Agent mission control')}
     >
       <div className="mx-auto max-w-[1600px] space-y-6 p-5 lg:p-7">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-accent mb-2 text-[10px] font-semibold tracking-[0.18em] uppercase">
-              Mission control
+              {i18n.t('Mission control')}
             </p>
             <h2 className="text-fg text-[22px] font-semibold tracking-tight">
-              Your agents, in the flow.
+              {i18n.t('Your agents, in the flow.')}
             </h2>
             <p className="text-fg-muted mt-1.5 text-[12px]">
               {archived
-                ? 'Browse your archived conversations.'
-                : 'Follow the work. Unblock your agents. Keep ideas moving.'}
+                ? i18n.t('Browse your archived conversations.')
+                : i18n.t('Follow the work. Unblock your agents. Keep ideas moving.')}
             </p>
           </div>
           <span className="text-fg-dim border-border bg-surface-raised inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px]">
@@ -158,13 +190,17 @@ export function AgentMissionControl({
               className={`h-1.5 w-1.5 rounded-full ${groups.working.length ? 'bg-status-running' : 'bg-fg-dim'}`}
             />
             {loading
-              ? 'Loading workspace…'
-              : `${sessions.length} ${archived ? 'archived ' : ''}task${sessions.length === 1 ? '' : 's'} in this view`}
+              ? i18n.t('Loading workspace…')
+              : i18n.t('{value1} {value2}task{plural3} in this view', {
+                  value1: sessions.length,
+                  value2: archived ? i18n.t('archived ') : '',
+                  plural3: sessions.length === 1 ? '' : 's',
+                })}
           </span>
         </div>
         <div
           className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,165px),1fr))] gap-3"
-          aria-label="Task status summary"
+          aria-label={i18n.t('Task status summary')}
         >
           {lanes.map(({ id, label, detail, icon: Icon, tone, background }) => (
             <button
@@ -192,7 +228,7 @@ export function AgentMissionControl({
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-fg text-[12px] font-medium">
-              {archived ? 'Archived tasks' : 'Task board'}
+              {archived ? i18n.t('Archived tasks') : i18n.t('Task board')}
             </h3>
             <button
               type="button"
@@ -200,15 +236,14 @@ export function AgentMissionControl({
               disabled={!canCreate}
               className="text-fg-muted hover:text-fg flex items-center gap-1.5 text-[11px] disabled:opacity-40"
             >
-              <Plus className="h-3.5 w-3.5" />
-              New task
+              {i18n.rich('{value1}New task', { value1: <Plus className="h-3.5 w-3.5" /> })}
             </button>
           </div>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,230px),1fr))] items-start gap-3">
             {lanes.map(({ id, label, empty, dot }) => (
               <section
                 key={id}
-                aria-label={`${label} tasks`}
+                aria-label={i18n.t('{label} tasks', { label: label })}
                 className="bg-surface-muted/65 border-border/70 min-w-0 rounded-xl border p-2.5"
               >
                 <div className="flex items-center gap-2 px-1 py-1.5">
@@ -228,7 +263,7 @@ export function AgentMissionControl({
                   ))}
                   {!groups[id].length && (
                     <p className="text-fg-dim border-border/70 flex min-h-32 items-center justify-center rounded-lg border border-dashed px-5 text-center text-[11px] leading-relaxed">
-                      {loading ? 'Loading tasks…' : empty}
+                      {loading ? i18n.t('Loading tasks…') : empty}
                     </p>
                   )}
                 </div>
@@ -238,9 +273,11 @@ export function AgentMissionControl({
         </div>
         <div className="border-border/70 border-t pt-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-fg text-[12px] font-medium">Give your next idea a head start</h3>
+            <h3 className="text-fg text-[12px] font-medium">
+              {i18n.t('Give your next idea a head start')}
+            </h3>
             <span className="text-fg-dim text-[10px]">
-              Choose a starting point, then make it yours
+              {i18n.t('Choose a starting point, then make it yours')}
             </span>
           </div>
           <AgentTaskTemplates onSelect={onTemplate} disabled={!canCreate} />

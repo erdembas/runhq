@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import {
   Check,
   FileSearch,
@@ -12,6 +13,7 @@ import {
 import { cn } from '@/lib/cn';
 
 export function OriginIcon({ origin, pinned }: { origin: string; pinned: boolean }) {
+  i18n.useLocale();
   let icon: React.ReactNode;
   switch (origin) {
     case 'why':

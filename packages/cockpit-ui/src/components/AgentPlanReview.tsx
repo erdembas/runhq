@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import type { ReactNode } from 'react';
 import { Check, Circle, Code2, Eye, ListChecks, Loader2, Play, RotateCcw } from 'lucide-react';
 import type { AgentPlanStep } from '../lib/agentPlans';
@@ -29,6 +30,7 @@ export function AgentPlanReview({
   onReset: () => void;
   onBuild: () => void;
 }) {
+  i18n.useLocale();
   const complete = steps.filter((step) => step.status === 'completed').length;
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -40,8 +42,8 @@ export function AgentPlanReview({
           <h3 className="text-fg truncate text-[13px] font-medium">{title}</h3>
           <p className="text-fg-dim text-[11px]">
             {modified
-              ? 'Edited locally · included when you build'
-              : 'Review the approach before implementation'}
+              ? i18n.t('Edited locally · included when you build')
+              : i18n.t('Review the approach before implementation')}
           </p>
         </div>
         <button
@@ -50,13 +52,13 @@ export function AgentPlanReview({
           className="text-fg-muted hover:bg-fg/5 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px]"
         >
           {editing ? <Eye className="h-3.5 w-3.5" /> : <Code2 className="h-3.5 w-3.5" />}
-          {editing ? 'Preview' : 'Edit plan'}
+          {editing ? i18n.t('Preview') : i18n.t('Edit plan')}
         </button>
         {modified && (
           <button
             onClick={onReset}
-            title="Reset to agent plan"
-            aria-label="Reset to agent plan"
+            title={i18n.t('Reset to agent plan')}
+            aria-label={i18n.t('Reset to agent plan')}
             className="text-fg-muted rounded p-1.5"
           >
             <RotateCcw className="h-3.5 w-3.5" />
@@ -67,21 +69,20 @@ export function AgentPlanReview({
           onClick={onBuild}
           className="bg-accent text-accent-fg flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium disabled:opacity-40"
         >
-          <Play className="h-3.5 w-3.5" />
-          Build this plan
+          {i18n.rich('{value1}Build this plan', { value1: <Play className="h-3.5 w-3.5" /> })}
         </button>
       </div>
       {!!steps.length && !modified && (
         <div className="border-border bg-surface-muted/40 space-y-2 border-b px-5 py-3">
           <div className="text-fg-dim flex justify-between text-[11px]">
-            <span>Agent-reported progress</span>
+            <span>{i18n.t('Agent-reported progress')}</span>
             <span>
               {complete} / {steps.length}
             </span>
           </div>
           <div
             role="progressbar"
-            aria-label="Plan progress"
+            aria-label={i18n.t('Plan progress')}
             aria-valuenow={complete}
             aria-valuemax={steps.length}
             aria-valuemin={0}
@@ -110,7 +111,7 @@ export function AgentPlanReview({
       )}
       {editing ? (
         <textarea
-          aria-label="Edit implementation plan"
+          aria-label={i18n.t('Edit implementation plan')}
           className="text-fg min-h-40 flex-1 resize-none bg-transparent p-5 font-mono text-[12px] leading-6 outline-none"
           value={body}
           maxLength={150000}

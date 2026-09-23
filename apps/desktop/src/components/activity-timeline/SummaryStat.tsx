@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 export function SummaryStat({
@@ -11,6 +12,7 @@ export function SummaryStat({
   label: string;
   size: string;
 }) {
+  i18n.useLocale();
   const tones: Record<typeof tone, { dot: string; text: string }> = {
     emerald: { dot: 'bg-emerald-400', text: 'text-emerald-400' },
     violet: { dot: 'bg-violet-400', text: 'text-violet-400' },

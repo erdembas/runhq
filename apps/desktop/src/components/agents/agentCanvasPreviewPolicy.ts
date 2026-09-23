@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 const POLICY_ATTRIBUTE = 'data-runhq-canvas-policy';
 
 /** Narrow the host's bootstrap allowlist to the one static renderer for this app lifetime. */
@@ -16,7 +17,7 @@ export function agentCanvasFramePolicy(endpoint: string): string {
     ) ||
     url.href !== endpoint
   ) {
-    throw new Error('Invalid canvas preview endpoint');
+    throw new Error(i18n.t('Invalid canvas preview endpoint'));
   }
   return `frame-src ${url.href}`;
 }
@@ -34,7 +35,9 @@ export function installAgentCanvasFramePolicy(
       existing.content !== policy ||
       existing.httpEquiv.toLowerCase() !== 'content-security-policy'
     ) {
-      throw new Error('Canvas preview origin changed. Reload the app to preview this canvas.');
+      throw new Error(
+        i18n.t('Canvas preview origin changed. Reload the app to preview this canvas.'),
+      );
     }
     return;
   }

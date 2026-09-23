@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
   GitBranch,
@@ -54,37 +56,100 @@ const button =
   'border-fg/15 hover:bg-fg/5 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40';
 const label = 'text-fg-muted flex flex-col gap-1.5 text-xs';
 const stages: Record<string, string> = {
-  setup_ready: 'Setup ready',
-  setting_up: 'Setting up',
-  setup_failed: 'Setup failed',
-  implementation_ready: 'Ready to implement',
-  implementing: 'Implementing',
-  implementation_failed: 'Implementation stopped',
-  review_ready: 'Ready for review',
-  reviewing: 'Reviewing',
-  review_failed: 'Review stopped',
-  checks_ready: 'Ready for checks',
-  checking: 'Running checks',
-  checks_failed: 'Checks failed',
-  ready: 'Ready to apply',
-  integrating: 'Applying',
-  integrated: 'Applied',
-  integration_failed: 'Apply failed',
-  cancelled: 'Stopped',
-  interrupted: 'Interrupted',
+  get awaiting_review() {
+    return i18n.t('Review needs your decision');
+  },
+  get waiting() {
+    return i18n.t('Waiting for a task');
+  },
+  get launching() {
+    return i18n.t('Starting workflow');
+  },
+  get launch_failed() {
+    return i18n.t('Queued start paused');
+  },
+  get launch_paused() {
+    return i18n.t('Queued start paused');
+  },
+  get setup_ready() {
+    return i18n.t('Setup ready');
+  },
+  get setting_up() {
+    return i18n.t('Setting up');
+  },
+  get setup_failed() {
+    return i18n.t('Setup failed');
+  },
+  get implementation_ready() {
+    return i18n.t('Ready to implement');
+  },
+  get implementing() {
+    return i18n.t('Implementing');
+  },
+  get implementation_failed() {
+    return i18n.t('Implementation stopped');
+  },
+  get review_ready() {
+    return i18n.t('Ready for review');
+  },
+  get reviewing() {
+    return i18n.t('Reviewing');
+  },
+  get review_failed() {
+    return i18n.t('Review stopped');
+  },
+  get checks_ready() {
+    return i18n.t('Ready for checks');
+  },
+  get checking() {
+    return i18n.t('Running checks');
+  },
+  get checks_failed() {
+    return i18n.t('Checks failed');
+  },
+  get ready() {
+    return i18n.t('Ready to apply');
+  },
+  get integrating() {
+    return i18n.t('Applying');
+  },
+  get integrated() {
+    return i18n.t('Applied');
+  },
+  get integration_failed() {
+    return i18n.t('Apply failed');
+  },
+  get cancelled() {
+    return i18n.t('Stopped');
+  },
+  get interrupted() {
+    return i18n.t('Interrupted');
+  },
 };
 const lines = (value: string) =>
   value
     .split('\n')
     .map((v) => v.trim())
     .filter(Boolean);
-const activeStages = ['setting_up', 'implementing', 'reviewing', 'checking', 'integrating'];
+const activeStages = [
+  'waiting',
+  'launching',
+  'setting_up',
+  'implementing',
+  'reviewing',
+  'checking',
+  'integrating',
+];
 
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { AgentWorkflowTasks } from './AgentWorkflowTasks';
+import { AgentWorkflowLiveEditor } from './AgentWorkflowLiveEditor';
 import { AgentWorkflowBoard } from './AgentWorkflowBoard';
+import { AgentWorkflowLaunchDialog } from './AgentWorkflowLaunchDialog';
+import { workflowLaunchCandidates, type WorkflowLaunchChoice } from './agentWorkflowLaunch';
 import {
   workflowPollInterval,
+  workflowReviewNeedsDecision,
   workflowRunnableTasks,
   workflowTasksInExecutionOrder,
 } from './agentWorkflowGraph';
@@ -105,6 +170,7 @@ export function AgentWorkflowHub({
   visible?: boolean;
   initialRecipe?: AgentWorkflowRecipe;
 }) {
+  i18n.useLocale();
   const projects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
   const projectOptions = useAgentProjectOptions(projects, visible);
   const sessions = useVisibleStore(useAgentStore, (s) => s.sessions, visible);
@@ -115,6 +181,8 @@ export function AgentWorkflowHub({
   const [creating, setCreating] = useState(!!initialRecipe);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const actionPending = useRef(false);
+  const [launchChoice, setLaunchChoice] = useState<'create' | string | null>(null);
   const [newProject, setNewProject] = useState(projectId ?? '');
   // A recipe now seeds the first step rather than a pair of fixed fields.
   const backend = initialRecipe?.backend ?? '';
@@ -122,7 +190,9 @@ export function AgentWorkflowHub({
   const model = initialRecipe?.model ?? '';
   const reviewModel = '';
   const effort = initialRecipe?.effort ?? '';
-  const [autoProgress, setAutoProgress] = useState(false);
+  const [autoProgress, setAutoProgress] = useState(true);
+  const [liveDraft, setLiveDraft] = useState<AgentWorkflow | null>(null);
+  const [queueEditing, setQueueEditing] = useState(false);
   const [objective, setObjective] = useState(initialRecipe?.prompt ?? '');
   const [acceptance, setAcceptance] = useState(initialRecipe?.acceptance ?? '');
   const [baseRef, setBaseRef] = useState('HEAD');
@@ -157,8 +227,8 @@ export function AgentWorkflowHub({
   }, [libraryRecords]);
   const poolOptions = accountPools.map((pool) => ({
     value: poolTarget(pool.id),
-    label: `${pool.name} (pool)`,
-    description: 'RunHQ picks a free account',
+    label: i18n.t('{value1} (pool)', { value1: pool.name }),
+    description: i18n.t('RunHQ picks a free account'),
   }));
   const resolvePool = (value: string, candidates: typeof available) => {
     if (!isPoolTarget(value)) return value;
@@ -227,7 +297,9 @@ export function AgentWorkflowHub({
             ? workflowRoleProduces(step.role)
               ? initialRecipe.prompt
               : 'Independently inspect the completed work against the workflow objective and acceptance criteria. Report findings with file references.'
-            : ''),
+            : workflowRoleProduces(step.role)
+              ? 'Implement the change described in the brief and meet the success criteria.'
+              : 'Review the completed work against the brief and success criteria. Report any issues with file references.'),
       }));
     });
   }, [available, reviewers, backend, reviewer, model, effort, initialRecipe]);
@@ -306,6 +378,8 @@ export function AgentWorkflowHub({
     };
   }, [reviewId, reviewRevision, visible]);
   const action = async (work: () => Promise<AgentWorkflow>) => {
+    if (actionPending.current) return;
+    actionPending.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -316,6 +390,7 @@ export function AgentWorkflowHub({
     } catch (e) {
       setError(String(e));
     } finally {
+      actionPending.current = false;
       setBusy(false);
     }
   };
@@ -323,7 +398,7 @@ export function AgentWorkflowHub({
     if (onOpenSession) onOpenSession(id);
     else useAgentStore.getState().select(id);
   };
-  const create = () =>
+  const create = (choice: WorkflowLaunchChoice) =>
     action(async () => {
       const workflow = await agentWorkflowIpc.create({
         project_id: chosenProject,
@@ -342,15 +417,71 @@ export function AgentWorkflowHub({
         // 0 lets the account capacity settings decide how many tasks run at once.
         concurrency: 0,
       });
+      // Keep the saved workflow accessible if launching fails; submitting again must not duplicate it.
+      setWorkflows((previous) => [
+        workflow,
+        ...previous.filter((entry) => entry.id !== workflow.id),
+      ]);
+      setSelected(workflow.id);
       setCreating(false);
-      return workflow;
+      setLaunchChoice(null);
+      return choice.mode === 'draft'
+        ? workflow
+        : agentWorkflowIpc.launch(
+            workflow.id,
+            choice.mode === 'after' ? choice.sessionId : undefined,
+          );
     });
+  const launchWorkflow =
+    launchChoice && launchChoice !== 'create'
+      ? workflows.find((entry) => entry.id === launchChoice)
+      : undefined;
+  const launchTasks = workflowLaunchCandidates(
+    sessions,
+    launchWorkflow?.project_id ?? chosenProject,
+    launchWorkflow
+      ? [
+          launchWorkflow.implementation_session_id,
+          ...launchWorkflow.steps.flatMap((step) => (step.session_id ? [step.session_id] : [])),
+        ]
+      : [],
+  );
+  const chooseLaunch = (choice: WorkflowLaunchChoice) => {
+    if (launchChoice === 'create') {
+      void create(choice);
+      return;
+    }
+    if (!launchWorkflow || choice.mode === 'draft') return;
+    void action(async () => {
+      const result = await agentWorkflowIpc.launch(
+        launchWorkflow.id,
+        choice.mode === 'after' ? choice.sessionId : undefined,
+      );
+      setLaunchChoice(null);
+      return result;
+    });
+  };
+  const requestStart = (stepId?: string) => {
+    if (!current) return;
+    if (current.steps.every((step) => !step.started_at)) {
+      const others = workflowLaunchCandidates(sessions, current.project_id, [
+        current.implementation_session_id,
+      ]);
+      if (others.length) setLaunchChoice(current.id);
+      else void action(() => agentWorkflowIpc.launch(current.id));
+    } else
+      void action(() =>
+        stepId
+          ? agentWorkflowIpc.runStep(current.id, stepId)
+          : agentWorkflowIpc.schedule(current.id),
+      );
+  };
   /** A step names a connection or a pool; both have to read as themselves. */
   const providerName = (target: string) => {
     if (!target) return '';
     if (isPoolTarget(target)) {
       const pool = accountPools.find((entry) => poolTarget(entry.id) === target);
-      return pool ? `${pool.name} (pool)` : 'Pool was removed';
+      return pool ? i18n.t('{value1} (pool)', { value1: pool.name }) : i18n.t('Pool was removed');
     }
     return tools.find((tool) => tool.id === target)?.name ?? target;
   };
@@ -362,14 +493,31 @@ export function AgentWorkflowHub({
   const reviewActive =
     !!reviewId && !!sessions[reviewId] && agentIsActive(sessions[reviewId].status);
   return (
-    <section aria-label="Agent workflows" className="bg-bg text-fg flex h-full min-h-0 flex-col">
+    <section
+      aria-label={i18n.t('Agent workflows')}
+      className="bg-bg text-fg flex h-full min-h-0 min-w-0 flex-1 flex-col"
+    >
+      {launchChoice && (
+        <AgentWorkflowLaunchDialog
+          tasks={launchTasks}
+          busy={busy}
+          error={error}
+          canSaveDraft={launchChoice === 'create'}
+          onChoose={chooseLaunch}
+          onClose={() => setLaunchChoice(null)}
+        />
+      )}
       <header className="border-fg/10 flex flex-wrap items-center justify-between gap-3 border-b p-4">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <GitPullRequest className="text-accent h-4 w-4" /> Agent workflows
+            {i18n.rich('{value1} Agent workflows', {
+              value1: <GitPullRequest className="text-accent h-4 w-4" />,
+            })}
           </h2>
           <p className="text-fg-dim mt-1 text-xs">
-            Your chosen steps → recorded checks → your approval
+            {i18n.t(
+              'Describe the goal. Let your agents work through the steps. Review the result.',
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -379,23 +527,24 @@ export function AgentWorkflowHub({
             disabled={inventoryLoading}
             onClick={() => void loadInventory()}
           >
-            {inventoryLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <GitBranch className="h-3.5 w-3.5" />
-            )}{' '}
-            Worktrees
+            {i18n.rich('{value1} Worktrees', {
+              value1: inventoryLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <GitBranch className="h-3.5 w-3.5" />
+              ),
+            })}
           </button>
           <button
             type="button"
             className={button}
             onClick={() => void refresh().catch((e) => setError(String(e)))}
-            title="Refresh workflows"
+            title={i18n.t('Refresh workflows')}
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
           <button type="button" className={button} onClick={() => setCreating((v) => !v)}>
-            <Plus className="h-3.5 w-3.5" /> New workflow
+            {i18n.rich('{value1} New workflow', { value1: <Plus className="h-3.5 w-3.5" /> })}
           </button>
         </div>
       </header>
@@ -411,8 +560,10 @@ export function AgentWorkflowHub({
         {inventory && (
           <details open className="border-fg/10 mb-4 rounded-xl border p-4">
             <summary className="cursor-pointer text-xs font-medium">
-              Worktree inventory ·{' '}
-              {inventory.filter((entry) => !projectId || entry.project_id === projectId).length}
+              {i18n.rich('Worktree inventory · {value1}', {
+                value1: inventory.filter((entry) => !projectId || entry.project_id === projectId)
+                  .length,
+              })}
             </summary>
             <div className="mt-3 space-y-2">
               {inventory
@@ -430,23 +581,32 @@ export function AgentWorkflowHub({
                     className="border-fg/10 hover:bg-fg/3 w-full rounded-lg border p-3 text-left"
                   >
                     <span className="flex flex-wrap gap-3 text-xs">
-                      <strong>{entry.branch ?? 'Detached checkout'}</strong>
+                      <strong>{entry.branch ?? i18n.t('Detached checkout')}</strong>
                       <span>
                         {entry.missing
-                          ? 'Missing directory'
+                          ? i18n.t('Missing directory')
                           : entry.active
-                            ? 'In use'
+                            ? i18n.t('In use')
                             : entry.dirty
-                              ? 'Contains changes'
-                              : 'Clean'}
+                              ? i18n.t('Contains changes')
+                              : i18n.t('Clean')}
                       </span>
                       <span className="text-fg-dim">
-                        {(entry.size_bytes / 1024 / 1024).toFixed(1)} MiB
-                        {entry.size_incomplete ? ' or more' : ''}
+                        {i18n.rich('{value1} MiB{value2}', {
+                          value1: i18n.number(entry.size_bytes / 1024 / 1024, {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                            useGrouping: false,
+                          }),
+                          value2: entry.size_incomplete ? i18n.t(' or more') : '',
+                        })}
                       </span>
                     </span>
                     <span className="text-fg-dim mt-1 block text-[10px] break-all">
-                      {entry.path} · base {entry.base_revision.slice(0, 12)}
+                      {i18n.rich('{value1} · base {value2}', {
+                        value1: entry.path,
+                        value2: entry.base_revision.slice(0, 12),
+                      })}
                     </span>
                     {entry.status && (
                       <pre className="text-fg-dim mt-2 max-h-24 overflow-auto text-[10px]">
@@ -462,141 +622,204 @@ export function AgentWorkflowHub({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void create();
+              if (queueEditing) return;
+              if (workflowLaunchCandidates(sessions, chosenProject).length)
+                setLaunchChoice('create');
+              else void create({ mode: autoProgress ? 'now' : 'draft' });
             }}
-            className="mx-auto max-w-3xl space-y-4"
+            className="mx-auto max-w-6xl space-y-5"
           >
-            <p className="text-fg-muted text-xs">
-              Create an isolated worktree from a committed base. Each step starts only when you
-              choose it. After creation you can explicitly transfer selected environment files
-              before setup.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className={label}>
-                Project
-                <SearchableSelect
-                  label="Workflow project"
-                  indentGrouped
-                  className="mt-1"
-                  value={chosenProject}
-                  disabled={!!projectId || busy}
-                  options={projectOptions}
-                  onChange={setNewProject}
-                  searchPlaceholder="Find a project or group…"
-                />
-              </label>
-              <label className={label}>
-                Base branch or commit
-                <input
-                  className={field}
-                  value={baseRef}
-                  onChange={(e) => setBaseRef(e.target.value)}
-                  placeholder="HEAD"
-                />
-              </label>
-            </div>
-            <AgentWorkflowTasks
-              steps={steps}
-              onChange={setSteps}
-              producers={available}
-              reviewers={reviewers}
-              poolOptions={poolOptions}
-              resolveTarget={resolvePool}
-              disabled={busy}
-            />
-            {!reviewers.length && (
-              <p className="text-warning text-xs">
-                Connect Codex or Claude for a supported read-only independent review. Other
-                providers can implement.
+            <div>
+              <h3 className="text-fg text-lg font-semibold">
+                {i18n.t('What would you like to get done?')}
+              </h3>
+              <p className="text-fg-muted mt-1 text-xs">
+                {i18n.t('Start with a brief and a ready-made workflow, then adjust any step.')}
               </p>
-            )}
-            <label className={label}>
-              Shared brief &middot; optional
-              <textarea
-                rows={3}
-                className={field}
-                value={objective}
-                onChange={(e) => setObjective(e.target.value)}
-                placeholder="Context every task should have. Each task says its own work above."
+            </div>
+            <fieldset disabled={busy} className="space-y-5">
+              <label className={`${label} max-w-sm`}>
+                {i18n.rich('Project{value1}', {
+                  value1: (
+                    <SearchableSelect
+                      label={i18n.t('Workflow project')}
+                      indentGrouped
+                      value={chosenProject}
+                      disabled={!!projectId || busy}
+                      options={projectOptions}
+                      onChange={setNewProject}
+                      searchPlaceholder={i18n.t('Find a project or group…')}
+                    />
+                  ),
+                })}
+              </label>
+              <label className={label}>
+                {i18n.rich('Shared context · optional{value1}{value2}', {
+                  value1: (
+                    <textarea
+                      rows={3}
+                      className={field}
+                      value={objective}
+                      onChange={(e) => setObjective(e.target.value)}
+                      placeholder={i18n.t(
+                        'For example: Add a search field to the project list so I can find projects by name.',
+                      )}
+                    />
+                  ),
+                  value2: (
+                    <span className="text-fg-dim text-[11px]">
+                      {i18n.t('Every step gets this context.')}
+                    </span>
+                  ),
+                })}
+              </label>
+              <AgentWorkflowTasks
+                projectId={chosenProject}
+                steps={steps}
+                onChange={setSteps}
+                producers={available}
+                reviewers={reviewers}
+                poolOptions={poolOptions}
+                resolveTarget={resolvePool}
+                disabled={busy}
+                onQueueCreated={() => setAutoProgress(true)}
+                onQueueEditingChange={setQueueEditing}
               />
-            </label>
-            <label className={label}>
-              Acceptance criteria
-              <textarea
-                rows={3}
-                className={field}
-                value={acceptance}
-                onChange={(e) => setAcceptance(e.target.value)}
-                placeholder="What must be true for you to accept the result?"
-              />
-            </label>
-            <label className={label}>
-              Setup commands · optional, one per line
-              <textarea
-                rows={2}
-                className={`${field} font-mono`}
-                value={setup}
-                onChange={(e) => setSetup(e.target.value)}
-                placeholder="pnpm install --frozen-lockfile"
-              />
-            </label>
-            <label className={label}>
-              Required checks · one command per line
-              <textarea
-                required
-                rows={3}
-                className={`${field} font-mono`}
-                value={checks}
-                onChange={(e) => setChecks(e.target.value)}
-                placeholder={'pnpm test\npnpm typecheck'}
-              />
-            </label>
-            <label className="text-fg-muted flex items-start gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={autoProgress}
-                onChange={(e) => setAutoProgress(e.target.checked)}
-              />
-              Automatically run eligible tasks and recorded checks. Pause on failure or restart;
-              applying always waits for me.
-            </label>
-            <p className="text-fg-dim text-[11px]">
-              Commands run in the isolated project directory with a 10 minute limit each. Their
-              actual exit codes, output and workspace revision are retained.
-            </p>
-            <button
-              className={`${button} bg-accent/10 text-accent`}
-              disabled={
-                busy ||
-                !chosenProject ||
-                // The task list is what has to be runnable, and it says why when it is not. The
-                // brief is optional, because a task that carries its own instruction has said it.
-                !!stepsProblem ||
-                !lines(checks).length
-              }
-            >
-              {busy ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <GitBranch className="h-3.5 w-3.5" />
-              )}{' '}
-              Create isolated workflow
-            </button>
+              {!reviewers.length && (
+                <p className="text-warning text-xs">
+                  {i18n.t('Connect Codex or Claude to review the completed work.')}
+                </p>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={label}>
+                  {i18n.rich('Success criteria · optional{value1}', {
+                    value1: (
+                      <textarea
+                        rows={2}
+                        className={field}
+                        value={acceptance}
+                        onChange={(e) => setAcceptance(e.target.value)}
+                        placeholder={i18n.t('What should the finished result do?')}
+                      />
+                    ),
+                  })}
+                </label>
+              </div>
+              <details className="border-border rounded-xl border p-4">
+                <summary className="text-fg-muted cursor-pointer text-xs">
+                  {i18n.t('Advanced project settings')}
+                </summary>
+                <label className={`${label} mt-3`}>
+                  {i18n.t('Automated checks · optional')}
+                  <textarea
+                    rows={2}
+                    className={`${field} font-mono`}
+                    value={checks}
+                    onChange={(e) => setChecks(e.target.value)}
+                    placeholder={i18n.t('pnpm test')}
+                  />
+                  <span className="text-fg-dim text-[11px]">
+                    {i18n.t(
+                      'One command per line. If provided, every check must pass. Leave empty to use independent review without automated tests.',
+                    )}
+                  </span>
+                </label>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className={label}>
+                    {i18n.rich('Start from branch or commit{value1}', {
+                      value1: (
+                        <input
+                          className={field}
+                          value={baseRef}
+                          onChange={(e) => setBaseRef(e.target.value)}
+                          placeholder={i18n.t('HEAD')}
+                        />
+                      ),
+                    })}
+                  </label>
+                  <label className={label}>
+                    {i18n.rich('Setup commands · optional{value1}', {
+                      value1: (
+                        <textarea
+                          rows={2}
+                          className={`${field} font-mono`}
+                          value={setup}
+                          onChange={(e) => setSetup(e.target.value)}
+                          placeholder={i18n.t('pnpm install --frozen-lockfile')}
+                        />
+                      ),
+                    })}
+                  </label>
+                </div>
+                <p className="text-fg-dim mt-3 text-[11px]">
+                  {i18n.t(
+                    'Work starts in a separate copy of your project. You can copy selected environment files before starting a saved workflow. Each command has a 10 minute limit.',
+                  )}
+                </p>
+              </details>
+              <label className="text-fg-muted flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={autoProgress}
+                  onChange={(e) => setAutoProgress(e.target.checked)}
+                />
+                <span>
+                  {i18n.rich('Run steps automatically{value1}', {
+                    value1: (
+                      <span className="text-fg-dim mt-1 block text-[11px]">
+                        {i18n.t(
+                          'Continue when a step finishes and pause if something fails. Applying changes always waits for your approval.',
+                        )}
+                      </span>
+                    ),
+                  })}
+                </span>
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  className={`${button} bg-accent text-accent-fg border-transparent`}
+                  disabled={busy || queueEditing || !chosenProject || !!stepsProblem}
+                >
+                  {busy ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
+                  {autoProgress ? i18n.t('Create & start') : i18n.t('Create workflow')}
+                </button>
+                <button
+                  type="button"
+                  className={button}
+                  disabled={busy || queueEditing || !chosenProject || !!stepsProblem}
+                  onClick={() => void create({ mode: 'draft' })}
+                >
+                  {i18n.t('Save for later')}
+                </button>
+                <span className="text-fg-dim text-[11px]">
+                  {autoProgress
+                    ? i18n.t(
+                        'Choose start timing when another task is active. You approve the final result.',
+                      )
+                    : i18n.t('You choose when each step starts.')}
+                </span>
+              </div>
+            </fieldset>
           </form>
         ) : !current ? (
           <div className="text-fg-dim mx-auto max-w-lg py-14 text-center text-sm">
             <GitPullRequest className="mx-auto mb-4 h-8 w-8" />
             <p>
-              Give implementation and review their own agents, keep check evidence with the change,
-              and apply it when you are ready.
+              {i18n.t(
+                'Give implementation and review their own agents, keep check evidence with the change, and apply it when you are ready.',
+              )}
             </p>
             <button type="button" onClick={() => setCreating(true)} className={`${button} mt-5`}>
-              Create your first workflow
+              {i18n.t('Create your first workflow')}
             </button>
           </div>
         ) : (
           <div className="grid min-h-0 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
-            <nav aria-label="Saved workflows" className="space-y-2">
+            <nav aria-label={i18n.t('Saved workflows')} className="space-y-2">
               {rows.map((w) => (
                 <button
                   type="button"
@@ -608,7 +831,7 @@ export function AgentWorkflowHub({
                   <span className="text-fg-dim mt-2 flex items-center gap-1.5 text-[11px]">
                     {activeStages.includes(w.stage) && <Loader2 className="h-3 w-3 animate-spin" />}
                     {stages[w.stage] ?? w.stage}
-                    {w.cleaned ? ' · cleaned' : ''}
+                    {w.cleaned ? i18n.t(' · cleaned') : ''}
                   </span>
                 </button>
               ))}
@@ -626,39 +849,245 @@ export function AgentWorkflowHub({
                 </p>
                 {current.acceptance && (
                   <p className="text-fg-dim mt-3 text-xs whitespace-pre-wrap">
-                    <strong>Acceptance:</strong> {current.acceptance}
+                    <strong>{i18n.t('Acceptance:')}</strong> {current.acceptance}
                   </p>
                 )}
-                {/* The order the workflow runs, and where each step stands. Read-only: the shape
-                    is decided when the workflow is created, and a step is started explicitly. */}
+                {(current.start_after ||
+                  ['waiting', 'launching', 'launch_failed', 'launch_paused'].includes(
+                    current.stage,
+                  )) && (
+                  <div
+                    className="border-accent/25 bg-accent/5 mt-4 space-y-2 rounded-lg border p-3"
+                    role="status"
+                  >
+                    <p className="text-fg text-xs">
+                      {current.start_after
+                        ? i18n.t('Waiting for: {value1}', { value1: current.start_after.title })
+                        : stages[current.stage]}
+                    </p>
+                    <p className="text-fg-muted text-[11px]">
+                      {current.launch_pending
+                        ? i18n.t(
+                            'This workflow starts automatically when its turn arrives. You can leave this view.',
+                          )
+                        : i18n.t('Automatic start is paused. Choose when to start again.')}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {current.start_after && (
+                        <button
+                          type="button"
+                          className={button}
+                          onClick={() => open(current.start_after!.session_id)}
+                        >
+                          {i18n.t('Open preceding task')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={button}
+                        disabled={busy}
+                        onClick={() => void action(() => agentWorkflowIpc.launch(current.id))}
+                      >
+                        {i18n.t('Start now')}
+                      </button>
+                      {!current.launch_pending && (
+                        <button
+                          type="button"
+                          className={button}
+                          disabled={busy}
+                          onClick={() => setLaunchChoice(current.id)}
+                        >
+                          {i18n.t('Choose start timing')}
+                        </button>
+                      )}
+                      {current.launch_pending && (
+                        <button
+                          type="button"
+                          className={button}
+                          disabled={busy}
+                          onClick={() => void action(() => agentWorkflowIpc.cancel(current.id))}
+                        >
+                          {i18n.t('Cancel queued start')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!current.cleaned &&
+                  !['setting_up', 'checking', 'integrating', 'integrated'].includes(
+                    current.stage,
+                  ) && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className={button}
+                        disabled={busy || liveDraft?.id === current.id}
+                        onClick={() =>
+                          void action(async () => {
+                            const w = await agentWorkflowIpc.edit(current.id, true);
+                            setLiveDraft(w);
+                            return w;
+                          })
+                        }
+                      >
+                        {i18n.t(current.editing ? 'Reopen queue editor' : 'Edit waiting steps')}
+                      </button>
+                      {current.editing && (
+                        <>
+                          <span className="text-fg-muted text-xs">
+                            {i18n.t('New steps are paused while you edit.')}
+                          </span>
+                          {liveDraft?.id !== current.id && (
+                            <button
+                              type="button"
+                              className={button}
+                              disabled={busy}
+                              onClick={() =>
+                                void action(() => agentWorkflowIpc.edit(current.id, false))
+                              }
+                            >
+                              {i18n.t('Resume saved queue')}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                {liveDraft?.id === current.id && current.editing && (
+                  <div className="mt-4">
+                    <AgentWorkflowLiveEditor
+                      key={`${liveDraft.id}-${liveDraft.edit_revision}`}
+                      workflow={liveDraft}
+                      producers={available}
+                      reviewers={reviewers}
+                      poolOptions={poolOptions}
+                      resolveTarget={resolvePool}
+                      disabled={busy}
+                      onCancel={() =>
+                        void action(async () => {
+                          const w = await agentWorkflowIpc.edit(current.id, false);
+                          setLiveDraft(null);
+                          return w;
+                        })
+                      }
+                      onSave={(revision, steps) =>
+                        void action(async () => {
+                          const w = await agentWorkflowIpc.updateSteps(current.id, revision, steps);
+                          setLiveDraft(null);
+                          return w;
+                        })
+                      }
+                    />
+                  </div>
+                )}
+                {current.steps.filter(workflowReviewNeedsDecision).map((step) => (
+                  <section
+                    key={step.id}
+                    role="status"
+                    className="border-accent/30 bg-accent/5 mt-4 space-y-2 rounded-xl border p-3"
+                    aria-label={i18n.t('Review decision')}
+                  >
+                    <p className="text-fg text-xs font-medium">
+                      {i18n.t('Review needs your decision')} ·{' '}
+                      {step.review_outcome === 'passed'
+                        ? i18n.t('No issues reported')
+                        : step.review_outcome === 'findings'
+                          ? i18n.t('Issues found')
+                          : i18n.t('Unclear verdict')}
+                    </p>
+                    <p className="text-fg-muted text-xs whitespace-pre-wrap">
+                      {step.review_summary}
+                    </p>
+                    {!!step.review_fix_attempts && (
+                      <p className="text-fg-dim text-[11px]">
+                        {i18n.t(
+                          'The automatic correction attempt has finished. Choose what happens next.',
+                        )}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {step.session_id && (
+                        <button
+                          type="button"
+                          className={button}
+                          onClick={() => open(step.session_id!)}
+                        >
+                          {i18n.t('Read review')}
+                        </button>
+                      )}
+                      {(['approve', 'fix', 'retry'] as const).map((decision) => (
+                        <button
+                          key={decision}
+                          type="button"
+                          className={button}
+                          disabled={
+                            busy ||
+                            current.editing ||
+                            current.steps.some((step) => step.status === 'running')
+                          }
+                          onClick={() =>
+                            void action(() =>
+                              agentWorkflowIpc.reviewDecision(
+                                current.id,
+                                step.id,
+                                step.finished_at!,
+                                decision,
+                              ),
+                            )
+                          }
+                        >
+                          {decision === 'approve'
+                            ? i18n.t('Accept review & continue')
+                            : decision === 'fix'
+                              ? i18n.t('Add correction & review')
+                              : i18n.t('Review again')}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                {!current.check_commands.length && (
+                  <p className="text-fg-dim mt-3 text-[11px]">
+                    {i18n.t('Independent review only. No automated test commands are configured.')}
+                  </p>
+                )}
                 {!!current.steps?.length && (
                   <div className="mt-4">
                     <AgentWorkflowBoard
+                      key={current.id}
                       workflow={current}
                       sessions={sessions}
                       providerName={providerName}
                       busy={busy}
-                      onStart={(stepId) =>
-                        void action(() => agentWorkflowIpc.runStep(current.id, stepId))
-                      }
+                      onStart={requestStart}
                       onOpen={open}
-                      onStartReady={() => void action(() => agentWorkflowIpc.schedule(current.id))}
+                      onStartReady={() => requestStart()}
                     />
                   </div>
                 )}
-                <div className="text-fg-dim mt-4 space-y-1 font-mono text-[10px] break-all">
-                  <p>Base: {current.base_revision}</p>
-                  <p>Worktree: {current.cwd}</p>
-                  <p>Destination: {current.target}</p>
-                  <p>Reviewed tree: {current.review_fingerprint ?? 'Not reviewed'}</p>
-                  <p>Current tree: {current.current_fingerprint ?? 'Available when idle'}</p>
+                <details className="text-fg-dim mt-4 space-y-1 text-[11px] break-all">
+                  <summary className="cursor-pointer">{i18n.t('Technical details')}</summary>
+                  <p>{i18n.rich('Base: {value1}', { value1: current.base_revision })}</p>
+                  <p>{i18n.rich('Worktree: {value1}', { value1: current.cwd })}</p>
+                  <p>{i18n.rich('Destination: {value1}', { value1: current.target })}</p>
                   <p>
-                    Progression:{' '}
-                    {current.auto_progress
-                      ? 'Automatic eligible tasks and checks'
-                      : 'Start each step explicitly'}
+                    {i18n.rich('Reviewed tree: {value1}', {
+                      value1: current.review_fingerprint ?? i18n.t('Not reviewed'),
+                    })}
                   </p>
-                </div>
+                  <p>
+                    {i18n.rich('Current tree: {value1}', {
+                      value1: current.current_fingerprint ?? i18n.t('Available when idle'),
+                    })}
+                  </p>
+                  <p>
+                    {i18n.rich('Progression: {value1}', {
+                      value1: current.auto_progress
+                        ? i18n.t('Automatic eligible tasks and checks')
+                        : i18n.t('Start each step explicitly'),
+                    })}
+                  </p>
+                </details>
                 {current.error && (
                   <p role="status" className="text-warning mt-3 text-xs">
                     {current.error}
@@ -669,20 +1098,20 @@ export function AgentWorkflowHub({
                 ['setup_ready', 'setup_failed', 'implementation_ready'].includes(current.stage) && (
                   <details className="border-fg/10 rounded-xl border p-4">
                     <summary className="cursor-pointer text-xs font-medium">
-                      Selected environment files
+                      {i18n.t('Selected environment files')}
                     </summary>
                     <p className="text-fg-dim my-3 text-xs">
-                      Copy only the files you name from the original project. Paths must be
-                      project-relative, ignored by Git in this worktree and at most 1 MiB each.
-                      Their contents stay outside saved history and integration patches.
+                      {i18n.t(
+                        'Copy only the files you name from the original project. Paths must be project-relative, ignored by Git in this worktree and at most 1 MiB each. Their contents stay outside saved history and integration patches.',
+                      )}
                     </p>
                     <textarea
-                      aria-label="Environment file paths"
+                      aria-label={i18n.t('Environment file paths')}
                       className={`${field} font-mono`}
                       rows={2}
                       value={transferPaths}
                       onChange={(e) => setTransferPaths(e.target.value)}
-                      placeholder={'.env.local\nconfig/local.env'}
+                      placeholder={i18n.t('.env.local\nconfig/local.env')}
                     />
                     <button
                       type="button"
@@ -694,21 +1123,26 @@ export function AgentWorkflowHub({
                         )
                       }
                     >
-                      Copy selected files to worktree
+                      {i18n.t('Copy selected files to worktree')}
                     </button>
                   </details>
                 )}
               {current.transferred_files.length > 0 && (
                 <details className="border-fg/10 rounded-xl border p-4">
                   <summary className="cursor-pointer text-xs font-medium">
-                    Transferred configuration · {current.transferred_files.length}
+                    {i18n.rich('Transferred configuration · {value1}', {
+                      value1: current.transferred_files.length,
+                    })}
                   </summary>
                   {current.transferred_files.map((file) => (
                     <p key={file.path} className="text-fg-dim mt-2 text-[11px] break-all">
-                      {file.path} · {file.size} bytes ·{' '}
-                      {new Date(file.captured_at).toLocaleString()}
-                      <br />
-                      Source: {file.source}
+                      {i18n.rich('{value1} · {value2} bytes · {value3}{value4}Source: {value5}', {
+                        value1: file.path,
+                        value2: file.size,
+                        value3: new Date(file.captured_at).toLocaleString(i18n.getFormatLocale()),
+                        value4: <br />,
+                        value5: file.source,
+                      })}
                     </p>
                   ))}
                 </details>
@@ -724,20 +1158,30 @@ export function AgentWorkflowHub({
                       disabled={busy || running}
                       onClick={() => void action(() => agentWorkflowIpc.setup(current.id))}
                     >
-                      <Play className="h-3.5 w-3.5" /> Run setup
+                      {i18n.rich('{value1} Run setup', {
+                        value1: <Play className="h-3.5 w-3.5" />,
+                      })}
                     </button>
                   )}
                 {!current.cleaned &&
                   current.stage !== 'integrated' &&
+                  !current.start_after &&
+                  !current.launch_pending &&
+                  !current.editing &&
+                  !current.steps.some(workflowReviewNeedsDecision) &&
+                  !['launch_failed', 'launch_paused'].includes(current.stage) &&
                   !['setup_ready', 'setup_failed'].includes(current.stage) &&
                   readyCount > 0 && (
                     <button
                       type="button"
                       className={button}
                       disabled={busy}
-                      onClick={() => void action(() => agentWorkflowIpc.schedule(current.id))}
+                      onClick={() => requestStart()}
                     >
-                      <Play className="h-3.5 w-3.5" /> Start {readyCount} unblocked
+                      {i18n.rich('{value1} Start {readyCount} unblocked', {
+                        value1: <Play className="h-3.5 w-3.5" />,
+                        readyCount: readyCount,
+                      })}
                     </button>
                   )}
                 <button
@@ -745,11 +1189,11 @@ export function AgentWorkflowHub({
                   className={button}
                   onClick={() => open(current.implementation_session_id)}
                 >
-                  Open implementation
+                  {i18n.t('Open implementation')}
                 </button>
                 {reviewId && (
                   <button type="button" className={button} onClick={() => open(reviewId)}>
-                    Open review
+                    {i18n.t('Open review')}
                   </button>
                 )}
                 {!running &&
@@ -763,10 +1207,12 @@ export function AgentWorkflowHub({
                       disabled={busy || implementationActive || reviewActive}
                       onClick={() => void action(() => agentWorkflowIpc.checks(current.id))}
                     >
-                      <Check className="h-3.5 w-3.5" /> Run checks
+                      {i18n.rich('{value1} Run checks', {
+                        value1: <Check className="h-3.5 w-3.5" />,
+                      })}
                     </button>
                   )}
-                {(running || implementationActive || reviewActive) && (
+                {!current.launch_pending && (running || implementationActive || reviewActive) && (
                   <button
                     type="button"
                     className={`${button} text-warning`}
@@ -777,7 +1223,9 @@ export function AgentWorkflowHub({
                         .catch((e) => setError(String(e)))
                     }
                   >
-                    <Square className="h-3.5 w-3.5" /> Stop workflow
+                    {i18n.rich('{value1} Stop workflow', {
+                      value1: <Square className="h-3.5 w-3.5" />,
+                    })}
                   </button>
                 )}
                 {current.stage === 'integrated' && !current.cleaned && (
@@ -787,14 +1235,16 @@ export function AgentWorkflowHub({
                     disabled={busy}
                     onClick={() => void action(() => agentWorkflowIpc.cleanup(current.id))}
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Remove integrated worktree
+                    {i18n.rich('{value1} Remove integrated worktree', {
+                      value1: <Trash2 className="h-3.5 w-3.5" />,
+                    })}
                   </button>
                 )}
               </div>
               {findings.length > 0 && (
                 <details open className="border-fg/10 rounded-xl border p-4">
                   <summary className="cursor-pointer text-xs font-medium">
-                    Independent review findings
+                    {i18n.t('Independent review findings')}
                   </summary>
                   <div className="text-fg-muted mt-3 max-h-72 overflow-auto text-xs whitespace-pre-wrap">
                     {findings.slice(-3).map((item) => (
@@ -805,9 +1255,9 @@ export function AgentWorkflowHub({
                   </div>
                 </details>
               )}
-              <Evidence title="Environment setup" items={current.setup} />
+              <Evidence title={i18n.t('Environment setup')} items={current.setup} />
               <Evidence
-                title="Recorded validation"
+                title={i18n.t('Recorded validation')}
                 items={current.checks}
                 reviewedFingerprint={current.review_fingerprint}
                 currentFingerprint={current.current_fingerprint}
@@ -815,9 +1265,9 @@ export function AgentWorkflowHub({
               {current.stage === 'ready' && (
                 <div className="border-accent/25 space-y-3 rounded-xl border p-4">
                   <p className="text-fg-muted text-xs">
-                    Review the findings and destination diff, then apply these changes to your
-                    original project. Applying leaves the changes uncommitted for your normal Git
-                    review.
+                    {i18n.t(
+                      'Review the findings and destination diff, then apply these changes to your original project. Applying leaves the changes uncommitted for your normal Git review.',
+                    )}
                   </p>
                   <button
                     type="button"
@@ -825,7 +1275,7 @@ export function AgentWorkflowHub({
                     disabled={busy}
                     onClick={() => void action(() => agentWorkflowIpc.preview(current.id))}
                   >
-                    Preview destination and conflicts
+                    {i18n.t('Preview destination and conflicts')}
                   </button>
                   {current.preview && (
                     <>
@@ -837,36 +1287,45 @@ export function AgentWorkflowHub({
                         <p className="text-warning text-xs">{current.preview.conflict}</p>
                       ) : (
                         <p className="text-success text-xs">
-                          Patch applies cleanly to the previewed destination.
+                          {i18n.t('Patch applies cleanly to the previewed destination.')}
                         </p>
                       )}
                       <pre className="bg-fg/3 max-h-80 overflow-auto rounded-lg p-3 text-[11px]">
                         {current.preview.patch}
                       </pre>
                       <label className="text-fg-muted flex items-start gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={accepted}
-                          onChange={(e) => setAccepted(e.target.checked)}
-                        />
-                        I reviewed the findings and this diff and accept applying it to the
-                        displayed destination.
+                        {i18n.rich(
+                          '{value1}I reviewed the findings and this diff and accept applying it to the displayed destination.',
+                          {
+                            value1: (
+                              <input
+                                type="checkbox"
+                                checked={accepted}
+                                onChange={(e) => setAccepted(e.target.checked)}
+                              />
+                            ),
+                          },
+                        )}
                       </label>
                       <SearchableSelect
-                        label="Integration destination"
+                        label={i18n.t('Integration destination')}
                         searchable={false}
                         className="w-full"
                         value={destination}
                         options={[
                           {
                             value: 'working_tree',
-                            label: 'Apply to the working tree',
-                            description: 'Leaves the change uncommitted for you to review in Git',
+                            label: i18n.t('Apply to the working tree'),
+                            description: i18n.t(
+                              'Leaves the change uncommitted for you to review in Git',
+                            ),
                           },
                           {
                             value: 'branch',
-                            label: 'Commit on a new branch',
-                            description: 'Creates the branch in the destination and commits there',
+                            label: i18n.t('Commit on a new branch'),
+                            description: i18n.t(
+                              'Creates the branch in the destination and commits there',
+                            ),
                           },
                         ]}
                         onChange={(value) => setDestination(value as 'working_tree' | 'branch')}
@@ -874,26 +1333,33 @@ export function AgentWorkflowHub({
                       {destination === 'branch' && (
                         <div className="grid gap-2">
                           <label className="text-fg-muted text-xs">
-                            Branch name
-                            <input
-                              className={field}
-                              value={branchName}
-                              onChange={(e) => setBranchName(e.target.value)}
-                              placeholder="runhq/reviewed-change"
-                            />
+                            {i18n.rich('Branch name{value1}', {
+                              value1: (
+                                <input
+                                  className={field}
+                                  value={branchName}
+                                  onChange={(e) => setBranchName(e.target.value)}
+                                  placeholder={i18n.t('runhq/reviewed-change')}
+                                />
+                              ),
+                            })}
                           </label>
                           <label className="text-fg-muted text-xs">
-                            Commit message
-                            <input
-                              className={field}
-                              value={commitMessage}
-                              onChange={(e) => setCommitMessage(e.target.value)}
-                              placeholder={current.title}
-                            />
+                            {i18n.rich('Commit message{value1}', {
+                              value1: (
+                                <input
+                                  className={field}
+                                  value={commitMessage}
+                                  onChange={(e) => setCommitMessage(e.target.value)}
+                                  placeholder={current.title}
+                                />
+                              ),
+                            })}
                           </label>
                           <p className="text-fg-dim text-[11px]">
-                            The destination checkout is switched to this branch. RunHQ does not push
-                            or open a pull request.
+                            {i18n.t(
+                              'The destination checkout is switched to this branch. RunHQ does not push or open a pull request.',
+                            )}
                           </p>
                         </div>
                       )}
@@ -923,8 +1389,8 @@ export function AgentWorkflowHub({
                         }
                       >
                         {destination === 'branch'
-                          ? 'Commit reviewed changes on the branch'
-                          : 'Apply reviewed changes'}
+                          ? i18n.t('Commit reviewed changes on the branch')
+                          : i18n.t('Apply reviewed changes')}
                       </button>
                     </>
                   )}
@@ -933,17 +1399,29 @@ export function AgentWorkflowHub({
               {current.stage === 'integrated' && (
                 <p className="text-success text-xs">
                   {current.integration_branch
-                    ? `Committed on ${current.integration_branch} in ${current.target}${
-                        current.integration_commit
-                          ? ` as ${current.integration_commit.slice(0, 7)}`
-                          : ''
-                      }. Nothing was pushed. The workflow evidence remains available.`
-                    : `Changes were applied to ${current.target}. Review and commit them from the project Git view. The workflow evidence remains available.`}
+                    ? i18n.t(
+                        'Committed on {value1} in {value2}{value3}. Nothing was pushed. The workflow evidence remains available.',
+                        {
+                          value1: current.integration_branch,
+                          value2: current.target,
+                          value3: current.integration_commit
+                            ? i18n.t(' as {value1}', {
+                                value1: current.integration_commit.slice(0, 7),
+                              })
+                            : '',
+                        },
+                      )
+                    : i18n.t(
+                        'Changes were applied to {value1}. Review and commit them from the project Git view. The workflow evidence remains available.',
+                        { value1: current.target },
+                      )}
                 </p>
               )}
               {busy && (
                 <p role="status" className="text-fg-dim flex items-center gap-2 text-xs">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving or running this step…
+                  {i18n.rich('{value1} Saving or running this step…', {
+                    value1: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+                  })}
                 </p>
               )}
             </article>
@@ -964,6 +1442,7 @@ function Evidence({
   reviewedFingerprint?: string | null;
   currentFingerprint?: string | null;
 }) {
+  i18n.useLocale();
   if (!items.length) return null;
   return (
     <div className="space-y-2">
@@ -979,16 +1458,21 @@ function Evidence({
               )}
             </span>
             <code className="min-w-0 flex-1 break-all">{item.command}</code>
-            <span className="text-fg-dim">exit {item.exit_code ?? '—'}</span>
+            <span className="text-fg-dim">
+              {i18n.rich('exit {value1}', { value1: item.exit_code ?? '—' })}
+            </span>
             {reviewedFingerprint &&
               (item.fingerprint !== reviewedFingerprint ||
                 item.fingerprint !== currentFingerprint) && (
-                <span className="text-warning">stale</span>
+                <span className="text-warning">{i18n.t('stale')}</span>
               )}
           </summary>
           <p className="text-fg-dim mt-2 text-[10px] break-all">
-            {item.cwd} · {new Date(item.started_at).toLocaleString()} · tree{' '}
-            {item.fingerprint.slice(0, 12)}
+            {i18n.rich('{value1} · {value2} · tree {value3}', {
+              value1: item.cwd,
+              value2: new Date(item.started_at).toLocaleString(i18n.getFormatLocale()),
+              value3: item.fingerprint.slice(0, 12),
+            })}
           </p>
           <pre className="text-fg-muted mt-2 max-h-72 overflow-auto text-[11px] whitespace-pre-wrap">
             {item.output || 'Waiting for the command to finish…'}

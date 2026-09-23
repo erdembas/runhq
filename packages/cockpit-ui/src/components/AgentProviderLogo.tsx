@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Bot } from 'lucide-react';
 import type { AgentBackendId } from '@runhq/cockpit-types';
 
@@ -16,6 +19,7 @@ export function AgentProviderLogo({
   backend: AgentBackendId;
   className?: string;
 }) {
+  i18n.useLocale();
   if (!logos[backend]) return <Bot aria-hidden="true" className={className} />;
   return (
     <span

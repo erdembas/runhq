@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Service categories.
  *
@@ -26,71 +27,100 @@ export interface Category {
 export const CATEGORIES: Category[] = [
   {
     key: 'frontend',
-    label: 'Frontend',
+    get label() {
+      return i18n.t('Frontend');
+    },
     color: 'text-cat-frontend',
     bg: 'bg-cat-frontend/10',
     dot: 'bg-cat-frontend',
     ring: 'ring-cat-frontend/20',
-    description: 'Web UIs, SPAs, static sites.',
+    get description() {
+      return i18n.t('Web UIs, SPAs, static sites.');
+    },
   },
   {
     key: 'backend',
-    label: 'Backend',
+    get label() {
+      return i18n.t('Backend');
+    },
     color: 'text-cat-backend',
     bg: 'bg-cat-backend/10',
     dot: 'bg-cat-backend',
     ring: 'ring-cat-backend/20',
-    description: 'APIs, servers, RPC endpoints.',
+    get description() {
+      return i18n.t('APIs, servers, RPC endpoints.');
+    },
   },
   {
     key: 'database',
-    label: 'Database',
+    get label() {
+      return i18n.t('Database');
+    },
     color: 'text-cat-database',
     bg: 'bg-cat-database/10',
     dot: 'bg-cat-database',
     ring: 'ring-cat-database/20',
-    description: 'Local databases and data stores.',
+    get description() {
+      return i18n.t('Local databases and data stores.');
+    },
   },
   {
     key: 'infra',
-    label: 'Infra',
+    get label() {
+      return i18n.t('Infra');
+    },
     color: 'text-cat-infra',
     bg: 'bg-cat-infra/10',
     dot: 'bg-cat-infra',
     ring: 'ring-cat-infra/20',
-    description: 'Infrastructure, containers, gateways.',
+    get description() {
+      return i18n.t('Infrastructure, containers, gateways.');
+    },
   },
   {
     key: 'worker',
-    label: 'Worker',
+    get label() {
+      return i18n.t('Worker');
+    },
     color: 'text-cat-worker',
     bg: 'bg-cat-worker/10',
     dot: 'bg-cat-worker',
     ring: 'ring-cat-worker/20',
-    description: 'Background jobs, queues, cron.',
+    get description() {
+      return i18n.t('Background jobs, queues, cron.');
+    },
   },
   {
     key: 'tooling',
-    label: 'Tooling',
+    get label() {
+      return i18n.t('Tooling');
+    },
     color: 'text-cat-tooling',
     bg: 'bg-cat-tooling/10',
     dot: 'bg-cat-tooling',
     ring: 'ring-cat-tooling/20',
-    description: 'Watchers, codegen, dev scripts.',
+    get description() {
+      return i18n.t('Watchers, codegen, dev scripts.');
+    },
   },
   {
     key: 'other',
-    label: 'Other',
+    get label() {
+      return i18n.t('Other');
+    },
     color: 'text-cat-other',
     bg: 'bg-cat-other/10',
     dot: 'bg-cat-other',
     ring: 'ring-cat-other/20',
-    description: 'Everything else.',
+    get description() {
+      return i18n.t('Everything else.');
+    },
   },
 ];
 
 const CATEGORY_BY_KEY: Record<CategoryKey, Category> = CATEGORIES.reduce(
   (acc, c) => {
+    i18n.useLocale();
     acc[c.key] = c;
     return acc;
   },

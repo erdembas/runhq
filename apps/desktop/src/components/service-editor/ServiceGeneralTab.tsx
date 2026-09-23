@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import {
   DndContext,
   KeyboardSensor,
@@ -34,6 +35,7 @@ export function ServiceGeneralTab({
   onChooseDir,
   onNameChange,
 }: ServiceGeneralTabProps) {
+  i18n.useLocale();
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -50,19 +52,19 @@ export function ServiceGeneralTab({
 
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <Field label="Name" className="md:col-span-2">
+      <Field label={i18n.t('Name')} className="md:col-span-2">
         <Input
           autoFocus
-          placeholder="web"
+          placeholder={i18n.t('web')}
           value={form.name}
           onChange={(event) => onNameChange(event.target.value)}
         />
       </Field>
-      <Field label="Working directory" className="md:col-span-2">
+      <Field label={i18n.t('Working directory')} className="md:col-span-2">
         <div className="flex gap-1.5">
           <Input
             mono
-            placeholder="/Users/you/project"
+            placeholder={i18n.t('/Users/you/project')}
             value={form.cwd}
             onChange={(event) => patch({ cwd: event.target.value })}
           />
@@ -72,13 +74,13 @@ export function ServiceGeneralTab({
             leftIcon={<FolderOpen className="h-3 w-3" />}
             onClick={onChooseDir}
           >
-            Browse
+            {i18n.t('Browse')}
           </Button>
         </div>
       </Field>
       <Field
-        label="Commands"
-        hint="Multiple commands run in parallel. Each has its own log stream."
+        label={i18n.t('Commands')}
+        hint={i18n.t('Multiple commands run in parallel. Each has its own log stream.')}
         className="md:col-span-2"
       >
         <div className="space-y-1.5">
@@ -110,7 +112,7 @@ export function ServiceGeneralTab({
             leftIcon={<Plus className="h-2.5 w-2.5" />}
             onClick={form.addCmd}
           >
-            Add command
+            {i18n.t('Add command')}
           </Button>
           <DetectedSuggestions
             loading={form.detecting}
@@ -123,7 +125,7 @@ export function ServiceGeneralTab({
         </div>
       </Field>
       <div className="grid grid-cols-[30%_70%] gap-3 md:col-span-2">
-        <Field label="Port" hint="Port bar.">
+        <Field label={i18n.t('Port')} hint={i18n.t('Port bar.')}>
           <Input
             mono
             placeholder="3000"
@@ -132,7 +134,7 @@ export function ServiceGeneralTab({
             onChange={(event) => patch({ port: event.target.value.replace(/[^\d]/g, '') })}
           />
         </Field>
-        <Field label="Category" hint="Start typing or pick from the list.">
+        <Field label={i18n.t('Category')} hint={i18n.t('Start typing or pick from the list.')}>
           <TagInput
             tags={form.tags}
             draft={form.tagDraft}
@@ -146,8 +148,8 @@ export function ServiceGeneralTab({
         <Switch
           checked={form.autoStart}
           onChange={(autoStart) => patch({ autoStart })}
-          label="Auto-start on app launch"
-          description="Automatically start this service when RunHQ opens."
+          label={i18n.t('Auto-start on app launch')}
+          description={i18n.t('Automatically start this service when RunHQ opens.')}
         />
       </div>
     </div>

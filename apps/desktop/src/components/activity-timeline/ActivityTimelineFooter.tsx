@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { TimelineEvent } from '@/types';
 import { formatTime } from './model';
@@ -16,13 +17,20 @@ export function ActivityTimelineFooter({
   selectedEvent,
   size,
 }: ActivityTimelineFooterProps) {
+  i18n.useLocale();
   return (
     <div className={cn('border-border/40 border-t py-2', size.padX)}>
       <div className={cn('text-fg/40 flex items-center justify-between', size.micro)}>
         <span className="tabular-nums">
           {filteredCount === eventCount
-            ? `${eventCount} event${eventCount === 1 ? '' : 's'}`
-            : `${filteredCount} of ${eventCount}`}
+            ? i18n.t('{eventCount} event{plural2}', {
+                eventCount: eventCount,
+                plural2: eventCount === 1 ? '' : 's',
+              })
+            : i18n.t('{filteredCount} of {eventCount}', {
+                filteredCount: filteredCount,
+                eventCount: eventCount,
+              })}
         </span>
         {selectedEvent ? (
           <span className="text-fg/50 flex items-center gap-1.5">
@@ -33,7 +41,7 @@ export function ActivityTimelineFooter({
         ) : (
           <span className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500/70" />
-            <span className="tracking-wide uppercase">Live</span>
+            <span className="tracking-wide uppercase">{i18n.t('Live')}</span>
           </span>
         )}
       </div>

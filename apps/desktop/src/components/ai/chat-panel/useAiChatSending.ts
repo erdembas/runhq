@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AiChatProvider } from './aiChatProviders';
 import { useCallback } from 'react';
 import type { MutableRefObject } from 'react';
@@ -42,7 +43,7 @@ export function useAiChatSending(args: Args) {
       if (!text) return;
       const activeProvider = providerOverride ?? args.provider;
       if (!activeProvider) {
-        args.setProviderError('No AI provider configured. Add one from Settings → AI.');
+        args.setProviderError(i18n.t('No AI provider configured. Add one from Settings → AI.'));
         return;
       }
 
@@ -60,7 +61,9 @@ export function useAiChatSending(args: Args) {
           args.setActiveConversation(convId);
         } catch (e) {
           args.setProviderError(
-            `Couldn't start conversation: ${e instanceof Error ? e.message : String(e)}`,
+            i18n.t("Couldn't start conversation: {value1}", {
+              value1: e instanceof Error ? e.message : String(e),
+            }),
           );
           return;
         }

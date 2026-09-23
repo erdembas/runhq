@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { ipc } from '@/lib/ipc';
 import { useAgentStore } from '@/store/useAgentStore';
 
@@ -16,9 +17,11 @@ export async function answerPendingAgentRequest(
     session.status === 'cancelling'
   )
     throw new Error(
-      'This request is no longer waiting for an answer. Open the conversation to see its current state.',
+      i18n.t(
+        'This request is no longer waiting for an answer. Open the conversation to see its current state.',
+      ),
     );
-  if (replies.has(key)) throw new Error('This answer is already being sent.');
+  if (replies.has(key)) throw new Error(i18n.t('This answer is already being sent.'));
   replies.add(key);
   try {
     await ipc.agentAnswer(sessionId, requestId, value);

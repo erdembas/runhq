@@ -1,8 +1,10 @@
 'use client';
 
+import { useLocaleMemo as useMemo } from '../i18n';
+import * as i18n from '../i18n';
 import { Bot, CircleHelp, ListChecks, Loader2, RefreshCw, UserRound } from 'lucide-react';
 import type { AgentCatalog } from '@runhq/cockpit-types';
-import { useMemo } from 'react';
+import {} from 'react';
 import { agentModelEfforts, agentModelOptions, customModelOption } from '../lib/agentModelOptions';
 import { SearchableSelect } from './SearchableSelect';
 import { AgentEffortPicker } from './AgentEffortPicker';
@@ -13,7 +15,7 @@ export function AgentModelControls({
   refresh,
   model,
   effort,
-  mode,
+  mode = 'default',
   onModel,
   onEffort,
   onMode,
@@ -26,14 +28,15 @@ export function AgentModelControls({
   refresh: () => void;
   model: string;
   effort: string;
-  mode: string;
+  mode?: string;
   onModel: (model: string) => void;
   onEffort: (effort: string) => void;
-  onMode: (mode: 'default' | 'plan') => void;
+  onMode?: (mode: 'default' | 'plan') => void;
   disabled?: boolean;
   agent?: string;
   onAgent?: (agent: string) => void;
 }) {
+  i18n.useLocale();
   const efforts = agentModelEfforts(catalog?.models ?? [], model);
   const models = useMemo(() => agentModelOptions(catalog?.models ?? [], model), [catalog, model]);
   const acp = catalog?.connection === 'acp';
@@ -57,28 +60,30 @@ export function AgentModelControls({
       <span className="bg-border mx-0.5 h-4 w-px" />
       {catalog ? (
         <SearchableSelect
-          label="Model"
+          label={i18n.t('Model')}
           value={model}
           onChange={onModel}
           disabled={disabled}
           compact
           className="max-w-48"
-          searchPlaceholder="Search models or providers…"
+          searchPlaceholder={i18n.t('Search models or providers…')}
           menuWidth={420}
           options={models}
           createOption={customModelOption}
-          hint="Auto follows your provider’s configuration. To pin another version, paste its exact model ID in search."
+          hint={i18n.t(
+            'Auto follows your provider’s configuration. To pin another version, paste its exact model ID in search.',
+          )}
         />
       ) : (
         <span role="status" className="text-fg-dim flex h-8 items-center gap-1.5 px-2 text-[11px]">
           {loading && <Loader2 className="h-3 w-3 animate-spin" />}
-          {loading ? 'Loading models…' : model || 'Models not connected'}
+          {loading ? i18n.t('Loading models…') : model || i18n.t('Models not connected')}
         </span>
       )}
       <button
         type="button"
-        aria-label="Refresh models"
-        title={loading ? 'Loading models…' : 'Refresh models'}
+        aria-label={i18n.t('Refresh models')}
+        title={loading ? i18n.t('Loading models…') : i18n.t('Refresh models')}
         disabled={disabled || loading}
         onClick={refresh}
         className="text-fg-dim hover:text-fg rounded-md p-1.5 disabled:opacity-40"
@@ -93,76 +98,86 @@ export function AgentModelControls({
           disabled={disabled}
         />
       )}
-      {(!acp || !!onAgent) && nativeModes.some((id) => ['agent', 'plan', 'ask'].includes(id)) && (
-        <div
-          role="group"
-          aria-label="Work mode"
-          className="bg-fg/4 inline-flex h-8 shrink-0 items-center gap-0.5 rounded-xl p-0.5"
-        >
-          {(
-            [
-              {
-                value: 'agent',
-                label: 'Agent',
-                icon: Bot,
-                description: 'Implement changes with your configured permissions',
-              },
-              {
-                value: 'plan',
-                label: 'Plan',
-                icon: ListChecks,
-                description: 'Explore the code and prepare a plan before implementation',
-              },
-              {
-                value: 'ask',
-                label: 'Ask',
-                icon: CircleHelp,
-                description: 'Explore and ask questions using the provider’s read-only mode',
-              },
-            ] as const
-          )
-            .filter(({ value }) => nativeModes.includes(value))
-            .map(({ value, label, icon: Icon, description }) => (
-              <button
-                key={value}
-                type="button"
-                aria-label={`${label} mode`}
-                aria-pressed={selectedMode === value}
-                disabled={disabled}
-                title={description}
-                onClick={() => {
-                  onMode(value === 'plan' ? 'plan' : 'default');
-                  if (acp) onAgent?.(value);
-                }}
-                style={{ outline: 'none' }}
-                className={`focus-visible:ring-fg/25 inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 disabled:opacity-40 ${selectedMode === value ? (value === 'plan' ? 'bg-violet-400/12 text-violet-600 shadow-sm dark:text-violet-400' : 'bg-surface-raised text-fg shadow-sm') : 'text-fg-dim hover:text-fg'}`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-        </div>
-      )}
+      {!!onMode &&
+        (!acp || !!onAgent) &&
+        nativeModes.some((id) => ['agent', 'plan', 'ask'].includes(id)) && (
+          <div
+            role="group"
+            aria-label={i18n.t('Work mode')}
+            className="bg-fg/4 inline-flex h-8 shrink-0 items-center gap-0.5 rounded-xl p-0.5"
+          >
+            {(
+              [
+                {
+                  value: 'agent',
+                  label: i18n.t('Agent'),
+                  icon: Bot,
+                  description: i18n.t('Implement changes with your configured permissions'),
+                },
+                {
+                  value: 'plan',
+                  label: i18n.t('Plan'),
+                  icon: ListChecks,
+                  description: i18n.t('Explore the code and prepare a plan before implementation'),
+                },
+                {
+                  value: 'ask',
+                  label: i18n.t('Ask'),
+                  icon: CircleHelp,
+                  description: i18n.t(
+                    'Explore and ask questions using the provider’s read-only mode',
+                  ),
+                },
+              ] as const
+            )
+              .filter(({ value }) => nativeModes.includes(value))
+              .map(({ value, label, icon: Icon, description }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={i18n.t('{label} mode', { label: label })}
+                  aria-pressed={selectedMode === value}
+                  disabled={disabled}
+                  title={description}
+                  onClick={() => {
+                    onMode(value === 'plan' ? 'plan' : 'default');
+                    if (acp) onAgent?.(value);
+                  }}
+                  style={{ outline: 'none' }}
+                  className={`focus-visible:ring-fg/25 inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 disabled:opacity-40 ${selectedMode === value ? (value === 'plan' ? 'bg-violet-400/12 text-violet-600 shadow-sm dark:text-violet-400' : 'bg-surface-raised text-fg shadow-sm') : 'text-fg-dim hover:text-fg'}`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+          </div>
+        )}
       {showProfiles && (
         <SearchableSelect
-          label={catalog?.connection === 'acp' ? 'Agent mode' : 'Agent profile'}
+          label={catalog?.connection === 'acp' ? i18n.t('Agent mode') : i18n.t('Agent profile')}
           value={agent}
           onChange={(value) => {
-            if (acp) onMode(value === 'plan' ? 'plan' : 'default');
+            if (acp) onMode?.(value === 'plan' ? 'plan' : 'default');
             onAgent?.(value);
           }}
           disabled={disabled}
           compact
           className="max-w-40"
           leading={<UserRound className="h-3.5 w-3.5 shrink-0" />}
-          searchPlaceholder="Search agent profiles…"
+          searchPlaceholder={i18n.t('Search agent profiles…')}
           hint={
             acp
-              ? 'Modes and permissions are reported by the connected agent.'
-              : 'A custom profile may define its own tools and permissions. Choose Default for mode to follow Agent / Plan.'
+              ? i18n.t('Modes and permissions are reported by the connected agent.')
+              : i18n.t(
+                  'A custom profile may define its own tools and permissions. Choose Default for mode to follow Agent / Plan.',
+                )
           }
           options={[
-            { value: '', label: 'Default profile', description: 'Default for mode' },
+            {
+              value: '',
+              label: i18n.t('Default profile'),
+              description: i18n.t('Default for mode'),
+            },
             ...[...new Set([...(catalog?.agents ?? []), ...(agent ? [agent] : [])])].map(
               (name) => ({ value: name, label: name }),
             ),

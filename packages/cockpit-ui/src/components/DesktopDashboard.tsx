@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '../i18n';
+import * as i18n from '../i18n';
+import { useCallback, useRef, useState } from 'react';
 import {
   ChevronDown,
   Network as NetworkIcon,
@@ -80,6 +82,7 @@ export function DesktopDashboard({
   releaseNotesHref,
   className,
 }: Props) {
+  i18n.useLocale();
   const [activeTabId, setActiveTabId] = useState<string>('dashboard');
   const [selectedServiceId, setSelectedServiceId] = useState<ServiceId | null>(null);
 
@@ -194,7 +197,7 @@ export function DesktopDashboard({
   const tabs: MainTab[] = useMemo(() => {
     const runningSvcs = services.filter((s) => statuses[s.id] === 'running');
     return [
-      { id: 'dashboard', kind: 'dashboard', label: 'Dashboard' },
+      { id: 'dashboard', kind: 'dashboard', label: i18n.t('Dashboard') },
       ...runningSvcs.map<MainTab>((s) => ({
         id: s.id,
         kind: 'service',
@@ -224,7 +227,7 @@ export function DesktopDashboard({
     if (unassigned.length > 0) {
       all.push({
         id: null,
-        name: 'Unassigned',
+        name: i18n.t('Unassigned'),
         color: 'slate',
         serviceIds: unassigned,
       });
@@ -248,11 +251,13 @@ export function DesktopDashboard({
       style={{ height: 760 }}
     >
       <TitleBar
-        title="RunHQ"
+        title={i18n.t('RunHQ')}
         rightSlot={
           <span className="bg-status-running/15 text-status-running flex items-center gap-1 rounded-md px-2 py-0.5 text-[10.5px] font-semibold">
-            <span className="bg-status-running h-1.5 w-1.5 rounded-full" />
-            {totals.running} running
+            {i18n.rich('{value1}{value2} running', {
+              value1: <span className="bg-status-running h-1.5 w-1.5 rounded-full" />,
+              value2: totals.running,
+            })}
           </span>
         }
       />
@@ -292,7 +297,7 @@ export function DesktopDashboard({
           <DashboardHeader
             serviceCount={services.length}
             version={version}
-            lastScan="1h ago"
+            lastScan={i18n.t('1h ago')}
             attentionCount={attentionCount ?? Math.max(1, totals.needsAttention)}
             totals={{
               memoryBytes: totals.memory,
@@ -314,13 +319,15 @@ export function DesktopDashboard({
           <div className="flex flex-wrap items-center gap-2 px-6 pb-3 text-[11.5px]">
             <div className="border-border bg-surface text-fg-dim flex h-7 max-w-xs flex-1 items-center gap-2 rounded-md border px-2.5">
               <SearchIcon className="h-3 w-3" />
-              <span>Search projects</span>
+              <span>{i18n.t('Search projects')}</span>
               <span className="border-border bg-surface-muted text-fg-dim ml-auto rounded border px-1.5 font-mono text-[10px]">
                 /
               </span>
             </div>
             <div className="text-fg-muted ml-auto flex items-center gap-1.5">
-              {(['Attention', 'Git', 'Section', 'Name'] as const).map((label) => (
+              {(
+                [i18n.t('Attention'), i18n.t('Git'), i18n.t('Section'), i18n.t('Name')] as const
+              ).map((label) => (
                 <button
                   key={label}
                   type="button"
@@ -335,7 +342,9 @@ export function DesktopDashboard({
                     {label}
                   </span>
                   <span className="text-fg">
-                    {label === 'Attention' ? `All (${services.length})` : 'All'}
+                    {label === 'Attention'
+                      ? i18n.t('All ({value1})', { value1: services.length })
+                      : i18n.t('All')}
                   </span>
                   <ChevronDown className="text-fg-dim h-3 w-3" />
                 </button>
@@ -374,7 +383,7 @@ export function DesktopDashboard({
                     </span>
                     {sectionRunning > 0 && (
                       <span className="bg-status-running/12 text-status-running rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-normal normal-case">
-                        ● {sectionRunning} on
+                        {i18n.rich('● {sectionRunning} on', { sectionRunning: sectionRunning })}
                       </span>
                     )}
                   </header>

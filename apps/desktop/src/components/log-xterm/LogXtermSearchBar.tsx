@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { KeyboardEvent, Ref } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -28,6 +29,7 @@ export function LogXtermSearchBar({
   onNext,
   onPrev,
 }: LogXtermSearchBarProps) {
+  i18n.useLocale();
   return (
     <div
       className={cn(
@@ -43,7 +45,7 @@ export function LogXtermSearchBar({
         value={query}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Find in logs…"
+        placeholder={i18n.t('Find in logs…')}
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="off"
@@ -59,13 +61,17 @@ export function LogXtermSearchBar({
           matchInfo === null && query !== '' && 'text-status-error',
         )}
       >
-        {matchInfo ? `${matchInfo.index}/${matchInfo.count}` : query === '' ? '0/0' : 'no match'}
+        {matchInfo
+          ? `${matchInfo.index}/${matchInfo.count}`
+          : query === ''
+            ? '0/0'
+            : i18n.t('no match')}
       </span>
       <button
         type="button"
         onClick={onPrev}
-        title="Previous match (Shift+Enter)"
-        aria-label="Previous match"
+        title={i18n.t('Previous match (Shift+Enter)')}
+        aria-label={i18n.t('Previous match')}
         className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
       >
         <ChevronUp className="h-3 w-3" />
@@ -73,8 +79,8 @@ export function LogXtermSearchBar({
       <button
         type="button"
         onClick={onNext}
-        title="Next match (Enter)"
-        aria-label="Next match"
+        title={i18n.t('Next match (Enter)')}
+        aria-label={i18n.t('Next match')}
         className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
       >
         <ChevronDown className="h-3 w-3" />
@@ -82,8 +88,8 @@ export function LogXtermSearchBar({
       <button
         type="button"
         onClick={onClose}
-        title="Close (Esc)"
-        aria-label="Close search"
+        title={i18n.t('Close (Esc)')}
+        aria-label={i18n.t('Close search')}
         className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
       >
         <X className="h-3 w-3" />

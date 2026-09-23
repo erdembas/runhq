@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Globe, Search } from 'lucide-react';
 import {
   LANGUAGE_OPTIONS,
@@ -24,8 +26,9 @@ export function LanguagePicker({
   value,
   onChange,
   options = LANGUAGE_OPTIONS,
-  searchPlaceholder = 'Search languages…',
+  searchPlaceholder = i18n.t('Search languages…'),
 }: LanguagePickerProps) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [focusIdx, setFocusIdx] = useState(0);
@@ -147,7 +150,7 @@ export function LanguagePicker({
           <div ref={listRef} role="listbox" className="max-h-64 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="text-fg-dim px-2 py-3 text-center text-[11px]">
-                No languages match &ldquo;{query}&rdquo;
+                {i18n.rich('No languages match “{query}”', { query: query })}
               </div>
             ) : (
               filtered.map((option, index) => {

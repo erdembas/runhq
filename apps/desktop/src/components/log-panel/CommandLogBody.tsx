@@ -1,4 +1,6 @@
-import { memo, useDeferredValue, useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { memo, useDeferredValue } from 'react';
 import { Eraser } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import { LogXtermView } from '@/components/LogXtermView';
@@ -39,6 +41,7 @@ export const CommandLogBody = memo(function CommandLogBody({
   showTimestamp,
   tab,
 }: CommandLogBodyProps) {
+  i18n.useLocale();
   const commandName = tab.commandName ?? commands[0]?.name ?? null;
   const commandEntry = commandName
     ? (commands.find((command) => command.name === commandName) ?? null)
@@ -64,30 +67,39 @@ export const CommandLogBody = memo(function CommandLogBody({
             </code>
           )}
           <span className="text-fg-dim/80 shrink-0 tabular-nums">
-            · {filtered.length.toLocaleString()} / {allLogs.length.toLocaleString()} lines
+            {i18n.rich('· {value1} / {value2} lines', {
+              value1: filtered.length.toLocaleString(i18n.getFormatLocale()),
+              value2: allLogs.length.toLocaleString(i18n.getFormatLocale()),
+            })}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
-            <input
-              type="checkbox"
-              checked={showTimestamp}
-              onChange={(event) => setShowTimestamp(event.target.checked)}
-              className="accent-accent h-2.5 w-2.5"
-            />
-            Timestamp
+            {i18n.rich('{value1}Timestamp', {
+              value1: (
+                <input
+                  type="checkbox"
+                  checked={showTimestamp}
+                  onChange={(event) => setShowTimestamp(event.target.checked)}
+                  className="accent-accent h-2.5 w-2.5"
+                />
+              ),
+            })}
           </label>
           <label className="text-fg-muted inline-flex cursor-pointer items-center gap-1 text-[10px]">
-            <input
-              type="checkbox"
-              checked={follow}
-              onChange={(event) => setFollow(event.target.checked)}
-              className="accent-accent h-2.5 w-2.5"
-            />
-            Follow
+            {i18n.rich('{value1}Follow', {
+              value1: (
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(event) => setFollow(event.target.checked)}
+                  className="accent-accent h-2.5 w-2.5"
+                />
+              ),
+            })}
           </label>
           <IconButton
-            label="Clear logs"
+            label={i18n.t('Clear logs')}
             icon={<Eraser />}
             size="xs"
             onClick={() => {

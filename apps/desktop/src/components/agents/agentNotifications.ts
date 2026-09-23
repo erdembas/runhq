@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentSession } from '@runhq/cockpit-types';
 
 export type AgentNotificationKind = 'blocked' | 'failed' | 'completed';
@@ -100,14 +101,25 @@ export function agentNotificationMessage(events: AgentNotificationEvent[]) {
   for (const event of events) counts[event.kind]++;
   const parts = [
     counts.blocked
-      ? `${counts.blocked} ${counts.blocked === 1 ? 'task needs' : 'tasks need'} your decision`
+      ? i18n.plural(
+          '{count} task needs your decision',
+          '{count} tasks need your decision',
+          counts.blocked,
+        )
       : '',
     counts.failed
-      ? `${counts.failed} ${counts.failed === 1 ? 'task needs' : 'tasks need'} recovery`
+      ? i18n.plural('{count} task needs recovery', '{count} tasks need recovery', counts.failed)
       : '',
     counts.completed
-      ? `${counts.completed} ${counts.completed === 1 ? 'task has' : 'tasks have'} a new response`
+      ? i18n.plural(
+          '{count} task has a new response',
+          '{count} tasks have a new response',
+          counts.completed,
+        )
       : '',
   ].filter(Boolean);
-  return { title: 'RunHQ Agents', body: `${parts.join(' · ')}. Open Agents to review.` };
+  return {
+    title: i18n.t('RunHQ Agents'),
+    body: i18n.t('{value1}. Open Agents to review.', { value1: parts.join(' · ') }),
+  };
 }

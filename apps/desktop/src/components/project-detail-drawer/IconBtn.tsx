@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -12,6 +13,7 @@ export function IconBtn({
   children: ReactNode;
   size?: 'sm' | 'md';
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"

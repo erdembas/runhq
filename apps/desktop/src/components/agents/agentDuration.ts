@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentSession } from '@runhq/cockpit-types';
 
 /**
@@ -13,11 +14,12 @@ export function agentElapsedMs(session: AgentSession, now: number): number | nul
 export function formatAgentDuration(ms: number | null | undefined): string | null {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return null;
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return i18n.t('{seconds}s', { seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  if (minutes < 60)
+    return i18n.t('{minutes}m {value2}s', { minutes: minutes, value2: seconds % 60 });
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
+  return i18n.t('{hours}h {value2}m', { hours: hours, value2: minutes % 60 });
 }
 
 /**

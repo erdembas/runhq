@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Settings, Sparkles, TerminalSquare } from 'lucide-react';
@@ -31,6 +32,7 @@ export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvi
   onSelect: (p: P) => void;
   onDismiss: () => void;
 }) {
+  i18n.useLocale();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const POPOVER_W = 260;
@@ -91,7 +93,7 @@ export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvi
     <div
       ref={popoverRef}
       role="listbox"
-      aria-label="Choose an AI model"
+      aria-label={i18n.t('Choose an AI model')}
       style={{
         position: 'fixed',
         top: pos.top,
@@ -109,11 +111,13 @@ export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvi
           'text-[10.5px] font-medium tracking-wide uppercase',
         )}
       >
-        Pick a model to send
+        {i18n.t('Pick a model to send')}
       </div>
       <div className="max-h-[280px] overflow-y-auto py-1">
         {providers.length === 0 ? (
-          <div className="text-fg-dim px-2.5 py-2 text-[11px]">No providers configured.</div>
+          <div className="text-fg-dim px-2.5 py-2 text-[11px]">
+            {i18n.t('No providers configured.')}
+          </div>
         ) : (
           providers.map((p) => (
             <button
@@ -144,7 +148,7 @@ export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvi
                 </div>
                 {(p.model || isCliChatProvider(p)) && (
                   <div className="text-fg-dim/70 truncate text-[10px]">
-                    {isCliChatProvider(p) ? 'CLI · Default model' : p.model}
+                    {isCliChatProvider(p) ? i18n.t('CLI · Default model') : p.model}
                   </div>
                 )}
               </div>
@@ -164,8 +168,9 @@ export function ModelChooserPopover<T extends HTMLElement, P extends AiChatProvi
           'flex w-full items-center gap-1.5 border-t px-2.5 py-1.5 text-[11px] transition-colors',
         )}
       >
-        <Settings className="h-3 w-3 shrink-0" />
-        Manage providers…
+        {i18n.rich('{value1}Manage providers…', {
+          value1: <Settings className="h-3 w-3 shrink-0" />,
+        })}
       </button>
     </div>
   );

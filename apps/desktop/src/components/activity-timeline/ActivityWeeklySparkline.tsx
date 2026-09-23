@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { DailySummary } from '@/types';
 import type { TimelineSize } from './types';
@@ -8,6 +9,7 @@ interface ActivityWeeklySparklineProps {
 }
 
 export function ActivityWeeklySparkline({ weeklySummary, size }: ActivityWeeklySparklineProps) {
+  i18n.useLocale();
   if (!weeklySummary || weeklySummary.length === 0) return null;
   const maxTotal = Math.max(
     ...weeklySummary.map((summary) => summary.commits + summary.services_started + summary.errors),
@@ -22,9 +24,11 @@ export function ActivityWeeklySparkline({ weeklySummary, size }: ActivityWeeklyS
     <div className={cn('border-border/40 border-t py-3', size.padX)}>
       <div className="text-fg/35 mb-2 flex items-center justify-between">
         <span className={cn('font-semibold tracking-[0.12em] uppercase', size.micro)}>
-          Last 7 days
+          {i18n.t('Last 7 days')}
         </span>
-        <span className={cn('tabular-nums', size.micro)}>{totalWeek} events</span>
+        <span className={cn('tabular-nums', size.micro)}>
+          {i18n.rich('{totalWeek} events', { totalWeek: totalWeek })}
+        </span>
       </div>
       <div className="flex items-end gap-1.5">
         {weeklySummary
@@ -41,9 +45,13 @@ export function ActivityWeeklySparkline({ weeklySummary, size }: ActivityWeeklyS
                     day.errors > 0 ? 'bg-rose-500/40' : total > 0 ? 'bg-accent/40' : 'bg-fg/5',
                   )}
                   style={{ height: `${height}px` }}
-                  title={`${day.date} — ${total} event${total === 1 ? '' : 's'}${
-                    day.errors > 0 ? ` · ${day.errors} errors` : ''
-                  }`}
+                  title={i18n.t('{value1} — {total} event{plural3}{value4}', {
+                    value1: day.date,
+                    total: total,
+                    plural3: total === 1 ? '' : 's',
+                    value4:
+                      day.errors > 0 ? i18n.t(' · {value1} errors', { value1: day.errors }) : '',
+                  })}
                 />
                 <span className={cn('text-fg/25 tabular-nums', size.micro)}>
                   {day.date.slice(8)}

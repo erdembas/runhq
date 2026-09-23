@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { ConversationSummary } from '@/types';
 
 export function groupConversations(items: ConversationSummary[]) {
@@ -30,7 +31,10 @@ export function formatRelative(ms: number): string {
   if (hr < 24) return `${hr}h`;
   const d = Math.floor(hr / 24);
   if (d < 7) return `${d}d`;
-  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(ms).toLocaleDateString(i18n.getFormatLocale(), {
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function truncate(s: string, max: number): string {

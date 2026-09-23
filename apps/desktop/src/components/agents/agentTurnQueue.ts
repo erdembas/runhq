@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentTurnInput } from '@runhq/cockpit-types';
 import { validateAgentAttachments } from '@runhq/cockpit-ui';
 
@@ -57,7 +58,9 @@ export function recoverAgentQueues(queues: Record<string, QueuedAgentTurn[]>) {
               state: 'failed',
               error:
                 turn.state === 'sending'
-                  ? 'RunHQ closed while this message was being sent. Check the conversation before resuming; it may already have been accepted.'
+                  ? i18n.t(
+                      'RunHQ closed while this message was being sent. Check the conversation before resuming; it may already have been accepted.',
+                    )
                   : (turn.error ??
                     'Recovered after restart. Review this queue, then resume when ready.'),
             }
@@ -107,8 +110,9 @@ export function createAgentTurnQueue(deps: {
             ? {
                 ...entry,
                 state: 'failed',
-                error:
+                error: i18n.t(
                   'Message was not sent because local recovery could not be saved. Retry saving before resuming.',
+                ),
               }
             : entry,
         ),

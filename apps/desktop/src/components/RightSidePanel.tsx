@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
@@ -8,6 +9,7 @@ import { cn } from '@/lib/cn';
  * Animating width repeatedly reflows every visible editor and resizes its PTY.
  */
 export function RightSidePanel() {
+  i18n.useLocale();
   const active = useAppStore((s) => s.rightPanel);
   const width = useAppStore((s) => s.rightPanelWidth);
   const setWidth = useAppStore((s) => s.setRightPanelWidth);
@@ -71,7 +73,7 @@ export function RightSidePanel() {
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize side panel"
+            aria-label={i18n.t('Resize side panel')}
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}
             onPointerUp={onResizeEnd}

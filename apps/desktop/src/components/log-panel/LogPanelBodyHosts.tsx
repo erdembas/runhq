@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { TabBodyHost } from './TabBodyHost';
 import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
 import type { CommandEntry, LogLine } from '@/types';
@@ -41,6 +42,7 @@ export function LogPanelBodyHosts({
   isActive,
   visibleTabIds,
 }: LogPanelBodyHostsProps) {
+  i18n.useLocale();
   return (
     <>
       {Object.values(tabs).map((tab) => {

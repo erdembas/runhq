@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /* global Element, EventTarget */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,6 +18,7 @@ const EDGE = 10;
 const SHOW_DELAY_MS = 260;
 
 export function GlobalTooltip() {
+  i18n.useLocale();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const targetRef = useRef<Element | null>(null);

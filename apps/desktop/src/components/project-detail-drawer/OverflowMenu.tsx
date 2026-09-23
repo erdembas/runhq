@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef } from 'react';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -13,6 +14,7 @@ export function OverflowMenu({
   setOpen: (v: boolean) => void;
   items: MenuItem[];
 }) {
+  i18n.useLocale();
   const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -37,8 +39,8 @@ export function OverflowMenu({
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="More actions"
-        title="More actions"
+        aria-label={i18n.t('More actions')}
+        title={i18n.t('More actions')}
         className={cn(
           'text-fg/55 hover:text-fg hover:bg-fg/5 rounded-md p-1.5 transition',
           open && 'text-fg bg-fg/5',

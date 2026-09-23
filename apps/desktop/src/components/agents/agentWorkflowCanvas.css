@@ -1,0 +1,32 @@
+@import '@xyflow/react/dist/style.css';
+
+.workflow-canvas .react-flow {
+  --xy-background-color: rgb(var(--surface-muted));
+  --xy-background-pattern-dots-color-default: rgb(var(--border-strong));
+  --xy-edge-stroke-default: rgb(var(--fg-dim));
+  --xy-edge-stroke-selected-default: rgb(var(--accent));
+  --xy-connectionline-stroke-default: rgb(var(--accent));
+  --xy-controls-button-background-color-default: rgb(var(--surface));
+  --xy-controls-button-background-color-hover-default: rgb(var(--surface-muted));
+  --xy-controls-button-color-default: rgb(var(--fg));
+  --xy-controls-button-border-color-default: rgb(var(--border));
+  --xy-attribution-background-color-default: rgb(var(--surface));
+}
+
+.workflow-canvas .workflow-step {
+  width: 240px;
+}
+.workflow-canvas .react-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: rgb(var(--surface));
+  border: 2px solid rgb(var(--accent));
+}
+.workflow-canvas .react-flow__node:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 5px;
+  border-radius: 12px;
+}
+.workflow-canvas .react-flow__attribution a {
+  color: rgb(var(--fg-dim));
+}

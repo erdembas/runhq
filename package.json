@@ -31,7 +31,9 @@
     "prepare": "husky",
     "lint:workflows": "actionlint -color",
     "agent:build": "pnpm --filter @runhq/agent-runtime build",
-    "agent:test": "pnpm --filter @runhq/agent-runtime test"
+    "agent:test": "pnpm --filter @runhq/agent-runtime test",
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "i18n:test": "node --test apps/desktop/tests/i18n.test.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

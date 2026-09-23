@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback } from 'react';
 import type React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
@@ -26,6 +27,7 @@ interface SortableTabProps {
 }
 
 export function SortableTab(props: SortableTabProps) {
+  i18n.useLocale();
   const {
     id,
     tab,
@@ -106,7 +108,7 @@ export function SortableTab(props: SortableTabProps) {
         isDragging && 'cursor-grabbing opacity-40',
         showDropIndicator && 'bg-accent/8',
       )}
-      title={tab.kind === 'dashboard' ? 'Workspace dashboard' : label}
+      title={tab.kind === 'dashboard' ? i18n.t('Workspace dashboard') : label}
     >
       <span
         aria-hidden
@@ -132,8 +134,8 @@ export function SortableTab(props: SortableTabProps) {
       {isPinned ? (
         <button
           type="button"
-          title="Unpin tab"
-          aria-label={`Unpin ${label}`}
+          title={i18n.t('Unpin tab')}
+          aria-label={i18n.t('Unpin {label}', { label: label })}
           onClick={(event) => {
             event.stopPropagation();
             onTogglePin();
@@ -146,8 +148,8 @@ export function SortableTab(props: SortableTabProps) {
       ) : closable ? (
         <button
           type="button"
-          title="Close tab"
-          aria-label={`Close ${label}`}
+          title={i18n.t('Close tab')}
+          aria-label={i18n.t('Close {label}', { label: label })}
           onClick={(event) => {
             event.stopPropagation();
             onClose?.();

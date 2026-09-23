@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import type { Status } from '@runhq/cockpit-types';
 import { cn } from '../lib/cn';
 
@@ -19,6 +22,7 @@ export function StatusDot({
   size?: 'xs' | 'sm' | 'md';
   className?: string;
 }) {
+  i18n.useLocale();
   const sz = size === 'xs' ? 'h-1.5 w-1.5' : size === 'md' ? 'h-2.5 w-2.5' : 'h-2 w-2';
   return <span className={cn('shrink-0 rounded-full', sz, COLOR[status], className)} />;
 }
@@ -33,6 +37,7 @@ const PILL: Record<Status, string> = {
 };
 
 export function StatusPill({ status }: { status: Status }) {
+  i18n.useLocale();
   return (
     <span
       className={cn(

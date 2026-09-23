@@ -1,3 +1,5 @@
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * First-run onboarding tour.
  *
@@ -15,7 +17,7 @@
  * can re-open the tour from Shortcut settings (entry point wired in App.tsx).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, Keyboard, Rocket, Sparkles } from 'lucide-react';
 import { AiHubVisual } from '@/components/welcome-tour/AiHubVisual';
 import { HeroLogo } from '@/components/welcome-tour/HeroLogo';
@@ -44,6 +46,7 @@ interface Slide {
 }
 
 export function WelcomeTour({ onClose, reopened = false }: Props) {
+  i18n.useLocale();
   const [i, setI] = useState(0);
 
   const slides: Slide[] = useMemo(
@@ -51,13 +54,14 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
       {
         id: 'welcome',
         icon: <Sparkles className="h-4 w-4" />,
-        eyebrow: 'Welcome',
-        title: 'Meet RunHQ',
+        eyebrow: i18n.t('Welcome'),
+        title: i18n.t('Meet RunHQ'),
         body: (
           <>
-            Your local dev services — Node, Go, .NET, Python, Docker and friends — all in{' '}
-            <span className="text-fg font-medium">one window</span>. Native, offline, and entirely
-            under your control.
+            {i18n.rich(
+              'Your local dev services — Node, Go, .NET, Python, Docker and friends — all in {value1}. Native, offline, and entirely under your control.',
+              { value1: <span className="text-fg font-medium">{i18n.t('one window')}</span> },
+            )}
           </>
         ),
         visual: <HeroLogo />,
@@ -65,14 +69,21 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
       {
         id: 'shortcuts',
         icon: <Keyboard className="h-4 w-4" />,
-        eyebrow: 'Keyboard superpowers',
-        title: 'Summon Quick Action from anywhere',
+        eyebrow: i18n.t('Keyboard superpowers'),
+        title: i18n.t('Summon Quick Action from anywhere'),
         body: (
           <>
-            Press <Kbd>{MOD}</Kbd> <Kbd>⇧</Kbd> <Kbd>K</Kbd> from{' '}
-            <span className="text-fg font-medium">any app</span> to open Quick Action — a floating
-            command bar for starting services, jumping between them, or scanning a new project.
-            Inside RunHQ, the plain <Kbd>{MOD}</Kbd> <Kbd>K</Kbd> does the same.
+            {i18n.rich(
+              'Press {value1} {value2} {value3} from {value4} to open Quick Action — a floating command bar for starting services, jumping between them, or scanning a new project. Inside RunHQ, the plain {value5} {value6} does the same.',
+              {
+                value1: <Kbd>{MOD}</Kbd>,
+                value2: <Kbd>⇧</Kbd>,
+                value3: <Kbd>K</Kbd>,
+                value4: <span className="text-fg font-medium">{i18n.t('any app')}</span>,
+                value5: <Kbd>{MOD}</Kbd>,
+                value6: <Kbd>K</Kbd>,
+              },
+            )}
           </>
         ),
         visual: <ShortcutVisual />,
@@ -85,14 +96,20 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
             <span className="bg-status-running relative inline-flex h-2 w-2 rounded-full" />
           </span>
         ),
-        eyebrow: 'Always running',
-        title: 'Lives in your menu bar',
+        eyebrow: i18n.t('Always running'),
+        title: i18n.t('Lives in your menu bar'),
         body: (
           <>
-            Closing the window <span className="text-fg font-medium">doesn&apos;t quit</span> RunHQ
-            — it keeps supervising your services in the background. Click the tray icon or press{' '}
-            <Kbd>{MOD}</Kbd> <Kbd>⇧</Kbd> <Kbd>K</Kbd> to bring it back. To actually exit, use{' '}
-            <span className="text-fg font-medium">Quit</span> from the tray menu.
+            {i18n.rich(
+              'Closing the window {value1} RunHQ — it keeps supervising your services in the background. Click the tray icon or press {value2} {value3} {value4} to bring it back. To actually exit, use {value5} from the tray menu.',
+              {
+                value1: <span className="text-fg font-medium">{i18n.t("doesn't quit")}</span>,
+                value2: <Kbd>{MOD}</Kbd>,
+                value3: <Kbd>⇧</Kbd>,
+                value4: <Kbd>K</Kbd>,
+                value5: <span className="text-fg font-medium">{i18n.t('Quit')}</span>,
+              },
+            )}
           </>
         ),
         visual: <TrayVisual />,
@@ -100,16 +117,18 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
       {
         id: 'ai',
         icon: <Bot className="h-4 w-4" />,
-        eyebrow: 'Bring your own AI',
-        title: 'AI Assistant on every surface',
+        eyebrow: i18n.t('Bring your own AI'),
+        title: i18n.t('AI Assistant on every surface'),
         body: (
           <>
-            Plug any <span className="text-fg font-medium">OpenAI-compatible</span> endpoint
-            (OpenAI, Azure, OpenRouter, Ollama, vLLM, LiteLLM…) into{' '}
-            <span className="text-fg font-medium">Settings → AI</span>. Then ask{' '}
-            <span className="text-fg font-medium">Why?</span> on any project, right-click any log
-            line for triage, generate commit messages, polish your standup, or analyse a CVE — every
-            answer lands in the same persistent chat on the right rail.
+            {i18n.rich(
+              'Plug any {value1} endpoint (OpenAI, Azure, OpenRouter, Ollama, vLLM, LiteLLM…) into {value2}. Then ask {value3} on any project, right-click any log line for triage, generate commit messages, polish your standup, or analyse a CVE — every answer lands in the same persistent chat on the right rail.',
+              {
+                value1: <span className="text-fg font-medium">{i18n.t('OpenAI-compatible')}</span>,
+                value2: <span className="text-fg font-medium">{i18n.t('Settings → AI')}</span>,
+                value3: <span className="text-fg font-medium">{i18n.t('Why?')}</span>,
+              },
+            )}
           </>
         ),
         visual: <AiHubVisual />,
@@ -117,12 +136,14 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
       {
         id: 'ready',
         icon: <Rocket className="h-4 w-4" />,
-        eyebrow: 'Ready',
-        title: "You're all set",
+        eyebrow: i18n.t('Ready'),
+        title: i18n.t("You're all set"),
         body: (
           <>
-            Add services from the sidebar, group them into stacks, and hit <Kbd>{MOD}</Kbd>{' '}
-            <Kbd>⇧</Kbd> <Kbd>K</Kbd> whenever you need to move fast.
+            {i18n.rich(
+              'Add services from the sidebar, group them into stacks, and hit {value1} {value2} {value3} whenever you need to move fast.',
+              { value1: <Kbd>{MOD}</Kbd>, value2: <Kbd>⇧</Kbd>, value3: <Kbd>K</Kbd> },
+            )}
           </>
         ),
         visual: <ReadyVisual />,
@@ -208,7 +229,7 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
                 onClick={finish}
                 className="text-fg-dim hover:text-fg text-[11px] font-medium transition-colors"
               >
-                Skip tour
+                {i18n.t('Skip tour')}
               </button>
             )}
           </div>
@@ -235,7 +256,7 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
               <button
                 key={s.id}
                 type="button"
-                aria-label={`Go to step ${idx + 1}`}
+                aria-label={i18n.t('Go to step {value1}', { value1: idx + 1 })}
                 aria-current={idx === i}
                 onClick={() => setI(idx)}
                 className={cn(
@@ -256,8 +277,7 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
                 isFirst && 'invisible',
               )}
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
+              {i18n.rich('{value1}Back', { value1: <ArrowLeft className="h-3.5 w-3.5" /> })}
             </button>
 
             <span className="text-fg-dim font-mono text-[11px]">
@@ -272,14 +292,10 @@ export function WelcomeTour({ onClose, reopened = false }: Props) {
             >
               {isLast ? (
                 <>
-                  <Check className="h-3.5 w-3.5" />
-                  Get started
+                  {i18n.rich('{value1}Get started', { value1: <Check className="h-3.5 w-3.5" /> })}
                 </>
               ) : (
-                <>
-                  Next
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </>
+                <>{i18n.rich('Next{value1}', { value1: <ArrowRight className="h-3.5 w-3.5" /> })}</>
               )}
             </button>
           </div>

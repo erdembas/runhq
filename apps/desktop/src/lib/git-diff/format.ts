@@ -1,12 +1,14 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 export function timeAgo(ts: number): string {
   const now = Date.now() / 1000;
   const diff = Math.max(0, now - ts);
-  if (diff < 60) return `${Math.floor(diff)}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)}d ago`;
-  if (diff < 86400 * 365) return `${Math.floor(diff / (86400 * 30))}mo ago`;
-  return `${Math.floor(diff / (86400 * 365))}y ago`;
+  if (diff < 60) return i18n.t('{value1}s ago', { value1: Math.floor(diff) });
+  if (diff < 3600) return i18n.t('{value1}m ago', { value1: Math.floor(diff / 60) });
+  if (diff < 86400) return i18n.t('{value1}h ago', { value1: Math.floor(diff / 3600) });
+  if (diff < 86400 * 30) return i18n.t('{value1}d ago', { value1: Math.floor(diff / 86400) });
+  if (diff < 86400 * 365)
+    return i18n.t('{value1}mo ago', { value1: Math.floor(diff / (86400 * 30)) });
+  return i18n.t('{value1}y ago', { value1: Math.floor(diff / (86400 * 365)) });
 }
 
 export function authorHue(author: string): number {

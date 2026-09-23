@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { Bot, BookOpen, FileText, ScrollText, TerminalSquare, X } from 'lucide-react';
@@ -34,6 +35,7 @@ export function TabStripItem({
   onClose,
   onRename,
 }: TabStripItemProps) {
+  i18n.useLocale();
   const closeable =
     tab.kind === 'terminal' ||
     (tab.kind === 'logs' && Boolean(tab.commandName)) ||
@@ -86,7 +88,9 @@ export function TabStripItem({
 
   const Icon = TAB_ICON[tab.kind];
   const isCommandLog = tab.kind === 'logs' && Boolean(tab.commandName);
-  const displayTitle = isCommandLog ? `CMD Logs · ${tab.title}` : tab.title;
+  const displayTitle = isCommandLog
+    ? i18n.t('CMD Logs · {value1}', { value1: tab.title })
+    : tab.title;
   const usesFocusTier = tab.kind === 'terminal';
   const showBrightActive = active && (!usesFocusTier || groupFocused);
   const showMutedActive = active && usesFocusTier && !groupFocused;
@@ -104,7 +108,11 @@ export function TabStripItem({
       data-tab-id={tab.id}
       onClick={() => !editing && onActivate(tab.id)}
       onDoubleClick={beginEdit}
-      title={renameable ? `${displayTitle} — double-click to rename` : displayTitle}
+      title={
+        renameable
+          ? i18n.t('{displayTitle} — double-click to rename', { displayTitle: displayTitle })
+          : displayTitle
+      }
       className={cn(
         'group relative flex shrink-0 cursor-pointer items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium transition-colors',
         'border-border/40 border-r',
@@ -158,7 +166,7 @@ export function TabStripItem({
         <span className="flex min-w-0 items-center gap-1.5">
           {isCommandLog && (
             <span className="border-border/70 bg-surface-muted text-fg-muted rounded-[3px] border px-1 font-mono text-[9px] leading-4 font-semibold tracking-[0.03em] uppercase">
-              CMD Logs
+              {i18n.t('CMD Logs')}
             </span>
           )}
           <span className="truncate">{tab.title}</span>
@@ -172,8 +180,8 @@ export function TabStripItem({
             onClose(tab.id);
           }}
           onPointerDown={(e) => e.stopPropagation()}
-          aria-label={`Close ${displayTitle}`}
-          title={`Close ${displayTitle}`}
+          aria-label={i18n.t('Close {displayTitle}', { displayTitle: displayTitle })}
+          title={i18n.t('Close {displayTitle}', { displayTitle: displayTitle })}
           className={cn(
             'text-fg-dim hover:bg-status-error/15 hover:text-status-error',
             'rounded-app-sm flex h-4 w-4 shrink-0 items-center justify-center transition',

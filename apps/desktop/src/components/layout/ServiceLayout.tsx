@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useState } from 'react';
 import {
   DndContext,
@@ -26,6 +27,7 @@ interface DragState {
 }
 
 export function ServiceLayout({ layout, onSlotRef, onAddTerminalToEmpty }: Props) {
+  i18n.useLocale();
   const {
     state,
     activate,

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RotateCcw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
@@ -37,6 +39,7 @@ import { SettingsPageShell, SettingsSection } from '../SettingsView';
  * so it's reachable without hunting.
  */
 export function ShortcutsCategory({ description }: { description?: string }) {
+  i18n.useLocale();
   const [shortcuts, setShortcuts] = useState<Shortcuts>(DEFAULT_SHORTCUTS);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [saving, setSaving] = useState(false);
@@ -143,7 +146,7 @@ export function ShortcutsCategory({ description }: { description?: string }) {
         <Search className="text-fg-dim h-3.5 w-3.5 shrink-0" />
         <input
           type="text"
-          placeholder="Search shortcuts…"
+          placeholder={i18n.t('Search shortcuts…')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           data-allow-shortcuts="false"
@@ -155,7 +158,7 @@ export function ShortcutsCategory({ description }: { description?: string }) {
             onClick={() => setQuery('')}
             className="text-fg-dim hover:text-fg text-[10px] font-medium tracking-wider uppercase"
           >
-            Clear
+            {i18n.t('Clear')}
           </button>
         )}
       </div>
@@ -165,7 +168,7 @@ export function ShortcutsCategory({ description }: { description?: string }) {
         leftIcon={<RotateCcw className="h-3 w-3" />}
         onClick={handleResetAll}
       >
-        Reset All
+        {i18n.t('Reset All')}
       </Button>
     </>
   );
@@ -177,8 +180,9 @@ export function ShortcutsCategory({ description }: { description?: string }) {
   const footer = (
     <>
       <p className="text-fg-dim flex-1 text-[10.5px] leading-snug">
-        Global shortcuts take effect after restarting the app — they need to be re-registered with
-        the OS. Window shortcuts apply immediately on save.
+        {i18n.t(
+          'Global shortcuts take effect after restarting the app — they need to be re-registered with the OS. Window shortcuts apply immediately on save.',
+        )}
       </p>
       <Button
         variant="primary"
@@ -186,7 +190,7 @@ export function ShortcutsCategory({ description }: { description?: string }) {
         onClick={() => void handleSave()}
         disabled={saving || hasConflict}
       >
-        {saving ? 'Saving…' : 'Save & Apply'}
+        {saving ? i18n.t('Saving…') : i18n.t('Save & Apply')}
       </Button>
     </>
   );
@@ -195,13 +199,13 @@ export function ShortcutsCategory({ description }: { description?: string }) {
     <SettingsPageShell description={description} toolbar={toolbar} footer={footer}>
       {totalShown === 0 && (
         <div className="text-fg-dim flex flex-col items-center gap-1 py-12 text-center text-[12px]">
-          <span>No shortcuts match your search.</span>
+          <span>{i18n.t('No shortcuts match your search.')}</span>
           <button
             type="button"
             onClick={() => setQuery('')}
             className="text-accent text-[11px] hover:underline"
           >
-            Clear search
+            {i18n.t('Clear search')}
           </button>
         </div>
       )}
@@ -243,6 +247,7 @@ interface ShortcutRowProps {
 }
 
 function ShortcutRow({ meta, value, onChange, onReset, conflict }: ShortcutRowProps) {
+  i18n.useLocale();
   const [recording, setRecording] = useState(false);
   const inputRef = useRef<HTMLButtonElement>(null);
 
@@ -283,7 +288,7 @@ function ShortcutRow({ meta, value, onChange, onReset, conflict }: ShortcutRowPr
         </div>
         {conflict && (
           <div className="text-status-error mt-1 text-[10px]">
-            Same binding as another shortcut — pick a different chord so both can fire.
+            {i18n.t('Same binding as another shortcut — pick a different chord so both can fire.')}
           </div>
         )}
       </div>
@@ -294,11 +299,15 @@ function ShortcutRow({ meta, value, onChange, onReset, conflict }: ShortcutRowPr
         )}
         title={
           meta.scope === 'global'
-            ? 'Registered with the OS — fires from anywhere, requires an app restart to re-register.'
-            : 'Window-level — fires only while the RunHQ window has focus, takes effect immediately.'
+            ? i18n.t(
+                'Registered with the OS — fires from anywhere, requires an app restart to re-register.',
+              )
+            : i18n.t(
+                'Window-level — fires only while the RunHQ window has focus, takes effect immediately.',
+              )
         }
       >
-        {meta.scope}
+        {i18n.enumLabel('shortcutScope', meta.scope)}
       </span>
       <button
         ref={inputRef}
@@ -312,7 +321,7 @@ function ShortcutRow({ meta, value, onChange, onReset, conflict }: ShortcutRowPr
         )}
       >
         {recording ? (
-          <span className="text-accent text-[10.5px]">Press shortcut…</span>
+          <span className="text-accent text-[10.5px]">{i18n.t('Press shortcut…')}</span>
         ) : (
           <span className="flex flex-wrap items-center gap-1">
             {value.split('+').map((part, i) => (
@@ -326,7 +335,7 @@ function ShortcutRow({ meta, value, onChange, onReset, conflict }: ShortcutRowPr
       </button>
       <button
         type="button"
-        title="Reset to default"
+        title={i18n.t('Reset to default')}
         onClick={() => onReset(meta.id)}
         className="text-fg-dim hover:text-fg rounded-app-sm hover:bg-surface-overlay/60 inline-flex h-7 w-7 items-center justify-center transition"
       >

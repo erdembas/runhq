@@ -32,9 +32,20 @@ impl AgentManager {
     /// may run underneath, and setup that was asked for has to have passed first.
     pub(super) fn workflow_accepts_steps(w: &AgentWorkflow) -> bool {
         !w.cleaned
+            && !w.editing
+            && !w.awaiting_review()
+            && w.start_after.is_none()
             && !matches!(
                 w.stage.as_str(),
-                "setting_up" | "checking" | "integrating" | "integrated" | "cancelled"
+                "setting_up"
+                    | "checking"
+                    | "integrating"
+                    | "integrated"
+                    | "cancelled"
+                    | "waiting"
+                    | "launching"
+                    | "launch_failed"
+                    | "launch_paused"
             )
             && (w.setup_commands.is_empty() || commands_passed(&w.setup_commands, &w.setup))
     }
@@ -82,6 +93,12 @@ impl AgentManager {
         let backend = step
             .session_id
             .as_ref()
+            .or_else(|| {
+                step.continue_from
+                    .as_ref()
+                    .and_then(|id| w.step(id))
+                    .and_then(|previous| previous.session_id.as_ref())
+            })
             .and_then(|id| state.sessions.get(id))
             .map(|session| session.backend.clone())
             .unwrap_or_else(|| step.target.clone());
@@ -116,6 +133,112 @@ impl AgentManager {
             return StepWait::Capacity;
         }
         StepWait::Ready
+    }
+
+    /// Start a saved workflow now, or after a task in the same project succeeds.
+    /// Launching never reuses the preceding task's conversation or edits its working copy.
+    pub async fn workflow_launch(
+        self: &Arc<Self>,
+        id: &str,
+        after_session_id: Option<String>,
+    ) -> AppResult<AgentWorkflow> {
+        let workflow = {
+            let _gate = self.workflow_gate.lock().await;
+            let mut w = self.workflow(id)?;
+            if w.cleaned
+                || w.editing
+                || w.steps.iter().any(|step| step.started_at.is_some())
+                || !matches!(
+                    w.stage.as_str(),
+                    "setup_ready"
+                        | "setup_failed"
+                        | "implementation_ready"
+                        | "waiting"
+                        | "launching"
+                        | "launch_failed"
+                        | "launch_paused"
+                        | "cancelled"
+                        | "interrupted"
+                )
+            {
+                return Err(invalid(
+                    "Choose launch timing before this workflow's first task starts",
+                ));
+            }
+            let dependency = after_session_id
+                .map(|id| {
+                    let session = self.session(&id)?;
+                    if session.project_id != w.project_id
+                        || session.archived
+                        || id == w.implementation_session_id
+                        || w.steps
+                            .iter()
+                            .any(|step| step.session_id.as_ref() == Some(&id))
+                        || (!session.active() && session.status != "completed")
+                    {
+                        return Err(invalid(
+                            "Choose an active task in the same project, or start this workflow now",
+                        ));
+                    }
+                    Ok(WorkflowStartDependency {
+                        session_id: id,
+                        title: session.title,
+                    })
+                })
+                .transpose()?;
+            w.start_after = dependency;
+            w.generation += 1;
+            w.launch_pending = true;
+            w.stage = if w.start_after.is_some() {
+                "waiting"
+            } else {
+                "launching"
+            }
+            .into();
+            w.error = None;
+            self.save_workflow(&mut w)?;
+            w
+        };
+        let manager = Arc::clone(self);
+        let id = workflow.id.clone();
+        let generation = workflow.generation;
+        tokio::spawn(async move {
+            manager.workflow_scheduler_loop(id, generation).await;
+        });
+        self.workflow_notify();
+        Ok(workflow)
+    }
+
+    /// Resolve the dependency under the same gate used by scheduling and cancellation.
+    async fn workflow_release_launch(&self, id: &str, generation: u64) -> AppResult<()> {
+        let _gate = self.workflow_gate.lock().await;
+        let mut w = self.workflow(id)?;
+        if !w.launch_pending || w.generation != generation {
+            return Ok(());
+        }
+        if let Some(dependency) = &w.start_after {
+            let session = self.session(&dependency.session_id)?;
+            if session.archived || session.project_id != w.project_id {
+                return Err(invalid(
+                    "The preceding task is no longer available in this project",
+                ));
+            }
+            if session.active() || !session.pending.is_empty() {
+                return Ok(());
+            }
+            if session.status != "completed" {
+                return Err(invalid("The preceding task did not complete successfully. Review it, then choose when to start this workflow."));
+            }
+        }
+        w.start_after = None;
+        w.stage =
+            if !w.setup_commands.is_empty() && !commands_passed(&w.setup_commands, &w.setup) {
+                "setup_ready"
+            } else {
+                "implementation_ready"
+            }
+            .into();
+        self.save_workflow(&mut w)
     }
 
     /// One scheduling pass: land what finished, then start what can start.
@@ -211,6 +334,10 @@ impl AgentManager {
                 break;
             }
         }
+        if started && w.launch_pending {
+            w.launch_pending = false;
+            self.save_workflow(&mut w)?;
+        }
         Ok(started)
     }
 
@@ -235,22 +362,29 @@ impl AgentManager {
         };
         let mut checked = false;
         loop {
-            let stage = {
+            let (stage, launching, editing) = {
                 let _gate = self.workflow_gate.lock().await;
                 match self.workflow(&id) {
                     Ok(mut workflow)
-                        if workflow.auto_progress && workflow.generation == generation =>
+                        if (workflow.auto_progress || workflow.launch_pending)
+                            && workflow.generation == generation =>
                     {
                         if let Err(error) = self.reconcile_workflow(&mut workflow).await {
                             tracing::warn!("Workflow status refresh failed: {error}");
                             return;
                         }
-                        workflow.stage
+                        (workflow.stage, workflow.launch_pending, workflow.editing)
                     }
                     _ => return,
                 }
             };
+            if editing || stage == "awaiting_review" {
+                self.workflow_wait().await;
+                continue;
+            }
             let outcome = match stage.as_str() {
+                "waiting" | "launching" if launching => self.workflow_release_launch(&id, generation).await,
+                "setup_ready" if launching => self.workflow_commands(&id, true).await.map(|_| ()),
                 "checking" | "setting_up" | "integrating" => {
                     self.workflow_wait().await;
                     continue;
@@ -262,11 +396,25 @@ impl AgentManager {
                     checked = true;
                     self.workflow_commands(&id, false).await.map(|_| ())
                 }
+                _ if launching => Err(invalid("Workflow launch stopped. Inspect the recorded task or setup error before retrying.")),
                 _ => return,
             };
             if let Err(error) = outcome {
+                let _gate = self.workflow_gate.lock().await;
                 if let Ok(mut workflow) = self.workflow(&id) {
+                    if workflow.generation != generation {
+                        return;
+                    }
+                    // An editor or review decision may have paused admission after this loop
+                    // read the stage. That pause is not a failed launch or failed automation.
+                    if workflow.editing || workflow.awaiting_review() {
+                        continue;
+                    }
                     workflow.auto_progress = false;
+                    if workflow.launch_pending {
+                        workflow.launch_pending = false;
+                        workflow.stage = "launch_failed".into();
+                    }
                     workflow.error = Some(format!("Automatic progression paused: {error}"));
                     let _ = self.save_workflow(&mut workflow);
                 }

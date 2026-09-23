@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { ArrowUpRight, Bug, ListChecks, PanelsTopLeft, ScanSearch } from 'lucide-react';
 
 import { AGENT_TASK_TEMPLATES, type AgentTaskTemplate } from '../lib/agentTaskTemplates';
@@ -22,10 +23,11 @@ export function AgentTaskTemplates({
   disabled?: boolean;
   selected?: AgentTaskTemplate['id'];
 }) {
+  i18n.useLocale();
   return (
     <div
       className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,155px),1fr))] gap-2.5"
-      aria-label="Task templates"
+      aria-label={i18n.t('Task templates')}
     >
       {AGENT_TASK_TEMPLATES.map((template) => {
         const Icon = icons[template.id];

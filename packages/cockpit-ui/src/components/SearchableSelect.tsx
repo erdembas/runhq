@@ -1,14 +1,8 @@
 'use client';
 
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useLocaleMemo as useMemo } from '../i18n';
+import * as i18n from '../i18n';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { filterSelectOptions, type SearchableOption } from '../lib/selectSearch';
@@ -18,8 +12,8 @@ export function SearchableSelect({
   onChange,
   options,
   label,
-  placeholder = 'Select…',
-  searchPlaceholder = 'Search…',
+  placeholder = i18n.t('Select…'),
+  searchPlaceholder = i18n.t('Search…'),
   disabled,
   compact,
   searchable = true,
@@ -46,6 +40,7 @@ export function SearchableSelect({
   createOption?: (query: string) => SearchableOption | null;
   hint?: string;
 }) {
+  i18n.useLocale();
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -236,9 +231,13 @@ export function SearchableSelect({
                 <Search className="text-fg-dim h-4 w-4 shrink-0" />
                 <input
                   ref={input}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   style={{ outline: 'none' }}
                   role="combobox"
-                  aria-label={`Search ${label.toLowerCase()}`}
+                  aria-label={i18n.t('Search {value1}', { value1: label.toLowerCase() })}
                   aria-expanded="true"
                   aria-controls={`${id}-list`}
                   aria-autocomplete="list"
@@ -254,7 +253,7 @@ export function SearchableSelect({
                 {query && (
                   <button
                     type="button"
-                    aria-label="Clear search"
+                    aria-label={i18n.t('Clear search')}
                     className="text-fg-dim hover:text-fg p-1"
                     onClick={() => {
                       setQuery('');
@@ -361,7 +360,7 @@ export function SearchableSelect({
               ))}
               {!filtered.length && (
                 <div role="presentation" className="text-fg-dim px-4 py-7 text-center text-[12px]">
-                  No matches. Try another name or path.
+                  {i18n.t('No matches. Try another name or path.')}
                 </div>
               )}
             </div>
@@ -370,8 +369,8 @@ export function SearchableSelect({
             )}
             {searchable && (
               <div className="border-border/50 text-fg-dim mt-1 flex shrink-0 justify-between border-t px-2 pt-2 pb-1 text-[10px]">
-                <span>{filtered.length} results</span>
-                <span>↑ ↓ Navigate · Enter Select</span>
+                <span>{i18n.rich('{value1} results', { value1: filtered.length })}</span>
+                <span>{i18n.t('↑ ↓ Navigate · Enter Select')}</span>
               </div>
             )}
           </div>,

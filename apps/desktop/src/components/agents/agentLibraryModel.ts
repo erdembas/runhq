@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentAttachment, AgentItem, AgentSession } from '@runhq/cockpit-types';
 
 export interface AgentContextEntry {
@@ -48,6 +49,8 @@ export interface AgentRecipeStep {
   prompt?: string;
   dependsOn?: string[];
   workspace?: 'shared' | 'own';
+  continueFrom?: string;
+  reviewPolicy?: import('@/lib/ipc/agentWorkflowIpc').WorkflowReviewPolicy | '';
 }
 const WORKFLOW_ROLES = ['plan', 'implement', 'review', 'revise', 'validate'];
 export const MAX_RECIPE_STEPS = 64;
@@ -59,30 +62,41 @@ export const MAX_RECIPE_STEPS = 64;
  */
 export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw new Error('Invalid recipe steps');
+  if (!Array.isArray(value)) throw new Error(i18n.t('Invalid recipe steps'));
   if (value.length > MAX_RECIPE_STEPS)
-    throw new Error(`A recipe holds up to ${MAX_RECIPE_STEPS} tasks`);
+    throw new Error(
+      i18n.t('A recipe holds up to {MAX_RECIPE_STEPS} tasks', {
+        MAX_RECIPE_STEPS: MAX_RECIPE_STEPS,
+      }),
+    );
   const steps = value.map((raw) => {
     const step = object(raw);
     if (!WORKFLOW_ROLES.includes(String(step.role)))
-      throw new Error(`Invalid recipe step role: ${String(step.role)}`);
-    for (const field of ['target', 'model', 'effort', 'mode', 'id']) {
+      throw new Error(i18n.t('Invalid recipe step role: {value1}', { value1: String(step.role) }));
+    for (const field of ['target', 'model', 'effort', 'mode', 'id', 'continueFrom']) {
       const entry = step[field];
       if (entry !== undefined && (typeof entry !== 'string' || entry.length > 200))
-        throw new Error(`Invalid recipe step ${field}`);
+        throw new Error(i18n.t('Invalid recipe step {field}', { field: field }));
     }
     if (
       step.prompt !== undefined &&
       (typeof step.prompt !== 'string' || step.prompt.length > 128 * 1024)
     )
-      throw new Error('Invalid recipe step instruction');
+      throw new Error(i18n.t('Invalid recipe step instruction'));
     if (
       step.dependsOn !== undefined &&
       (!Array.isArray(step.dependsOn) || step.dependsOn.some((entry) => typeof entry !== 'string'))
     )
-      throw new Error('Invalid recipe step dependencies');
+      throw new Error(i18n.t('Invalid recipe step dependencies'));
     if (step.workspace !== undefined && !['shared', 'own'].includes(String(step.workspace)))
-      throw new Error(`Invalid recipe step checkout: ${String(step.workspace)}`);
+      throw new Error(
+        i18n.t('Invalid recipe step checkout: {value1}', { value1: String(step.workspace) }),
+      );
+    if (
+      step.reviewPolicy !== undefined &&
+      !['', 'continue', 'on_findings', 'approval', 'auto_fix'].includes(String(step.reviewPolicy))
+    )
+      throw new Error(i18n.t('Invalid review policy'));
     return {
       id: step.id as string | undefined,
       role: step.role as AgentRecipeStep['role'],
@@ -93,6 +107,10 @@ export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
       prompt: step.prompt as string | undefined,
       dependsOn: step.dependsOn as string[] | undefined,
       workspace: step.workspace as AgentRecipeStep['workspace'],
+      ...(step.continueFrom ? { continueFrom: step.continueFrom as string } : {}),
+      ...(step.reviewPolicy
+        ? { reviewPolicy: step.reviewPolicy as AgentRecipeStep['reviewPolicy'] }
+        : {}),
     };
   });
   return migrateRecipeStepGraph(steps);
@@ -107,18 +125,27 @@ export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
  */
 export function migrateRecipeStepGraph(steps: AgentRecipeStep[]): AgentRecipeStep[] {
   const ids = steps.map((step, index) => step.id?.trim() || `s${index + 1}`);
-  if (new Set(ids).size !== ids.length) throw new Error('Recipe tasks must have unique keys');
+  if (new Set(ids).size !== ids.length)
+    throw new Error(i18n.t('Recipe tasks must have unique keys'));
   const declared = steps.some((step) => step.dependsOn !== undefined);
   return steps.map((step, index) => {
     const dependsOn = declared ? (step.dependsOn ?? []) : index > 0 ? [ids[index - 1]!] : [];
     for (const dependency of dependsOn) {
       const at = ids.indexOf(dependency);
       if (at < 0)
-        throw new Error(`Recipe task “${ids[index]}” depends on unknown task “${dependency}”`);
+        throw new Error(
+          i18n.t('Recipe task “{value1}” depends on unknown task “{dependency}”', {
+            value1: ids[index],
+            dependency: dependency,
+          }),
+        );
       // A dependency may only point backwards, which is what makes a cycle impossible to save.
       if (at >= index)
         throw new Error(
-          `Recipe task “${ids[index]}” depends on “${dependency}”, which is not declared before it`,
+          i18n.t(
+            'Recipe task “{value1}” depends on “{dependency}”, which is not declared before it',
+            { value1: ids[index], dependency: dependency },
+          ),
         );
     }
     return {
@@ -272,7 +299,7 @@ export function recipeParameters(recipe: AgentRecipe | string): string[] {
 export function resolveRecipe(recipe: AgentRecipe, values: Record<string, string>): AgentRecipe {
   const substitute = (text: string) =>
     text.replace(/\{\{\s*([a-zA-Z][\w-]*)\s*\}\}/g, (_, key: string) => {
-      if (!values[key]?.trim()) throw new Error(`Enter a value for ${key}`);
+      if (!values[key]?.trim()) throw new Error(i18n.t('Enter a value for {key}', { key: key }));
       return values[key]!;
     });
   return {
@@ -306,19 +333,19 @@ export function parseRecipe(value: unknown): AgentRecipe {
     'checkCommands',
   ]) {
     if (typeof r[field] !== 'string' || (r[field] as string).length > 100000)
-      throw new Error(`Invalid recipe field: ${field}`);
+      throw new Error(i18n.t('Invalid recipe field: {field}', { field: field }));
   }
   if (!(r.name as string).trim() || !(r.prompt as string).trim())
-    throw new Error('A recipe needs a name and prompt');
+    throw new Error(i18n.t('A recipe needs a name and prompt'));
   if (
     !['default', 'plan'].includes(String(r.mode)) ||
     typeof r.isolated !== 'boolean' ||
     !Number.isInteger(r.version) ||
     (r.version as number) < 1
   )
-    throw new Error('Invalid recipe settings');
+    throw new Error(i18n.t('Invalid recipe settings'));
   if (r.projectId !== undefined && (typeof r.projectId !== 'string' || r.projectId.length > 160))
-    throw new Error('Invalid recipe project');
+    throw new Error(i18n.t('Invalid recipe project'));
   const steps = parseRecipeSteps(r.workflowSteps);
   // Saved/imported recipes cannot carry a live handoff identity, provider session,
   // executable override or arbitrary future fields from an external JSON file.
@@ -360,7 +387,7 @@ export function buildAgentContextPrompt(prompt: string, entries: AgentContextEnt
   )}`;
   if (new TextEncoder().encode(result).length > 256 * 1024)
     throw new Error(
-      'Message and context exceed 256 KiB. Remove an attachment or use a smaller excerpt.',
+      i18n.t('Message and context exceed 256 KiB. Remove an attachment or use a smaller excerpt.'),
     );
   return result;
 }

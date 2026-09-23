@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ExternalLink, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { buildSingleAdvisoryChatPayload } from '@/lib/ai/advisoryPayload';
@@ -28,6 +29,7 @@ export function AdvisoryRow({
   projectName: string;
   runtime: string | null;
 }) {
+  i18n.useLocale();
   const tone = severityTone(advisory.severity);
   const cmd = upgradeCommandForAdvisory(runtime, advisory);
   const Icon = tone.icon;
@@ -81,7 +83,7 @@ export function AdvisoryRow({
             )}
           >
             <Icon size={9} />
-            {advisory.severity}
+            {i18n.enumLabel('severity', advisory.severity)}
           </span>
           <span className="text-fg truncate text-[12px] font-semibold">{advisory.package}</span>
           {advisory.vulnerable_range && (
@@ -114,9 +116,11 @@ export function AdvisoryRow({
                 'group-hover/row:text-accent/80',
               )}
               title={
-                advisory.id ? `Analyze ${advisory.id} with AI` : `Analyze this advisory with AI`
+                advisory.id
+                  ? i18n.t('Analyze {value1} with AI', { value1: advisory.id })
+                  : i18n.t('Analyze this advisory with AI')
               }
-              aria-label="Analyze advisory with AI"
+              aria-label={i18n.t('Analyze advisory with AI')}
             >
               <Sparkles size={11} />
             </button>
@@ -129,8 +133,10 @@ export function AdvisoryRow({
                   onOpenUrl(advisory.url!);
                 }}
                 className="text-fg/55 hover:text-accent hover:bg-fg/5 inline-flex items-center rounded px-1 py-0.5 transition"
-                title={`Open ${advisory.id ?? 'advisory'} in browser`}
-                aria-label="Open advisory in browser"
+                title={i18n.t('Open {value1} in browser', {
+                  value1: advisory.id ?? i18n.t('advisory'),
+                })}
+                aria-label={i18n.t('Open advisory in browser')}
               >
                 <ExternalLink size={11} />
               </button>
@@ -150,7 +156,7 @@ export function AdvisoryRow({
           <div className="text-fg/40 flex items-center gap-2 text-[10px]">
             {advisory.fix_version && (
               <span className="inline-flex items-center gap-1">
-                <span className="text-fg/35">fix</span>
+                <span className="text-fg/35">{i18n.t('fix')}</span>
                 <span className="text-tone-success-fg font-mono tabular-nums">
                   {advisory.fix_version}
                 </span>

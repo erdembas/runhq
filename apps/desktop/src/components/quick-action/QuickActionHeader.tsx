@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronLeft, Zap } from 'lucide-react';
 
 interface QuickActionHeaderProps {
@@ -19,6 +20,7 @@ export function QuickActionHeader({
   onKeyDown,
   onBack,
 }: QuickActionHeaderProps) {
+  i18n.useLocale();
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
       {inDrill ? (
@@ -26,8 +28,8 @@ export function QuickActionHeader({
           type="button"
           onClick={onBack}
           className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition"
-          title="Back"
-          aria-label="Back"
+          title={i18n.t('Back')}
+          aria-label={i18n.t('Back')}
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -39,7 +41,11 @@ export function QuickActionHeader({
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={inDrill ? `Filter ${drillName}…` : 'Search services, commands, actions…'}
+        placeholder={
+          inDrill
+            ? i18n.t('Filter {drillName}…', { drillName: drillName })
+            : i18n.t('Search services, commands, actions…')
+        }
         className="qa-search-input text-fg placeholder:text-fg-dim/80 h-7 w-full bg-transparent text-[15px] font-normal tracking-[-0.01em]"
         spellCheck={false}
         autoCorrect="off"

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback } from 'react';
 import { Copy, FileText, FolderOpen, Minus, Plus, Trash2, Undo2 } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
@@ -49,14 +50,14 @@ export function useCommitContextMenu({
 
       items.push({
         id: 'open',
-        label: 'Open File',
+        label: i18n.t('Open File'),
         icon: <FileText size={12} />,
         disabled: isDeleted || !cwd,
         onClick: () => void ipc.openPath(abs),
       });
       items.push({
         id: 'reveal',
-        label: 'Reveal in Folder',
+        label: i18n.t('Reveal in Folder'),
         icon: <FolderOpen size={12} />,
         disabled: !cwd,
         onClick: () => void ipc.openPath(parentDirAbsolute(file.path)),
@@ -65,14 +66,14 @@ export function useCommitContextMenu({
       items.push({ id: 'sep-1', separator: true });
       items.push({
         id: 'copy-path',
-        label: 'Copy Path',
+        label: i18n.t('Copy Path'),
         icon: <Copy size={12} />,
         disabled: !cwd,
         onClick: () => void writeClipboard(abs),
       });
       items.push({
         id: 'copy-rel',
-        label: 'Copy Relative Path',
+        label: i18n.t('Copy Relative Path'),
         icon: <Copy size={12} />,
         onClick: () => void writeClipboard(file.path),
       });
@@ -81,7 +82,7 @@ export function useCommitContextMenu({
       if (side === 'staged') {
         items.push({
           id: 'unstage',
-          label: isDeleted ? 'Unstage Deletion' : 'Unstage Changes',
+          label: isDeleted ? i18n.t('Unstage Deletion') : i18n.t('Unstage Changes'),
           icon: <Minus size={12} />,
           onClick: () => void onUnstageFile(file.path),
         });
@@ -90,14 +91,22 @@ export function useCommitContextMenu({
 
       items.push({
         id: 'stage',
-        label: isDeleted ? 'Stage Deletion' : isUntracked ? 'Stage File' : 'Stage Changes',
+        label: isDeleted
+          ? i18n.t('Stage Deletion')
+          : isUntracked
+            ? i18n.t('Stage File')
+            : i18n.t('Stage Changes'),
         icon: <Plus size={12} />,
         onClick: () => void onStageFile(file.path),
       });
       items.push({ id: 'sep-3', separator: true });
       items.push({
         id: 'discard',
-        label: isUntracked ? 'Delete File' : isDeleted ? 'Restore File' : 'Discard Changes',
+        label: isUntracked
+          ? i18n.t('Delete File')
+          : isDeleted
+            ? i18n.t('Restore File')
+            : i18n.t('Discard Changes'),
         icon: isUntracked ? <Trash2 size={12} /> : <Undo2 size={12} />,
         tone: isUntracked ? 'danger' : 'default',
         onClick: () => patch({ discardConfirm: { file } }),

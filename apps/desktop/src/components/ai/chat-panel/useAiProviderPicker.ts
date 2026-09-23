@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AiChatProvider } from './aiChatProviders';
 import { useCallback, useEffect } from 'react';
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react';
@@ -86,8 +87,8 @@ export function useAiProviderPicker({
         list.some(canUseChatProvider)
           ? null
           : apiResult.status === 'rejected' && cliResult.status === 'rejected'
-            ? 'Could not load AI providers. Reopen the panel to try again.'
-            : 'Connect a CLI in Agent tools or add an API provider in Settings → AI.',
+            ? i18n.t('Could not load AI providers. Reopen the panel to try again.')
+            : i18n.t('Connect a CLI in Agent tools or add an API provider in Settings → AI.'),
       );
     } catch (e) {
       setProviderError(e instanceof Error ? e.message : String(e));

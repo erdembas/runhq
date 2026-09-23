@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http';
+import process from 'node:process';
+const autoPermission = process.env.RUNHQ_TEST_AUTO_PERMISSION === '1';
 let events;
 const emit = (type, properties) =>
   events.write(`data: ${JSON.stringify({ type, properties })}\r\n\r\n`);
@@ -41,11 +43,15 @@ const server = createServer(async (request, response) => {
       },
     });
     emit('permission.asked', { sessionID: 'other-session', id: 'ignore', permission: 'external' });
-    emit('permission.asked', { sessionID: 'saved-thread', id: 'p1', permission: 'edit' });
+    emit('permission.asked', {
+      sessionID: 'saved-thread',
+      id: 'p1',
+      permission: autoPermission ? 'external_directory' : 'edit',
+    });
     return;
   }
   if (path === '/permission/p1/reply') {
-    if (body.reply !== 'reject') {
+    if (body.reply !== (autoPermission ? 'once' : 'reject')) {
       response.writeHead(400).end();
       return;
     }

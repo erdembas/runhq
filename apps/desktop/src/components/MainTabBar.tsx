@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -28,6 +30,7 @@ const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
 });
 
 export function MainTabBar() {
+  i18n.useLocale();
   const tabs = useAppStore((s) => s.mainTabs);
   const activeKey = useAppStore((s) => s.activeMainTabKey);
   const services = useAppStore((s) => s.services);
@@ -176,7 +179,7 @@ export function MainTabBar() {
         <div
           ref={stripRef}
           role="tablist"
-          aria-label="Open tabs"
+          aria-label={i18n.t('Open tabs')}
           onWheel={onWheel}
           className="main-tabbar-scroll flex flex-1 items-stretch overflow-x-auto overflow-y-hidden"
         >

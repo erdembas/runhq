@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -9,6 +10,7 @@ interface TabStripActionProps {
 }
 
 export function TabStripAction({ icon, label, title, onClick }: TabStripActionProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

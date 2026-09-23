@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, type MouseEvent } from 'react';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -26,6 +27,7 @@ export const TabPill = memo(function TabPill({
   onClose: (e: MouseEvent, id: string) => void;
   onContextMenu: (e: MouseEvent, id: string) => void;
 }) {
+  i18n.useLocale();
   return (
     <div
       role="tab"
@@ -96,8 +98,8 @@ export const TabPill = memo(function TabPill({
           // hover.
           isActive && 'opacity-60',
         )}
-        aria-label={`Close ${title}`}
-        title="Close tab"
+        aria-label={i18n.t('Close {title}', { title: title })}
+        title={i18n.t('Close tab')}
       >
         <X className="h-3 w-3" strokeWidth={2.25} />
       </button>

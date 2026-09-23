@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { FoldVertical, List, ListTree, UnfoldVertical } from 'lucide-react';
 import { GitStatusLegend } from '@/components/git/shared';
 import type { CommitTreeMode } from '@/components/git/useCommitPanelStore';
@@ -15,6 +16,7 @@ export function CommitToolbar({
   onExpandAll,
   onCollapseAll,
 }: CommitToolbarProps) {
+  i18n.useLocale();
   const treeDisabled = treeMode !== 'tree';
 
   return (
@@ -22,7 +24,7 @@ export function CommitToolbar({
       <button
         onClick={onToggleTreeMode}
         className="text-fg/50 hover:bg-fg/10 hover:text-fg rounded p-1 transition"
-        title={treeMode === 'tree' ? 'Switch to flat list' : 'Switch to tree view'}
+        title={treeMode === 'tree' ? i18n.t('Switch to flat list') : i18n.t('Switch to tree view')}
       >
         {treeMode === 'tree' ? <ListTree size={13} /> : <List size={13} />}
       </button>
@@ -30,7 +32,7 @@ export function CommitToolbar({
         onClick={onExpandAll}
         disabled={treeDisabled}
         className="text-fg/50 hover:bg-fg/10 hover:text-fg rounded p-1 transition disabled:opacity-30"
-        title="Expand all"
+        title={i18n.t('Expand all')}
       >
         <UnfoldVertical size={13} />
       </button>
@@ -38,7 +40,7 @@ export function CommitToolbar({
         onClick={onCollapseAll}
         disabled={treeDisabled}
         className="text-fg/50 hover:bg-fg/10 hover:text-fg rounded p-1 transition disabled:opacity-30"
-        title="Collapse all"
+        title={i18n.t('Collapse all')}
       >
         <FoldVertical size={13} />
       </button>

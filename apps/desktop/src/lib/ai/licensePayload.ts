@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { ContaminationWarning, LicenseRisk, LicenseScanResult } from '@/types';
 
 /**
@@ -188,11 +189,14 @@ export function buildLicenseChatPayload(input: BuildBulkInput): LicenseChatPaylo
   ].join('\n');
 
   const titleSuffix = projectName
-    ? `${projectName} · ${included} license warnings`
-    : `${included} license warnings`;
+    ? i18n.t('{projectName} · {included} license warnings', {
+        projectName: projectName,
+        included: included,
+      })
+    : i18n.t('{included} license warnings', { included: included });
 
   return {
-    title: `Licenses · ${titleSuffix}`,
+    title: i18n.t('Licenses · {titleSuffix}', { titleSuffix: titleSuffix }),
     context: {
       kind: 'license_triage',
       project_name: projectName,
@@ -313,7 +317,10 @@ export function buildSingleLicenseChatPayload(input: BuildSingleInput): LicenseC
   ].join('\n');
 
   const projectTag = projectName ? ` · ${projectName}` : '';
-  const title = `Analyze · ${warning.package}${projectTag}`;
+  const title = i18n.t('Analyze · {value1}{projectTag}', {
+    value1: warning.package,
+    projectTag: projectTag,
+  });
 
   const draftPrompt =
     `Analyse this ${prettyRisk(warning.risk)} dependency \`${warning.package}\` v${warning.version} ` +

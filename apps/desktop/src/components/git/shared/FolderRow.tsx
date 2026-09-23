@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronDown, ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { statusColor, type TreeNode } from '@/lib/gitDiff';
@@ -10,6 +11,7 @@ interface FolderRowProps {
 }
 
 export function FolderRow({ node, level, expanded, onToggle }: FolderRowProps) {
+  i18n.useLocale();
   const FolderIcon = expanded ? FolderOpen : Folder;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const folderColor =

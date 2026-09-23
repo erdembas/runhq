@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import {} from 'react';
 import { History, PlayCircle, Sparkles } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { getLatestRelease } from '@/lib/whatsnew';
@@ -28,6 +30,7 @@ export function AboutCategory({
    */
   closeSettings: () => void;
 }) {
+  i18n.useLocale();
   const appVersion = useAppStore((s) => s.appVersion);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
   const openReleaseNotes = useAppStore((s) => s.openReleaseNotes);
@@ -35,23 +38,29 @@ export function AboutCategory({
 
   return (
     <SettingsPageShell description={description}>
-      <SettingsSection title="App information">
+      <SettingsSection title={i18n.t('App information')}>
         <div className="border-border/50 bg-surface/40 rounded-app-sm grid grid-cols-2 gap-3 border p-3 text-[11px]">
-          <InfoRow label="Version" value={appVersion ?? '—'} mono />
-          <InfoRow label="Latest release notes" value={latestRelease?.version ?? '—'} mono />
+          <InfoRow label={i18n.t('Version')} value={appVersion ?? '—'} mono />
+          <InfoRow
+            label={i18n.t('Latest release notes')}
+            value={latestRelease?.version ?? '—'}
+            mono
+          />
         </div>
       </SettingsSection>
 
       <SettingsSection
-        title="Discoverability"
-        description="Replay the welcome tour or revisit recent release highlights without scrolling through the changelog file."
+        title={i18n.t('Discoverability')}
+        description={i18n.t(
+          'Replay the welcome tour or revisit recent release highlights without scrolling through the changelog file.',
+        )}
       >
         <div className="flex flex-wrap gap-2">
           {onReplayTour && (
             <ActionTile
               icon={<PlayCircle className="h-4 w-4" />}
-              label="Replay welcome tour"
-              description="Walk through the first-launch onboarding overlays again."
+              label={i18n.t('Replay welcome tour')}
+              description={i18n.t('Walk through the first-launch onboarding overlays again.')}
               onClick={() => {
                 closeSettings();
                 onReplayTour();
@@ -62,8 +71,8 @@ export function AboutCategory({
             <>
               <ActionTile
                 icon={<Sparkles className="h-4 w-4" />}
-                label={`What's new in ${latestRelease.version}`}
-                description="Highlights of the most recent shipped release."
+                label={i18n.t("What's new in {value1}", { value1: latestRelease.version })}
+                description={i18n.t('Highlights of the most recent shipped release.')}
                 onClick={() => {
                   closeSettings();
                   openWhatsNew(latestRelease.version);
@@ -71,8 +80,8 @@ export function AboutCategory({
               />
               <ActionTile
                 icon={<History className="h-4 w-4" />}
-                label="Release notes"
-                description="Browse every release shipped to date."
+                label={i18n.t('Release notes')}
+                description={i18n.t('Browse every release shipped to date.')}
                 onClick={() => {
                   closeSettings();
                   openReleaseNotes();
@@ -87,6 +96,7 @@ export function AboutCategory({
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  i18n.useLocale();
   return (
     <div>
       <div className="text-fg-dim text-[10px] tracking-wider uppercase">{label}</div>
@@ -106,6 +116,7 @@ function ActionTile({
   description: string;
   onClick: () => void;
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"

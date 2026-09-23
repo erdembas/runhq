@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useEffect } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { ipc } from '@/lib/ipc';
@@ -68,7 +69,7 @@ export function useAgentSchedules() {
           blocked: (schedule) =>
             agents.projects.some((project) => project.id === schedule.projectId)
               ? null
-              : 'Project is no longer in the workspace',
+              : i18n.t('Project is no longer in the workspace'),
           // Whether the recipe names one connection or a pool, the task is created against a single
           // account, and the same signals decide it: capability fit, a reported limit, then load.
           route: (recipe) => {
@@ -81,8 +82,8 @@ export function useAgentSchedules() {
               return {
                 accountId: null,
                 reason: recipe.backend
-                  ? 'The recipe’s account pool was removed'
-                  : 'The recipe does not name a connection',
+                  ? i18n.t('The recipe’s account pool was removed')
+                  : i18n.t('The recipe does not name a connection'),
                 grounds: '',
                 rejected: [],
               };

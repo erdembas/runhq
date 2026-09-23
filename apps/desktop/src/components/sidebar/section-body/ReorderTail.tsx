@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/cn';
@@ -29,6 +30,7 @@ export function ReorderTail({
   bucketId: SectionId;
   targetSectionId: SectionId | null;
 }) {
+  i18n.useLocale();
   const moveSidebarItem = useAppStore((s) => s.moveSidebarItem);
   const [active, setActive] = useState(false);
   const lastItem = items[items.length - 1];

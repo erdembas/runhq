@@ -1,3 +1,4 @@
+import * as i18n from '../i18n/core';
 import type { AgentSession } from '@runhq/cockpit-types';
 
 export interface AgentActivitySummary {
@@ -67,14 +68,19 @@ export function summarizeAgentActivity(sessions: Iterable<AgentSession>): AgentA
 
 export function agentActivityLabel(summary: AgentActivitySummary): string {
   return [
-    summary.working ? `${summary.working} working` : '',
-    summary.starting ? `${summary.starting} starting` : '',
-    summary.waiting ? `${summary.waiting} waiting for your decision` : '',
-    summary.issues ? `${summary.issues} failed or interrupted` : '',
-    summary.unread
-      ? `${summary.unread} unread completed ${summary.unread === 1 ? 'response' : 'responses'}`
+    summary.working ? i18n.t('{value1} working', { value1: summary.working }) : '',
+    summary.starting ? i18n.t('{value1} starting', { value1: summary.starting }) : '',
+    summary.waiting
+      ? i18n.t('{value1} waiting for your decision', { value1: summary.waiting })
       : '',
-    summary.stopping ? `${summary.stopping} stopping` : '',
+    summary.issues ? i18n.t('{value1} failed or interrupted', { value1: summary.issues }) : '',
+    summary.unread
+      ? i18n.t('{value1} unread completed {value2}', {
+          value1: summary.unread,
+          value2: summary.unread === 1 ? i18n.t('response') : i18n.t('responses'),
+        })
+      : '',
+    summary.stopping ? i18n.t('{value1} stopping', { value1: summary.stopping }) : '',
   ]
     .filter(Boolean)
     .join(' · ');

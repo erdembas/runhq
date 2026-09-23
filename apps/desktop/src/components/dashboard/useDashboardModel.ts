@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import type { SetStateAction } from 'react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
@@ -311,7 +312,7 @@ export function useDashboardModel(onScan: () => void, visible = true) {
   const requestDeleteStack = useCallback(
     (stack: StackDef) => {
       setPendingConfirm({
-        message: `Delete stack "${stack.name}"?`,
+        message: i18n.t('Delete stack "{value1}"?', { value1: stack.name }),
         onConfirm: async () => {
           setPendingConfirm(null);
           await ipc.removeStack(stack.id);

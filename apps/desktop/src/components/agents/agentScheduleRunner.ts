@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentSession, CreateAgentSession } from '@runhq/cockpit-types';
 import { scheduleDecision, type AgentSchedule } from './agentSchedule';
 import type { AgentAccountChoice } from './agentAccountRouting';
@@ -48,9 +49,9 @@ export async function runDueSchedules(deps: {
     }
     const recipe = deps.recipe(schedule.recipeId);
     if (!recipe) {
-      const missing = { ...schedule, enabled: false, lastOutcome: 'Recipe was removed' };
+      const missing = { ...schedule, enabled: false, lastOutcome: i18n.t('Recipe was removed') };
       await deps.save(missing);
-      runs.push({ schedule: missing, outcome: 'Recipe was removed', ranAt: deps.now });
+      runs.push({ schedule: missing, outcome: i18n.t('Recipe was removed'), ranAt: deps.now });
       continue;
     }
     // Route before reserving anything: an occurrence that cannot reach an account records why, the
@@ -68,7 +69,10 @@ export async function runDueSchedules(deps: {
     const reserved = { ...schedule, pendingCreationId: creationId };
     await deps.save(reserved);
     const missedNote = decision.missed
-      ? ` (${decision.missed} earlier ${decision.missed === 1 ? 'run was' : 'runs were'} missed while RunHQ was closed)`
+      ? i18n.t(' ({value1} earlier {value2} missed while RunHQ was closed)', {
+          value1: decision.missed,
+          value2: decision.missed === 1 ? i18n.t('run was') : i18n.t('runs were'),
+        })
       : '';
     try {
       const session = await deps.launch(
@@ -90,7 +94,11 @@ export async function runDueSchedules(deps: {
       // Nobody is watching an unattended run, so the account it chose is written down with it.
       if (deps.routed) await deps.routed(session, choice, recipe);
       const routed = choice.reason ? ` · ${choice.reason}` : '';
-      const outcome = `Started ${session.title}${routed}${missedNote}`;
+      const outcome = i18n.t('Started {value1}{routed}{missedNote}', {
+        value1: session.title,
+        routed: routed,
+        missedNote: missedNote,
+      });
       const done = {
         ...reserved,
         lastRunAt: deps.now,
@@ -101,7 +109,7 @@ export async function runDueSchedules(deps: {
       runs.push({ schedule: done, outcome, ranAt: deps.now });
     } catch (error) {
       // Keep the reserved id: the next attempt continues the same creation rather than duplicating.
-      const outcome = `Could not start: ${String(error)}`;
+      const outcome = i18n.t('Could not start: {value1}', { value1: String(error) });
       const failed = { ...reserved, lastRunAt: deps.now, lastOutcome: outcome };
       await deps.save(failed);
       runs.push({ schedule: failed, outcome, ranAt: deps.now });

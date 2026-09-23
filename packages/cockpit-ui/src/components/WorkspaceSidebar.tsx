@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Layers, Plus, SlidersHorizontal } from 'lucide-react';
 import type { ServiceDef, ServiceId, StackDef, Status } from '@runhq/cockpit-types';
@@ -95,6 +96,7 @@ interface RowProps {
 }
 
 function ServiceRow({ service, status, sample, runtime, selected, onSelect }: RowProps) {
+  i18n.useLocale();
   const cpu = sample?.cpu_percent;
   const mem = sample?.memory_bytes;
   return (
@@ -147,6 +149,7 @@ function SectionBlock({
   selectedServiceId,
   onSelectService,
 }: SectionBlockProps) {
+  i18n.useLocale();
   const [open, setOpen] = useState(true);
   const dotClass = SECTION_DOT[section.color ?? 'slate'];
   return (
@@ -227,6 +230,7 @@ export function WorkspaceSidebar({
   onSelectStack,
   className,
 }: Props) {
+  i18n.useLocale();
   const serviceMap = Object.fromEntries(services.map((s) => [s.id, s])) as Record<
     ServiceId,
     ServiceDef
@@ -257,7 +261,7 @@ export function WorkspaceSidebar({
     >
       <div className="border-border flex items-center gap-2 border-b px-3 py-2.5">
         <span className="text-fg-dim text-[11px] font-semibold tracking-[0.08em] uppercase">
-          Workspace
+          {i18n.t('Workspace')}
         </span>
         {workspaceTotals && (
           <>
@@ -265,11 +269,11 @@ export function WorkspaceSidebar({
               {workspaceTotals.total}
             </span>
             <span className="bg-status-running/15 text-status-running rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold">
-              {workspaceTotals.running} on
+              {i18n.rich('{value1} on', { value1: workspaceTotals.running })}
             </span>
             {workspaceTotals.dirty > 0 && (
               <span className="bg-status-starting/15 text-status-starting rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold">
-                {workspaceTotals.dirty} dirty
+                {i18n.rich('{value1} dirty', { value1: workspaceTotals.dirty })}
               </span>
             )}
           </>
@@ -277,7 +281,7 @@ export function WorkspaceSidebar({
         <button
           type="button"
           className="text-fg-dim hover:text-fg ml-auto"
-          aria-label="Filter sidebar"
+          aria-label={i18n.t('Filter sidebar')}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
         </button>
@@ -287,7 +291,7 @@ export function WorkspaceSidebar({
         {stacks.length > 0 && (
           <div>
             <div className="text-fg-dim px-2 pt-1 pb-1.5 text-[10px] font-semibold tracking-[0.1em] uppercase">
-              Stacks
+              {i18n.t('Stacks')}
             </div>
             <ul className="flex flex-col gap-0.5">
               {stacks.map(({ stack, running, total }) => {
@@ -357,22 +361,19 @@ export function WorkspaceSidebar({
           type="button"
           className="hover:text-fg flex items-center gap-1 px-1.5 py-1 transition"
         >
-          <Plus className="h-3 w-3" />
-          Service
+          {i18n.rich('{value1}Service', { value1: <Plus className="h-3 w-3" /> })}
         </button>
         <button
           type="button"
           className="hover:text-fg flex items-center gap-1 px-1.5 py-1 transition"
         >
-          <Plus className="h-3 w-3" />
-          Stack
+          {i18n.rich('{value1}Stack', { value1: <Plus className="h-3 w-3" /> })}
         </button>
         <button
           type="button"
           className="hover:text-fg flex items-center gap-1 px-1.5 py-1 transition"
         >
-          <Plus className="h-3 w-3" />
-          Section
+          {i18n.rich('{value1}Section', { value1: <Plus className="h-3 w-3" /> })}
         </button>
       </div>
     </aside>

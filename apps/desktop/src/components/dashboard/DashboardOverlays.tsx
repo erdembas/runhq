@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { lazy, Suspense } from 'react';
 import { ProjectDetailDrawer } from '@/components/ProjectDetailDrawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function DashboardOverlays({ model }: Props) {
+  i18n.useLocale();
   return (
     <>
       {model.pendingConfirm && (
@@ -24,8 +26,14 @@ export function DashboardOverlays({ model }: Props) {
         />
       )}
       {model.serviceOverlay && model.overlayService && model.serviceOverlay.kind === 'license' && (
-        <Drawer onClose={model.closeServiceOverlay} ariaLabel="License compliance" size="lg">
-          <Suspense fallback={<div className="text-fg-dim p-4 text-[12px]">Loading…</div>}>
+        <Drawer
+          onClose={model.closeServiceOverlay}
+          ariaLabel={i18n.t('License compliance')}
+          size="lg"
+        >
+          <Suspense
+            fallback={<div className="text-fg-dim p-4 text-[12px]">{i18n.t('Loading…')}</div>}
+          >
             <LicensePanel
               serviceId={model.overlayService.id}
               serviceName={model.overlayService.name}

@@ -1,4 +1,5 @@
 'use client';
+import * as i18n from '../i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import { SearchableSelect } from './SearchableSelect';
 import {
@@ -34,6 +35,7 @@ export function AgentRequestCard({
   disabled?: boolean;
   onOpenUrl?: (url: string) => Promise<void>;
 }) {
+  i18n.useLocale();
   const cardId = useId();
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -151,7 +153,7 @@ export function AgentRequestCard({
             )
           : (JSON.parse(raw) as unknown);
       if (!request.url && (!content || typeof content !== 'object' || Array.isArray(content)))
-        throw new Error('Response must be a JSON object.');
+        throw new Error(i18n.t('Response must be a JSON object.'));
       if (
         simpleForm &&
         !request.url &&
@@ -161,7 +163,7 @@ export function AgentRequestCard({
             (content as Record<string, unknown>)[key] === '',
         )
       )
-        throw new Error('Complete the required fields.');
+        throw new Error(i18n.t('Complete the required fields.'));
       void send(request.url ? { action: 'accept' } : { action: 'accept', content });
     } catch (e) {
       setError(String(e));
@@ -178,7 +180,7 @@ export function AgentRequestCard({
         </span>
         <div className="min-w-0">
           <p className="text-fg text-[12px] font-medium" role="status">
-            Response sent
+            {i18n.t('Response sent')}
           </p>
           <p className="text-fg-dim mt-0.5 truncate text-[11px]">{request.title}</p>
         </div>
@@ -200,7 +202,7 @@ export function AgentRequestCard({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-fg-dim mb-0.5 text-[10px] font-medium tracking-wider uppercase">
-            {request.kind === 'approval' ? 'Permission request' : 'Your input'}
+            {request.kind === 'approval' ? i18n.t('Permission request') : i18n.t('Your input')}
           </p>
           <h3 id={`${cardId}-title`} className="text-fg text-[12px] font-medium break-words">
             {request.title}
@@ -208,13 +210,16 @@ export function AgentRequestCard({
         </div>
         {request.kind === 'question' && questions.length > 1 && (
           <span className="text-fg-dim shrink-0 text-[11px] tabular-nums" aria-live="polite">
-            {collected.answeredCount} / {questions.length} answered
+            {i18n.rich('{value1} / {value2} answered', {
+              value1: collected.answeredCount,
+              value2: questions.length,
+            })}
           </span>
         )}
       </header>
       {request.kind === 'question' && questions.length > 1 && (
         <nav
-          aria-label="Questions"
+          aria-label={i18n.t('Questions')}
           className="border-border/60 mx-5 flex flex-wrap items-center gap-1.5 border-b pb-3"
         >
           {questions.map((q, index) => {
@@ -225,7 +230,11 @@ export function AgentRequestCard({
                 type="button"
                 disabled={locked}
                 aria-current={index === currentIndex ? 'step' : undefined}
-                aria-label={`Question ${index + 1}: ${q.question}${answered ? ' (answered)' : ''}`}
+                aria-label={i18n.t('Question {value1}: {value2}{value3}', {
+                  value1: index + 1,
+                  value2: q.question,
+                  value3: answered ? i18n.t(' (answered)') : '',
+                })}
                 title={q.question}
                 onClick={() => goTo(index)}
                 className={cn(
@@ -240,7 +249,9 @@ export function AgentRequestCard({
                 ) : (
                   <span className="tabular-nums">{String(index + 1).padStart(2, '0')}</span>
                 )}
-                {index === currentIndex && <span>Question {index + 1}</span>}
+                {index === currentIndex && (
+                  <span>{i18n.rich('Question {value1}', { value1: index + 1 })}</span>
+                )}
               </button>
             );
           })}
@@ -268,8 +279,11 @@ export function AgentRequestCard({
           {request.details && (
             <details className="group text-fg-muted text-[12px]" open={request.kind === 'approval'}>
               <summary className="hover:text-fg flex w-fit cursor-pointer items-center gap-1.5 text-[11px] outline-none focus-visible:underline">
-                <ChevronDown className="h-3 w-3 -rotate-90 transition-transform group-open:rotate-0" />
-                Request details
+                {i18n.rich('{value1}Request details', {
+                  value1: (
+                    <ChevronDown className="h-3 w-3 -rotate-90 transition-transform group-open:rotate-0" />
+                  ),
+                })}
               </summary>
               <pre className="border-border/60 bg-surface mt-2 max-h-56 overflow-auto rounded-xl border p-3 text-[11px] leading-relaxed break-words whitespace-pre-wrap">
                 {request.details}
@@ -317,7 +331,7 @@ export function AgentRequestCard({
               {request.kind === 'form' && request.url && (
                 <div className="space-y-3 text-[12px]">
                   <p className="text-fg-muted">
-                    Complete the request in your browser, then confirm here.
+                    {i18n.t('Complete the request in your browser, then confirm here.')}
                   </p>
                   <button
                     type="button"
@@ -344,10 +358,10 @@ export function AgentRequestCard({
                       {schema.description && <span className="block">{schema.description}</span>}
                       {schema.enum ? (
                         <SearchableSelect
-                          label={`${key}${required.includes(key) ? ' (required)' : ''}`}
+                          label={`${key}${required.includes(key) ? i18n.t(' (required)') : ''}`}
                           className="mt-1"
                           searchable={schema.enum.length > 8}
-                          placeholder="Choose…"
+                          placeholder={i18n.t('Choose…')}
                           value={String(form[key] ?? schema.default ?? '')}
                           options={schema.enum.map((value) => ({
                             value: String(value),
@@ -357,19 +371,19 @@ export function AgentRequestCard({
                         />
                       ) : schema.type === 'boolean' ? (
                         <SearchableSelect
-                          label={`${key}${required.includes(key) ? ' (required)' : ''}`}
+                          label={`${key}${required.includes(key) ? i18n.t(' (required)') : ''}`}
                           className="mt-1"
                           searchable={false}
                           menuWidth={200}
-                          placeholder="Choose…"
+                          placeholder={i18n.t('Choose…')}
                           value={
                             form[key] === undefined
                               ? String(schema.default ?? '')
                               : String(form[key])
                           }
                           options={[
-                            { value: 'true', label: 'Yes' },
-                            { value: 'false', label: 'No' },
+                            { value: 'true', label: i18n.t('Yes') },
+                            { value: 'false', label: i18n.t('No') },
                           ]}
                           onChange={(value) =>
                             setForm((p) => ({
@@ -406,18 +420,23 @@ export function AgentRequestCard({
                   ))
                 ) : (
                   <label className="text-fg-muted block space-y-2 text-[12px]">
-                    Structured response (JSON)
-                    <details>
-                      <summary className="cursor-pointer">Requested schema</summary>
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap">
-                        {JSON.stringify(request.schema, null, 2)}
-                      </pre>
-                    </details>
-                    <textarea
-                      className={`${field} min-h-36 font-mono`}
-                      value={raw}
-                      onChange={(e) => setRaw(e.target.value)}
-                    />
+                    {i18n.rich('Structured response (JSON){value1}{value2}', {
+                      value1: (
+                        <details>
+                          <summary className="cursor-pointer">{i18n.t('Requested schema')}</summary>
+                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap">
+                            {JSON.stringify(request.schema, null, 2)}
+                          </pre>
+                        </details>
+                      ),
+                      value2: (
+                        <textarea
+                          className={`${field} min-h-36 font-mono`}
+                          value={raw}
+                          onChange={(e) => setRaw(e.target.value)}
+                        />
+                      ),
+                    })}
                   </label>
                 ))}
             </fieldset>
@@ -439,11 +458,10 @@ export function AgentRequestCard({
                     disabled={locked}
                     onClick={() => goTo(currentIndex - 1)}
                   >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Back
+                    {i18n.rich('{value1}Back', { value1: <ArrowLeft className="h-3.5 w-3.5" /> })}
                   </button>
                 ) : (
-                  <span>⌘ / Ctrl + Enter</span>
+                  <span>{i18n.t('⌘ / Ctrl + Enter')}</span>
                 )}
               </div>
               <button
@@ -455,12 +473,12 @@ export function AgentRequestCard({
               >
                 {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {busy
-                  ? 'Sending…'
+                  ? i18n.t('Sending…')
                   : currentIndex < questions.length - 1
-                    ? 'Next question'
+                    ? i18n.t('Next question')
                     : questions.length > 1
-                      ? 'Send answers'
-                      : 'Send answer'}
+                      ? i18n.t('Send answers')
+                      : i18n.t('Send answer')}
                 {!busy &&
                   (currentIndex < questions.length - 1 ? (
                     <ArrowRight className="h-3.5 w-3.5" />
@@ -485,7 +503,7 @@ export function AgentRequestCard({
               ))}
               {busy && (
                 <Loader2
-                  aria-label="Sending decision"
+                  aria-label={i18n.t('Sending decision')}
                   className="text-fg-dim h-4 w-4 animate-spin"
                 />
               )}
@@ -499,7 +517,7 @@ export function AgentRequestCard({
                 className={`${button} !border-transparent`}
                 onClick={() => void send({ action: 'decline' })}
               >
-                Decline
+                {i18n.t('Decline')}
               </button>
               <button type="submit" disabled={locked} className={primaryButton}>
                 {busy ? (
@@ -507,7 +525,11 @@ export function AgentRequestCard({
                 ) : (
                   <ArrowRight className="h-3.5 w-3.5" />
                 )}
-                {busy ? 'Sending…' : request.url ? 'I’ve completed this' : 'Submit response'}
+                {busy
+                  ? i18n.t('Sending…')
+                  : request.url
+                    ? i18n.t('I’ve completed this')
+                    : i18n.t('Submit response')}
               </button>
             </>
           )}

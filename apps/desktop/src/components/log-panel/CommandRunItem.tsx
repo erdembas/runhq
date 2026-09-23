@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Play, Square } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ipc } from '@/lib/ipc';
@@ -19,6 +20,7 @@ export function CommandRunItem({
   status,
   onSelect,
 }: CommandRunItemProps) {
+  i18n.useLocale();
   const runtimeStatus = status?.status ?? 'stopped';
   const isRunning = runtimeStatus === 'running' || runtimeStatus === 'starting';
 
@@ -37,13 +39,23 @@ export function CommandRunItem({
       >
         <span className={cn('svc-badge shrink-0', badgeClass(command.name))}>{command.name}</span>
         <span className="text-fg-dim max-w-[150px] truncate font-mono text-[10px]">
-          {isRunning && status?.pid != null ? `pid ${status.pid}` : command.cmd}
+          {isRunning && status?.pid != null
+            ? i18n.t('pid {value1}', { value1: status.pid })
+            : command.cmd}
         </span>
       </button>
       <button
         type="button"
-        title={isRunning ? `Stop ${command.name}` : `Start ${command.name}`}
-        aria-label={isRunning ? `Stop ${command.name}` : `Start ${command.name}`}
+        title={
+          isRunning
+            ? i18n.t('Stop {value1}', { value1: command.name })
+            : i18n.t('Start {value1}', { value1: command.name })
+        }
+        aria-label={
+          isRunning
+            ? i18n.t('Stop {value1}', { value1: command.name })
+            : i18n.t('Start {value1}', { value1: command.name })
+        }
         className={cn(
           'border-border/60 flex h-full w-7 shrink-0 items-center justify-center border-l transition',
           isRunning

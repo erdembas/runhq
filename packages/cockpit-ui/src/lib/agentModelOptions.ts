@@ -1,3 +1,4 @@
+import * as i18n from '../i18n/core';
 import type { AgentCatalog } from '@runhq/cockpit-types';
 import type { SearchableOption } from './selectSearch';
 
@@ -22,7 +23,7 @@ export function agentModelOptions(
       description: [model.resolved_model || model.id, model.description]
         .filter(Boolean)
         .join(' · '),
-      badge: model.is_alias ? 'Auto' : undefined,
+      badge: model.is_alias ? i18n.t('Auto') : undefined,
       keywords: `${model.name} ${model.id}`,
       ...(grouped ? { group, groupId } : {}),
     };
@@ -31,7 +32,11 @@ export function agentModelOptions(
     groups.set(groupId, entries);
   }
   const options: SearchableOption[] = [
-    { value: '', label: 'Default model', description: 'Use your agent configuration' },
+    {
+      value: '',
+      label: i18n.t('Default model'),
+      description: i18n.t('Use your agent configuration'),
+    },
   ];
   if (current && !seen.has(current))
     options.push({
@@ -39,8 +44,10 @@ export function agentModelOptions(
       label: current,
       description:
         models.find((model) => model.resolved_model === current)?.description ||
-        'Current model · Availability is checked by your provider',
-      badge: models.some((model) => model.resolved_model === current) ? 'Version' : 'Custom ID',
+        i18n.t('Current model · Availability is checked by your provider'),
+      badge: models.some((model) => model.resolved_model === current)
+        ? i18n.t('Version')
+        : i18n.t('Custom ID'),
     });
   for (const entries of groups.values()) options.push(...entries);
   // Only offer a pinned version when the provider explicitly reports its wire ID.
@@ -51,9 +58,9 @@ export function agentModelOptions(
     options.push({
       value: resolved,
       label: resolved,
-      badge: 'Version',
+      badge: i18n.t('Version'),
       description: model.description || model.name,
-      group: 'Exact versions',
+      group: i18n.t('Exact versions'),
       groupId: 'resolved-versions',
     });
   }
@@ -65,9 +72,9 @@ export function customModelOption(value: string): SearchableOption | null {
   if (!id || /\s/.test(id)) return null;
   return {
     value: id,
-    label: `Use ${id}`,
-    badge: 'Custom ID',
-    description: 'Use this exact ID · Availability is checked by your provider',
+    label: i18n.t('Use {id}', { id: id }),
+    badge: i18n.t('Custom ID'),
+    description: i18n.t('Use this exact ID · Availability is checked by your provider'),
   };
 }
 

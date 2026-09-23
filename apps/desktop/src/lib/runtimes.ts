@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { CommandEntry } from '@/types';
 
 export interface RuntimeMeta {
@@ -16,47 +17,81 @@ export interface RuntimeMeta {
 export const RUNTIMES: RuntimeMeta[] = [
   {
     key: 'node',
-    label: 'Node',
+    get label() {
+      return i18n.t('Node');
+    },
     color: 'text-emerald-600 dark:text-emerald-400',
     bg: 'bg-emerald-500/15',
   },
   {
     key: 'dotnet',
-    label: '.NET',
+    get label() {
+      return i18n.t('.NET');
+    },
     color: 'text-violet-600 dark:text-violet-400',
     bg: 'bg-violet-500/15',
   },
   {
     key: 'java',
-    label: 'Java',
+    get label() {
+      return i18n.t('Java');
+    },
     color: 'text-orange-600 dark:text-orange-400',
     bg: 'bg-orange-500/15',
   },
-  { key: 'go', label: 'Go', color: 'text-cyan-700 dark:text-cyan-400', bg: 'bg-cyan-500/15' },
+  {
+    key: 'go',
+    get label() {
+      return i18n.t('Go');
+    },
+    color: 'text-cyan-700 dark:text-cyan-400',
+    bg: 'bg-cyan-500/15',
+  },
   {
     key: 'rust',
-    label: 'Rust',
+    get label() {
+      return i18n.t('Rust');
+    },
     color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-500/15',
   },
   {
     key: 'python',
-    label: 'Python',
+    get label() {
+      return i18n.t('Python');
+    },
     color: 'text-yellow-700 dark:text-yellow-400',
     bg: 'bg-yellow-500/15',
   },
-  { key: 'ruby', label: 'Ruby', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/15' },
+  {
+    key: 'ruby',
+    get label() {
+      return i18n.t('Ruby');
+    },
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-500/15',
+  },
   {
     key: 'php',
-    label: 'PHP',
+    get label() {
+      return i18n.t('PHP');
+    },
     color: 'text-indigo-600 dark:text-indigo-400',
     bg: 'bg-indigo-500/15',
   },
-  { key: 'docker', label: 'Docker', color: 'text-sky-700 dark:text-sky-400', bg: 'bg-sky-500/15' },
+  {
+    key: 'docker',
+    get label() {
+      return i18n.t('Docker');
+    },
+    color: 'text-sky-700 dark:text-sky-400',
+    bg: 'bg-sky-500/15',
+  },
 ];
 
 const RUNTIME_MAP: Record<string, RuntimeMeta> = RUNTIMES.reduce(
   (acc, r) => {
+    i18n.useLocale();
     acc[r.key] = r;
     return acc;
   },
@@ -65,7 +100,9 @@ const RUNTIME_MAP: Record<string, RuntimeMeta> = RUNTIMES.reduce(
 
 const UNKNOWN: RuntimeMeta = {
   key: 'other',
-  label: 'Other',
+  get label() {
+    return i18n.t('Other');
+  },
   color: 'text-fg-muted',
   bg: 'bg-surface-muted',
 };

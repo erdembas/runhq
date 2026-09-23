@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 /** Versioned local recovery data. A failed write must never be reported as durable. */
 export interface RecoveryStorage {
   getItem: (key: string) => string | null;
@@ -25,14 +26,15 @@ export function createAgentRecoveryPersistence<T>(
           !('data' in record) ||
           !validate(record.data)
         )
-          throw new Error('unsupported or damaged recovery data');
+          throw new Error(i18n.t('unsupported or damaged recovery data'));
         unreadable = null;
         return { data: record.data, error: null };
       } catch {
         return {
           data: fallback,
-          error:
+          error: i18n.t(
             'Saved recovery data could not be loaded. Your previous data is kept; new changes need a successful local save.',
+          ),
         };
       }
     },
@@ -47,7 +49,9 @@ export function createAgentRecoveryPersistence<T>(
         storage.setItem(key, JSON.stringify({ version: 1, data }));
         return null;
       } catch {
-        return 'Local recovery could not be saved. Keep RunHQ open and retry; your latest changes are only in memory.';
+        return i18n.t(
+          'Local recovery could not be saved. Keep RunHQ open and retry; your latest changes are only in memory.',
+        );
       }
     },
   };

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -39,6 +40,7 @@ export function ReasoningPill({
   endedAtMs,
   className,
 }: ReasoningPillProps) {
+  i18n.useLocale();
   // Default to open. The pill is the user's window into "how did the
   // model get here" — Cursor opens it by default during thinking and
   // we found the same is more useful for engineering content (diff
@@ -148,17 +150,23 @@ export function ReasoningPill({
         <Brain className={cn('h-3 w-3', live ? 'text-accent animate-pulse' : 'text-accent/60')} />
         {live ? (
           <span className="reasoning-shimmer">
-            Thinking
-            {elapsedMs !== null && elapsedMs >= 1000 ? `… ${formatDuration(elapsedMs)}` : '…'}
+            {i18n.rich('Thinking{value1}', {
+              value1:
+                elapsedMs !== null && elapsedMs >= 1000 ? `… ${formatDuration(elapsedMs)}` : '…',
+            })}
           </span>
         ) : (
           <span>
-            {frozenLabelRef.current ? `Thought for ${frozenLabelRef.current}` : 'Reasoning'}
+            {frozenLabelRef.current
+              ? i18n.t('Thought for {value1}', { value1: frozenLabelRef.current })
+              : i18n.t('Reasoning')}
           </span>
         )}
         {hasContent && !live && (
           <span className="text-fg-dim/60 ml-auto font-mono text-[9.5px]">
-            {reasoning.length.toLocaleString()} chars
+            {i18n.rich('{value1} chars', {
+              value1: reasoning.length.toLocaleString(i18n.getFormatLocale()),
+            })}
           </span>
         )}
       </button>
@@ -256,12 +264,24 @@ function formatDuration(ms: number): string {
     // Sub-second: show one decimal of seconds (Cursor convention),
     // floored at "0.1s" so the pill never reads as an error.
     const s = Math.max(0.1, ms / 1000);
-    return `${s.toFixed(1)}s`;
+    return i18n.t('{value1}s', {
+      value1: i18n.number(s, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+        useGrouping: false,
+      }),
+    });
   }
   if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
+    return i18n.t('{value1}s', {
+      value1: i18n.number(ms / 1000, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+        useGrouping: false,
+      }),
+    });
   }
   const minutes = Math.floor(ms / 60_000);
   const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  return i18n.t('{minutes}m {seconds}s', { minutes: minutes, seconds: seconds });
 }

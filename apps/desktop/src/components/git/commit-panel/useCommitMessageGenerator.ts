@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useRef } from 'react';
 import type { RefObject } from 'react';
 import { ipc } from '@/lib/ipc';
@@ -69,15 +70,16 @@ export function useCommitMessageGenerator({
   const generateMessage = useCallback(async () => {
     if (panel.generating) return;
     if (stagedCount === 0) {
-      patch({ error: 'Stage some changes first — there is nothing to summarise.' });
+      patch({ error: i18n.t('Stage some changes first — there is nothing to summarise.') });
       return;
     }
 
     const list = panel.providers ?? (await fetchProviders());
     if (list.length === 0) {
       patch({
-        error:
+        error: i18n.t(
           'No AI providers configured. Open Settings → AI to add one before generating commit messages.',
+        ),
       });
       return;
     }

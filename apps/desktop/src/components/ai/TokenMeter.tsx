@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 interface TokenMeterProps {
@@ -38,13 +39,14 @@ interface TokenMeterProps {
  *   trust in the meter.
  */
 export function TokenMeter({ count, contextWindow, className }: TokenMeterProps) {
+  i18n.useLocale();
   if (count == null) {
     return (
       <span
         className={cn('text-fg-dim/60 font-mono text-[10.5px] tabular-nums', className)}
         aria-hidden="true"
       >
-        … tok
+        {i18n.t('… tok')}
       </span>
     );
   }
@@ -55,9 +57,11 @@ export function TokenMeter({ count, contextWindow, className }: TokenMeterProps)
     return (
       <span
         className={cn('text-fg-dim font-mono text-[10.5px] tabular-nums', className)}
-        title={`${count.toLocaleString()} tokens (estimated)`}
+        title={i18n.t('{value1} tokens (estimated)', {
+          value1: count.toLocaleString(i18n.getFormatLocale()),
+        })}
       >
-        {fmtCount} tok
+        {i18n.rich('{fmtCount} tok', { fmtCount: fmtCount })}
       </span>
     );
   }
@@ -75,12 +79,27 @@ export function TokenMeter({ count, contextWindow, className }: TokenMeterProps)
       )}
       title={
         ratio >= 1
-          ? `Over context window: ${count.toLocaleString()} / ${contextWindow.toLocaleString()}. The provider will likely reject this request — trim chat history or shorten the message.`
+          ? i18n.t(
+              'Over context window: {value1} / {value2}. The provider will likely reject this request — trim chat history or shorten the message.',
+              {
+                value1: count.toLocaleString(i18n.getFormatLocale()),
+                value2: contextWindow.toLocaleString(i18n.getFormatLocale()),
+              },
+            )
           : ratio >= 0.95
-            ? `Almost at the context window: ${count.toLocaleString()} / ${contextWindow.toLocaleString()}.`
+            ? i18n.t('Almost at the context window: {value1} / {value2}.', {
+                value1: count.toLocaleString(i18n.getFormatLocale()),
+                value2: contextWindow.toLocaleString(i18n.getFormatLocale()),
+              })
             : ratio >= 0.75
-              ? `Heading toward the context window: ${count.toLocaleString()} / ${contextWindow.toLocaleString()}.`
-              : `${count.toLocaleString()} / ${contextWindow.toLocaleString()} tokens (estimated).`
+              ? i18n.t('Heading toward the context window: {value1} / {value2}.', {
+                  value1: count.toLocaleString(i18n.getFormatLocale()),
+                  value2: contextWindow.toLocaleString(i18n.getFormatLocale()),
+                })
+              : i18n.t('{value1} / {value2} tokens (estimated).', {
+                  value1: count.toLocaleString(i18n.getFormatLocale()),
+                  value2: contextWindow.toLocaleString(i18n.getFormatLocale()),
+                })
       }
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} aria-hidden="true" />
@@ -96,9 +115,11 @@ export function TokenMeter({ count, contextWindow, className }: TokenMeterProps)
  *  formatter dep because the rules are this short. */
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
-  if (n < 10_000) return `${(n / 1000).toFixed(2)}k`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n < 10_000)
+    return `${i18n.number(n / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })}k`;
+  if (n < 1_000_000)
+    return `${i18n.number(n / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false })}k`;
+  return `${i18n.number(n / 1_000_000, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })}M`;
 }
 
 interface Tone {

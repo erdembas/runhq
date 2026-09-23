@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronsRight, ListX, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -20,7 +21,6 @@ const titleCache = new Map<string, string>();
 /** Fallback label for tabs whose conversation row hasn't been
  *  fetched yet, or whose title came back empty. We don't want to
  *  flash the conversation id to the user, ever. */
-const PLACEHOLDER_TITLE = 'New chat';
 
 interface ChatTabsProps {
   openTabs: string[];
@@ -92,6 +92,7 @@ export const ChatTabs = memo(function ChatTabs({
   onCloseAll,
   newDisabled,
 }: ChatTabsProps) {
+  i18n.useLocale();
   // Force a re-render when titleCache hydrates new entries. The
   // cache itself is a Map (mutated in place), so React doesn't
   // know to re-render on its own — bumping this counter does the
@@ -150,7 +151,7 @@ export const ChatTabs = memo(function ChatTabs({
               // Cache the placeholder so we don't spam retries;
               // the parent will hide the tab when the id ages out
               // of `openTabs`.
-              titleCache.set(id, PLACEHOLDER_TITLE);
+              titleCache.set(id, '');
             } finally {
               inflightRef.current.delete(id);
             }
@@ -207,20 +208,20 @@ export const ChatTabs = memo(function ChatTabs({
     return [
       {
         id: 'close',
-        label: 'Close',
+        label: i18n.t('Close'),
         icon: <X size={12} />,
         onClick: () => onClose(menu.id),
       },
       {
         id: 'close-others',
-        label: 'Close Others',
+        label: i18n.t('Close Others'),
         icon: <ListX size={12} />,
         disabled: total <= 1,
         onClick: () => onCloseOthers(menu.id),
       },
       {
         id: 'close-to-right',
-        label: 'Close to the Right',
+        label: i18n.t('Close to the Right'),
         icon: <ChevronsRight size={12} />,
         disabled: tabsToRight === 0,
         hint: tabsToRight > 0 ? String(tabsToRight) : undefined,
@@ -229,7 +230,7 @@ export const ChatTabs = memo(function ChatTabs({
       { id: 'sep-1', separator: true },
       {
         id: 'close-all',
-        label: 'Close All',
+        label: i18n.t('Close All'),
         icon: <Trash2 size={12} />,
         tone: 'danger',
         onClick: () => onCloseAll(),
@@ -241,7 +242,7 @@ export const ChatTabs = memo(function ChatTabs({
   return (
     <div
       role="tablist"
-      aria-label="Chat tabs"
+      aria-label={i18n.t('Chat tabs')}
       className={cn(
         // Stripe sits flush under the panel header. We use a 1px
         // bottom border (not just background contrast) so the
@@ -264,7 +265,7 @@ export const ChatTabs = memo(function ChatTabs({
         const title =
           isActive && activeTitleOverride != null && activeTitleOverride !== ''
             ? activeTitleOverride
-            : (titleCache.get(id) ?? PLACEHOLDER_TITLE);
+            : titleCache.get(id) || i18n.t('New chat');
         // Streaming on the *active* tab is a fast in-render boolean
         // the panel already exposes; for *inactive* tabs we read
         // from the streamingTabIds set (populated from the panel's
@@ -293,10 +294,12 @@ export const ChatTabs = memo(function ChatTabs({
         disabled={newDisabled || openTabs.length >= MAX_OPEN_TABS}
         title={
           openTabs.length >= MAX_OPEN_TABS
-            ? `Tab limit (${MAX_OPEN_TABS}) reached — close one to open more`
-            : 'New chat'
+            ? i18n.t('Tab limit ({MAX_OPEN_TABS}) reached — close one to open more', {
+                MAX_OPEN_TABS: MAX_OPEN_TABS,
+              })
+            : i18n.t('New chat')
         }
-        aria-label="New chat tab"
+        aria-label={i18n.t('New chat tab')}
         className={cn(
           'text-fg-dim hover:bg-fg/10 hover:text-fg ml-1 flex h-6 w-6 shrink-0 items-center',
           'justify-center rounded transition disabled:cursor-not-allowed disabled:opacity-30',
@@ -314,7 +317,7 @@ export const ChatTabs = memo(function ChatTabs({
 
 function normaliseTitle(raw: string | null | undefined): string {
   const t = (raw ?? '').trim();
-  if (t.length === 0) return PLACEHOLDER_TITLE;
+  if (t.length === 0) return '';
   // Strip surface prefix tags some `openAiChat` callers stuff into
   // the title (e.g. "Why · belgehub-backend"). Keeping them is
   // useful in History but cramps the tab bar. The first segment

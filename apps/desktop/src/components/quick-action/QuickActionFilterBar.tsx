@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { FilterMode } from './types';
 import { QUICK_ACTION_FILTERS } from './filterModes';
@@ -8,6 +9,7 @@ interface QuickActionFilterBarProps {
 }
 
 export function QuickActionFilterBar({ active, onChange }: QuickActionFilterBarProps) {
+  i18n.useLocale();
   return (
     <div className="border-border/30 flex flex-wrap items-center gap-1 gap-y-1 border-b px-4 pb-2">
       {QUICK_ACTION_FILTERS.map((f) => (

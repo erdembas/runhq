@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
@@ -11,6 +12,7 @@ export function AgentNotificationSettings({
   projectId?: string;
   projectName?: string;
 }) {
+  i18n.useLocale();
   const preferences = useAgentNotificationStore((state) => state.preferences);
   const error = useAgentNotificationStore((state) => state.error);
   const [busy, setBusy] = useState(false);
@@ -23,11 +25,15 @@ export function AgentNotificationSettings({
       if (granted) store.setEnabled(true);
       else
         store.setError(
-          'Notifications were not enabled. You can allow RunHQ in your system notification settings.',
+          i18n.t(
+            'Notifications were not enabled. You can allow RunHQ in your system notification settings.',
+          ),
         );
     } catch {
       store.setError(
-        'Notification permission could not be requested. Check your system notification settings.',
+        i18n.t(
+          'Notification permission could not be requested. Check your system notification settings.',
+        ),
       );
     } finally {
       setBusy(false);

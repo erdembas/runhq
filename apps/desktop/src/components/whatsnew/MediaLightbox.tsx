@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Full-screen zoom view for release-note media.
  *
@@ -49,6 +50,7 @@ export interface MediaLightboxProps {
 }
 
 export function MediaLightbox({ src, alt, kind, onClose }: MediaLightboxProps) {
+  i18n.useLocale();
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -74,7 +76,9 @@ export function MediaLightbox({ src, alt, kind, onClose }: MediaLightboxProps) {
       <button
         type="button"
         onClick={onClose}
-        aria-label={kind === 'video' ? 'Close video preview' : 'Close image preview'}
+        aria-label={
+          kind === 'video' ? i18n.t('Close video preview') : i18n.t('Close image preview')
+        }
         className="absolute top-4 right-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-white/20 focus-visible:bg-white/20 focus-visible:outline-none"
       >
         <X className="h-4 w-4" />

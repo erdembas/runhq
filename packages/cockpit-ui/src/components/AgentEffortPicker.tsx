@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '../i18n';
+import * as i18n from '../i18n';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Layers, Sparkles } from 'lucide-react';
 import { agentEffortLevels, effortLabel } from '../lib/agentEffort';
 import { SearchableSelect } from './SearchableSelect';
 
 function EffortBars({ filled, count = 4 }: { filled: number; count?: number }) {
+  i18n.useLocale();
   return (
     <span aria-hidden="true" className="inline-flex h-4 shrink-0 items-end gap-[2px]">
       {Array.from({ length: count }, (_, index) => (
@@ -31,6 +34,7 @@ export function AgentEffortPicker({
   onChange: (value: string) => void;
   disabled?: boolean;
 }) {
+  i18n.useLocale();
   const { ordered, levels } = useMemo(() => agentEffortLevels(efforts), [efforts]);
   const catalogKey = levels.join('\0');
   const [open, setOpen] = useState(false);
@@ -102,20 +106,20 @@ export function AgentEffortPicker({
   if (!ordered)
     return (
       <SearchableSelect
-        label="Model variant"
+        label={i18n.t('Model variant')}
         value={value}
         onChange={onChange}
         disabled={disabled}
         compact
         leading={<Layers className="h-3.5 w-3.5" />}
         options={[
-          { value: '', label: 'Auto', description: 'Use your agent configuration' },
+          { value: '', label: i18n.t('Auto'), description: i18n.t('Use your agent configuration') },
           ...[...new Set([...levels, ...(value ? [value] : [])])].map((v) => ({
             value: v,
             label: effortLabel(v),
             description: levels.includes(v)
-              ? 'Provider variant'
-              : 'Saved selection · Not in the current catalog',
+              ? i18n.t('Provider variant')
+              : i18n.t('Saved selection · Not in the current catalog'),
           })),
         ]}
       />
@@ -126,12 +130,12 @@ export function AgentEffortPicker({
       <button
         ref={trigger}
         type="button"
-        aria-label="Reasoning effort"
+        aria-label={i18n.t('Reasoning effort')}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         disabled={disabled}
-        title={`Reasoning effort: ${effortLabel(value)}`}
+        title={i18n.t('Reasoning effort: {value1}', { value1: effortLabel(value) })}
         onClick={() => setOpen(!open)}
         style={{ outline: 'none' }}
         className={`text-fg-muted hover:text-fg hover:bg-fg/5 focus-visible:ring-fg/25 inline-flex h-8 items-center gap-2 rounded-lg px-2 text-[12px] transition-colors focus-visible:ring-2 disabled:opacity-40 ${open ? 'bg-fg/5' : ''}`}
@@ -147,7 +151,7 @@ export function AgentEffortPicker({
             ref={panel}
             id={id}
             role="dialog"
-            aria-label="Reasoning effort"
+            aria-label={i18n.t('Reasoning effort')}
             style={position}
             className="border-border/80 bg-surface-raised fixed z-[200] overflow-auto rounded-2xl border p-4 shadow-[0_12px_36px_rgb(0_0_0/0.14)]"
             onKeyDown={(event) => {
@@ -163,15 +167,16 @@ export function AgentEffortPicker({
             }}
           >
             <div className="text-fg flex items-center gap-2 text-[12px] font-medium">
-              <Sparkles className="text-fg-muted h-3.5 w-3.5" />
-              Reasoning effort
+              {i18n.rich('{value1}Reasoning effort', {
+                value1: <Sparkles className="text-fg-muted h-3.5 w-3.5" />,
+              })}
             </div>
             <p className="text-fg-muted mt-1 text-[11px] leading-relaxed">
-              Choose how much reasoning to use for the next message.
+              {i18n.t('Choose how much reasoning to use for the next message.')}
             </p>
             <div
               role="radiogroup"
-              aria-label="Reasoning level"
+              aria-label={i18n.t('Reasoning level')}
               className="mt-4"
               onKeyDown={(event) => {
                 if (
@@ -205,8 +210,8 @@ export function AgentEffortPicker({
                 style={{ outline: 'none' }}
                 className={`focus-visible:ring-fg/25 flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-[11px] focus-visible:ring-2 ${!value ? 'bg-fg/6 text-fg' : 'text-fg-muted hover:bg-fg/4'}`}
               >
-                <span>Auto</span>
-                <span className="text-fg-dim text-[10px]">Agent default</span>
+                <span>{i18n.t('Auto')}</span>
+                <span className="text-fg-dim text-[10px]">{i18n.t('Agent default')}</span>
               </button>
               <div
                 className="mt-3 grid gap-1"
@@ -240,11 +245,13 @@ export function AgentEffortPicker({
             </div>
             {saved ? (
               <p className="text-fg-muted mt-3 text-[10px]">
-                Saved: {value}. This level is not in the current model catalog.
+                {i18n.rich('Saved: {value}. This level is not in the current model catalog.', {
+                  value: value,
+                })}
               </p>
             ) : (
               <p className="text-fg-dim mt-4 text-[10px] leading-relaxed">
-                Higher levels can take longer and use more tokens.
+                {i18n.t('Higher levels can take longer and use more tokens.')}
               </p>
             )}
           </div>,

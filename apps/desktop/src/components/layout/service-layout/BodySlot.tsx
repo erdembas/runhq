@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -8,6 +9,7 @@ interface BodySlotProps {
 }
 
 export function BodySlot({ tabId, active, onSlotRef }: BodySlotProps) {
+  i18n.useLocale();
   const setRef = useCallback(
     (el: HTMLDivElement | null) => onSlotRef(tabId, el),
     [tabId, onSlotRef],

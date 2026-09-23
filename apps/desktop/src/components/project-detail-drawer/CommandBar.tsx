@@ -1,8 +1,10 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState, type MouseEvent } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export function CommandBar({ value }: { value: string }) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
   const onCopy = async (e: MouseEvent) => {
     e.stopPropagation();
@@ -32,11 +34,11 @@ export function CommandBar({ value }: { value: string }) {
             ? 'bg-tone-success/12 text-tone-success-fg'
             : 'text-fg/55 hover:bg-fg/8 hover:text-fg',
         )}
-        title={copied ? 'Copied to clipboard' : 'Copy command'}
-        aria-label={copied ? 'Copied to clipboard' : 'Copy command'}
+        title={copied ? i18n.t('Copied to clipboard') : i18n.t('Copy command')}
+        aria-label={copied ? i18n.t('Copied to clipboard') : i18n.t('Copy command')}
       >
         {copied ? <Check size={10} /> : <Copy size={10} />}
-        <span>{copied ? 'Copied' : 'Copy'}</span>
+        <span>{copied ? i18n.t('Copied') : i18n.t('Copy')}</span>
       </button>
     </div>
   );

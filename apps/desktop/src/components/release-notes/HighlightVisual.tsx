@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { resolveMediaSrc } from '@/lib/whatsnew/resolveMediaSrc';
@@ -12,6 +14,7 @@ interface HighlightVisualProps {
 }
 
 export function HighlightVisual({ highlight, themeSuffix, onZoom }: HighlightVisualProps) {
+  i18n.useLocale();
   const { media, fallback } = highlight;
   const [errored, setErrored] = useState(false);
 
@@ -43,7 +46,7 @@ export function HighlightVisual({ highlight, themeSuffix, onZoom }: HighlightVis
             type="button"
             onClick={handleZoom}
             className="group relative block h-full w-full cursor-zoom-in overflow-hidden focus-visible:outline-none"
-            aria-label={`${media.alt} — click to enlarge`}
+            aria-label={i18n.t('{value1} — click to enlarge', { value1: media.alt })}
           >
             {isVideo ? (
               <video
@@ -77,7 +80,7 @@ export function HighlightVisual({ highlight, themeSuffix, onZoom }: HighlightVis
               aria-hidden
               className="ring-border bg-surface-overlay/85 text-fg/85 pointer-events-none absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium opacity-0 ring-1 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
-              <ZoomIn className="h-3 w-3" /> Click to enlarge
+              {i18n.rich('{value1} Click to enlarge', { value1: <ZoomIn className="h-3 w-3" /> })}
             </span>
           </button>
         ) : isVideo ? (

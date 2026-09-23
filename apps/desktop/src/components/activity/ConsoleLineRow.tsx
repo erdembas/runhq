@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useMemo } from 'react';
 import { renderAnsiToHtml, type makeAnsiConverter } from '@/lib/ansi';
 import { cn } from '@/lib/cn';
@@ -11,6 +12,7 @@ interface ConsoleLineRowProps {
 }
 
 export function ConsoleLineRow({ ansi, line, metaSize, microSize }: ConsoleLineRowProps) {
+  i18n.useLocale();
   const html = useMemo(() => renderAnsiToHtml(ansi, line.text), [ansi, line.text]);
   const gutter =
     line.severity === 'error'
@@ -30,7 +32,7 @@ export function ConsoleLineRow({ ansi, line, metaSize, microSize }: ConsoleLineR
     >
       <span
         className={cn('shrink-0 tabular-nums opacity-60 select-none', microSize)}
-        title={new Date(line.ts_ms).toLocaleTimeString()}
+        title={new Date(line.ts_ms).toLocaleTimeString(i18n.getFormatLocale())}
       >
         {formatConsoleTimeFromMs(line.ts_ms)}
       </span>

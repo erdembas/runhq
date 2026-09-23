@@ -75,6 +75,7 @@ export interface AgentSession {
   last_turn_ms?: number | null;
   total_run_ms?: number;
   title: string;
+  title_source?: '' | 'auto' | 'generated' | 'manual';
   model: string;
   effort: string;
   mode: 'default' | 'plan';

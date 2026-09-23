@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
   FolderGit2,
@@ -69,6 +71,7 @@ export function AgentNewSession({
   /** Why the opening account was chosen, when RunHQ rather than the user chose it. */
   initialRouting?: { poolName?: string; reason: string };
 }) {
+  i18n.useLocale();
   const storedProjects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
   const libraryRecords = useVisibleStore(useAgentLibraryStore, (s) => s.records, visible);
   const projects = project ? [project] : storedProjects;
@@ -180,8 +183,10 @@ export function AgentNewSession({
   const poolOptions = accountPools.map((pool) => ({
     value: poolTarget(pool.id),
     label: pool.name,
-    group: 'Account pools',
-    description: `${pool.accounts.length} accounts · RunHQ picks a free one`,
+    group: i18n.t('Account pools'),
+    description: i18n.t('{value1} accounts · RunHQ picks a free one', {
+      value1: pool.accounts.length,
+    }),
   }));
   const selectBackend = (value: string) => {
     if (locked) return;
@@ -211,7 +216,7 @@ export function AgentNewSession({
           })
         : null;
       if (!choice?.accountId) {
-        setError(choice?.reason ?? 'That account pool was removed.');
+        setError(choice?.reason ?? i18n.t('That account pool was removed.'));
         return;
       }
       setRoutedFrom({ poolName: pool!.name, reason: choice.grounds });
@@ -337,7 +342,7 @@ export function AgentNewSession({
           project_id: projectId,
           backend,
           executable,
-          title: title.trim() || input.trim().split('\n')[0]?.slice(0, 80) || 'New task',
+          title: title.trim(),
           model,
           effort,
           mode,
@@ -390,14 +395,16 @@ export function AgentNewSession({
   };
   return (
     <section
-      aria-label="New agent task"
+      aria-label={i18n.t('New agent task')}
       className="overlay-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 py-8 lg:px-8"
     >
       {forgetLaunch && (
         <ConfirmDialog
-          title="Forget this saved launch?"
-          message="Any task or worktree already created will stay available. If creation was interrupted, review your existing tasks first. Forgetting this record lets you start a separate new task."
-          confirmLabel="Forget saved launch"
+          title={i18n.t('Forget this saved launch?')}
+          message={i18n.t(
+            'Any task or worktree already created will stay available. If creation was interrupted, review your existing tasks first. Forgetting this record lets you start a separate new task.',
+          )}
+          confirmLabel={i18n.t('Forget saved launch')}
           onCancel={() => setForgetLaunch(false)}
           onConfirm={() => {
             try {
@@ -415,13 +422,17 @@ export function AgentNewSession({
       <div className="mx-auto my-auto w-full max-w-3xl py-6">
         <div className="mb-7 space-y-3">
           <div className="text-accent flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
-            <Sparkles className="h-3.5 w-3.5" /> A new starting point
+            {i18n.rich('{value1} A new starting point', {
+              value1: <Sparkles className="h-3.5 w-3.5" />,
+            })}
           </div>
           <h2 className="text-fg text-[28px] leading-tight font-semibold tracking-tight">
-            What shall we build next?
+            {i18n.t('What shall we build next?')}
           </h2>
           <p className="text-fg-muted text-[13px]">
-            A clear plan, a careful fix, or your next big idea. Give your agent a place to start.
+            {i18n.t(
+              'A clear plan, a careful fix, or your next big idea. Give your agent a place to start.',
+            )}
           </p>
           <div className="pt-1">
             <AgentProviderChips
@@ -438,12 +449,16 @@ export function AgentNewSession({
             <p>
               {restorationError ||
                 (recovered?.phase === 'accepted'
-                  ? 'Your first message was accepted. Continue to finish saving this task; the message will not be sent again.'
-                  : 'A saved first message is waiting. Continue with its original workspace, model and context. A repeated request uses the same task and message IDs.')}
+                  ? i18n.t(
+                      'Your first message was accepted. Continue to finish saving this task; the message will not be sent again.',
+                    )
+                  : i18n.t(
+                      'A saved first message is waiting. Continue with its original workspace, model and context. A repeated request uses the same task and message IDs.',
+                    ))}
             </p>
             {recovered && (
               <details>
-                <summary className="cursor-pointer">Review saved first message</summary>
+                <summary className="cursor-pointer">{i18n.t('Review saved first message')}</summary>
                 <pre className="mt-2 max-h-40 overflow-auto text-[11px] whitespace-pre-wrap">
                   {recovered.text}
                 </pre>
@@ -456,7 +471,7 @@ export function AgentNewSession({
                   className="text-accent underline"
                   onClick={() => openSession(launcher.current.session!)}
                 >
-                  Open existing task
+                  {i18n.t('Open existing task')}
                 </button>
               )}
               <button
@@ -465,7 +480,7 @@ export function AgentNewSession({
                 className="text-fg-dim underline"
                 onClick={() => setForgetLaunch(true)}
               >
-                Forget saved launch
+                {i18n.t('Forget saved launch')}
               </button>
             </div>
           </div>
@@ -488,16 +503,20 @@ export function AgentNewSession({
         )}
         {(routedFrom ?? initialRouting) && (
           <p className="text-fg-muted mb-3 text-[11px]">
-            {describeRoutingNote({
-              accountId: backend,
-              accountName: backends.find((tool) => tool.id === backend)?.name ?? backend,
-              reason: (routedFrom ?? initialRouting)!.reason,
-              ...((routedFrom ?? initialRouting)!.poolName
-                ? { poolName: (routedFrom ?? initialRouting)!.poolName }
-                : {}),
-              at: Date.now(),
-            })}
-            . Change the agent above to override it; the task keeps whichever account it starts on.
+            {i18n.rich(
+              '{value1}. Change the agent above to override it; the task keeps whichever account it starts on.',
+              {
+                value1: describeRoutingNote({
+                  accountId: backend,
+                  accountName: backends.find((tool) => tool.id === backend)?.name ?? backend,
+                  reason: (routedFrom ?? initialRouting)!.reason,
+                  ...((routedFrom ?? initialRouting)!.poolName
+                    ? { poolName: (routedFrom ?? initialRouting)!.poolName }
+                    : {}),
+                  at: Date.now(),
+                }),
+              },
+            )}
           </p>
         )}
         <div className="text-fg-dim mb-3 flex flex-wrap items-center gap-2 text-[12px]">
@@ -508,15 +527,15 @@ export function AgentNewSession({
             </span>
           ) : (
             <SearchableSelect
-              label="Project"
+              label={i18n.t('Project')}
               indentGrouped
               value={projectId}
               disabled={locked}
               compact
-              placeholder="Add a project to start"
+              placeholder={i18n.t('Add a project to start')}
               className="max-w-64"
               options={projectOptions}
-              searchPlaceholder="Find a project or group…"
+              searchPlaceholder={i18n.t('Find a project or group…')}
               onChange={(value) => {
                 if (initialRecipe?.sourceSessionId) return;
                 setProjectId(value);
@@ -532,17 +551,19 @@ export function AgentNewSession({
             aria-pressed={isolated}
             title={
               isolated
-                ? 'New worktree from committed HEAD; local changes and dependencies are not copied.'
-                : 'Work in this project’s current directory'
+                ? i18n.t(
+                    'New worktree from committed HEAD; local changes and dependencies are not copied.',
+                  )
+                : i18n.t('Work in this project’s current directory')
             }
             className="hover:text-fg flex min-w-0 items-center gap-1.5 disabled:opacity-40"
           >
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
             {initialRecipe?.sourceSessionId
-              ? 'Source task workspace'
+              ? i18n.t('Source task workspace')
               : isolated
-                ? 'Isolated worktree'
-                : 'Local workspace'}
+                ? i18n.t('Isolated worktree')
+                : i18n.t('Local workspace')}
           </button>
         </div>
         <AgentComposer
@@ -551,7 +572,7 @@ export function AgentNewSession({
           onSend={() => void send()}
           busy={busy}
           disabled={locked}
-          placeholder="Ask your agent to build, fix, or explore…"
+          placeholder={i18n.t('Ask your agent to build, fix, or explore…')}
           controls={
             <>
               <AgentProviderPicker
@@ -592,7 +613,7 @@ export function AgentNewSession({
               )}
               <button
                 type="button"
-                aria-label="Task settings"
+                aria-label={i18n.t('Task settings')}
                 aria-expanded={advanced}
                 onClick={() => setAdvanced(!advanced)}
                 className={`hover:bg-fg/5 rounded-lg p-2 ${advanced ? 'bg-fg/5 text-fg' : 'text-fg-dim'}`}
@@ -606,17 +627,17 @@ export function AgentNewSession({
               type="button"
               aria-label={
                 recovered
-                  ? 'Continue saved first message'
+                  ? i18n.t('Continue saved first message')
                   : launcher.current.session
-                    ? 'Retry first message'
-                    : 'Send message'
+                    ? i18n.t('Retry first message')
+                    : i18n.t('Send message')
               }
               title={
                 canSend
-                  ? 'Send · ⌘ / Ctrl + Enter'
+                  ? i18n.t('Send · ⌘ / Ctrl + Enter')
                   : !connection.canStart && !launcher.current.session
                     ? connection.title
-                    : 'Write a message to start'
+                    : i18n.t('Write a message to start')
               }
               onClick={() => void send()}
               disabled={!canSend}
@@ -638,8 +659,9 @@ export function AgentNewSession({
           />
           {initialRecipe && (initialRecipe.setupCommands || initialRecipe.checkCommands) && (
             <p className="text-fg-dim px-4 pb-3 text-[11px]">
-              This recipe includes setup/check commands. Launch it from Library → Create workflow to
-              run and record those steps.
+              {i18n.t(
+                'This recipe includes setup/check commands. Launch it from Library → Create workflow to run and record those steps.',
+              )}
             </p>
           )}
           {advanced && (
@@ -671,13 +693,19 @@ export function AgentNewSession({
           )}
         </AgentComposer>
         <div className="text-fg-dim mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-          <span>⌘ / Ctrl + Enter to send</span>
-          <span>{busy ? 'Starting your task…' : 'Session starts with your first message'}</span>
+          <span>{i18n.t('⌘ / Ctrl + Enter to send')}</span>
+          <span>
+            {busy
+              ? i18n.t('Starting your task…')
+              : i18n.t('Session starts with your first message')}
+          </span>
         </div>
         {mode === 'plan' && (
           <p className="text-cat-backend mt-3 flex items-center gap-1.5 text-[11px]">
-            <ListChecks className="h-3.5 w-3.5 shrink-0" />
-            Plan mode · Explore the project and agree on an approach before implementation.
+            {i18n.rich(
+              '{value1}Plan mode · Explore the project and agree on an approach before implementation.',
+              { value1: <ListChecks className="h-3.5 w-3.5 shrink-0" /> },
+            )}
           </p>
         )}
         {error && (
@@ -688,24 +716,28 @@ export function AgentNewSession({
             <p>{error}</p>
             {launcher.current.session && (
               <p className="mt-2">
-                Your session and message are saved. Retry sending, or{' '}
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => openSession(launcher.current.session!)}
-                >
-                  open the conversation
-                </button>
-                .
+                {i18n.rich('Your session and message are saved. Retry sending, or {value1}.', {
+                  value1: (
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSession(launcher.current.session!)}
+                    >
+                      {i18n.t('open the conversation')}
+                    </button>
+                  ),
+                })}
               </p>
             )}
           </div>
         )}
         <div className="border-border/70 mt-7 border-t pt-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-fg-muted text-[11px] font-medium">Start with a direction</h3>
+            <h3 className="text-fg-muted text-[11px] font-medium">
+              {i18n.t('Start with a direction')}
+            </h3>
             <span className="text-fg-dim text-[10px]">
-              Adds a prompt you can edit before sending
+              {i18n.t('Adds a prompt you can edit before sending')}
             </span>
           </div>
           <AgentTaskTemplates

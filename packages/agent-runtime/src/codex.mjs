@@ -37,6 +37,7 @@ export function codexRequest(method, params) {
     ];
     return {
       kind: 'approval',
+      approval: { category: 'tool', decision: 'accept' },
       title: method.includes('commandExecution')
         ? 'Allow this command?'
         : 'Allow these file changes?',
@@ -62,6 +63,7 @@ export function codexRequest(method, params) {
   if (method === 'item/permissions/requestApproval') {
     return {
       kind: 'approval',
+      approval: { category: 'tool', decision: 'accept' },
       title: 'Grant additional permissions for this turn?',
       choices: [
         { label: 'Allow for this turn', value: 'accept' },
@@ -113,10 +115,14 @@ export async function runCodex(ctx, catalog = false) {
         );
         return;
       }
-      const { response, ...view } = request;
-      await ctx.ask({ ...view, id: String(message.id), details: pretty(p) }, async (value) => {
-        rpc.send({ id: message.id, result: response(value) });
-      });
+      const { response, approval, ...view } = request;
+      await ctx.ask(
+        { ...view, id: String(message.id), details: pretty(p) },
+        async (value) => {
+          rpc.send({ id: message.id, result: response(value) });
+        },
+        approval,
+      );
       return;
     }
     switch (message.method) {

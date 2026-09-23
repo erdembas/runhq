@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { timeAgo } from '@/lib/gitDiff';
 import type { CommitSummary } from '@/types';
 
@@ -14,6 +15,7 @@ export function RecentCommitsList({
   onToggle,
   onCopyHash,
 }: RecentCommitsListProps) {
+  i18n.useLocale();
   if (commits.length === 0) return null;
 
   return (
@@ -24,7 +26,7 @@ export function RecentCommitsList({
         className="text-fg-dim hover:text-fg flex w-full items-center gap-1 text-[10px] tracking-wide uppercase transition"
       >
         <span>{expanded ? '▾' : '▸'}</span>
-        <span>Recent commits</span>
+        <span>{i18n.t('Recent commits')}</span>
         <span className="tabular-nums">({commits.length})</span>
       </button>
       {expanded && (
@@ -38,7 +40,7 @@ export function RecentCommitsList({
                 type="button"
                 onClick={() => onCopyHash(commit.hash_short)}
                 className="text-fg-dim hover:text-fg font-mono transition focus:outline-none"
-                title={`Copy ${commit.hash_short}`}
+                title={i18n.t('Copy {value1}', { value1: commit.hash_short })}
               >
                 {commit.hash_short}
               </button>

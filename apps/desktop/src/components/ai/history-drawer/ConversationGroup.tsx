@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ConversationSummary } from '@/types';
@@ -28,6 +29,7 @@ export function ConversationGroup({
   setRenaming,
   onCommitRename,
 }: ConversationGroupProps) {
+  i18n.useLocale();
   if (items.length === 0) return null;
   return (
     <div className="py-1">
@@ -103,8 +105,10 @@ export function ConversationGroup({
                   e.stopPropagation();
                   onToggleFavorite(it);
                 }}
-                title={it.favorite ? 'Unfavorite' : 'Favorite'}
-                aria-label={it.favorite ? 'Unfavorite conversation' : 'Favorite conversation'}
+                title={it.favorite ? i18n.t('Unfavorite') : i18n.t('Favorite')}
+                aria-label={
+                  it.favorite ? i18n.t('Unfavorite conversation') : i18n.t('Favorite conversation')
+                }
                 className={cn(
                   'absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded transition-all',
                   'hover:bg-fg/10',

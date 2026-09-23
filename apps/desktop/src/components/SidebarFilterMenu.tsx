@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal } from 'lucide-react';
 import { FilterMenuBody } from '@/components/sidebar-filter-menu/FilterMenuBody';
@@ -11,6 +13,7 @@ const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 6;
 
 export function SidebarFilterMenu() {
+  i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const categoryFilter = useAppStore((s) => s.categoryFilter);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
@@ -164,9 +167,9 @@ export function SidebarFilterMenu() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label="Filter & group"
+        aria-label={i18n.t('Filter & group')}
         aria-expanded={open}
-        title="Filter & group"
+        title={i18n.t('Filter & group')}
         className={cn(
           'rounded-app-sm text-fg-muted hover:bg-surface-overlay hover:text-fg relative inline-flex h-5 w-5 items-center justify-center transition',
           open && 'bg-surface-overlay text-fg',

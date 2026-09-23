@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Edge-drop overlay for a single pane. Renders 4 droppable regions
  * (top/right/bottom/left strips) plus a center region.
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function PaneDropZones({ groupId, visible }: Props) {
+  i18n.useLocale();
   const center = useDroppable({
     id: `pane:${groupId}:center`,
     data: { kind: 'pane-center', groupId },

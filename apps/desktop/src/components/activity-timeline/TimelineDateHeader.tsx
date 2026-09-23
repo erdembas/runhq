@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { XCircle } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { TimelineEvent } from '@/types';
@@ -16,6 +17,7 @@ export function TimelineDateHeader({
   label,
   size,
 }: TimelineDateHeaderProps) {
+  i18n.useLocale();
   const seenRuns = new Set<string>();
   const errorsInGroup =
     events.filter(
@@ -43,7 +45,10 @@ export function TimelineDateHeader({
         {label}
       </span>
       <span className={cn('text-fg/35 tabular-nums', size.micro)}>
-        · {events.length} event{events.length === 1 ? '' : 's'}
+        {i18n.rich('· {value1} event{plural3}', {
+          value1: events.length,
+          plural3: events.length === 1 ? '' : 's',
+        })}
       </span>
       {errorsInGroup > 0 && (
         <span
@@ -51,7 +56,10 @@ export function TimelineDateHeader({
             'ml-auto flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 font-medium text-rose-400 tabular-nums',
             size.micro,
           )}
-          title={`${errorsInGroup} error${errorsInGroup === 1 ? '' : 's'} in this group`}
+          title={i18n.t('{errorsInGroup} error{plural2} in this group', {
+            errorsInGroup: errorsInGroup,
+            plural2: errorsInGroup === 1 ? '' : 's',
+          })}
         >
           <XCircle size={10} />
           {errorsInGroup}

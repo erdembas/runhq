@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, History, Sparkles, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
@@ -16,6 +17,7 @@ interface LegacyCarouselModalProps {
 }
 
 export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalProps) {
+  i18n.useLocale();
   const [i, setI] = useState(0);
   const { effective: effectiveTheme } = useTheme();
   const themeSuffix = effectiveTheme === 'dark' ? 'dark' : 'light';
@@ -89,24 +91,33 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
         <header className="relative flex items-start justify-between gap-4 px-5 pt-4 pb-3">
           <div className="min-w-0">
             <span className="text-fg-dim inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wider uppercase">
-              <Sparkles className="text-accent h-3.5 w-3.5" />
-              What&apos;s new
+              {i18n.rich("{value1}What's new", {
+                value1: <Sparkles className="text-accent h-3.5 w-3.5" />,
+              })}
             </span>
             <h2
               id="runhq-whatsnew-title"
               className="text-fg mt-1 text-[16px] leading-tight font-semibold tracking-tight"
             >
-              RunHQ {release.version}
-              <span className="text-fg-dim ml-2 text-[12px] font-normal">— {release.headline}</span>
+              {i18n.rich('RunHQ {value1}{value2}', {
+                value1: release.version,
+                value2: (
+                  <span className="text-fg-dim ml-2 text-[12px] font-normal">
+                    — {release.headline}
+                  </span>
+                ),
+              })}
             </h2>
             {releasedDate && (
-              <p className="text-fg-dim mt-0.5 text-[11px]">Released {releasedDate}</p>
+              <p className="text-fg-dim mt-0.5 text-[11px]">
+                {i18n.rich('Released {releasedDate}', { releasedDate: releasedDate })}
+              </p>
             )}
           </div>
           <button
             type="button"
             onClick={finish}
-            aria-label="Close What's New"
+            aria-label={i18n.t("Close What's New")}
             className="text-fg-dim hover:text-fg hover:bg-surface-muted/60 -mt-1 -mr-1 flex h-7 w-7 items-center justify-center rounded-md transition-colors"
           >
             <X className="h-4 w-4" />
@@ -142,7 +153,7 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
             <button
               key={slideItem.id}
               type="button"
-              aria-label={`Go to highlight ${idx + 1}`}
+              aria-label={i18n.t('Go to highlight {value1}', { value1: idx + 1 })}
               aria-current={idx === i}
               onClick={() => setI(idx)}
               className={cn(
@@ -161,7 +172,7 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
               rel="noreferrer noopener"
               className="text-fg-dim hover:text-fg text-[11px] font-medium underline-offset-2 transition-colors hover:underline"
             >
-              Read full changelog ↗
+              {i18n.t('Read full changelog ↗')}
             </a>
             <button
               type="button"
@@ -170,10 +181,9 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
                 openReleaseNotes(release.version);
               }}
               className="text-fg-dim hover:text-fg inline-flex items-center gap-1 text-[11px] font-medium transition-colors"
-              title="Browse every release"
+              title={i18n.t('Browse every release')}
             >
-              <History className="h-3 w-3" />
-              All releases
+              {i18n.rich('{value1}All releases', { value1: <History className="h-3 w-3" /> })}
             </button>
           </div>
 
@@ -187,8 +197,7 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
                 isFirst && 'invisible',
               )}
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
+              {i18n.rich('{value1}Back', { value1: <ArrowLeft className="h-3.5 w-3.5" /> })}
             </button>
 
             <span className="text-fg-dim font-mono text-[11px] tabular-nums">
@@ -202,15 +211,9 @@ export function LegacyCarouselModal({ release, onClose }: LegacyCarouselModalPro
               className="btn-primary rounded-app-sm inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] font-medium"
             >
               {isLast ? (
-                <>
-                  <Check className="h-3.5 w-3.5" />
-                  Got it
-                </>
+                <>{i18n.rich('{value1}Got it', { value1: <Check className="h-3.5 w-3.5" /> })}</>
               ) : (
-                <>
-                  Next
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </>
+                <>{i18n.rich('Next{value1}', { value1: <ArrowRight className="h-3.5 w-3.5" /> })}</>
               )}
             </button>
           </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import type { SectionId, ServiceDef, StackDef, Status } from '@/types';
@@ -62,10 +63,13 @@ export function SectionBody({
   onEditStack,
   onDeleteStack,
 }: BodyProps) {
+  i18n.useLocale();
   if (items.length === 0) {
     return (
       <div className="border-border/60 mx-2 my-1 rounded-lg border border-dashed px-3 py-2.5 text-center">
-        <p className="text-fg-dim text-[10.5px] leading-tight">Drop services or stacks here</p>
+        <p className="text-fg-dim text-[10.5px] leading-tight">
+          {i18n.t('Drop services or stacks here')}
+        </p>
       </div>
     );
   }
@@ -151,6 +155,7 @@ function StackRowSlotInner({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  i18n.useLocale();
   const running = stack.service_ids.filter((sid) => {
     const st: Status = statuses[sid]?.status ?? 'stopped';
     return st === 'running' || st === 'starting';
@@ -190,6 +195,7 @@ function ServiceRowSlotInner({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  i18n.useLocale();
   return (
     <ServiceRow
       service={service}
@@ -205,10 +211,11 @@ function ServiceRowSlotInner({
 }
 
 export function FlatItems(props: BodyProps) {
+  i18n.useLocale();
   if (props.items.length === 0) {
     return (
       <div className="text-fg-dim px-3 py-6 text-center text-[12px]">
-        {props.emptyMessage ?? 'No services yet.'}
+        {props.emptyMessage ?? i18n.t('No services yet.')}
       </div>
     );
   }

@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef, useState, type ElementRef } from 'react';
 import {
   BookOpen,
   Download,
@@ -63,27 +65,35 @@ const newRecipe = (): AgentRecipe => ({
 });
 const starterRecipes: AgentRecipe[] = [
   {
-    name: 'Implement and review',
+    get name() {
+      return i18n.t('Implement and review');
+    },
     prompt: 'Implement {{objective}}. Keep the change focused and explain the result.',
     acceptance: '{{acceptance}}',
     checkCommands: '{{check_command}}',
   },
   {
-    name: 'Reproduce and fix a bug',
+    get name() {
+      return i18n.t('Reproduce and fix a bug');
+    },
     prompt:
       'Reproduce this bug: {{bug}}. Identify the cause, implement a focused fix and check for regressions.',
     acceptance: 'Demonstrate the original failure and the passing regression check.',
     checkCommands: '{{check_command}}',
   },
   {
-    name: 'Dependency update',
+    get name() {
+      return i18n.t('Dependency update');
+    },
     prompt:
       'Update {{dependency}} to {{version}}. Inspect breaking changes and migrate affected usage.',
     acceptance: 'Explain compatibility changes and validate affected behavior.',
     checkCommands: '{{check_command}}',
   },
   {
-    name: 'Release preparation',
+    get name() {
+      return i18n.t('Release preparation');
+    },
     prompt:
       'Prepare {{release}}: inspect changes, update release notes and report remaining blockers.',
     acceptance:
@@ -101,6 +111,7 @@ function LibraryDialog({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  i18n.useLocale();
   const dialog = useRef<ElementRef<'dialog'>>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -131,6 +142,7 @@ export function AgentLibrary({
   onRecipe: (recipe: AgentRecipe) => void;
   onWorkflow: (recipe: AgentRecipe) => void;
 }) {
+  i18n.useLocale();
   const { records, ready, error: storeError } = useAgentLibraryStore();
   const projects = useAgentStore((s) => s.projects);
   const projectOptions = useAgentProjectOptions(projects);
@@ -145,6 +157,7 @@ export function AgentLibrary({
   const [hits, setHits] = useState<AgentHistoryHit[]>([]);
   const [searched, setSearched] = useState(false);
   const [editor, setEditor] = useState<AgentRecipe | null>(null);
+  const [queueEditing, setQueueEditing] = useState(false);
   const [memoryEditor, setMemoryEditor] = useState<AgentMemory | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<AgentSchedule | null>(null);
   const accountPools = useMemo(() => {
@@ -161,10 +174,10 @@ export function AgentLibrary({
   }, [records]);
   /** A recipe stores either a connection id or a pool target; both have to read as themselves. */
   const describeTarget = (target: string) => {
-    if (!target) return 'Choose an agent';
+    if (!target) return i18n.t('Choose an agent');
     if (!isPoolTarget(target)) return tools.find((tool) => tool.id === target)?.name ?? target;
     const pool = accountPools.find((entry) => poolTarget(entry.id) === target);
-    return pool ? `${pool.name} (pool)` : 'Pool was removed';
+    return pool ? i18n.t('{value1} (pool)', { value1: pool.name }) : i18n.t('Pool was removed');
   };
   const producers = tools.filter(
     (tool) => tool.enabled !== false && tool.available && tool.adapter !== 'terminal',
@@ -175,8 +188,8 @@ export function AgentLibrary({
   );
   const workflowPoolOptions = accountPools.map((pool) => ({
     value: poolTarget(pool.id),
-    label: `${pool.name} (pool)`,
-    description: 'RunHQ picks a free account when the step starts',
+    label: i18n.t('{value1} (pool)', { value1: pool.name }),
+    description: i18n.t('RunHQ picks a free account when the step starts'),
   }));
   const scheduleFor = (recipeId: string) => {
     const stored = records[`schedule:${recipeId}`];
@@ -273,27 +286,33 @@ export function AgentLibrary({
       capturedAt: Date.now(),
     });
   return (
-    <section className="overlay-scroll min-h-0 flex-1 overflow-auto p-5" aria-label="Agent library">
+    <section
+      className="overlay-scroll min-h-0 flex-1 overflow-auto p-5"
+      aria-label={i18n.t('Agent library')}
+    >
       <header className="mb-5 flex flex-wrap items-center gap-3">
         <BookOpen className="text-accent h-5 w-5" />
         <div className="flex-1">
-          <h2 className="text-fg text-[16px] font-semibold">Your agent library</h2>
+          <h2 className="text-fg text-[16px] font-semibold">{i18n.t('Your agent library')}</h2>
           <p className="text-fg-dim mt-1 text-[12px]">
-            Repeat useful work. Find a decision. Keep its source.
+            {i18n.t('Repeat useful work. Find a decision. Keep its source.')}
           </p>
         </div>
         <SearchableSelect
-          label="Library project"
+          label={i18n.t('Library project')}
           indentGrouped
           className="w-60 max-w-full"
           value={scope}
           disabled={!!projectId}
-          options={[{ value: '', label: 'All projects' }, ...projectOptions]}
+          options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
           onChange={setScope}
-          searchPlaceholder="Find a project or group…"
+          searchPlaceholder={i18n.t('Find a project or group…')}
         />
       </header>
-      <nav className="border-border mb-4 flex gap-2 border-b pb-3" aria-label="Library sections">
+      <nav
+        className="border-border mb-4 flex gap-2 border-b pb-3"
+        aria-label={i18n.t('Library sections')}
+      >
         {(['recipes', 'history', 'memory'] as const).map((value) => (
           <button
             className={`${button} ${section === value ? 'bg-fg/7 text-fg' : ''}`}
@@ -302,10 +321,10 @@ export function AgentLibrary({
             onClick={() => setSection(value)}
           >
             {value === 'memory'
-              ? 'Project decisions'
+              ? i18n.t('Project decisions')
               : value === 'recipes'
-                ? 'Task recipes'
-                : 'History search'}
+                ? i18n.t('Task recipes')
+                : i18n.t('History search')}
           </button>
         ))}
       </nav>
@@ -316,7 +335,7 @@ export function AgentLibrary({
             onClick={() => void useAgentLibraryStore.getState().refresh()}
             className="ml-2 underline"
           >
-            Retry loading
+            {i18n.t('Retry loading')}
           </button>
         </p>
       )}
@@ -332,16 +351,14 @@ export function AgentLibrary({
               className={button}
               onClick={() => setEditor({ ...newRecipe(), projectId: scope || undefined })}
             >
-              <Plus className="h-3.5 w-3.5" />
-              New recipe
+              {i18n.rich('{value1}New recipe', { value1: <Plus className="h-3.5 w-3.5" /> })}
             </button>
             <button
               className={button}
               disabled={busy}
               onClick={() => importRecipes.current?.click()}
             >
-              <Upload className="h-3.5 w-3.5" />
-              Import
+              {i18n.rich('{value1}Import', { value1: <Upload className="h-3.5 w-3.5" /> })}
             </button>
             <button
               className={button}
@@ -352,8 +369,9 @@ export function AgentLibrary({
                 })
               }
             >
-              <Download className="h-3.5 w-3.5" />
-              Export recipes
+              {i18n.rich('{value1}Export recipes', {
+                value1: <Download className="h-3.5 w-3.5" />,
+              })}
             </button>
           </div>
           <input
@@ -361,20 +379,20 @@ export function AgentLibrary({
             accept="application/json,.json"
             ref={importRecipes}
             className="hidden"
-            aria-label="Import agent recipes"
+            aria-label={i18n.t('Import agent recipes')}
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = '';
               if (file)
                 void action(async () => {
-                  if (file.size > 1024 * 1024) throw new Error('Recipe file exceeds 1 MiB');
+                  if (file.size > 1024 * 1024) throw new Error(i18n.t('Recipe file exceeds 1 MiB'));
                   const data = JSON.parse(await file.text());
                   if (
                     data.version !== 1 ||
                     !Array.isArray(data.recipes) ||
                     data.recipes.length > 100
                   )
-                    throw new Error('Unsupported recipe file');
+                    throw new Error(i18n.t('Unsupported recipe file'));
                   const imported = data.recipes.map(portableAgentRecipe);
                   for (const recipe of imported) {
                     const id = crypto.randomUUID();
@@ -383,7 +401,9 @@ export function AgentLibrary({
                       .save(`recipe:${id}`, { ...recipe, id, projectId: scope || undefined });
                   }
                   setNotice(
-                    `Imported ${imported.length} recipes. Review settings before launching.`,
+                    i18n.t('Imported {value1} recipes. Review settings before launching.', {
+                      value1: imported.length,
+                    }),
                   );
                 });
             }}
@@ -399,8 +419,8 @@ export function AgentLibrary({
                   {recipe.prompt}
                 </p>
                 <p className="text-fg-dim mt-3 text-[11px]">
-                  {describeTarget(recipe.backend)} · {recipe.model || 'Agent default'} ·{' '}
-                  {recipe.isolated ? 'Worktree' : 'Local'}
+                  {describeTarget(recipe.backend)} · {recipe.model || i18n.t('Agent default')} ·{' '}
+                  {recipe.isolated ? i18n.t('Worktree') : i18n.t('Local')}
                 </p>
                 {(() => {
                   const scheduled = scheduleFor(recipe.id);
@@ -409,24 +429,30 @@ export function AgentLibrary({
                     <p className="text-fg-dim mt-1 text-[11px]">
                       {describeCadence(scheduled.cadence)}
                       {scheduled.enabled
-                        ? ` · next ${new Date(
-                            nextScheduledRun(scheduled.cadence, scheduled.lastRunAt ?? Date.now()),
-                          ).toLocaleString()}`
-                        : ' · paused'}
-                      {scheduled.lastOutcome ? ` · last: ${scheduled.lastOutcome}` : ''}
+                        ? i18n.t(' · next {value1}', {
+                            value1: new Date(
+                              nextScheduledRun(
+                                scheduled.cadence,
+                                scheduled.lastRunAt ?? Date.now(),
+                              ),
+                            ).toLocaleString(i18n.getFormatLocale()),
+                          })
+                        : i18n.t(' · paused')}
+                      {scheduled.lastOutcome
+                        ? i18n.t(' · last: {value1}', { value1: scheduled.lastOutcome })
+                        : ''}
                     </p>
                   );
                 })()}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className={button} onClick={() => start(recipe, false)}>
-                    <Play className="h-3 w-3" />
-                    Draft task
+                    {i18n.rich('{value1}Draft task', { value1: <Play className="h-3 w-3" /> })}
                   </button>
                   <button className={button} onClick={() => start(recipe, true)}>
-                    Create workflow
+                    {i18n.t('Create workflow')}
                   </button>
                   <button className={button} onClick={() => setEditor({ ...recipe })}>
-                    Edit
+                    {i18n.t('Edit')}
                   </button>
                   <button
                     className={button}
@@ -443,10 +469,10 @@ export function AgentLibrary({
                     }
                   >
                     <CalendarClock className="h-3.5 w-3.5" />
-                    {scheduleFor(recipe.id) ? 'Schedule…' : 'Schedule'}
+                    {scheduleFor(recipe.id) ? i18n.t('Schedule…') : i18n.t('Schedule')}
                   </button>
                   <button
-                    aria-label={`Delete recipe ${recipe.name}`}
+                    aria-label={i18n.t('Delete recipe {value1}', { value1: recipe.name })}
                     className={button}
                     disabled={busy || !records[`recipe:${recipe.id}`]}
                     onClick={() =>
@@ -463,8 +489,10 @@ export function AgentLibrary({
           </div>
           {!recipes.length && (
             <p className="text-fg-dim py-10 text-center text-[13px]">
-              Save your recurring tasks with a provider, workspace and checks. Use {'{{variable}}'}{' '}
-              for parameters.
+              {i18n.rich(
+                'Save your recurring tasks with a provider, workspace and checks. Use {value1} for parameters.',
+                { value1: '{{variable}}' },
+              )}
             </p>
           )}
         </>
@@ -482,29 +510,29 @@ export function AgentLibrary({
               className={`${field} min-w-48 flex-1`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search prompts, answers and decisions…"
-              aria-label="Search conversation content"
+              placeholder={i18n.t('Search prompts, answers and decisions…')}
+              aria-label={i18n.t('Search conversation content')}
             />
             <SearchableSelect
-              label="History provider"
+              label={i18n.t('History provider')}
               searchable={false}
               className="w-40 max-w-full"
               menuWidth={220}
               value={backend}
               options={[
-                { value: '', label: 'All providers' },
+                { value: '', label: i18n.t('All providers') },
                 ...tools.map((t) => ({ value: t.id, label: t.name })),
               ]}
               onChange={setBackend}
             />
             <SearchableSelect
-              label="History status"
+              label={i18n.t('History status')}
               searchable={false}
               className="w-40 max-w-full"
               menuWidth={220}
               value={status}
               options={[
-                { value: '', label: 'All statuses' },
+                { value: '', label: i18n.t('All statuses') },
                 ...['completed', 'failed', 'interrupted', 'running'].map((s) => ({
                   value: s,
                   label: s,
@@ -513,30 +541,35 @@ export function AgentLibrary({
               onChange={setStatus}
             />
             <button type="submit" className={button} disabled={busy || !query.trim()}>
-              <Search className="h-3.5 w-3.5" />
-              Search
+              {i18n.rich('{value1}Search', { value1: <Search className="h-3.5 w-3.5" /> })}
             </button>
             <div className="text-fg-muted flex w-full flex-wrap gap-3 text-[11px]">
               <label>
-                From{' '}
-                <input
-                  type="date"
-                  aria-label="History from date"
-                  className={`${field} mt-1`}
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                />
+                {i18n.rich('From {value1}', {
+                  value1: (
+                    <input
+                      type="date"
+                      aria-label={i18n.t('History from date')}
+                      className={`${field} mt-1`}
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  ),
+                })}
               </label>
               <label>
-                Through{' '}
-                <input
-                  type="date"
-                  aria-label="History through date"
-                  className={`${field} mt-1`}
-                  value={toDate}
-                  min={fromDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
+                {i18n.rich('Through {value1}', {
+                  value1: (
+                    <input
+                      type="date"
+                      aria-label={i18n.t('History through date')}
+                      className={`${field} mt-1`}
+                      value={toDate}
+                      min={fromDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
+                  ),
+                })}
               </label>
             </div>
           </form>
@@ -553,24 +586,25 @@ export function AgentLibrary({
                 })
               }
             >
-              <Download className="h-3.5 w-3.5" />
-              Export {scope ? 'project' : 'all'} history
+              {i18n.rich('{value1}Export {value2} history', {
+                value1: <Download className="h-3.5 w-3.5" />,
+                value2: scope ? i18n.t('project') : i18n.t('all'),
+              })}
             </button>
             <button
               className={button}
               disabled={busy || !scope}
               title={
                 scope
-                  ? 'Import as archived, read-only conversations'
-                  : 'Choose a destination project first'
+                  ? i18n.t('Import as archived, read-only conversations')
+                  : i18n.t('Choose a destination project first')
               }
               onClick={() => importHistory.current?.click()}
             >
-              <Upload className="h-3.5 w-3.5" />
-              Import history
+              {i18n.rich('{value1}Import history', { value1: <Upload className="h-3.5 w-3.5" /> })}
             </button>
             <span className="text-fg-dim text-[11px]">
-              Imported history is archived; it cannot resume a provider session.
+              {i18n.t('Imported history is archived; it cannot resume a provider session.')}
             </span>
           </div>
           <AgentHistoryRetention key={scope} projectId={scope} />
@@ -579,21 +613,21 @@ export function AgentLibrary({
             accept="application/json,.json"
             ref={importHistory}
             className="hidden"
-            aria-label="Import agent history"
+            aria-label={i18n.t('Import agent history')}
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = '';
               if (file)
                 void action(async () => {
-                  if (!scope) throw new Error('Choose the destination project');
+                  if (!scope) throw new Error(i18n.t('Choose the destination project'));
                   if (file.size > 32 * 1024 * 1024)
-                    throw new Error('History archive exceeds 32 MiB');
+                    throw new Error(i18n.t('History archive exceeds 32 MiB'));
                   const count = await agentWorkspaceIpc.importHistory(
                     scope,
                     JSON.parse(await file.text()),
                   );
                   await useAgentStore.getState().refresh();
-                  setNotice(`Imported ${count} archived conversations.`);
+                  setNotice(i18n.t('Imported {count} archived conversations.', { count: count }));
                 });
             }}
           />
@@ -609,7 +643,7 @@ export function AgentLibrary({
                   </button>
                   <span className="text-fg-dim text-[11px]">
                     {hit.session.project_name} · {hit.session.backend} ·{' '}
-                    {new Date(hit.item.created_at).toLocaleDateString()}
+                    {new Date(hit.item.created_at).toLocaleDateString(i18n.getFormatLocale())}
                   </span>
                 </div>
                 <details className="text-fg-muted mt-2 text-[12px]">
@@ -625,14 +659,14 @@ export function AgentLibrary({
                   </pre>
                 </details>
                 <button className="text-accent mt-3 text-[11px]" onClick={() => pin(hit)}>
-                  Save as project decision
+                  {i18n.t('Save as project decision')}
                 </button>
               </article>
             ))}
           </div>
           {searched && !hits.length && (
             <p className="text-fg-dim py-10 text-center text-[13px]">
-              No matching conversation content.
+              {i18n.t('No matching conversation content.')}
             </p>
           )}
           {hits.length > 0 && hits.length % 50 === 0 && (
@@ -641,7 +675,7 @@ export function AgentLibrary({
               className={`${button} mx-auto mt-4`}
               onClick={() => void search(true)}
             >
-              Load older matches
+              {i18n.t('Load older matches')}
             </button>
           )}
         </>
@@ -651,7 +685,7 @@ export function AgentLibrary({
           <button
             className={`${button} mb-4`}
             disabled={!scope}
-            title={!scope ? 'Choose a project first' : undefined}
+            title={!scope ? i18n.t('Choose a project first') : undefined}
             onClick={() =>
               setMemoryEditor({
                 id: crypto.randomUUID(),
@@ -662,8 +696,9 @@ export function AgentLibrary({
               })
             }
           >
-            <Plus className="h-3.5 w-3.5" />
-            New project decision
+            {i18n.rich('{value1}New project decision', {
+              value1: <Plus className="h-3.5 w-3.5" />,
+            })}
           </button>
           <div className="space-y-3">
             {memories.map((m) => (
@@ -672,7 +707,7 @@ export function AgentLibrary({
                 <p className="text-fg-muted mt-2 text-[12px] whitespace-pre-wrap">{m.content}</p>
                 <p className="text-fg-dim mt-2 text-[10px]">
                   {projects.find((p) => p.id === m.projectId)?.name} ·{' '}
-                  {new Date(m.capturedAt).toLocaleDateString()}
+                  {new Date(m.capturedAt).toLocaleDateString(i18n.getFormatLocale())}
                 </p>
                 <div className="mt-3 flex gap-3 text-[11px]">
                   {m.sourceSessionId && (
@@ -680,11 +715,11 @@ export function AgentLibrary({
                       className="text-accent"
                       onClick={() => onOpenSession(m.sourceSessionId!, m.sourceItemId)}
                     >
-                      Source conversation
+                      {i18n.t('Source conversation')}
                     </button>
                   )}
                   <button className="text-fg-muted" onClick={() => setMemoryEditor({ ...m })}>
-                    Edit
+                    {i18n.t('Edit')}
                   </button>
                   <button
                     className="text-status-error"
@@ -695,7 +730,7 @@ export function AgentLibrary({
                       )
                     }
                   >
-                    Remove
+                    {i18n.t('Remove')}
                   </button>
                 </div>
               </article>
@@ -703,19 +738,21 @@ export function AgentLibrary({
           </div>
           {!memories.length && (
             <p className="text-fg-dim py-10 text-center text-[13px]">
-              Pin useful results from history search, or write a project decision. Add it to a task
-              from Context.
+              {i18n.t(
+                'Pin useful results from history search, or write a project decision. Add it to a task from Context.',
+              )}
             </p>
           )}
         </>
       )}
       {editor && (
-        <LibraryDialog title="Edit task recipe" onClose={() => setEditor(null)}>
+        <LibraryDialog title={i18n.t('Edit task recipe')} onClose={() => setEditor(null)}>
           <form
-            aria-label="Edit task recipe"
+            aria-label={i18n.t('Edit task recipe')}
             className="border-border bg-surface-raised overlay-scroll max-h-[90vh] w-full max-w-2xl space-y-3 overflow-auto rounded-xl border p-5"
             onSubmit={(e) => {
               e.preventDefault();
+              if (queueEditing) return;
               void action(async () => {
                 const recipe = parseRecipe({
                   ...editor,
@@ -735,18 +772,18 @@ export function AgentLibrary({
               });
             }}
           >
-            <h3 className="text-fg font-medium">Task recipe</h3>
+            <h3 className="text-fg font-medium">{i18n.t('Task recipe')}</h3>
             {(['name', 'prompt', 'acceptance', 'setupCommands', 'checkCommands'] as const).map(
               (key) => (
                 <label key={key} className="text-fg-muted block space-y-1 text-[12px]">
                   <span>
                     {
                       {
-                        name: 'Name',
-                        prompt: 'Prompt · supports {{parameters}}',
-                        acceptance: 'Acceptance criteria',
-                        setupCommands: 'Setup commands · one per line, used by workflows',
-                        checkCommands: 'Check commands · one per line, used by workflows',
+                        name: i18n.t('Name'),
+                        prompt: i18n.t('Prompt · supports {{parameters}}'),
+                        acceptance: i18n.t('Acceptance criteria'),
+                        setupCommands: i18n.t('Setup commands · one per line, used by workflows'),
+                        checkCommands: i18n.t('Check commands · one per line, used by workflows'),
                       }[key]
                     }
                   </span>
@@ -771,87 +808,104 @@ export function AgentLibrary({
             )}
             <div className="grid grid-cols-2 gap-3">
               <label className="text-fg-muted text-[12px]">
-                Project scope
-                <SearchableSelect
-                  label="Recipe project scope"
-                  indentGrouped
-                  className="mt-1"
-                  value={editor.projectId || ''}
-                  options={[{ value: '', label: 'All projects' }, ...projectOptions]}
-                  onChange={(value) => setEditor({ ...editor, projectId: value || undefined })}
-                  searchPlaceholder="Find a project or group…"
-                />
+                {i18n.rich('Project scope{value1}', {
+                  value1: (
+                    <SearchableSelect
+                      label={i18n.t('Recipe project scope')}
+                      indentGrouped
+                      className="mt-1"
+                      value={editor.projectId || ''}
+                      options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
+                      onChange={(value) => setEditor({ ...editor, projectId: value || undefined })}
+                      searchPlaceholder={i18n.t('Find a project or group…')}
+                    />
+                  ),
+                })}
               </label>
               <label className="text-fg-muted text-[12px]">
-                Provider
-                <SearchableSelect
-                  label="Recipe provider"
-                  searchable={false}
-                  className="mt-1"
-                  value={editor.backend}
-                  options={[
-                    { value: '', label: 'Choose at launch' },
-                    ...tools.map((t) => ({ value: t.id, label: t.name })),
-                    // A pool lets a scheduled run pick a free account instead of waiting on one.
-                    ...accountPools.map((pool) => ({
-                      value: poolTarget(pool.id),
-                      label: `${pool.name} (pool)`,
-                    })),
-                  ]}
-                  onChange={(value) => setEditor({ ...editor, backend: value })}
-                />
+                {i18n.rich('Provider{value1}', {
+                  value1: (
+                    <SearchableSelect
+                      label={i18n.t('Recipe provider')}
+                      searchable={false}
+                      className="mt-1"
+                      value={editor.backend}
+                      options={[
+                        { value: '', label: i18n.t('Choose at launch') },
+                        ...tools.map((t) => ({ value: t.id, label: t.name })),
+                        // A pool lets a scheduled run pick a free account instead of waiting on one.
+                        ...accountPools.map((pool) => ({
+                          value: poolTarget(pool.id),
+                          label: i18n.t('{value1} (pool)', { value1: pool.name }),
+                        })),
+                      ]}
+                      onChange={(value) => setEditor({ ...editor, backend: value })}
+                    />
+                  ),
+                })}
               </label>
               {(['model', 'effort', 'agent'] as const).map((key) => (
                 <label key={key} className="text-fg-muted text-[12px]">
                   {key}
                   <input
                     className={field}
-                    placeholder="Agent default"
+                    placeholder={i18n.t('Agent default')}
                     value={editor[key]}
                     onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
                   />
                 </label>
               ))}
               <label className="text-fg-muted text-[12px]">
-                Mode
-                <SearchableSelect
-                  label="Recipe mode"
-                  searchable={false}
-                  className="mt-1"
-                  menuWidth={200}
-                  value={editor.mode}
-                  options={[
-                    { value: 'default', label: 'Agent' },
-                    { value: 'plan', label: 'Plan' },
-                  ]}
-                  onChange={(value) => setEditor({ ...editor, mode: value as 'default' | 'plan' })}
-                />
+                {i18n.rich('Mode{value1}', {
+                  value1: (
+                    <SearchableSelect
+                      label={i18n.t('Recipe mode')}
+                      searchable={false}
+                      className="mt-1"
+                      menuWidth={200}
+                      value={editor.mode}
+                      options={[
+                        { value: 'default', label: i18n.t('Agent') },
+                        { value: 'plan', label: i18n.t('Plan') },
+                      ]}
+                      onChange={(value) =>
+                        setEditor({ ...editor, mode: value as 'default' | 'plan' })
+                      }
+                    />
+                  ),
+                })}
               </label>
               <label className="text-fg-muted flex items-center gap-2 text-[12px]">
-                <input
-                  type="checkbox"
-                  checked={editor.isolated}
-                  onChange={(e) => setEditor({ ...editor, isolated: e.target.checked })}
-                />
-                Isolated worktree
+                {i18n.rich('{value1}Isolated worktree', {
+                  value1: (
+                    <input
+                      type="checkbox"
+                      checked={editor.isolated}
+                      onChange={(e) => setEditor({ ...editor, isolated: e.target.checked })}
+                    />
+                  ),
+                })}
               </label>
             </div>
             <details className="border-border rounded-xl border p-3">
               <summary className="text-fg-muted cursor-pointer text-[12px]">
-                Workflow steps &middot;{' '}
-                {editor.workflowSteps?.length
-                  ? `${editor.workflowSteps.length} saved`
-                  : 'this recipe implements and reviews'}
+                {i18n.rich('Workflow steps &middot; {value1}', {
+                  value1: editor.workflowSteps?.length
+                    ? i18n.t('{value1} saved', { value1: editor.workflowSteps.length })
+                    : i18n.t('this recipe implements and reviews'),
+                })}
               </summary>
               <p className="text-fg-dim mt-2 text-[11px] leading-relaxed">
-                Used only when this recipe creates a workflow. Leave it empty to keep the agent
-                above implementing and reviewing; add steps to save a division of labour that
-                repeats across projects.
+                {i18n.t(
+                  'Used only when this recipe creates a workflow. Leave it empty to keep the agent above implementing and reviewing; add steps to save a division of labour that repeats across projects.',
+                )}
               </p>
               {editor.workflowSteps?.length ? (
                 <div className="mt-3">
                   <AgentWorkflowTasks
+                    projectId={editor.projectId || scope || projects[0]?.id || ''}
                     steps={recipeStepsToCreateSteps(editor.workflowSteps)}
+                    onQueueEditingChange={setQueueEditing}
                     onChange={(steps) =>
                       setEditor({ ...editor, workflowSteps: createStepsToRecipeSteps(steps) })
                     }
@@ -883,7 +937,7 @@ export function AgentLibrary({
                     })
                   }
                 >
-                  Add workflow steps
+                  {i18n.t('Add workflow steps')}
                 </button>
               )}
             </details>
@@ -894,19 +948,19 @@ export function AgentLibrary({
             )}
             <div className="flex justify-end gap-2">
               <button type="button" className={button} onClick={() => setEditor(null)}>
-                Cancel
+                {i18n.t('Cancel')}
               </button>
-              <button className={button} disabled={busy}>
-                Save recipe
+              <button className={button} disabled={busy || queueEditing}>
+                {i18n.t('Save recipe')}
               </button>
             </div>
           </form>
         </LibraryDialog>
       )}
       {memoryEditor && (
-        <LibraryDialog title="Project decision" onClose={() => setMemoryEditor(null)}>
+        <LibraryDialog title={i18n.t('Project decision')} onClose={() => setMemoryEditor(null)}>
           <form
-            aria-label="Project decision"
+            aria-label={i18n.t('Project decision')}
             className="border-border bg-surface-raised w-full max-w-2xl space-y-3 rounded-xl border p-5"
             onSubmit={(e) => {
               e.preventDefault();
@@ -915,15 +969,15 @@ export function AgentLibrary({
                   .getState()
                   .save(`memory:${memoryEditor.id}`, { ...memoryEditor, capturedAt: Date.now() });
                 setMemoryEditor(null);
-                setNotice('Project decision saved.');
+                setNotice(i18n.t('Project decision saved.'));
               });
             }}
           >
-            <h3 className="text-fg font-medium">Project decision</h3>
+            <h3 className="text-fg font-medium">{i18n.t('Project decision')}</h3>
             <input
               className={field}
               required
-              aria-label="Decision title"
+              aria-label={i18n.t('Decision title')}
               value={memoryEditor.title}
               onChange={(e) => setMemoryEditor({ ...memoryEditor, title: e.target.value })}
             />
@@ -931,25 +985,25 @@ export function AgentLibrary({
               className={`${field} max-h-[60vh]`}
               required
               rows={12}
-              aria-label="Decision content"
+              aria-label={i18n.t('Decision content')}
               value={memoryEditor.content}
               onChange={(e) => setMemoryEditor({ ...memoryEditor, content: e.target.value })}
             />
             <div className="flex justify-end gap-2">
               <button type="button" className={button} onClick={() => setMemoryEditor(null)}>
-                Cancel
+                {i18n.t('Cancel')}
               </button>
               <button className={button} disabled={busy}>
-                Save decision
+                {i18n.t('Save decision')}
               </button>
             </div>
           </form>
         </LibraryDialog>
       )}
       {scheduleEditor && (
-        <LibraryDialog title="Schedule" onClose={() => setScheduleEditor(null)}>
+        <LibraryDialog title={i18n.t('Schedule')} onClose={() => setScheduleEditor(null)}>
           <form
-            aria-label="Recipe schedule"
+            aria-label={i18n.t('Recipe schedule')}
             className="border-border bg-surface-raised w-full max-w-lg space-y-3 rounded-xl border p-5"
             onSubmit={(e) => {
               e.preventDefault();
@@ -958,27 +1012,27 @@ export function AgentLibrary({
                   .getState()
                   .save(`schedule:${scheduleEditor.recipeId}`, parseSchedule(scheduleEditor));
                 setScheduleEditor(null);
-                setNotice('Schedule saved.');
+                setNotice(i18n.t('Schedule saved.'));
               });
             }}
           >
-            <h3 className="text-fg font-medium">Run this recipe on a schedule</h3>
+            <h3 className="text-fg font-medium">{i18n.t('Run this recipe on a schedule')}</h3>
             <SearchableSelect
-              label="Schedule project"
+              label={i18n.t('Schedule project')}
               indentGrouped
               value={scheduleEditor.projectId}
               options={projectOptions}
               onChange={(value) => setScheduleEditor({ ...scheduleEditor, projectId: value })}
-              searchPlaceholder="Find a project or group…"
+              searchPlaceholder={i18n.t('Find a project or group…')}
             />
             <SearchableSelect
-              label="How often"
+              label={i18n.t('How often')}
               searchable={false}
               value={scheduleEditor.cadence.kind}
               options={[
-                { value: 'daily', label: 'Every day' },
-                { value: 'weekly', label: 'Every week' },
-                { value: 'interval', label: 'Every few hours' },
+                { value: 'daily', label: i18n.t('Every day') },
+                { value: 'weekly', label: i18n.t('Every week') },
+                { value: 'interval', label: i18n.t('Every few hours') },
               ]}
               onChange={(value) =>
                 setScheduleEditor({
@@ -994,36 +1048,39 @@ export function AgentLibrary({
             />
             {scheduleEditor.cadence.kind === 'interval' ? (
               <label className="text-fg-muted text-[12px]">
-                Hours between runs
-                <input
-                  className={field}
-                  type="number"
-                  min={1}
-                  max={336}
-                  value={scheduleEditor.cadence.hours}
-                  onChange={(e) =>
-                    setScheduleEditor({
-                      ...scheduleEditor,
-                      cadence: { kind: 'interval', hours: Number(e.target.value) },
-                    })
-                  }
-                />
+                {i18n.rich('Hours between runs{value1}', {
+                  value1: (
+                    <input
+                      className={field}
+                      type="number"
+                      min={1}
+                      max={336}
+                      value={scheduleEditor.cadence.hours}
+                      onChange={(e) =>
+                        setScheduleEditor({
+                          ...scheduleEditor,
+                          cadence: { kind: 'interval', hours: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  ),
+                })}
               </label>
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {scheduleEditor.cadence.kind === 'weekly' && (
                   <SearchableSelect
-                    label="Weekday"
+                    label={i18n.t('Weekday')}
                     searchable={false}
                     value={String(scheduleEditor.cadence.day)}
                     options={[
-                      'Sunday',
-                      'Monday',
-                      'Tuesday',
-                      'Wednesday',
-                      'Thursday',
-                      'Friday',
-                      'Saturday',
+                      i18n.t('Sunday'),
+                      i18n.t('Monday'),
+                      i18n.t('Tuesday'),
+                      i18n.t('Wednesday'),
+                      i18n.t('Thursday'),
+                      i18n.t('Friday'),
+                      i18n.t('Saturday'),
                     ].map((label, value) => ({ value: String(value), label }))}
                     onChange={(value) =>
                       setScheduleEditor({
@@ -1039,39 +1096,46 @@ export function AgentLibrary({
                   />
                 )}
                 <label className="text-fg-muted text-[12px]">
-                  Time
-                  <input
-                    className={field}
-                    type="time"
-                    value={(scheduleEditor.cadence as Extract<AgentCadence, { time: string }>).time}
-                    onChange={(e) =>
-                      setScheduleEditor({
-                        ...scheduleEditor,
-                        cadence: {
-                          ...scheduleEditor.cadence,
-                          time: e.target.value,
-                        } as AgentCadence,
-                      })
-                    }
-                  />
+                  {i18n.rich('Time{value1}', {
+                    value1: (
+                      <input
+                        className={field}
+                        type="time"
+                        value={
+                          (scheduleEditor.cadence as Extract<AgentCadence, { time: string }>).time
+                        }
+                        onChange={(e) =>
+                          setScheduleEditor({
+                            ...scheduleEditor,
+                            cadence: {
+                              ...scheduleEditor.cadence,
+                              time: e.target.value,
+                            } as AgentCadence,
+                          })
+                        }
+                      />
+                    ),
+                  })}
                 </label>
               </div>
             )}
             <label className="text-fg-muted flex items-center gap-2 text-[12px]">
-              <input
-                type="checkbox"
-                checked={scheduleEditor.enabled}
-                onChange={(e) =>
-                  setScheduleEditor({ ...scheduleEditor, enabled: e.target.checked })
-                }
-              />
-              Enabled
+              {i18n.rich('{value1}Enabled', {
+                value1: (
+                  <input
+                    type="checkbox"
+                    checked={scheduleEditor.enabled}
+                    onChange={(e) =>
+                      setScheduleEditor({ ...scheduleEditor, enabled: e.target.checked })
+                    }
+                  />
+                ),
+              })}
             </label>
             <p className="text-fg-dim text-[11px] leading-relaxed">
-              Scheduled runs start the recipe as a new task while RunHQ is running. Nothing runs
-              while RunHQ is closed; occurrences missed in the meantime are reported and started
-              once, not replayed. A run waits when the tool is disabled or its execution slots are
-              full.
+              {i18n.t(
+                'Scheduled runs start the recipe as a new task while RunHQ is running. Nothing runs while RunHQ is closed; occurrences missed in the meantime are reported and started once, not replayed. A run waits when the tool is disabled or its execution slots are full.',
+              )}
             </p>
             <div className="flex justify-end gap-2">
               {records[`schedule:${scheduleEditor.recipeId}`] && (
@@ -1085,27 +1149,27 @@ export function AgentLibrary({
                         .getState()
                         .save(`schedule:${scheduleEditor.recipeId}`, null);
                       setScheduleEditor(null);
-                      setNotice('Schedule removed.');
+                      setNotice(i18n.t('Schedule removed.'));
                     })
                   }
                 >
-                  Remove schedule
+                  {i18n.t('Remove schedule')}
                 </button>
               )}
               <button type="button" className={button} onClick={() => setScheduleEditor(null)}>
-                Cancel
+                {i18n.t('Cancel')}
               </button>
               <button className={button} disabled={busy || !scheduleEditor.projectId}>
-                Save schedule
+                {i18n.t('Save schedule')}
               </button>
             </div>
           </form>
         </LibraryDialog>
       )}
       {launch && (
-        <LibraryDialog title="Recipe parameters" onClose={() => setLaunch(null)}>
+        <LibraryDialog title={i18n.t('Recipe parameters')} onClose={() => setLaunch(null)}>
           <form
-            aria-label="Recipe parameters"
+            aria-label={i18n.t('Recipe parameters')}
             className="border-border bg-surface-raised w-full max-w-lg space-y-3 rounded-xl border p-5"
             onSubmit={(e) => {
               e.preventDefault();
@@ -1131,13 +1195,13 @@ export function AgentLibrary({
               </label>
             ))}
             <p className="text-fg-dim text-[11px]">
-              Review the resolved task settings before starting.
+              {i18n.t('Review the resolved task settings before starting.')}
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" className={button} onClick={() => setLaunch(null)}>
-                Cancel
+                {i18n.t('Cancel')}
               </button>
-              <button className={button}>Use recipe</button>
+              <button className={button}>{i18n.t('Use recipe')}</button>
             </div>
           </form>
         </LibraryDialog>

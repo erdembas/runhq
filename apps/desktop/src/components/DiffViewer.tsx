@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import {
   X,
@@ -42,6 +43,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(na
 const RIGHT_RAIL_WIDTH = 36;
 
 export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
+  i18n.useLocale();
   // Default tab is "Commit" — the merged Changes + Commit view. Used to
   // be two separate tabs ("Changes" for browsing, "Commit" for staging
   // and committing) but they shared ~90% of the same data set, so the
@@ -162,10 +164,10 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
     icon: typeof GitCommit;
     count?: number;
   }> = [
-    { id: 'commit', label: 'Commit', icon: GitCommit, count: totalFiles || undefined },
-    { id: 'branches', label: 'Branches', icon: GitBranch },
-    { id: 'history', label: 'History', icon: History },
-    { id: 'graph', label: 'Graph', icon: GitGraph },
+    { id: 'commit', label: i18n.t('Commit'), icon: GitCommit, count: totalFiles || undefined },
+    { id: 'branches', label: i18n.t('Branches'), icon: GitBranch },
+    { id: 'history', label: i18n.t('History'), icon: History },
+    { id: 'graph', label: i18n.t('Graph'), icon: GitGraph },
   ];
 
   return (
@@ -192,14 +194,16 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
           <div className="flex items-center gap-3">
             <GitBranch size={13} className="text-fg/50 shrink-0" />
             <h2 className="text-fg text-[13px] font-semibold tracking-tight whitespace-nowrap">
-              Source Control
+              {i18n.t('Source Control')}
             </h2>
             {!loading && (
               <>
                 <span className="bg-border/80 h-3 w-px shrink-0" />
                 <span className="text-fg/50 text-[11px] whitespace-nowrap tabular-nums">
-                  <span className="text-fg/70">{totalFiles}</span> file
-                  {totalFiles === 1 ? '' : 's'}
+                  {i18n.rich('{value1} file{plural3}', {
+                    value1: <span className="text-fg/70">{totalFiles}</span>,
+                    plural3: totalFiles === 1 ? '' : 's',
+                  })}
                 </span>
                 <span className="text-[11px] whitespace-nowrap tabular-nums">
                   <span className="text-emerald-400">+{totalAdditions}</span>{' '}
@@ -219,10 +223,10 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
                       ? 'bg-accent/20 text-accent'
                       : 'text-fg/50 hover:text-fg',
                   )}
-                  title="Side-by-side view"
+                  title={i18n.t('Side-by-side view')}
                 >
                   <Columns2 size={12} />
-                  <span className="hidden sm:inline">Split</span>
+                  <span className="hidden sm:inline">{i18n.t('Split')}</span>
                 </button>
                 <button
                   onClick={() => setViewMode('inline')}
@@ -230,17 +234,17 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
                     'flex items-center gap-1 px-2 py-1 text-[11px] transition',
                     viewMode === 'inline' ? 'bg-accent/20 text-accent' : 'text-fg/50 hover:text-fg',
                   )}
-                  title="Inline (unified) view"
+                  title={i18n.t('Inline (unified) view')}
                 >
                   <Rows2 size={12} />
-                  <span className="hidden sm:inline">Inline</span>
+                  <span className="hidden sm:inline">{i18n.t('Inline')}</span>
                 </button>
               </div>
             )}
             <button
               onClick={refresh}
               className="text-fg/60 hover:bg-fg/10 hover:text-fg cursor-pointer rounded p-1 transition"
-              title="Refresh"
+              title={i18n.t('Refresh')}
             >
               <RefreshCw size={13} />
             </button>
@@ -251,7 +255,7 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
               // confirmation. Esc is the reflexive key (users hammer it
               // to dismiss popovers), so that path goes through the
               // close-confirm dialog. See the keydown handler above.
-              title="Close"
+              title={i18n.t('Close')}
             >
               <X size={15} />
             </button>
@@ -330,15 +334,17 @@ export function DiffViewer({ serviceId, onClose }: DiffViewerProps) {
 
       {closeConfirm && (
         <ConfirmDialog
-          title="Close Source Control?"
+          title={i18n.t('Close Source Control?')}
           message={
             totalFiles > 0
-              ? `You have uncommitted work in this repo. Closing won’t lose anything on disk, but any unsent commit message will be discarded.`
-              : `Close the Source Control window?`
+              ? i18n.t(
+                  'You have uncommitted work in this repo. Closing won’t lose anything on disk, but any unsent commit message will be discarded.',
+                )
+              : i18n.t('Close the Source Control window?')
           }
           tone="info"
-          confirmLabel="Close"
-          cancelLabel="Stay"
+          confirmLabel={i18n.t('Close')}
+          cancelLabel={i18n.t('Stay')}
           onConfirm={() => {
             setCloseConfirm(false);
             onClose();

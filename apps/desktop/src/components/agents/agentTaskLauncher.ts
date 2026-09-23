@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type {
   AgentAttachment,
   AgentSession,
@@ -58,7 +59,8 @@ export function createAgentTaskLauncher(deps: {
     restore,
     /** Clear only after every post-launch save/link has succeeded. */
     complete() {
-      if (pending) throw new Error('Wait for the first message before completing this task.');
+      if (pending)
+        throw new Error(i18n.t('Wait for the first message before completing this task.'));
       if (recovery) deps.recovery?.save(null, recovery.projectId);
       recovery = null;
       session = null;
@@ -76,7 +78,8 @@ export function createAgentTaskLauncher(deps: {
       } catch (error) {
         return Promise.reject(error);
       }
-      if (!text.trim()) return Promise.reject(new Error('Write a message to start a task.'));
+      if (!text.trim())
+        return Promise.reject(new Error(i18n.t('Write a message to start a task.')));
       pending = (async () => {
         if (deps.recovery && !recovery) {
           recovery = {

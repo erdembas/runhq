@@ -2,7 +2,7 @@ import { URL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { runInNewContext } from 'node:vm';
+import { runInNewContext } from './helpers/i18n-vm.mjs';
 import ts from 'typescript';
 
 const source = readFileSync(

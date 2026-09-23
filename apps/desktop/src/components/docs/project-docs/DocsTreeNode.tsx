@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SubNavButton } from './SubNavButton';
@@ -18,6 +19,7 @@ export function DocsTreeNode({
   onToggle,
   onSelect,
 }: DocsTreeNodeProps) {
+  i18n.useLocale();
   if (node.doc) {
     return (
       <SubNavButton

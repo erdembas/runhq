@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useState } from 'react';
 import { Check, Copy, Play, ShieldAlert } from 'lucide-react';
 import { evaluateRunCandidate } from '@/lib/docs/runGuard';
 import { cn } from '@/lib/cn';
@@ -39,6 +41,7 @@ interface Props {
  * keyboard and so screen readers still announce them.
  */
 export function RunnableCodeBlock({ language, raw, children, onRun }: Props) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
   const guard = useMemo(() => evaluateRunCandidate(language, raw), [language, raw]);
 
@@ -67,7 +70,7 @@ export function RunnableCodeBlock({ language, raw, children, onRun }: Props) {
           <button
             type="button"
             onClick={() => onRun(guard.command)}
-            title={`Run "${guard.command}" in the integrated terminal`}
+            title={i18n.t('Run "{value1}" in the integrated terminal', { value1: guard.command })}
             className={cn(
               'inline-flex h-6 items-center gap-1 rounded px-1.5',
               'border-border bg-surface text-fg-muted hover:bg-accent/15 hover:text-accent border',
@@ -75,13 +78,13 @@ export function RunnableCodeBlock({ language, raw, children, onRun }: Props) {
             )}
           >
             <Play className="h-3 w-3 fill-current" />
-            <span>Run</span>
+            <span>{i18n.t('Run')}</span>
           </button>
         ) : (
           <button
             type="button"
             disabled
-            title={guard.reason ?? 'Run is unavailable for this block.'}
+            title={guard.reason ?? i18n.t('Run is unavailable for this block.')}
             className={cn(
               'inline-flex h-6 items-center gap-1 rounded px-1.5',
               'border-border/60 bg-surface text-fg-dim/70 cursor-not-allowed border',
@@ -89,13 +92,13 @@ export function RunnableCodeBlock({ language, raw, children, onRun }: Props) {
             )}
           >
             <ShieldAlert className="h-3 w-3" />
-            <span>Run</span>
+            <span>{i18n.t('Run')}</span>
           </button>
         )}
         <button
           type="button"
           onClick={onCopy}
-          title="Copy block to clipboard"
+          title={i18n.t('Copy block to clipboard')}
           className={cn(
             'inline-flex h-6 items-center gap-1 rounded px-1.5',
             'border-border bg-surface text-fg-muted hover:bg-accent/15 hover:text-accent border',
@@ -103,7 +106,7 @@ export function RunnableCodeBlock({ language, raw, children, onRun }: Props) {
           )}
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          <span>{copied ? 'Copied' : 'Copy'}</span>
+          <span>{copied ? i18n.t('Copied') : i18n.t('Copy')}</span>
         </button>
       </div>
     </div>

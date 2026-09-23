@@ -21,6 +21,7 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         env: Default::default(),
         executable: "codex".into(),
         title: "Task".into(),
+        title_source: "manual".into(),
         model: String::new(),
         effort: String::new(),
         mode: "default".into(),
@@ -79,6 +80,183 @@ fn session_metadata_does_not_load_transcript_rows() {
     assert_eq!(manager.session(&session.id).unwrap().title, session.title);
     assert!(manager.snapshot(&session.id, None).is_err());
     assert!(manager.session("missing").is_err());
+}
+
+#[test]
+fn automatic_titles_persist_and_never_overwrite_a_manual_rename() {
+    let (dir, manager, session) = setup();
+    manager
+        .mutate(&session.id, |s, _| {
+            s.title_source = "auto".into();
+            Ok(())
+        })
+        .unwrap();
+    manager
+        .apply_event(
+            &session.id,
+            "turn",
+            json!({"type":"title","title":"Depo: /tmp/project"}),
+        )
+        .unwrap();
+    assert_eq!(manager.session(&session.id).unwrap().title_source, "auto");
+    manager
+        .apply_event(
+            &session.id,
+            "turn",
+            json!({"type":"title","title":"Sohbet başlıklarını iyileştir"}),
+        )
+        .unwrap();
+    assert_eq!(
+        manager.session(&session.id).unwrap().title_source,
+        "generated"
+    );
+    manager
+        .apply_event(
+            &session.id,
+            "turn",
+            json!({"type":"title","title":"A duplicate title"}),
+        )
+        .unwrap();
+    assert_eq!(
+        manager.session(&session.id).unwrap().title,
+        "Sohbet başlıklarını iyileştir"
+    );
+    drop(manager);
+    let manager =
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
+    assert_eq!(
+        manager.session(&session.id).unwrap().title,
+        "Sohbet başlıklarını iyileştir"
+    );
+    manager
+        .mutate(&session.id, |s, _| {
+            s.title_source = "auto".into();
+            Ok(())
+        })
+        .unwrap();
+    manager
+        .update(&session.id, Some("My own title".into()), None, false)
+        .unwrap();
+    manager
+        .apply_event(
+            &session.id,
+            "turn",
+            json!({"type":"title","title":"Late model title"}),
+        )
+        .unwrap();
+    assert_eq!(manager.session(&session.id).unwrap().title, "My own title");
+    assert_eq!(manager.session(&session.id).unwrap().title_source, "manual");
+    assert!(manager
+        .snapshot(&session.id, None)
+        .unwrap()
+        .items
+        .is_empty());
+}
+
+#[test]
+fn legacy_path_titles_are_repaired_without_touching_custom_names_or_recency() {
+    let (dir, manager, session) = setup();
+    for (id, source, title) in [
+        ("legacy", "", "Depo: /Users/erdem/maestro"),
+        ("manual", "manual", "Depo: /Users/erdem/maestro"),
+        ("custom", "", "My custom task"),
+    ] {
+        let mut copy = session.clone();
+        copy.id = id.into();
+        copy.title = title.into();
+        copy.title_source = source.into();
+        let state = manager.state.lock();
+        state.db.save(&copy).unwrap();
+        state
+            .db
+            .item(
+                id,
+                &AgentItem {
+                    id: format!("prompt-{id}"),
+                    kind: "user".into(),
+                    title: "You".into(),
+                    text: "Depo: /Users/erdem/maestro\n\nEntitlement pool API ekle".into(),
+                    status: "completed".into(),
+                    created_at: now(),
+                },
+            )
+            .unwrap();
+    }
+    drop(manager);
+    let manager =
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
+    let repaired = manager.session("legacy").unwrap();
+    assert_eq!(repaired.title, "Entitlement pool API ekle");
+    assert_eq!(repaired.title_source, "auto");
+    assert_eq!(repaired.updated_at, session.updated_at);
+    assert_eq!(
+        manager.session("manual").unwrap().title,
+        "Depo: /Users/erdem/maestro"
+    );
+    assert_eq!(manager.session("custom").unwrap().title, "My custom task");
+}
+
+#[tokio::test]
+async fn automatic_titles_use_the_original_request_and_preserve_transcript_and_followups() {
+    let (dir, manager, session) = setup();
+    let prompt = "Depo: /Users/erdem/maestro\n\nSohbet başlıklarını iyileştir";
+    let session = manager
+        .create(
+            serde_json::from_value(json!({
+                "project_id": session.project_id,
+                "backend": "codex",
+                "executable": executable("node").expect("runtime tests require Node"),
+                "title": ""
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.title, "New task");
+    assert_eq!(session.title_source, "auto");
+    std::fs::write(
+        dir.path().join("bridge.cjs"),
+        r#"
+const assert = require('node:assert/strict');
+const readline = require('node:readline');
+const emit = x => process.stdout.write(JSON.stringify(x)+'\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const {config} = JSON.parse(line);
+  const original = 'Depo: /Users/erdem/maestro\n\nSohbet başlıklarını iyileştir';
+  if (config.prompt === original) {
+    assert.equal(config.title, 'Sohbet başlıklarını iyileştir');
+    assert.equal(config.title_prompt, original);
+    emit({type:'title', title:'Anlamlı sohbet başlıkları üret'});
+  } else {
+    assert.equal(config.prompt, 'Bir sonraki adım');
+    assert.equal(config.title_prompt, null);
+    emit({type:'title', title:'Must not rename on followup'});
+  }
+  emit({type:'finished',status:'completed'});
+});
+"#,
+    )
+    .unwrap();
+    let mut input = turn_input(&session);
+    input.prompt = prompt.into();
+    manager.start(input).await.unwrap();
+    wait_inactive(&manager, &session.id).await;
+    let first = manager.snapshot(&session.id, None).unwrap();
+    assert_eq!(
+        first.session.status, "completed",
+        "{:?}",
+        first.session.last_error
+    );
+    assert_eq!(first.session.title, "Anlamlı sohbet başlıkları üret");
+    assert_eq!(first.items.len(), 1);
+    assert_eq!(first.items[0].text, prompt);
+    let mut followup = turn_input(&session);
+    followup.prompt = "Bir sonraki adım".into();
+    manager.start(followup).await.unwrap();
+    wait_inactive(&manager, &session.id).await;
+    let second = manager.session(&session.id).unwrap();
+    assert_eq!(second.status, "completed", "{:?}", second.last_error);
+    assert_eq!(second.title, first.session.title);
 }
 
 #[tokio::test]
@@ -348,6 +526,40 @@ fn turn_input(session: &AgentSession) -> AgentTurnInput {
         mode: None,
         agent: None,
         attachments: vec![],
+    }
+}
+
+#[tokio::test]
+async fn permission_preferences_reach_new_and_resumed_turns() {
+    let (dir, manager, session) = setup();
+    std::fs::write(dir.path().join("bridge.cjs"), r#"
+const readline = require('node:readline');
+readline.createInterface({input:process.stdin}).once('line', line => {
+ const {config} = JSON.parse(line);
+ console.log(JSON.stringify({type:'item',item:{id:'policy',kind:'notice',title:'policy',text:config.permission_policy,status:'completed'}}));
+ process.stdout.write(JSON.stringify({type:'finished',status:'completed'})+'\n',()=>process.exit(0));
+});
+"#).unwrap();
+    for policy in ["ask", "read", "all", "ask"] {
+        manager
+            .workspace_save(
+                "preferences:permissions".into(),
+                Some(json!({"policy":policy})),
+            )
+            .unwrap();
+        manager.start(turn_input(&session)).await.unwrap();
+        wait_inactive(&manager, &session.id).await;
+        let snapshot = manager.snapshot(&session.id, None).unwrap();
+        assert_eq!(snapshot.session.status, "completed");
+        assert_eq!(
+            snapshot
+                .items
+                .iter()
+                .rfind(|item| item.title == "policy")
+                .unwrap()
+                .text,
+            policy
+        );
     }
 }
 

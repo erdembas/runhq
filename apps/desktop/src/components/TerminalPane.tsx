@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Props) {
+  i18n.useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const termRef = useRef<Terminal | null>(null);
@@ -213,7 +215,7 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
           if (!alive) return;
           const message = err instanceof Error ? err.message : String(err);
           console.error('terminalCreate failed', err);
-          writeError(term, `Failed to start terminal: ${message}`);
+          writeError(term, i18n.t('Failed to start terminal: {message}', { message: message }));
         });
       if (isVisible()) term.focus();
     });
@@ -330,8 +332,8 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
         <button
           type="button"
           onClick={restartTerminal}
-          title="Restart terminal (kill current shell & respawn)"
-          aria-label="Restart terminal"
+          title={i18n.t('Restart terminal (kill current shell & respawn)')}
+          aria-label={i18n.t('Restart terminal')}
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
             'border-border bg-surface-raised/85 text-fg-dim hover:text-fg hover:bg-surface-overlay',
@@ -360,7 +362,7 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={onSearchInputKeyDown}
-            placeholder="Find…"
+            placeholder={i18n.t('Find…')}
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
@@ -380,13 +382,13 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
               ? `${matchInfo.index}/${matchInfo.count}`
               : searchQuery === ''
                 ? '0/0'
-                : 'no match'}
+                : i18n.t('no match')}
           </span>
           <button
             type="button"
             onClick={() => runSearch(searchQuery, 'prev')}
-            title="Previous match (Shift+Enter)"
-            aria-label="Previous match"
+            title={i18n.t('Previous match (Shift+Enter)')}
+            aria-label={i18n.t('Previous match')}
             className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
           >
             <ChevronUp className="h-3 w-3" />
@@ -394,8 +396,8 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
           <button
             type="button"
             onClick={() => runSearch(searchQuery, 'next')}
-            title="Next match (Enter)"
-            aria-label="Next match"
+            title={i18n.t('Next match (Enter)')}
+            aria-label={i18n.t('Next match')}
             className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
           >
             <ChevronDown className="h-3 w-3" />
@@ -403,8 +405,8 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
           <button
             type="button"
             onClick={closeSearch}
-            title="Close (Esc)"
-            aria-label="Close search"
+            title={i18n.t('Close (Esc)')}
+            aria-label={i18n.t('Close search')}
             className="text-fg-dim hover:bg-surface-overlay hover:text-fg flex h-5 w-5 items-center justify-center rounded transition"
           >
             <X className="h-3 w-3" />

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
 import { CtaButton } from './CtaButton';
@@ -12,6 +13,7 @@ interface HighlightCopyBlockProps {
 }
 
 export function HighlightCopyBlock({ highlight, onAfter, variant }: HighlightCopyBlockProps) {
+  i18n.useLocale();
   const isImageless = !highlight.media.src;
   const inlineBullets =
     isImageless && highlight.fallback.bullets && highlight.fallback.bullets.length > 0;

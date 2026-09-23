@@ -30,9 +30,9 @@ pub async fn agent_canvas_save(
         let selected = app
             .dialog()
             .file()
-            .set_title("Save canvas")
+            .set_title(crate::tray::localize(&app, "Save canvas"))
             .set_file_name(filename)
-            .add_filter("Canvas", &[&extension])
+            .add_filter(crate::tray::localize(&app, "Canvas"), &[&extension])
             .blocking_save_file();
         let Some(selected) = selected else {
             return Ok(None);

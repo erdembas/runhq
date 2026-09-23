@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { LayoutState } from './layoutTypes';
 import { createCommandLogTab, normaliseCommandNames } from './layoutLogTabs';
 
@@ -9,7 +10,7 @@ export function defaultLayoutState(commandNames: string[] = []): LayoutState {
   const logTabsById =
     logTabs.length > 0
       ? Object.fromEntries(logTabs.map((tab) => [tab.id, tab]))
-      : { logs: { id: 'logs', kind: 'logs' as const, title: 'Logs' } };
+      : { logs: { id: 'logs', kind: 'logs' as const, title: i18n.t('Logs') } };
 
   return {
     root: {
@@ -20,10 +21,10 @@ export function defaultLayoutState(commandNames: string[] = []): LayoutState {
     },
     tabs: {
       ...logTabsById,
-      agents: { id: 'agents', kind: 'agents', title: 'Agents' },
-      docs: { id: 'docs', kind: 'docs', title: 'Docs' },
-      notes: { id: 'notes', kind: 'notes', title: 'Notes' },
-      [firstTermId]: { id: firstTermId, kind: 'terminal', title: 'Terminal 1' },
+      agents: { id: 'agents', kind: 'agents', title: i18n.t('Agents') },
+      docs: { id: 'docs', kind: 'docs', title: i18n.t('Docs') },
+      notes: { id: 'notes', kind: 'notes', title: i18n.t('Notes') },
+      [firstTermId]: { id: firstTermId, kind: 'terminal', title: i18n.t('Terminal 1') },
     },
     nextTermIdx: 2,
     includeDocs: false,

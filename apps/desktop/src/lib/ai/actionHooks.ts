@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AiActionHook } from '@/store/useAppStore';
 
 /**
@@ -74,9 +75,9 @@ export function dispatchAiAction(hook: AiActionHook, content: string): boolean {
 export function actionHookLabel(hook: AiActionHook): string | null {
   switch (hook.kind) {
     case 'use_as_commit':
-      return 'Use as commit message';
+      return i18n.t('Use as commit message');
     case 'insert_standup':
-      return 'Insert into standup draft';
+      return i18n.t('Insert into standup draft');
     case 'none':
       return null;
   }

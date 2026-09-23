@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type {
   AgentBackend,
   AgentItem,
@@ -52,12 +53,13 @@ export async function runCliChat(args: {
   if (signal.aborted) return null;
   if (!args.backend.available || !args.backend.executable) {
     throw new Error(
-      args.backend.error || `${args.backend.name} is not available. Check Agent tools.`,
+      args.backend.error ||
+        i18n.t('{value1} is not available. Check Agent tools.', { value1: args.backend.name }),
     );
   }
   const prompt = cliChatPrompt(args.history);
   if (new TextEncoder().encode(prompt).length > 256 * 1024) {
-    throw new Error('This conversation is too large for a CLI request. Start a new chat.');
+    throw new Error(i18n.t('This conversation is too large for a CLI request. Start a new chat.'));
   }
   const adapter = args.backend.adapter ?? args.backend.id;
   // Standard adapters expose plan mode. ACP modes are provider-defined, so preserve
@@ -68,7 +70,9 @@ export async function runCliChat(args: {
     project_id: args.projectId,
     backend: args.backend.id,
     executable: args.backend.executable,
-    title: `AI Chat · ${(latestUser?.content || 'Question').slice(0, 100)}`,
+    title: i18n.t('AI Chat · {value1}', {
+      value1: (latestUser?.content || 'Question').slice(0, 100),
+    }),
     model: '',
     effort: '',
     mode,
@@ -83,7 +87,12 @@ export async function runCliChat(args: {
     if (!started || finished || stopping) return;
     stopping = client.agentInterrupt(session.id).catch((error) => {
       stopError = error;
-      args.onStopError(`Could not stop ${args.backend.name}: ${String(error)}`);
+      args.onStopError(
+        i18n.t('Could not stop {value1}: {value2}', {
+          value1: args.backend.name,
+          value2: String(error),
+        }),
+      );
     });
   };
   signal.addEventListener('abort', stop);
@@ -127,7 +136,10 @@ export async function runCliChat(args: {
       if (!signal.aborted) args.onSnapshot({ ...snapshot, items }, content, reasoning);
       if (finished) {
         if (snapshot.session.status === 'failed') {
-          throw new Error(snapshot.session.last_error || `${args.backend.name} failed to answer.`);
+          throw new Error(
+            snapshot.session.last_error ||
+              i18n.t('{value1} failed to answer.', { value1: args.backend.name }),
+          );
         }
         return signal.aborted ? null : { content, reasoning, status: snapshot.session.status };
       }

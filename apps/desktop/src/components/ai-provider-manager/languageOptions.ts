@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 export interface LanguageOption {
   value: string;
   label: string;
@@ -5,28 +6,142 @@ export interface LanguageOption {
 }
 
 export const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: 'auto', label: 'Auto (match my message)', flag: null },
-  { value: 'en', label: 'English', flag: '🇬🇧' },
-  { value: 'tr', label: 'Turkish (Türkçe)', flag: '🇹🇷' },
-  { value: 'de', label: 'German (Deutsch)', flag: '🇩🇪' },
-  { value: 'fr', label: 'French (Français)', flag: '🇫🇷' },
-  { value: 'es', label: 'Spanish (Español)', flag: '🇪🇸' },
-  { value: 'it', label: 'Italian (Italiano)', flag: '🇮🇹' },
-  { value: 'pt', label: 'Portuguese (Português)', flag: '🇵🇹' },
-  { value: 'nl', label: 'Dutch (Nederlands)', flag: '🇳🇱' },
-  { value: 'pl', label: 'Polish (Polski)', flag: '🇵🇱' },
-  { value: 'ru', label: 'Russian (Русский)', flag: '🇷🇺' },
-  { value: 'uk', label: 'Ukrainian (Українська)', flag: '🇺🇦' },
-  { value: 'ja', label: 'Japanese (日本語)', flag: '🇯🇵' },
-  { value: 'ko', label: 'Korean (한국어)', flag: '🇰🇷' },
-  { value: 'zh', label: 'Chinese (中文)', flag: '🇨🇳' },
-  { value: 'ar', label: 'Arabic (العربية)', flag: '🇸🇦' },
-  { value: 'he', label: 'Hebrew (עברית)', flag: '🇮🇱' },
-  { value: 'hi', label: 'Hindi (हिन्दी)', flag: '🇮🇳' },
+  {
+    value: 'auto',
+    get label() {
+      return i18n.t('Auto (match my message)');
+    },
+    flag: null,
+  },
+  {
+    value: 'en',
+    get label() {
+      return i18n.t('English');
+    },
+    flag: '🇬🇧',
+  },
+  {
+    value: 'tr',
+    get label() {
+      return i18n.t('Turkish (Türkçe)');
+    },
+    flag: '🇹🇷',
+  },
+  {
+    value: 'de',
+    get label() {
+      return i18n.t('German (Deutsch)');
+    },
+    flag: '🇩🇪',
+  },
+  {
+    value: 'fr',
+    get label() {
+      return i18n.t('French (Français)');
+    },
+    flag: '🇫🇷',
+  },
+  {
+    value: 'es',
+    get label() {
+      return i18n.t('Spanish (Español)');
+    },
+    flag: '🇪🇸',
+  },
+  {
+    value: 'it',
+    get label() {
+      return i18n.t('Italian (Italiano)');
+    },
+    flag: '🇮🇹',
+  },
+  {
+    value: 'pt',
+    get label() {
+      return i18n.t('Portuguese (Português)');
+    },
+    flag: '🇵🇹',
+  },
+  {
+    value: 'nl',
+    get label() {
+      return i18n.t('Dutch (Nederlands)');
+    },
+    flag: '🇳🇱',
+  },
+  {
+    value: 'pl',
+    get label() {
+      return i18n.t('Polish (Polski)');
+    },
+    flag: '🇵🇱',
+  },
+  {
+    value: 'ru',
+    get label() {
+      return i18n.t('Russian (Русский)');
+    },
+    flag: '🇷🇺',
+  },
+  {
+    value: 'uk',
+    get label() {
+      return i18n.t('Ukrainian (Українська)');
+    },
+    flag: '🇺🇦',
+  },
+  {
+    value: 'ja',
+    get label() {
+      return i18n.t('Japanese (日本語)');
+    },
+    flag: '🇯🇵',
+  },
+  {
+    value: 'ko',
+    get label() {
+      return i18n.t('Korean (한국어)');
+    },
+    flag: '🇰🇷',
+  },
+  {
+    value: 'zh',
+    get label() {
+      return i18n.t('Chinese (中文)');
+    },
+    flag: '🇨🇳',
+  },
+  {
+    value: 'ar',
+    get label() {
+      return i18n.t('Arabic (العربية)');
+    },
+    flag: '🇸🇦',
+  },
+  {
+    value: 'he',
+    get label() {
+      return i18n.t('Hebrew (עברית)');
+    },
+    flag: '🇮🇱',
+  },
+  {
+    value: 'hi',
+    get label() {
+      return i18n.t('Hindi (हिन्दी)');
+    },
+    flag: '🇮🇳',
+  },
 ];
 
 export const COMMIT_LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: 'inherit', label: 'Inherit (use response language)', flag: null },
+  {
+    value: 'inherit',
+    get label() {
+      return i18n.t('Inherit (use response language)');
+    },
+    flag: null,
+  },
   ...LANGUAGE_OPTIONS,
 ];
 
@@ -51,7 +166,8 @@ export function commitLanguageLabel(
   fallback: string | null | undefined,
 ): string {
   const option = commitLanguageOption(value);
-  if (option && option.value === 'inherit') return `Inherit · ${languageLabel(fallback)}`;
+  if (option && option.value === 'inherit')
+    return i18n.t('Inherit · {value1}', { value1: languageLabel(fallback) });
   if (!option) return (value ?? 'inherit').trim().toLowerCase() || 'inherit';
   return option.flag ? `${option.flag} ${option.label}` : option.label;
 }

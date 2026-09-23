@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { X } from 'lucide-react';
 import { CheckRow } from '@/components/sidebar-filter-menu/CheckRow';
 import { GROUP_OPTIONS, STATUS_OPTIONS } from '@/components/sidebar-filter-menu/filterOptions';
@@ -39,10 +40,11 @@ export function FilterMenuBody({
   activeFilterCount,
   onClearAll,
 }: FilterMenuBodyProps) {
+  i18n.useLocale();
   return (
     <>
       <div className="max-h-[70vh] overflow-y-auto">
-        <MenuSection label="Show">
+        <MenuSection label={i18n.t('Show')}>
           <div className="flex gap-1">
             {STATUS_OPTIONS.map((option) => {
               const active = statusFilter === option.key;
@@ -68,7 +70,7 @@ export function FilterMenuBody({
 
         <div className="border-border/60 border-t" />
 
-        <MenuSection label="Group by">
+        <MenuSection label={i18n.t('Group by')}>
           <div className="grid grid-cols-4 gap-1">
             {GROUP_OPTIONS.map((option) => {
               const active = groupBy === option.key;
@@ -95,7 +97,7 @@ export function FilterMenuBody({
           <>
             <div className="border-border/60 border-t" />
             <MenuSection
-              label="Category"
+              label={i18n.t('Category')}
               action={
                 categoryFilter.length > 0 ? (
                   <button
@@ -103,7 +105,7 @@ export function FilterMenuBody({
                     onClick={() => setCategoryFilter([])}
                     className="text-fg-dim hover:text-fg text-[10px] font-medium"
                   >
-                    Reset
+                    {i18n.t('Reset')}
                   </button>
                 ) : null
               }
@@ -130,7 +132,7 @@ export function FilterMenuBody({
           <>
             <div className="border-border/60 border-t" />
             <MenuSection
-              label="Runtime"
+              label={i18n.t('Runtime')}
               action={
                 runtimeFilter.length > 0 ? (
                   <button
@@ -138,7 +140,7 @@ export function FilterMenuBody({
                     onClick={() => setRuntimeFilter([])}
                     className="text-fg-dim hover:text-fg text-[10px] font-medium"
                   >
-                    Reset
+                    {i18n.t('Reset')}
                   </button>
                 ) : null
               }
@@ -172,15 +174,17 @@ export function FilterMenuBody({
       {activeFilterCount > 0 && (
         <div className="border-border/60 bg-surface-overlay/60 flex items-center justify-between border-t px-3 py-2">
           <span className="text-fg-dim text-[10.5px]">
-            {activeFilterCount} active{activeFilterCount === 1 ? ' filter' : ' filters'}
+            {i18n.rich('{activeFilterCount} active{value1}', {
+              activeFilterCount: activeFilterCount,
+              value1: activeFilterCount === 1 ? i18n.t(' filter') : i18n.t(' filters'),
+            })}
           </span>
           <button
             type="button"
             onClick={onClearAll}
             className="text-fg-muted hover:text-fg flex items-center gap-1 text-[11px] font-medium transition"
           >
-            <X className="h-3 w-3" />
-            Clear all
+            {i18n.rich('{value1}Clear all', { value1: <X className="h-3 w-3" /> })}
           </button>
         </div>
       )}

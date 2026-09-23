@@ -15,16 +15,66 @@ function load(path, modules = {}) {
   const run = new Function('exports', 'require', source);
   run(exports, (name) => {
     if (modules[name]) return modules[name];
+    if (name === '@runhq/cockpit-ui/i18n/core' || name === '../i18n/core') return i18nCore;
     throw new Error(name);
   });
   return exports;
 }
+const i18nCore = load('../../../packages/cockpit-ui/src/i18n/core.ts', {
+  './en.json': {
+    default: JSON.parse(
+      readFileSync(new URL('../../../packages/cockpit-ui/src/i18n/en.json', import.meta.url)),
+    ),
+  },
+  './tr.json': {
+    default: JSON.parse(
+      readFileSync(new URL('../../../packages/cockpit-ui/src/i18n/tr.json', import.meta.url)),
+    ),
+  },
+});
 const graph = load('../src/components/agents/agentWorkflowGraph.ts');
 const policy = load('../src/components/agents/agentWorkflowStepPolicy.ts', {
   './agentWorkflowGraph': graph,
 });
+const editor = load('../src/components/agents/agentWorkflowEditor.ts', {
+  './agentWorkflowGraph': graph,
+  './agentWorkflowStepPolicy': policy,
+});
 const bridge = load('../src/components/agents/agentWorkflowRecipeBridge.ts');
 const library = load('../src/components/agents/agentLibraryModel.ts');
+const launch = load('../src/components/agents/agentWorkflowLaunch.ts', {
+  '@runhq/cockpit-ui': load('../../../packages/cockpit-ui/src/components/agentStatus.ts'),
+});
+
+test('start timing offers all active tasks in the project across agents, excluding this workflow', () => {
+  const session = (id, status, extra = {}) => ({
+    id,
+    project_id: 'project',
+    status,
+    archived: false,
+    updated_at: 1,
+    ...extra,
+  });
+  const candidates = launch.workflowLaunchCandidates(
+    {
+      a: session('a', 'running', { backend: 'codex' }),
+      b: session('b', 'waiting_permission', { backend: 'claude', updated_at: 2 }),
+      c: session('c', 'waiting_input', { backend: 'acp' }),
+      own: session('own', 'running'),
+      other: session('other', 'running', { project_id: 'other-project' }),
+      archived: session('archived', 'running', { archived: true }),
+      completed: session('completed', 'completed'),
+      stopping: session('stopping', 'cancelling'),
+      missing: undefined,
+    },
+    'project',
+    ['own'],
+  );
+  assert.deepEqual(
+    candidates.map((task) => task.id),
+    ['b', 'a', 'c'],
+  );
+});
 
 const task = (id, role, depends_on = [], extra = {}) => ({
   id,
@@ -332,4 +382,280 @@ test('a key is made from the task, and falls back when it is taken', () => {
   assert.equal(policy.workflowTaskId('Add POST', new Set(['add-post'])), 't1');
   assert.equal(policy.workflowTaskId('   ', new Set(['t1'])), 't2');
   assert.ok(policy.workflowTaskId('a'.repeat(80), new Set()).length <= 32);
+});
+
+test('every starter workflow has instructions, a final review and safe parallel workspaces', () => {
+  for (const template of editor.WORKFLOW_TEMPLATES) {
+    const tasks = editor.createWorkflowTemplate(template.id, 'builder', 'reviewer');
+    assert.equal(policy.workflowStepsProblem(tasks), null, template.id);
+    assert.ok(tasks.every((task) => task.prompt.trim()));
+    assert.equal(tasks.at(-1).target, 'reviewer');
+    assert.deepEqual(graph.workflowUnreviewedProducers(tasks), []);
+  }
+  const parallel = editor.createWorkflowTemplate('parallel', 'builder', 'reviewer');
+  assert.ok(parallel.slice(0, 2).every((task) => task.workspace === 'own'));
+});
+
+test('adding and removing a step keeps the final review after the work without changing the draft', () => {
+  const original = editor.createWorkflowTemplate('parallel', 'builder', 'reviewer');
+  const snapshot = globalThis.structuredClone(original);
+  const added = editor.insertWorkflowTask(original, 'docs', 'implement', 'builder', 'reviewer');
+  const newTask = added.steps.find((task) => task.id === added.id);
+  newTask.prompt = 'Add a regression test for the change';
+  assert.equal(policy.workflowStepsProblem(added.steps), null);
+  assert.deepEqual(newTask.depends_on, ['docs']);
+  assert.deepEqual(added.steps.at(-1).depends_on, ['build', added.id]);
+  assert.deepEqual(editor.removeWorkflowTask(added.steps, added.id), original);
+  assert.deepEqual(original, snapshot);
+});
+
+test('prompt queues wait for intermediate reviews and preserve the selected conversation mode', () => {
+  const prompts = [
+    { prompt: 'Build the endpoint', review: true },
+    { prompt: 'Address findings and add tests', review: false },
+    { prompt: 'Update docs', review: false },
+  ];
+  for (const mode of ['same', 'separate']) {
+    const tasks = editor.createWorkflowPromptQueue(prompts, 'builder', 'reviewer', mode);
+    assert.equal(policy.workflowStepsProblem(tasks), null);
+    assert.deepEqual(
+      tasks.map((task) => task.id),
+      ['prompt-1', 'review-1', 'prompt-2', 'prompt-3', 'review-3'],
+    );
+    assert.deepEqual(
+      tasks.map((task) => task.depends_on),
+      [[], ['prompt-1'], ['review-1'], ['prompt-2'], ['prompt-3']],
+    );
+    assert.equal(tasks[2].continue_from, mode === 'same' ? 'prompt-1' : undefined);
+    assert.equal(tasks[3].continue_from, mode === 'same' ? 'prompt-2' : undefined);
+    assert.ok(tasks.filter((task) => task.role === 'review').every((task) => !task.continue_from));
+    const restored = bridge.recipeStepsToCreateSteps(
+      library.parseRecipeSteps(bridge.createStepsToRecipeSteps(tasks)),
+    );
+    assert.deepEqual(restored, tasks);
+  }
+});
+
+test('queue model choices stay with their prompts and independent reviews when saved as a recipe', () => {
+  const tasks = editor.createWorkflowPromptQueue(
+    [
+      { prompt: 'First', review: true, model: 'provider/first', effort: 'high' },
+      { prompt: 'Second', review: false, model: 'provider/second', effort: 'low' },
+      { prompt: 'Use provider defaults', review: false },
+    ],
+    'builder',
+    'reviewer',
+    'same',
+    { model: 'review-model', effort: 'medium' },
+  );
+  assert.deepEqual(
+    tasks.map(({ model, effort }) => [model, effort]),
+    [
+      ['provider/first', 'high'],
+      ['review-model', 'medium'],
+      ['provider/second', 'low'],
+      ['', ''],
+      ['review-model', 'medium'],
+    ],
+  );
+  assert.deepEqual(
+    bridge.recipeStepsToCreateSteps(
+      library.parseRecipeSteps(bridge.createStepsToRecipeSteps(tasks)),
+    ),
+    tasks,
+  );
+});
+
+test('inserting a review puts every successor behind it without joining the prompt conversation', () => {
+  const tasks = diamond();
+  const next = editor.insertWorkflowTask(tasks, 'api', 'review', 'reviewer', 'reviewer', 'same');
+  assert.deepEqual(next.steps.find((task) => task.id === 'ui').depends_on, [next.id]);
+  assert.deepEqual(next.steps.find((task) => task.id === 'docs').depends_on, [next.id]);
+  assert.deepEqual(next.steps.find((task) => task.id === next.id).depends_on, ['api']);
+  assert.equal(next.steps.find((task) => task.id === next.id).continue_from, undefined);
+  assert.equal(policy.workflowStepsProblem(next.steps), null);
+});
+
+test('inserting and removing a prompt rewires conversation context through a review', () => {
+  const tasks = editor.createWorkflowPromptQueue(
+    [
+      { prompt: 'First', review: true },
+      { prompt: 'Second', review: false },
+    ],
+    'builder',
+    'reviewer',
+    'same',
+  );
+  const next = editor.insertWorkflowTask(
+    tasks,
+    'review-1',
+    'implement',
+    'other-account',
+    'reviewer',
+    'same',
+  );
+  const added = next.steps.find((task) => task.id === next.id);
+  added.prompt = 'Middle';
+  assert.equal(added.continue_from, 'prompt-1');
+  assert.equal(added.target, 'builder');
+  assert.equal(next.steps.find((task) => task.id === 'prompt-2').continue_from, added.id);
+  assert.equal(policy.workflowStepsProblem(next.steps), null);
+  assert.deepEqual(editor.removeWorkflowTask(next.steps, added.id), tasks);
+});
+
+test('extending a queue after its last review keeps that review and adds a new final review', () => {
+  const tasks = editor.createWorkflowPromptQueue(
+    [{ prompt: 'First', review: false }],
+    'builder',
+    'reviewer',
+    'same',
+  );
+  const next = editor.insertWorkflowTask(
+    tasks,
+    'review-1',
+    'implement',
+    'builder',
+    'reviewer',
+    'same',
+  );
+  next.steps.find((task) => task.id === next.id).prompt = 'Next';
+  assert.deepEqual(next.steps[2].depends_on, ['review-1']);
+  assert.equal(next.steps[2].continue_from, 'prompt-1');
+  assert.equal(next.steps.at(-1).role, 'review');
+  assert.equal(policy.workflowStepsProblem(next.steps), null);
+});
+
+test('conversation continuation rejects changed accounts, isolated copies, review sessions and forks', () => {
+  const tasks = editor.createWorkflowPromptQueue(
+    [
+      { prompt: 'First', review: true },
+      { prompt: 'Second', review: false },
+    ],
+    'builder',
+    'reviewer',
+    'same',
+  );
+  for (const patch of [
+    { target: 'other' },
+    { workspace: 'own' },
+    { continue_from: 'review-1' },
+    { continue_from: 'missing' },
+  ]) {
+    const invalid = tasks.map((task) => (task.id === 'prompt-2' ? { ...task, ...patch } : task));
+    assert.ok(policy.workflowStepsProblem(invalid), JSON.stringify(patch));
+  }
+  const fork = [
+    ...tasks,
+    task('fork', 'implement', ['prompt-1'], { target: 'builder', continue_from: 'prompt-1' }),
+  ];
+  assert.ok(
+    policy
+      .workflowTasksProblems(fork)
+      .some((problem) => /two conversation continuations/.test(problem.message)),
+  );
+});
+
+test('removing a branch preserves shared ancestors without duplicate connections', () => {
+  const tasks = [
+    task('a', 'implement'),
+    task('b', 'implement', ['a']),
+    task('rev', 'review', ['a', 'b']),
+  ];
+  const removed = editor.removeWorkflowTask(tasks, 'b');
+  assert.deepEqual(removed.at(-1).depends_on, ['a']);
+  assert.equal(policy.workflowStepsProblem(removed), null);
+});
+
+test('canvas connections reject duplicates, self-links, cycles and unknown steps', () => {
+  const tasks = diamond();
+  assert.equal(editor.canConnectWorkflowTasks(tasks, 'api', 'rev'), true);
+  for (const [source, target] of [
+    ['api', 'ui'],
+    ['api', 'api'],
+    ['rev', 'api'],
+    ['missing', 'api'],
+    ['api', 'missing'],
+  ]) {
+    assert.equal(
+      editor.canConnectWorkflowTasks(tasks, source, target),
+      false,
+      `${source} → ${target}`,
+    );
+  }
+});
+
+test('the map places dependencies before dependents and parallel steps apart', () => {
+  const tasks = diamond().reverse();
+  const positions = editor.workflowCanvasPositions(tasks);
+  for (const task of tasks) {
+    for (const dependency of task.depends_on)
+      assert.ok(positions[dependency].x < positions[task.id].x);
+  }
+  assert.equal(positions.ui.x, positions.docs.x);
+  assert.notEqual(positions.ui.y, positions.docs.y);
+});
+
+test('a completed review with findings blocks its successors until an explicit decision', () => {
+  const steps = [
+    step('build', 'implement', [], 'completed'),
+    step('review', 'review', ['build'], 'completed', {
+      review_policy: 'on_findings',
+      review_outcome: 'findings',
+    }),
+    step('next', 'implement', ['review'], 'pending'),
+  ];
+  assert.deepEqual(graph.workflowRunnableTasks(steps), []);
+  assert.equal(graph.groupWorkflowTasks(steps).attention[0].id, 'review');
+  for (const outcome of ['unknown', null, undefined]) {
+    assert.equal(graph.workflowReviewNeedsDecision({ ...steps[1], review_outcome: outcome }), true);
+  }
+  assert.equal(graph.workflowReviewNeedsDecision({ ...steps[1], review_outcome: 'passed' }), false);
+  assert.equal(
+    graph.workflowReviewNeedsDecision({
+      ...steps[1],
+      review_outcome: 'passed',
+      review_policy: 'approval',
+    }),
+    true,
+  );
+  steps[1].review_decision = 'approved';
+  assert.deepEqual(
+    graph.workflowRunnableTasks(steps).map((s) => s.id),
+    ['next'],
+  );
+});
+
+test('live queue reordering preserves the started prefix and reconnects conversation context', () => {
+  const queue = editor.createWorkflowPromptQueue(
+    [{ prompt: 'First' }, { prompt: 'Second' }, { prompt: 'Third' }],
+    'codex',
+    'claude',
+    'same',
+  );
+  const locked = new Set(['prompt-1']);
+  assert.equal(editor.moveWorkflowQueue(queue, 'prompt-2', -1, locked), queue);
+  const moved = editor.moveWorkflowQueue(queue, 'prompt-3', -1, locked);
+  assert.equal(moved[0], queue[0]);
+  assert.equal(moved[1].id, 'prompt-3');
+  assert.equal(moved[1].continue_from, 'prompt-1');
+  assert.equal(moved[2].continue_from, 'prompt-3');
+  assert.deepEqual(moved[3].depends_on, ['prompt-2']);
+  assert.equal(policy.workflowStepsProblem(moved), null);
+  const parallel = diamond();
+  assert.equal(editor.moveWorkflowQueue(parallel, 'docs', -1), parallel);
+});
+
+test('review policy survives queue creation and recipe round trips', () => {
+  const queue = editor.createWorkflowPromptQueue([{ prompt: 'Build' }], 'codex', 'claude', 'same', {
+    review_policy: 'auto_fix',
+    model: 'review-model',
+    effort: 'high',
+  });
+  assert.equal(queue[1].review_policy, 'auto_fix');
+  const saved = library.parseRecipeSteps(bridge.createStepsToRecipeSteps(queue));
+  assert.deepEqual(bridge.recipeStepsToCreateSteps(saved), queue);
+  assert.throws(
+    () => library.parseRecipeSteps([{ ...saved[0], reviewPolicy: 'guess' }]),
+    /review policy/i,
+  );
 });

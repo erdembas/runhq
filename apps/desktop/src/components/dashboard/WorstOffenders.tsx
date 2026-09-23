@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronDown, Flame, Package, ShieldAlert, Clock, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { riskScore } from '@/lib/risk';
@@ -61,14 +62,19 @@ function describe(p: ProjectOverview): string {
   const license = p.license;
   const parts: string[] = [];
   if (audit && audit.critical > 0) {
-    parts.push(`${audit.critical} critical`);
+    parts.push(i18n.t('{value1} critical', { value1: audit.critical }));
   } else if (audit && audit.high > 0) {
-    parts.push(`${audit.high} high`);
+    parts.push(i18n.t('{value1} high', { value1: audit.high }));
   }
   if (outdated && outdated.major > 0) {
-    parts.push(`${outdated.major} major bump${outdated.major > 1 ? 's' : ''}`);
+    parts.push(
+      i18n.t('{value1} major bump{plural2}', {
+        value1: outdated.major,
+        plural2: outdated.major > 1 ? 's' : '',
+      }),
+    );
   } else if (outdated && outdated.total > 0) {
-    parts.push(`${outdated.total} outdated`);
+    parts.push(i18n.t('{value1} outdated', { value1: outdated.total }));
   }
   // License contamination — surface the "loudest" class first so the
   // reason line reads at a glance: AGPL beats GPL beats proprietary.
@@ -77,19 +83,29 @@ function describe(p: ProjectOverview): string {
   if (license) {
     if (license.network_copyleft_count > 0) {
       parts.push(
-        `${license.network_copyleft_count} AGPL${license.network_copyleft_count > 1 ? 's' : ''}`,
+        i18n.t('{value1} AGPL{plural2}', {
+          value1: license.network_copyleft_count,
+          plural2: license.network_copyleft_count > 1 ? 's' : '',
+        }),
       );
     } else if (license.strong_copyleft_count > 0) {
       parts.push(
-        `${license.strong_copyleft_count} GPL${license.strong_copyleft_count > 1 ? 's' : ''}`,
+        i18n.t('{value1} GPL{plural2}', {
+          value1: license.strong_copyleft_count,
+          plural2: license.strong_copyleft_count > 1 ? 's' : '',
+        }),
       );
     } else if (license.proprietary_count > 0) {
       parts.push(
-        `${license.proprietary_count} proprietary lic${license.proprietary_count > 1 ? 's' : '.'}`,
+        i18n.plural(
+          '{count} proprietary license',
+          '{count} proprietary licenses',
+          license.proprietary_count,
+        ),
       );
     }
   }
-  if (p.is_stale) parts.push('stale');
+  if (p.is_stale) parts.push(i18n.t('stale'));
   return parts.join(' · ');
 }
 
@@ -102,6 +118,7 @@ export function WorstOffenders({
   onOpenDetail: (serviceId: string, tab: DetailTab) => void;
   limit?: number;
 }) {
+  i18n.useLocale();
   const offenders: OffenderEntry[] = [];
   for (const p of projects) {
     const score = riskScore(p);
@@ -165,6 +182,7 @@ function WorstOffendersInner({
   totalCount: number;
   onOpenDetail: (serviceId: string, tab: DetailTab) => void;
 }) {
+  i18n.useLocale();
   // Collapse state survives navigation / restart so a user who's
   // habitually closed the offender band keeps it closed. Default
   // open — the band only renders when there are real offenders, so
@@ -176,7 +194,7 @@ function WorstOffendersInner({
   return (
     <section
       className={cn('rounded-app overflow-hidden border transition', accent)}
-      aria-label="Projects needing attention"
+      aria-label={i18n.t('Projects needing attention')}
     >
       <button
         type="button"
@@ -184,7 +202,9 @@ function WorstOffendersInner({
         aria-expanded={!collapsed}
         aria-controls="dashboard-offenders-list"
         className="border-border/60 hover:bg-fg/5 flex w-full items-center gap-2 border-b px-4 py-2 text-left transition"
-        title={collapsed ? 'Expand the attention list' : 'Collapse the attention list'}
+        title={
+          collapsed ? i18n.t('Expand the attention list') : i18n.t('Collapse the attention list')
+        }
       >
         <Flame
           className={cn(
@@ -193,10 +213,10 @@ function WorstOffendersInner({
           )}
         />
         <span className="text-fg-dim text-[11px] font-semibold tracking-[0.12em] uppercase">
-          Needs attention
+          {i18n.t('Needs attention')}
         </span>
         <span className="text-fg-dim text-[11px] tabular-nums">
-          {shown.length} of {totalCount}
+          {i18n.rich('{value1} of {totalCount}', { value1: shown.length, totalCount: totalCount })}
         </span>
         <ChevronDown
           className={cn(
@@ -242,6 +262,7 @@ function OffenderRow({
   entry: OffenderEntry;
   onOpenDetail: (serviceId: string, tab: DetailTab) => void;
 }) {
+  i18n.useLocale();
   const { project: p, primaryTab, reason } = entry;
   const cveTotal =
     (p.audit?.critical ?? 0) + (p.audit?.high ?? 0) + (p.audit?.medium ?? 0) + (p.audit?.low ?? 0);
@@ -272,8 +293,14 @@ function OffenderRow({
             <button
               type="button"
               onClick={openTab('advisories')}
-              title={`${cveTotal} advisor${cveTotal > 1 ? 'ies' : 'y'} — view advisories`}
-              aria-label={`${cveTotal} security advisories, open advisories tab`}
+              title={i18n.plural(
+                '{count} advisory — view advisories',
+                '{count} advisories — view advisories',
+                cveTotal,
+              )}
+              aria-label={i18n.t('{cveTotal} security advisories, open advisories tab', {
+                cveTotal: cveTotal,
+              })}
               className={cn(
                 'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
                 hasCritical
@@ -291,8 +318,13 @@ function OffenderRow({
             <button
               type="button"
               onClick={openTab('outdated')}
-              title={`${outTotal} outdated package${outTotal > 1 ? 's' : ''} — view outdated`}
-              aria-label={`${outTotal} outdated packages, open outdated tab`}
+              title={i18n.t('{outTotal} outdated package{plural2} — view outdated', {
+                outTotal: outTotal,
+                plural2: outTotal > 1 ? 's' : '',
+              })}
+              aria-label={i18n.t('{outTotal} outdated packages, open outdated tab', {
+                outTotal: outTotal,
+              })}
               className={cn(
                 'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
                 (p.outdated?.major ?? 0) > 0
@@ -310,13 +342,14 @@ function OffenderRow({
               onClick={openTab(primaryTab)}
               title={
                 p.last_activity
-                  ? `No activity since ${new Date(p.last_activity).toLocaleDateString()} — open project`
-                  : 'No activity recorded — open project'
+                  ? i18n.t('No activity since {value1} — open project', {
+                      value1: new Date(p.last_activity).toLocaleDateString(i18n.getFormatLocale()),
+                    })
+                  : i18n.t('No activity recorded — open project')
               }
               className="bg-fg-dim/10 text-fg-dim hover:bg-fg-dim/20 rounded-app-sm inline-flex h-5 items-center gap-1 px-1.5 text-[10px] font-semibold transition"
             >
-              <Clock className="h-3 w-3" />
-              Stale
+              {i18n.rich('{value1}Stale', { value1: <Clock className="h-3 w-3" /> })}
             </button>
           )}
         </div>

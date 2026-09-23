@@ -1,9 +1,13 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Circle, CircleCheck, CircleHelp, Loader2, OctagonX, ShieldQuestion } from 'lucide-react';
 import type { AgentStatus } from '@runhq/cockpit-types';
 
 import { AGENT_STATUS_LABELS } from './agentStatus';
 
 export function AgentStatusBadge({ status }: { status: AgentStatus }) {
+  i18n.useLocale();
   const waiting = status === 'waiting_input' || status === 'waiting_permission';
   const spinning = status === 'running' || status === 'starting' || status === 'cancelling';
   const Icon = spinning

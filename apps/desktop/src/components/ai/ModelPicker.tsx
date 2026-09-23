@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { AiChatProvider } from './chat-panel/aiChatProviders';
 import { Check, Settings, Sparkles, TerminalSquare, Wrench } from 'lucide-react';
 import { useAgentStore } from '@/store/useAgentStore';
@@ -44,6 +45,7 @@ export function ModelPicker({
    *  so the click doesn't feel like a surprise. */
   awaitingAutoSend?: boolean;
 }) {
+  i18n.useLocale();
   return (
     <div
       role="listbox"
@@ -60,12 +62,14 @@ export function ModelPicker({
             'border-b px-2.5 py-1.5 text-[10.5px] font-medium tracking-wide uppercase',
           )}
         >
-          Pick a model to send
+          {i18n.t('Pick a model to send')}
         </div>
       )}
       <div className="max-h-[280px] overflow-y-auto py-1">
         {providers.length === 0 ? (
-          <div className="text-fg-dim px-2.5 py-2 text-[11px]">No providers configured.</div>
+          <div className="text-fg-dim px-2.5 py-2 text-[11px]">
+            {i18n.t('No providers configured.')}
+          </div>
         ) : (
           providers.map((p) => {
             const isActive = p.id === activeId;
@@ -100,8 +104,8 @@ export function ModelPicker({
                     <div className="text-fg-dim/70 truncate text-[10px]">
                       {cli
                         ? cli.available
-                          ? 'CLI · Default model'
-                          : cli.error || 'CLI not found'
+                          ? i18n.t('CLI · Default model')
+                          : cli.error || i18n.t('CLI not found')
                         : p.model}
                     </div>
                   )}
@@ -119,7 +123,7 @@ export function ModelPicker({
           className="text-fg-dim hover:bg-fg/5 hover:text-fg flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition-colors"
         >
           <Wrench className="h-3 w-3" />
-          <span>Manage CLI tools…</span>
+          <span>{i18n.t('Manage CLI tools…')}</span>
         </button>
         <button
           type="button"
@@ -130,7 +134,7 @@ export function ModelPicker({
           )}
         >
           <Settings className="h-3 w-3" />
-          <span>Manage API providers…</span>
+          <span>{i18n.t('Manage API providers…')}</span>
         </button>
       </div>
     </div>

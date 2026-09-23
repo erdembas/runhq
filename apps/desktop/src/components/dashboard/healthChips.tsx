@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Package, Scale, Shield } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { AuditResult, LicenseScanSummary, OutdatedResult } from '@/types';
@@ -60,6 +61,7 @@ export function OutdatedChip({
   outdated: OutdatedResult;
   onClick: () => void;
 }) {
+  i18n.useLocale();
   if (outdated.total === 0) return null;
   const tone =
     outdated.major > 0
@@ -74,8 +76,16 @@ export function OutdatedChip({
         e.stopPropagation();
         onClick();
       }}
-      title={`${outdated.total} outdated: ${outdated.major} major, ${outdated.minor} minor, ${outdated.patch} patch — click for details`}
-      aria-label={`${outdated.total} outdated dependencies`}
+      title={i18n.t(
+        '{value1} outdated: {value2} major, {value3} minor, {value4} patch — click for details',
+        {
+          value1: outdated.total,
+          value2: outdated.major,
+          value3: outdated.minor,
+          value4: outdated.patch,
+        },
+      )}
+      aria-label={i18n.t('{value1} outdated dependencies', { value1: outdated.total })}
       className={cn(
         'rounded-app-sm inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
         tone,
@@ -95,6 +105,7 @@ export function OutdatedChip({
  * high → warning, medium → info, low-only → neutral.
  */
 export function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () => void }) {
+  i18n.useLocale();
   const total = audit.critical + audit.high + audit.medium + audit.low;
   if (total === 0) return null;
   const hasCritical = audit.critical > 0;
@@ -112,8 +123,17 @@ export function AuditChip({ audit, onClick }: { audit: AuditResult; onClick: () 
         e.stopPropagation();
         onClick();
       }}
-      title={`${total} advisories: ${audit.critical} critical, ${audit.high} high, ${audit.medium} medium, ${audit.low} low — click for details`}
-      aria-label={`${total} security advisories`}
+      title={i18n.t(
+        '{total} advisories: {value2} critical, {value3} high, {value4} medium, {value5} low — click for details',
+        {
+          total: total,
+          value2: audit.critical,
+          value3: audit.high,
+          value4: audit.medium,
+          value5: audit.low,
+        },
+      )}
+      aria-label={i18n.t('{total} security advisories', { total: total })}
       className={cn(
         'rounded-app-sm relative inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
         tone,
@@ -148,6 +168,7 @@ export function LicenseChip({
   license: LicenseScanSummary;
   onClick: () => void;
 }) {
+  i18n.useLocale();
   const total = licenseContaminationCount(license);
   if (total === 0) return null;
   const hasNetwork = license.network_copyleft_count > 0;
@@ -159,15 +180,20 @@ export function LicenseChip({
 
   const parts: string[] = [];
   if (license.network_copyleft_count > 0) {
-    parts.push(`${license.network_copyleft_count} network copyleft (AGPL/SSPL)`);
+    parts.push(
+      i18n.t('{value1} network copyleft (AGPL/SSPL)', { value1: license.network_copyleft_count }),
+    );
   }
   if (license.strong_copyleft_count > 0) {
-    parts.push(`${license.strong_copyleft_count} strong copyleft (GPL)`);
+    parts.push(i18n.t('{value1} strong copyleft (GPL)', { value1: license.strong_copyleft_count }));
   }
   if (license.proprietary_count > 0) {
-    parts.push(`${license.proprietary_count} proprietary`);
+    parts.push(i18n.t('{value1} proprietary', { value1: license.proprietary_count }));
   }
-  const tooltip = `License contamination: ${parts.join(', ')}. Click to review and generate THIRD-PARTY-NOTICES.md.`;
+  const tooltip = i18n.t(
+    'License contamination: {value1}. Click to review and generate THIRD-PARTY-NOTICES.md.',
+    { value1: parts.join(', ') },
+  );
 
   return (
     <button
@@ -177,7 +203,7 @@ export function LicenseChip({
         onClick();
       }}
       title={tooltip}
-      aria-label={`${total} contaminated licenses`}
+      aria-label={i18n.t('{total} contaminated licenses', { total: total })}
       className={cn(
         'rounded-app-sm relative inline-flex h-5 items-center gap-1 border px-1.5 text-[10px] font-semibold tabular-nums transition',
         tone,

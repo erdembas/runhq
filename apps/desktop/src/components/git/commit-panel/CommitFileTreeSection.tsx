@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { CheckSquare, Minus, Plus } from 'lucide-react';
 import { TreeView } from '@/components/git/shared';
 import { CommitFileActionButton } from '@/components/git/commit-panel/CommitFileActionButton';
@@ -34,12 +35,14 @@ export function CommitFileTreeSection({
   onAllAction,
   onFileAction,
 }: CommitFileTreeSectionProps) {
+  i18n.useLocale();
   const expanded = side === 'staged' ? panel.showStaged : panel.showChanges;
   const selectedFile = panel.selected?.kind === side ? panel.selected.path : null;
   const SectionIcon = side === 'staged' ? Minus : CheckSquare;
   const FileActionIcon = side === 'staged' ? Minus : Plus;
-  const fileActionTitle = side === 'staged' ? 'Unstage this file' : 'Stage this file';
-  const allActionTitle = side === 'staged' ? 'Unstage all' : 'Stage all';
+  const fileActionTitle =
+    side === 'staged' ? i18n.t('Unstage this file') : i18n.t('Stage this file');
+  const allActionTitle = side === 'staged' ? i18n.t('Unstage all') : i18n.t('Stage all');
   const fileActionClass =
     side === 'staged'
       ? 'text-fg/50 hover:bg-fg/10 hover:text-fg'
@@ -70,11 +73,11 @@ export function CommitFileTreeSection({
         <>
           {allEntries.length === 0 && (
             <p className="text-fg/30 px-4 py-1.5 text-[11px]">
-              {emptyWhileLoading ? 'Loading…' : emptyLabel}
+              {emptyWhileLoading ? i18n.t('Loading…') : emptyLabel}
             </p>
           )}
           {allEntries.length > 0 && entries.length === 0 && (
-            <p className="text-fg/30 px-4 py-1.5 text-[11px]">No matches</p>
+            <p className="text-fg/30 px-4 py-1.5 text-[11px]">{i18n.t('No matches')}</p>
           )}
           {entries.length > 0 &&
             (panel.treeMode === 'tree' ? (

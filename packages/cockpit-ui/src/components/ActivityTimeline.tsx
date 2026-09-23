@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import {
   AlertTriangle,
   GitCommit,
@@ -53,6 +56,7 @@ const TONE: Record<TimelineEventType, string> = {
  * events, so the heavy machinery is dead weight here.
  */
 export function ActivityTimeline({ events, className }: Props) {
+  i18n.useLocale();
   return (
     <ol className={cn('relative flex flex-col gap-3 pl-5', className)}>
       <span

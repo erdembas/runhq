@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { History, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +17,7 @@ import { SettingsPageShell, SettingsSection } from '../SettingsView';
  * clear it".
  */
 export function DataCategory({ description }: { description?: string }) {
+  i18n.useLocale();
   const [scanRowCount, setScanRowCount] = useState<number | null>(null);
   const [stateDir, setStateDir] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -57,17 +59,22 @@ export function DataCategory({ description }: { description?: string }) {
   return (
     <SettingsPageShell description={description}>
       <SettingsSection
-        title="Dependency scan history"
-        description="Cached scan results survive restarts so the dashboard can render audit/outdated chips instantly on cold start. Resetting forces every project to be rescanned on the next dependency sweep."
+        title={i18n.t('Dependency scan history')}
+        description={i18n.t(
+          'Cached scan results survive restarts so the dashboard can render audit/outdated chips instantly on cold start. Resetting forces every project to be rescanned on the next dependency sweep.',
+        )}
       >
         <div className="border-border/50 bg-surface/40 rounded-app-sm flex items-center justify-between gap-3 border px-3 py-3">
           <div className="text-fg-dim flex items-center gap-2 text-[11px]">
             <History className="h-3.5 w-3.5" />
             {scanRowCount == null
-              ? 'Loading scan cache…'
+              ? i18n.t('Loading scan cache…')
               : scanRowCount === 0
-                ? 'No persisted scans yet'
-                : `${scanRowCount} project${scanRowCount === 1 ? '' : 's'} cached`}
+                ? i18n.t('No persisted scans yet')
+                : i18n.t('{scanRowCount} project{plural2} cached', {
+                    scanRowCount: scanRowCount,
+                    plural2: scanRowCount === 1 ? '' : 's',
+                  })}
           </div>
           <Button
             variant="ghost"
@@ -76,19 +83,21 @@ export function DataCategory({ description }: { description?: string }) {
             disabled={resetting || scanRowCount === 0 || scanRowCount == null}
             leftIcon={<Trash2 className="h-3.5 w-3.5" />}
           >
-            {resetting ? 'Clearing…' : 'Reset scan cache'}
+            {resetting ? i18n.t('Clearing…') : i18n.t('Reset scan cache')}
           </Button>
         </div>
       </SettingsSection>
 
       {stateDir && (
         <SettingsSection
-          title="Storage location"
-          description="Configuration, cached scans, and AI provider settings live in this directory. Quit RunHQ before backing it up to avoid copying a half-written sqlite file."
+          title={i18n.t('Storage location')}
+          description={i18n.t(
+            'Configuration, cached scans, and AI provider settings live in this directory. Quit RunHQ before backing it up to avoid copying a half-written sqlite file.',
+          )}
         >
           <div className="border-border/50 bg-surface/40 rounded-app-sm border px-3 py-2.5">
             <div className="text-fg-dim mb-1 text-[10px] tracking-wider uppercase">
-              State directory
+              {i18n.t('State directory')}
             </div>
             <div className="text-fg font-mono text-[11px] break-all">{stateDir}</div>
           </div>
@@ -97,15 +106,16 @@ export function DataCategory({ description }: { description?: string }) {
 
       {confirmReset && (
         <ConfirmDialog
-          title="Reset scan cache?"
+          title={i18n.t('Reset scan cache?')}
           message={
             scanRowCount && scanRowCount > 0
-              ? `This will delete ${scanRowCount} cached scan result${
-                  scanRowCount === 1 ? '' : 's'
-                }. The next dependency sweep will rerun npm outdated / cargo audit for every project.`
-              : 'This will delete all cached dependency scan results.'
+              ? i18n.t(
+                  'This will delete {scanRowCount} cached scan result{plural2}. The next dependency sweep will rerun npm outdated / cargo audit for every project.',
+                  { scanRowCount: scanRowCount, plural2: scanRowCount === 1 ? '' : 's' },
+                )
+              : i18n.t('This will delete all cached dependency scan results.')
           }
-          confirmLabel="Reset cache"
+          confirmLabel={i18n.t('Reset cache')}
           confirmWord="reset"
           tone="danger"
           onConfirm={() => void handleResetScanCache()}

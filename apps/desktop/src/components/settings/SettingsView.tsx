@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, type ReactNode } from 'react';
 import {
   Bot,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAppStore, type SettingsCategoryId } from '@/store/useAppStore';
+import { GeneralCategory } from './categories/GeneralCategory';
 import { ShortcutsCategory } from './categories/ShortcutsCategory';
 import { AiCategory } from './categories/AiCategory';
 import { DataCategory } from './categories/DataCategory';
@@ -33,37 +35,68 @@ interface CategoryDef {
 
 const CATEGORIES: ReadonlyArray<CategoryDef> = [
   {
+    id: 'general',
+    get label() {
+      return i18n.t('General');
+    },
+    get description() {
+      return i18n.t('Language and agent permission preferences.');
+    },
+    icon: SettingsIcon,
+    group: 'workspace',
+  },
+  {
     id: 'shortcuts',
-    label: 'Keyboard Shortcuts',
-    description: 'Global hotkeys, panel toggles, and tab navigation.',
+    get label() {
+      return i18n.t('Keyboard Shortcuts');
+    },
+    get description() {
+      return i18n.t('Global hotkeys, panel toggles, and tab navigation.');
+    },
     icon: Keyboard,
     group: 'workspace',
   },
   {
     id: 'ai',
-    label: 'AI Providers',
-    description: 'Configure AI providers and per-conversation defaults.',
+    get label() {
+      return i18n.t('AI Providers');
+    },
+    get description() {
+      return i18n.t('Configure AI providers and per-conversation defaults.');
+    },
     icon: Bot,
     group: 'workspace',
   },
   {
     id: 'data',
-    label: 'Data & Cache',
-    description: 'Manage cached scan results and persisted data.',
+    get label() {
+      return i18n.t('Data & Cache');
+    },
+    get description() {
+      return i18n.t('Manage cached scan results and persisted data.');
+    },
     icon: Database,
     group: 'system',
   },
   {
     id: 'about',
-    label: 'About & Updates',
-    description: 'App version, release notes, and onboarding tour.',
+    get label() {
+      return i18n.t('About & Updates');
+    },
+    get description() {
+      return i18n.t('App version, release notes, and onboarding tour.');
+    },
     icon: Info,
     group: 'system',
   },
   {
     id: 'danger',
-    label: 'Danger Zone',
-    description: 'Destructive operations that cannot be undone.',
+    get label() {
+      return i18n.t('Danger Zone');
+    },
+    get description() {
+      return i18n.t('Destructive operations that cannot be undone.');
+    },
     icon: ShieldAlert,
     group: 'system',
   },
@@ -106,6 +139,7 @@ interface Props {
  * (the welcome-tour modal) lives in *its* component tree.
  */
 export function SettingsView({ onReplayTour }: Props) {
+  i18n.useLocale();
   const active = useAppStore((s) => s.settingsCategory);
   const closeSettings = useAppStore((s) => s.closeSettings);
   const openSettings = useAppStore((s) => s.openSettings);
@@ -152,8 +186,9 @@ export function SettingsView({ onReplayTour }: Props) {
       <header className="border-border bg-surface flex shrink-0 items-center border-b px-5 py-3">
         <div className="min-w-0">
           <span className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
-            <SettingsIcon className="text-accent h-3 w-3" />
-            Settings
+            {i18n.rich('{value1}Settings', {
+              value1: <SettingsIcon className="text-accent h-3 w-3" />,
+            })}
           </span>
           <h1 className="text-fg text-[14px] leading-tight font-semibold tracking-tight">
             {currentCategory(active).label}
@@ -165,7 +200,7 @@ export function SettingsView({ onReplayTour }: Props) {
       <div className="flex min-h-0 flex-1">
         <aside className="bg-surface-raised/30 border-border flex w-[240px] shrink-0 flex-col border-r">
           <div className="text-fg-dim/80 px-3 pt-3 pb-2 text-[10px] font-semibold tracking-wider uppercase">
-            Categories
+            {i18n.t('Categories')}
           </div>
           <nav className="flex-1 overflow-y-auto px-2 pb-2">
             {CATEGORIES.map((cat, idx) => {
@@ -199,6 +234,7 @@ export function SettingsView({ onReplayTour }: Props) {
           margins and translucent fills — and the seams showed.
         */}
         <section className="bg-surface flex min-w-0 flex-1 flex-col">
+          {active === 'general' && <GeneralCategory />}
           {active === 'shortcuts' && (
             <ShortcutsCategory description={currentCategory(active).description} />
           )}
@@ -239,6 +275,7 @@ function SidebarItem({
   active: boolean;
   onClick: () => void;
 }) {
+  i18n.useLocale();
   return (
     <button
       type="button"
@@ -312,6 +349,7 @@ export function SettingsPageShell({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {toolbar && (
@@ -359,6 +397,7 @@ export function SettingsSection({
   trailing?: ReactNode;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   return (
     <section className="mb-6">
       {(title || trailing) && (

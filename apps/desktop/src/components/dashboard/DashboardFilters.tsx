@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ArrowDownWideNarrow, Eye, EyeOff, Flame, GitBranch, Layers, X } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function DashboardFilters({ model }: Props) {
+  i18n.useLocale();
   const hasAttentionFilters = attentionTotal(model) > 0;
   const hasGitFilters = model.gitStats.dirty + model.gitStats.clean > 0;
 
@@ -25,10 +27,9 @@ export function DashboardFilters({ model }: Props) {
               type="button"
               onClick={model.clearFilters}
               className="text-fg-dim hover:text-accent inline-flex items-center gap-1 text-[11px] transition"
-              title="Reset every filter"
+              title={i18n.t('Reset every filter')}
             >
-              <X className="h-3 w-3" />
-              Clear
+              {i18n.rich('{value1}Clear', { value1: <X className="h-3 w-3" /> })}
             </button>
           )}
           {hasAttentionFilters || hasGitFilters ? (
@@ -43,7 +44,7 @@ export function DashboardFilters({ model }: Props) {
               label: o.label,
               description: o.description,
             }))}
-            ariaLabel="Group cards by"
+            ariaLabel={i18n.t('Group cards by')}
             leading={<Layers size={11} />}
           />
           <Select
@@ -54,7 +55,7 @@ export function DashboardFilters({ model }: Props) {
               label: o.label,
               description: o.description,
             }))}
-            ariaLabel="Sort cards by"
+            ariaLabel={i18n.t('Sort cards by')}
             leading={<ArrowDownWideNarrow size={11} />}
           />
         </div>
@@ -64,14 +65,15 @@ export function DashboardFilters({ model }: Props) {
 }
 
 function AttentionDropdown({ model }: Props) {
+  i18n.useLocale();
   const opts = buildAttentionOptions(model);
   return (
-    <LabeledFilterDropdown label="Attention" active={model.attentionFilter !== 'all'}>
+    <LabeledFilterDropdown label={i18n.t('Attention')} active={model.attentionFilter !== 'all'}>
       <Select<AttentionFilter>
         value={model.attentionFilter}
         onChange={(v) => model.setAttentionFilterDeferred(v)}
         options={opts}
-        ariaLabel="Filter by attention bucket"
+        ariaLabel={i18n.t('Filter by attention bucket')}
         leading={<Flame size={11} />}
         className={cn(
           'rounded-l-none border-l-0',
@@ -83,14 +85,15 @@ function AttentionDropdown({ model }: Props) {
 }
 
 function GitDropdown({ model }: Props) {
+  i18n.useLocale();
   const opts = buildGitOptions(model);
   return (
-    <LabeledFilterDropdown label="Git" active={model.gitFilter !== 'all'}>
+    <LabeledFilterDropdown label={i18n.t('Git')} active={model.gitFilter !== 'all'}>
       <Select<GitFilter>
         value={model.gitFilter}
         onChange={(v) => model.setGitFilterDeferred(v)}
         options={opts}
-        ariaLabel="Filter by git state"
+        ariaLabel={i18n.t('Filter by git state')}
         leading={<GitBranch size={11} />}
         className={cn(
           'rounded-l-none border-l-0',
@@ -102,6 +105,7 @@ function GitDropdown({ model }: Props) {
 }
 
 function HiddenToggle({ model }: Props) {
+  i18n.useLocale();
   return (
     <button
       type="button"
@@ -109,8 +113,14 @@ function HiddenToggle({ model }: Props) {
       aria-pressed={model.showHidden}
       title={
         model.showHidden
-          ? `Hide ${model.hiddenCount} workspace-only project${model.hiddenCount === 1 ? '' : 's'}`
-          : `Show ${model.hiddenCount} workspace-only project${model.hiddenCount === 1 ? '' : 's'}`
+          ? i18n.t('Hide {value1} workspace-only project{plural2}', {
+              value1: model.hiddenCount,
+              plural2: model.hiddenCount === 1 ? '' : 's',
+            })
+          : i18n.t('Show {value1} workspace-only project{plural2}', {
+              value1: model.hiddenCount,
+              plural2: model.hiddenCount === 1 ? '' : 's',
+            })
       }
       className={cn(
         'border-border bg-surface-raised text-fg-muted rounded-app-sm inline-flex h-7 items-center gap-1.5 border px-2.5 text-[11px] font-medium tabular-nums transition',
@@ -123,7 +133,7 @@ function HiddenToggle({ model }: Props) {
       ) : (
         <EyeOff className="text-fg-dim h-3.5 w-3.5" />
       )}
-      <span>Hidden</span>
+      <span>{i18n.t('Hidden')}</span>
       <span
         className={cn(
           'rounded-sm px-1 text-[10px] tabular-nums',
@@ -146,39 +156,49 @@ function buildAttentionOptions(model: DashboardModel) {
   const opts: { value: AttentionFilter; label: string; description: string }[] = [
     {
       value: 'all',
-      label: `All (${model.total})`,
-      description: 'Show projects regardless of attention bucket',
+      label: i18n.t('All ({value1})', { value1: model.total }),
+      description: i18n.t('Show projects regardless of attention bucket'),
     },
   ];
   if (!stats) return opts;
   if (stats.stale > 0) {
     opts.push({
       value: 'stale',
-      label: `Stale (${stats.stale})`,
-      description: `${stats.stale} project${stats.stale === 1 ? '' : 's'} with no recent activity`,
+      label: i18n.t('Stale ({value1})', { value1: stats.stale }),
+      description: i18n.t('{value1} project{plural2} with no recent activity', {
+        value1: stats.stale,
+        plural2: stats.stale === 1 ? '' : 's',
+      }),
     });
   }
   if (stats.risk > 0) {
     opts.push({
       value: 'risk',
-      label: `Risk (${stats.risk})`,
-      description: `${stats.risk} project${stats.risk === 1 ? '' : 's'} with critical or high CVEs`,
+      label: i18n.t('Risk ({value1})', { value1: stats.risk }),
+      description: i18n.t('{value1} project{plural2} with critical or high CVEs', {
+        value1: stats.risk,
+        plural2: stats.risk === 1 ? '' : 's',
+      }),
     });
   }
   if (stats.outdated > 0) {
     opts.push({
       value: 'outdated',
-      label: `Outdated (${stats.outdated})`,
-      description: `${stats.outdated} project${stats.outdated === 1 ? '' : 's'} with outdated dependencies`,
+      label: i18n.t('Outdated ({value1})', { value1: stats.outdated }),
+      description: i18n.t('{value1} project{plural2} with outdated dependencies', {
+        value1: stats.outdated,
+        plural2: stats.outdated === 1 ? '' : 's',
+      }),
     });
   }
   if (stats.licenseRisk > 0) {
     opts.push({
       value: 'license',
-      label: `License (${stats.licenseRisk})`,
-      description: `${stats.licenseRisk} project${
-        stats.licenseRisk === 1 ? '' : 's'
-      } with copyleft / proprietary contamination`,
+      label: i18n.t('License ({value1})', { value1: stats.licenseRisk }),
+      description: i18n.t('{value1} project{plural2} with copyleft / proprietary contamination', {
+        value1: stats.licenseRisk,
+        plural2: stats.licenseRisk === 1 ? '' : 's',
+      }),
     });
   }
   return opts;
@@ -189,43 +209,43 @@ function buildGitOptions(model: DashboardModel) {
   const opts: { value: GitFilter; label: string; description: string }[] = [
     {
       value: 'all',
-      label: `All (${stats.dirty + stats.clean})`,
-      description: 'Show projects regardless of git state',
+      label: i18n.t('All ({value1})', { value1: stats.dirty + stats.clean }),
+      description: i18n.t('Show projects regardless of git state'),
     },
   ];
   if (stats.dirty > 0) {
     opts.push({
       value: 'dirty',
-      label: `Dirty (${stats.dirty})`,
-      description: 'Projects with uncommitted changes',
+      label: i18n.t('Dirty ({value1})', { value1: stats.dirty }),
+      description: i18n.t('Projects with uncommitted changes'),
     });
   }
   if (stats.clean > 0) {
     opts.push({
       value: 'clean',
-      label: `Clean (${stats.clean})`,
-      description: 'Projects with no uncommitted changes',
+      label: i18n.t('Clean ({value1})', { value1: stats.clean }),
+      description: i18n.t('Projects with no uncommitted changes'),
     });
   }
   if (stats.ahead > 0) {
     opts.push({
       value: 'ahead',
-      label: `Ahead (${stats.ahead})`,
-      description: 'Projects with unpushed commits',
+      label: i18n.t('Ahead ({value1})', { value1: stats.ahead }),
+      description: i18n.t('Projects with unpushed commits'),
     });
   }
   if (stats.behind > 0) {
     opts.push({
       value: 'behind',
-      label: `Behind (${stats.behind})`,
-      description: 'Projects whose remote has new commits',
+      label: i18n.t('Behind ({value1})', { value1: stats.behind }),
+      description: i18n.t('Projects whose remote has new commits'),
     });
   }
   if (stats.noUpstream > 0) {
     opts.push({
       value: 'no-upstream',
-      label: `No upstream (${stats.noUpstream})`,
-      description: 'Projects without a tracking branch',
+      label: i18n.t('No upstream ({value1})', { value1: stats.noUpstream }),
+      description: i18n.t('Projects without a tracking branch'),
     });
   }
   return opts;

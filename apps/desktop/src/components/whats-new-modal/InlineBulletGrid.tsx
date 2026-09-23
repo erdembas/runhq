@@ -1,6 +1,8 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { HighlightFallback } from '@/lib/whatsnew';
 
 export function InlineBulletGrid({ fallback }: { fallback: HighlightFallback }) {
+  i18n.useLocale();
   if (!fallback.bullets || fallback.bullets.length === 0) return null;
 
   return (

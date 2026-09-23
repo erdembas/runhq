@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import type { CSSProperties, MutableRefObject, ReactNode } from 'react';
 import { Search, X } from 'lucide-react';
@@ -30,6 +31,7 @@ export const CardSearchSlot = memo(function CardSearchSlot({
   hidden: boolean;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   return <div style={hidden ? CARD_SLOT_HIDDEN : CARD_SLOT_VISIBLE}>{children}</div>;
 });
 const CARD_SLOT_HIDDEN: CSSProperties = { display: 'none' };
@@ -99,6 +101,7 @@ export function LabeledFilterDropdown({
   active?: boolean;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   return (
     <div className="inline-flex items-center">
       <span
@@ -121,6 +124,7 @@ export const DashboardSearchBar = memo(function DashboardSearchBar({
   inputRef: MutableRefObject<HTMLInputElement | null>;
   onCommit: (q: string) => void;
 }) {
+  i18n.useLocale();
   const [text, setText] = useState('');
   const [, startTransition] = useTransition();
   const trimmedQuery = text.trim();
@@ -188,8 +192,8 @@ export const DashboardSearchBar = memo(function DashboardSearchBar({
             }
           }
         }}
-        placeholder="Search projects"
-        aria-label="Search projects"
+        placeholder={i18n.t('Search projects')}
+        aria-label={i18n.t('Search projects')}
         // The global `*:focus-visible` rule in styles.css paints an
         // orange accent ring on every focusable element. That ring
         // would stack inside the wrapper's `focus-within:` border and
@@ -207,8 +211,8 @@ export const DashboardSearchBar = memo(function DashboardSearchBar({
         <button
           type="button"
           onClick={clear}
-          title="Clear search (Esc)"
-          aria-label="Clear search"
+          title={i18n.t('Clear search (Esc)')}
+          aria-label={i18n.t('Clear search')}
           className="text-fg-dim hover:text-fg -mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition hover:bg-white/10"
         >
           <X className="h-3 w-3" />

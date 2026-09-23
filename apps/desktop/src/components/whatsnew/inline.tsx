@@ -1,3 +1,5 @@
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
 /**
  * Inline primitives for document-style release notes.
  *
@@ -52,7 +54,7 @@
  * for attention — release notes should read like a doc, not like a
  * marketing landing page.
  */
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { CircleAlert, CircleCheck, Info, Lightbulb, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/lib/theme';
@@ -68,12 +70,13 @@ import { MediaLightbox } from './MediaLightbox';
  */
 export function SettingChip({
   name,
-  prefix = 'Setting',
+  prefix = i18n.t('Setting'),
 }: {
   name: string;
   /** Override the leading label. Defaults to `Setting`; `Env` is also common. */
   prefix?: string;
 }) {
+  i18n.useLocale();
   return (
     <span className="border-border/70 bg-surface-muted/60 text-fg/90 mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border px-1.5 py-px align-baseline">
       <span className="text-fg-dim text-[10px] font-semibold tracking-wider uppercase">
@@ -90,6 +93,7 @@ export function SettingChip({
  * it sits on a 13px prose line without floating.
  */
 export function KbdChip({ children }: { children: ReactNode }) {
+  i18n.useLocale();
   return (
     <kbd className="border-border bg-surface-muted text-fg/90 mx-0.5 inline-flex h-[20px] min-w-[22px] items-center justify-center rounded-md border px-1.5 align-baseline font-mono text-[11.5px]">
       {children}
@@ -108,28 +112,36 @@ const CALLOUT_TONE: Record<
     ring: 'ring-border/70',
     bg: 'bg-surface-raised/40',
     tint: 'text-fg-dim',
-    label: 'Note',
+    get label() {
+      return i18n.t('Note');
+    },
     icon: <Info className="h-3.5 w-3.5" />,
   },
   tip: {
     ring: 'ring-accent/35',
     bg: 'bg-accent/[0.06]',
     tint: 'text-accent',
-    label: 'Tip',
+    get label() {
+      return i18n.t('Tip');
+    },
     icon: <Lightbulb className="h-3.5 w-3.5" />,
   },
   success: {
     ring: 'ring-emerald-400/30',
     bg: 'bg-emerald-400/[0.06]',
     tint: 'text-emerald-400',
-    label: 'Why it matters',
+    get label() {
+      return i18n.t('Why it matters');
+    },
     icon: <CircleCheck className="h-3.5 w-3.5" />,
   },
   warning: {
     ring: 'ring-amber-400/35',
     bg: 'bg-amber-400/[0.06]',
     tint: 'text-amber-400',
-    label: 'Heads up',
+    get label() {
+      return i18n.t('Heads up');
+    },
     icon: <CircleAlert className="h-3.5 w-3.5" />,
   },
 };
@@ -151,6 +163,7 @@ export function Callout({
   title?: string;
   children: ReactNode;
 }) {
+  i18n.useLocale();
   const cfg = CALLOUT_TONE[tone];
   return (
     <aside
@@ -207,6 +220,7 @@ export function InlineMedia({
   aspectRatio?: HighlightMedia['aspectRatio'];
   caption?: ReactNode;
 }) {
+  i18n.useLocale();
   const { effective: effectiveTheme } = useTheme();
   const themeSuffix = effectiveTheme === 'dark' ? 'dark' : 'light';
 
@@ -239,7 +253,7 @@ export function InlineMedia({
           <button
             type="button"
             onClick={openZoom}
-            aria-label={`${alt} — click to enlarge`}
+            aria-label={i18n.t('{alt} — click to enlarge', { alt: alt })}
             className="group relative block h-full w-full cursor-zoom-in overflow-hidden focus-visible:outline-none"
           >
             {isVideo ? (
@@ -274,7 +288,7 @@ export function InlineMedia({
               aria-hidden
               className="ring-border bg-surface-overlay/85 text-fg/85 pointer-events-none absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium opacity-0 ring-1 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
-              <ZoomIn className="h-3 w-3" /> Click to enlarge
+              {i18n.rich('{value1} Click to enlarge', { value1: <ZoomIn className="h-3 w-3" /> })}
             </span>
           </button>
         ) : (
@@ -283,7 +297,7 @@ export function InlineMedia({
             aria-label={alt}
             className="bg-surface-raised text-fg-dim flex h-full w-full items-center justify-center text-[11px]"
           >
-            Asset failed to load
+            {i18n.t('Asset failed to load')}
           </div>
         )}
       </div>

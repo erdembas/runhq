@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GitConfirmDialogs } from '@/components/git-status-chip/GitConfirmDialogs';
 import { GitStatusPopover } from '@/components/git-status-chip/GitStatusPopover';
@@ -17,6 +18,7 @@ import { useAppStore } from '@/store/useAppStore';
 import type { CommitSummary, ServiceId, TimelineEventType } from '@/types';
 
 export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; compact?: boolean }) {
+  i18n.useLocale();
   const git = useAppStore((s) => s.git[serviceId]);
   const setGit = useAppStore((s) => s.setGit);
   const openDiffViewer = useAppStore((s) => s.openDiffViewer);
@@ -139,7 +141,7 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
     try {
       suppressBranchSwitchRef.current = name;
       await ipc.gitCreateBranch(serviceId, name);
-      recordEvent('git_branch_created', `Created branch ${name}`);
+      recordEvent('git_branch_created', i18n.t('Created branch {name}', { name: name }));
       setNewBranch('');
       setCreating(false);
       await refreshStatus();
@@ -239,7 +241,9 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
         await ipc.gitDeleteBranch(serviceId, name, force);
         recordEvent(
           'git_checkout',
-          force ? `Force-deleted branch ${name}` : `Deleted branch ${name}`,
+          force
+            ? i18n.t('Force-deleted branch {name}', { name: name })
+            : i18n.t('Deleted branch {name}', { name: name }),
         );
         try {
           const list = await ipc.gitBranches(serviceId);
@@ -306,12 +310,18 @@ export function GitStatusChip({ serviceId, compact }: { serviceId: ServiceId; co
       void run('stash', async () => {
         const priorDirty = git.dirty_count;
         await ipc.gitStash(serviceId, null);
-        recordEvent('git_stash', `Stashed ${priorDirty} change${priorDirty === 1 ? '' : 's'}`);
+        recordEvent(
+          'git_stash',
+          i18n.t('Stashed {priorDirty} change{plural2}', {
+            priorDirty: priorDirty,
+            plural2: priorDirty === 1 ? '' : 's',
+          }),
+        );
       }),
     onPop: () =>
       void run('pop', async () => {
         await ipc.gitStashPop(serviceId);
-        recordEvent('git_stash', 'Popped most recent stash');
+        recordEvent('git_stash', i18n.t('Popped most recent stash'));
       }),
     onOpenSource: () => {
       setOpen(false);

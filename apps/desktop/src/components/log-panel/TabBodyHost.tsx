@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { lazy, memo, Suspense, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TerminalPane } from '@/components/TerminalPane';
@@ -51,6 +52,7 @@ export const TabBodyHost = memo(function TabBodyHost({
   visible,
   tab,
 }: TabBodyHostProps) {
+  i18n.useLocale();
   let body: ReactNode = null;
   switch (tab.kind) {
     case 'agents':
@@ -80,7 +82,7 @@ export const TabBodyHost = memo(function TabBodyHost({
         <Suspense
           fallback={
             <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              Loading docs…
+              {i18n.t('Loading docs…')}
             </div>
           }
         >
@@ -93,7 +95,7 @@ export const TabBodyHost = memo(function TabBodyHost({
         <Suspense
           fallback={
             <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              Loading notes…
+              {i18n.t('Loading notes…')}
             </div>
           }
         >

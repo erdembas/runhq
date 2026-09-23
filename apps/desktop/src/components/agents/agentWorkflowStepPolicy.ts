@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
 import {
   workflowAncestors,
@@ -22,11 +23,36 @@ export const WORKFLOW_ROLE_LABELS: Record<string, string> = {
 };
 
 export const WORKFLOW_ROLE_OPTIONS = [
-  { value: 'plan', label: 'Plan' },
-  { value: 'implement', label: 'Implement' },
-  { value: 'review', label: 'Review' },
-  { value: 'revise', label: 'Revise' },
-  { value: 'validate', label: 'Validate' },
+  {
+    value: 'plan',
+    get label() {
+      return i18n.t('Plan');
+    },
+  },
+  {
+    value: 'implement',
+    get label() {
+      return i18n.t('Implement');
+    },
+  },
+  {
+    value: 'review',
+    get label() {
+      return i18n.t('Review');
+    },
+  },
+  {
+    value: 'revise',
+    get label() {
+      return i18n.t('Revise');
+    },
+  },
+  {
+    value: 'validate',
+    get label() {
+      return i18n.t('Validate');
+    },
+  },
 ];
 
 export { workflowRoleProduces };
@@ -55,44 +81,116 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
   const error = (taskId: string | null, message: string, fix?: WorkflowTaskProblem['fix']) =>
     problems.push({ taskId, message, severity: 'error', ...(fix ? { fix } : {}) });
   if (!tasks.length) {
-    error(null, 'Add at least one task.');
+    error(null, i18n.t('Add at least one task.'));
     return problems;
   }
   if (tasks.length > MAX_WORKFLOW_STEPS)
-    error(null, `A workflow holds up to ${MAX_WORKFLOW_STEPS} tasks.`);
+    error(
+      null,
+      i18n.t('A workflow holds up to {MAX_WORKFLOW_STEPS} tasks.', {
+        MAX_WORKFLOW_STEPS: MAX_WORKFLOW_STEPS,
+      }),
+    );
   const seen = new Set<string>();
   for (const task of tasks) {
     const id = task.id?.trim() ?? '';
     if (!WORKFLOW_TASK_ID.test(id)) {
       error(
         id || null,
-        `${id ? `“${id}”` : 'Every task'} needs a key of up to 32 lowercase letters, digits, dashes or underscores.`,
+        i18n.t(
+          '{value1} needs a key of up to 32 lowercase letters, digits, dashes or underscores.',
+          { value1: id ? `“${id}”` : i18n.t('Every task') },
+        ),
       );
       continue;
     }
-    if (seen.has(id)) error(id, `Two tasks use the key “${id}”; keys must be unique.`);
+    if (seen.has(id))
+      error(id, i18n.t('Two tasks use the key “{id}”; keys must be unique.', { id: id }));
     seen.add(id);
-    if (!task.prompt.trim()) error(id, `“${id}” has no instruction.`);
+    if (!task.prompt.trim()) error(id, i18n.t('“{id}” has no instruction.', { id: id }));
     if (task.prompt.length > MAX_WORKFLOW_TASK_PROMPT)
-      error(id, `The instruction for “${id}” is too long.`);
-    if (!task.target) error(id, `“${id}” needs an account.`);
+      error(id, i18n.t('The instruction for “{id}” is too long.', { id: id }));
+    if (!task.target) error(id, i18n.t('“{id}” needs an account.', { id: id }));
     if (task.workspace === 'own' && !workflowRoleProduces(task.role))
-      error(id, `“${id}” reads the work rather than producing it, so it runs where it reviews.`);
+      error(
+        id,
+        i18n.t('“{id}” reads the work rather than producing it, so it runs where it reviews.', {
+          id: id,
+        }),
+      );
     for (const dependency of task.depends_on) {
-      if (dependency === id) error(id, `“${id}” cannot depend on itself.`);
+      if (dependency === id) error(id, i18n.t('“{id}” cannot depend on itself.', { id: id }));
       else if (!tasks.some((other) => other.id === dependency))
-        error(id, `“${id}” depends on “${dependency}”, which is not a task here.`);
+        error(
+          id,
+          i18n.t('“{id}” depends on “{dependency}”, which is not a task here.', {
+            id: id,
+            dependency: dependency,
+          }),
+        );
     }
   }
   const { cycle } = workflowTopologicalOrder(tasks);
-  if (cycle) error(null, `${cycle.map((id) => `“${id}”`).join(' → ')} depend on each other.`);
+  if (cycle)
+    error(
+      null,
+      i18n.t('{value1} depend on each other.', {
+        value1: cycle.map((id) => `“${id}”`).join(' → '),
+      }),
+    );
   if (problems.some((problem) => problem.severity === 'error')) return problems;
+
+  const continued = new Set<string>();
+  for (const task of tasks) {
+    if (!task.continue_from) continue;
+    const previous = tasks.find((step) => step.id === task.continue_from);
+    if (!workflowRoleProduces(task.role) || task.workspace === 'own')
+      error(
+        task.id,
+        i18n.t(
+          '“{value1}” can only continue a conversation as a work step in the shared working copy.',
+          { value1: task.id },
+        ),
+      );
+    if (
+      !previous ||
+      !workflowRoleProduces(previous.role) ||
+      previous.workspace === 'own' ||
+      !workflowAncestors(tasks, task.id).has(previous.id)
+    )
+      error(
+        task.id,
+        i18n.t('“{value1}” needs an earlier prompt in the shared working copy to continue.', {
+          value1: task.id,
+        }),
+      );
+    else if (previous.target !== task.target)
+      error(
+        task.id,
+        i18n.t('“{value1}” must use the same agent as “{value2}” to continue its conversation.', {
+          value1: task.id,
+          value2: previous.id,
+        }),
+      );
+    if (continued.has(task.continue_from))
+      error(
+        task.id,
+        i18n.t(
+          '“{value1}” has two conversation continuations. Chain them in order or use separate conversations.',
+          { value1: task.continue_from },
+        ),
+      );
+    continued.add(task.continue_from);
+  }
 
   for (const task of tasks) {
     if (!task.depends_on.length && !workflowRoleProduces(task.role))
       error(
         task.id,
-        `“${task.id}” reviews work that nothing has produced yet; give it a dependency or change its role.`,
+        i18n.t(
+          '“{value1}” reviews work that nothing has produced yet; give it a dependency or change its role.',
+          { value1: task.id },
+        ),
       );
     if (!workflowRoleProduces(task.role)) {
       const ancestors = workflowAncestors(tasks, task.id);
@@ -101,7 +199,9 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
       )
         error(
           task.id,
-          `“${task.id}” has nothing to read; make it depend on a task that produces work.`,
+          i18n.t('“{value1}” has nothing to read; make it depend on a task that produces work.', {
+            value1: task.id,
+          }),
         );
     }
   }
@@ -115,10 +215,12 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
   if (!gating)
     error(
       null,
-      'Add an independent review of the finished work: a review in the shared checkout that depends on every task that produces.',
+      i18n.t(
+        'Add an independent review of the finished work: a review in the shared checkout that depends on every task that produces.',
+      ),
     );
   for (const id of workflowUnreviewedProducers(tasks))
-    error(id, `“${id}” is never reviewed; make a review task depend on it.`);
+    error(id, i18n.t('“{id}” is never reviewed; make a review task depend on it.', { id: id }));
   // Two producing tasks with nothing between them will be started together, and one checkout never
   // carries two agents — so either they each get their own, or they cannot both run.
   for (const [left, right] of workflowConcurrentProducerPairs(tasks)) {
@@ -127,13 +229,19 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
     if (a?.workspace !== 'own' && b?.workspace !== 'own')
       error(
         right,
-        `“${left}” and “${right}” can run at the same time and both write the shared checkout.`,
+        i18n.t(
+          '“{left}” and “{right}” can run at the same time and both write the shared checkout.',
+          { left: left, right: right },
+        ),
         'isolate-concurrent-producers',
       );
     else if (a?.workspace === 'own' && b?.workspace === 'own')
       problems.push({
         taskId: right,
-        message: `Results from “${left}” and “${right}” are applied one after the other; a disagreement between them is reported, not merged.`,
+        message: i18n.t(
+          'Results from “{left}” and “{right}” are applied one after the other; a disagreement between them is reported, not merged.',
+          { left: left, right: right },
+        ),
         severity: 'warning',
       });
   }
@@ -200,4 +308,5 @@ export const newWorkflowStep = (
   prompt: '',
   depends_on,
   workspace: 'shared',
+  ...(!workflowRoleProduces(role) ? { review_policy: 'on_findings' as const } : {}),
 });

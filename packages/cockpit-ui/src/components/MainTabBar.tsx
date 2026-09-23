@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import type { ServiceId, Status } from '@runhq/cockpit-types';
 import { LayoutDashboard } from 'lucide-react';
 import { cn } from '../lib/cn';
@@ -31,6 +32,7 @@ interface Props {
  * paints a status dot pulled from the supplied `statuses` map.
  */
 export function MainTabBar({ tabs, activeTabId, statuses, onSelect, className }: Props) {
+  i18n.useLocale();
   return (
     <div
       className={cn(

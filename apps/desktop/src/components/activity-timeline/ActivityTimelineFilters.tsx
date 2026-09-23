@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { RefObject } from 'react';
 import { FilterX, Search, X } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
@@ -36,6 +37,7 @@ export function ActivityTimelineFilters({
   size,
   timeRange,
 }: ActivityTimelineFiltersProps) {
+  i18n.useLocale();
   return (
     <div className={cn('border-border/40 space-y-2 border-t py-2.5', size.padX)}>
       <div className="flex items-center gap-2">
@@ -45,19 +47,19 @@ export function ActivityTimelineFilters({
             ref={searchInputRef}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search events…"
+            placeholder={i18n.t('Search events…')}
             className={cn(
               'placeholder:text-fg/30 text-fg/85 min-w-0 flex-1 bg-transparent outline-none',
               size.body,
             )}
-            aria-label="Search timeline events"
+            aria-label={i18n.t('Search timeline events')}
           />
           {search ? (
             <button
               onClick={() => setSearch('')}
               className="text-fg/30 hover:text-fg/70 shrink-0"
-              title="Clear search"
-              aria-label="Clear search"
+              title={i18n.t('Clear search')}
+              aria-label={i18n.t('Clear search')}
             >
               <X size={12} />
             </button>
@@ -74,7 +76,10 @@ export function ActivityTimelineFilters({
               'hover:bg-fg/8 text-fg/50 hover:text-fg/80 flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 font-medium transition',
               size.micro,
             )}
-            title={`Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}`}
+            title={i18n.t('Clear {activeFilterCount} filter{plural2}', {
+              activeFilterCount: activeFilterCount,
+              plural2: activeFilterCount === 1 ? '' : 's',
+            })}
           >
             <FilterX size={12} />
             <span className="tabular-nums">{activeFilterCount}</span>
@@ -105,11 +110,11 @@ export function ActivityTimelineFilters({
           value={filterProject ?? ''}
           onChange={(value) => setFilterProject(value || null)}
           options={[
-            { value: '', label: 'All projects' },
+            { value: '', label: i18n.t('All projects') },
             ...projectNames.map((name) => ({ value: name, label: name, hue: nameHue(name) })),
           ]}
-          placeholder="All projects"
-          ariaLabel="Filter by project"
+          placeholder={i18n.t('All projects')}
+          ariaLabel={i18n.t('Filter by project')}
           size="sm"
           className="min-w-0 flex-1"
         />

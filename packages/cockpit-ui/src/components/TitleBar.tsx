@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import type { ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '../lib/cn';
@@ -23,6 +26,7 @@ interface Props {
  * uses to evoke the real app.
  */
 export function TitleBar({ title, rightSlot, searchSlot, className }: Props) {
+  i18n.useLocale();
   return (
     <div
       className={cn(
@@ -37,13 +41,13 @@ export function TitleBar({ title, rightSlot, searchSlot, className }: Props) {
       </div>
       <div className="text-fg-muted ml-1 flex items-center gap-1.5 text-[11.5px] font-medium">
         <span className="bg-accent inline-block h-3 w-3 rounded-[3px]" aria-hidden />
-        <span>{title ?? 'RunHQ'}</span>
+        <span>{title ?? i18n.t('RunHQ')}</span>
       </div>
       <div className="mx-auto flex max-w-md flex-1 items-center justify-center">
         {searchSlot ?? (
           <div className="border-border bg-surface text-fg-dim hover:border-border-strong flex h-7 w-full max-w-sm items-center gap-2 rounded-md border px-2.5 text-[11.5px] transition">
             <Search className="h-3 w-3" />
-            <span>Search services, stacks, actions…</span>
+            <span>{i18n.t('Search services, stacks, actions…')}</span>
             <span className="border-border bg-surface-muted text-fg-dim ml-auto rounded border px-1.5 font-mono text-[10px]">
               ⌘K
             </span>

@@ -157,6 +157,16 @@ impl AgentDb {
             .optional()
             .map_err(db_error)
     }
+    pub fn first_user_prompt(&self, session_id: &str) -> AppResult<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT json_extract(data,'$.text') FROM agent_items WHERE session_id=?1 AND json_extract(data,'$.kind')='user' ORDER BY seq LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)
+    }
     pub fn finish_activity(&self, session_id: &str) -> AppResult<()> {
         self.conn.execute("UPDATE agent_items SET data=json_set(data,'$.status','ended') WHERE session_id=?1 AND json_extract(data,'$.status') IN ('running','pending')", [session_id]).map_err(db_error)?;
         Ok(())

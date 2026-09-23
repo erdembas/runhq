@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { memo, useEffect } from 'react';
 import { AgentToolsHub } from '@/components/agents/AgentToolsHub';
@@ -35,6 +36,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ contextMenu, startScan }: AppShellProps) {
+  i18n.useLocale();
   useEffect(() => {
     void connectAgents();
   }, []);
@@ -55,6 +57,7 @@ export function AppShell({ contextMenu, startScan }: AppShellProps) {
 const WorkspaceChrome = memo(function WorkspaceChrome({
   startScan,
 }: Pick<AppShellProps, 'startScan'>) {
+  i18n.useLocale();
   const openPortManager = useShellUiStore((s) => s.openPortManager);
   return (
     <>
@@ -80,6 +83,7 @@ const WorkspaceChrome = memo(function WorkspaceChrome({
 });
 
 function MainTabPanels({ startScan }: Pick<AppShellProps, 'startScan'>) {
+  i18n.useLocale();
   const mainTabs = useAppStore((s) => s.mainTabs);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -96,6 +100,7 @@ const MainTabPanel = memo(function MainTabPanel({
   tab,
   startScan,
 }: Pick<AppShellProps, 'startScan'> & { tab: MainTab }) {
+  i18n.useLocale();
   const key = mainTabKey(tab);
   const isActive = useAppStore((s) => s.activeMainTabKey === key);
   return (
@@ -120,6 +125,7 @@ function replayTour() {
 }
 
 function AppOverlays() {
+  i18n.useLocale();
   const editorService = useAppStore((s) => s.editorService);
   const closeEditor = useAppStore((s) => s.closeEditor);
   const editorStack = useAppStore((s) => s.editorStack);

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentItem } from '@runhq/cockpit-types';
 
 /** Icon bucket for a tool row. The view maps these to glyphs; grouping and summaries count them. */
@@ -21,17 +22,55 @@ interface ToolShape {
 }
 
 const PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path', 'notebookPath'];
-const READ: ToolShape = { label: 'Read', icon: 'read', keys: PATH_KEYS };
-const EDIT: ToolShape = { label: 'Edit', icon: 'edit', keys: PATH_KEYS };
-const WRITE: ToolShape = { label: 'Write', icon: 'write', keys: PATH_KEYS };
-const RUN: ToolShape = { label: 'Run', icon: 'run', keys: ['command', 'cmd'] };
+const READ: ToolShape = {
+  get label() {
+    return i18n.t('Read');
+  },
+  icon: 'read',
+  keys: PATH_KEYS,
+};
+const EDIT: ToolShape = {
+  get label() {
+    return i18n.t('Edit');
+  },
+  icon: 'edit',
+  keys: PATH_KEYS,
+};
+const WRITE: ToolShape = {
+  get label() {
+    return i18n.t('Write');
+  },
+  icon: 'write',
+  keys: PATH_KEYS,
+};
+const RUN: ToolShape = {
+  get label() {
+    return i18n.t('Run');
+  },
+  icon: 'run',
+  keys: ['command', 'cmd'],
+};
 const GREP: ToolShape = {
-  label: 'Search',
+  get label() {
+    return i18n.t('Search');
+  },
   icon: 'search',
   keys: ['pattern', 'query', ...PATH_KEYS],
 };
-const FETCH: ToolShape = { label: 'Fetch', icon: 'web', keys: ['url'] };
-const WEB_SEARCH: ToolShape = { label: 'Web search', icon: 'web', keys: ['query'] };
+const FETCH: ToolShape = {
+  get label() {
+    return i18n.t('Fetch');
+  },
+  icon: 'web',
+  keys: ['url'],
+};
+const WEB_SEARCH: ToolShape = {
+  get label() {
+    return i18n.t('Web search');
+  },
+  icon: 'web',
+  keys: ['query'],
+};
 
 /** Every provider names its tools differently, so keys here are normalised (lowercase, letters and
  *  digits only): `multi_edit`, `MultiEdit` and `multiEdit` all land on `multiedit`. */
@@ -43,26 +82,104 @@ const TOOLS: Record<string, ToolShape> = {
   edit: EDIT,
   multiedit: EDIT,
   notebookedit: EDIT,
-  patch: { label: 'Patch', icon: 'edit', keys: PATH_KEYS },
-  applypatch: { label: 'Patch', icon: 'edit', keys: PATH_KEYS },
-  filechange: { label: 'Patch', icon: 'edit', keys: PATH_KEYS },
+  patch: {
+    get label() {
+      return i18n.t('Patch');
+    },
+    icon: 'edit',
+    keys: PATH_KEYS,
+  },
+  applypatch: {
+    get label() {
+      return i18n.t('Patch');
+    },
+    icon: 'edit',
+    keys: PATH_KEYS,
+  },
+  filechange: {
+    get label() {
+      return i18n.t('Patch');
+    },
+    icon: 'edit',
+    keys: PATH_KEYS,
+  },
   bash: RUN,
   shell: RUN,
-  bashoutput: { label: 'Run', icon: 'run', keys: ['command', 'cmd', 'bash_id'] },
-  killshell: { label: 'Run', icon: 'run', keys: ['shell_id'] },
+  bashoutput: {
+    get label() {
+      return i18n.t('Run');
+    },
+    icon: 'run',
+    keys: ['command', 'cmd', 'bash_id'],
+  },
+  killshell: {
+    get label() {
+      return i18n.t('Run');
+    },
+    icon: 'run',
+    keys: ['shell_id'],
+  },
   commandexecution: RUN,
   grep: GREP,
-  glob: { label: 'Find', icon: 'search', keys: ['pattern', 'query', ...PATH_KEYS] },
-  list: { label: 'List', icon: 'search', keys: PATH_KEYS },
-  ls: { label: 'List', icon: 'search', keys: PATH_KEYS },
+  glob: {
+    get label() {
+      return i18n.t('Find');
+    },
+    icon: 'search',
+    keys: ['pattern', 'query', ...PATH_KEYS],
+  },
+  list: {
+    get label() {
+      return i18n.t('List');
+    },
+    icon: 'search',
+    keys: PATH_KEYS,
+  },
+  ls: {
+    get label() {
+      return i18n.t('List');
+    },
+    icon: 'search',
+    keys: PATH_KEYS,
+  },
   webfetch: FETCH,
   fetch: FETCH,
   websearch: WEB_SEARCH,
-  task: { label: 'Subagent', icon: 'task', keys: ['description', 'prompt'] },
-  agent: { label: 'Subagent', icon: 'task', keys: ['description', 'prompt'] },
-  todowrite: { label: 'Plan', icon: 'task', keys: [] },
-  todoread: { label: 'Plan', icon: 'task', keys: [] },
-  exitplanmode: { label: 'Plan', icon: 'task', keys: [] },
+  task: {
+    get label() {
+      return i18n.t('Subagent');
+    },
+    icon: 'task',
+    keys: ['description', 'prompt'],
+  },
+  agent: {
+    get label() {
+      return i18n.t('Subagent');
+    },
+    icon: 'task',
+    keys: ['description', 'prompt'],
+  },
+  todowrite: {
+    get label() {
+      return i18n.t('Plan');
+    },
+    icon: 'task',
+    keys: [],
+  },
+  todoread: {
+    get label() {
+      return i18n.t('Plan');
+    },
+    icon: 'task',
+    keys: [],
+  },
+  exitplanmode: {
+    get label() {
+      return i18n.t('Plan');
+    },
+    icon: 'task',
+    keys: [],
+  },
 };
 
 /** Tool identity inferred from the input alone, for providers that title a call by its target. */
@@ -157,14 +274,14 @@ export function describeAgentActivity(
   const title = (item.title ?? '').trim();
   // A thought is worth a glance in the row itself; its first line says what the agent is weighing.
   if (item.kind === 'reasoning')
-    return { verb: 'Reasoning', target: compact(item.text ?? ''), icon: 'think' };
+    return { verb: i18n.t('Reasoning'), target: compact(item.text ?? ''), icon: 'think' };
   const input = inputOf(item.text ?? '');
   const named = TOOLS[normalize(title)];
   if (named) return { verb: named.label, target: pick(input, named.keys), icon: named.icon };
   if (title.startsWith('mcp__')) {
     const parts = title.split('__').filter(Boolean);
     return {
-      verb: parts.at(-1)?.replace(/[_-]+/g, ' ') || 'Tool',
+      verb: parts.at(-1)?.replace(/[_-]+/g, ' ') || i18n.t('Tool'),
       target: (parts.length > 2 ? parts[1] : '') ?? '',
       icon: 'tool',
     };
@@ -218,9 +335,6 @@ export function groupAgentTranscript(items: AgentItem[]): AgentTranscriptGroup[]
   return groups;
 }
 
-const plural = (count: number, one: string, many = `${one}s`) =>
-  `${count} ${count === 1 ? one : many}`;
-
 const basename = (target: string) => {
   const path = target.split(/\s/)[0] ?? target;
   return path.split('/').filter(Boolean).at(-1) || target;
@@ -228,15 +342,33 @@ const basename = (target: string) => {
 
 /** How a bucket reads in a summary. A single file is worth naming; more than one is a count. */
 const BUCKETS: [AgentActivityIcon, (count: number, name: string) => string][] = [
-  ['write', (n, name) => (n === 1 && name ? `Created ${name}` : `Created ${plural(n, 'file')}`)],
-  ['edit', (n, name) => (n === 1 && name ? `Edited ${name}` : `Edited ${plural(n, 'file')}`)],
-  ['run', (n) => `Ran ${plural(n, 'command')}`],
-  ['read', (n, name) => (n === 1 && name ? `Read ${name}` : `Read ${plural(n, 'file')}`)],
-  ['search', (n) => `Ran ${plural(n, 'search', 'searches')}`],
-  ['web', (n) => `Made ${plural(n, 'web request')}`],
-  ['task', (n) => `Ran ${plural(n, 'subagent')}`],
-  ['tool', (n) => `Made ${plural(n, 'tool call')}`],
-  ['think', () => 'Thought it through'],
+  [
+    'write',
+    (n, name) =>
+      n === 1 && name
+        ? i18n.t('Created {name}', { name: name })
+        : i18n.plural('Created {count} file', 'Created {count} files', n),
+  ],
+  [
+    'edit',
+    (n, name) =>
+      n === 1 && name
+        ? i18n.t('Edited {name}', { name: name })
+        : i18n.plural('Edited {count} file', 'Edited {count} files', n),
+  ],
+  ['run', (n) => i18n.plural('Ran {count} command', 'Ran {count} commands', n)],
+  [
+    'read',
+    (n, name) =>
+      n === 1 && name
+        ? i18n.t('Read {name}', { name: name })
+        : i18n.plural('Read {count} file', 'Read {count} files', n),
+  ],
+  ['search', (n) => i18n.plural('Ran {count} search', 'Ran {count} searches', n)],
+  ['web', (n) => i18n.plural('Made {count} web request', 'Made {count} web requests', n)],
+  ['task', (n) => i18n.plural('Ran {count} subagent', 'Ran {count} subagents', n)],
+  ['tool', (n) => i18n.plural('Made {count} tool call', 'Made {count} tool calls', n)],
+  ['think', () => i18n.t('Thought it through')],
 ];
 /** Buckets that describe a change to the project; they lead a summary when they are present. */
 const PRIMARY: AgentActivityIcon[] = ['write', 'edit', 'run'];
@@ -271,7 +403,7 @@ export function summarizeAgentActivity(items: AgentItem[]): string {
       return phrase ? phrase(counts.get(icon) ?? 0, names.get(icon) ?? '') : '';
     })
     .filter(Boolean);
-  if (failed) parts.push(`${failed} failed`);
+  if (failed) parts.push(i18n.t('{failed} failed', { failed: failed }));
   return parts.map((part, index) => (index === 0 ? part : lower(part))).join(', ');
 }
 

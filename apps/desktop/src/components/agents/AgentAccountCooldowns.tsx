@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { TimerReset } from 'lucide-react';
 import { AgentProviderLogo } from '@runhq/cockpit-ui';
 import { useVisibleStore } from '@/lib/useVisibleStore';
@@ -15,6 +17,7 @@ const COOLDOWN_KEY = 'preferences:cooldowns';
  * of one, and no reset time is claimed on the provider's behalf.
  */
 export function AgentAccountCooldowns({ visible = true }: { visible?: boolean }) {
+  i18n.useLocale();
   const tools = useVisibleStore(useAgentStore, (state) => state.tools, visible);
   const saved = useVisibleStore(
     useAgentLibraryStore,
@@ -57,16 +60,17 @@ export function AgentAccountCooldowns({ visible = true }: { visible?: boolean })
     <div className="border-border rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <TimerReset className="text-accent h-4 w-4" />
-        <h3 className="text-fg text-[12px] font-medium">Account cool-downs</h3>
+        <h3 className="text-fg text-[12px] font-medium">{i18n.t('Account cool-downs')}</h3>
         <span className="text-fg-dim ml-auto text-[11px]">
-          {active.length ? `${active.length} on cool-down` : 'None'}
+          {active.length
+            ? i18n.t('{value1} on cool-down', { value1: active.length })
+            : i18n.t('None')}
         </span>
       </div>
       <p className="text-fg-dim mt-1 text-[11px] leading-relaxed">
-        A cool-down starts only when a provider returns a rate or usage limit. Routing then prefers
-        another account in the same pool until it ends. This is RunHQ&rsquo;s own backoff, not a
-        reset the provider reported; these CLIs do not publish a remaining allowance, so none is
-        shown or guessed. A task already running keeps its account.
+        {i18n.t(
+          'A cool-down starts only when a provider returns a rate or usage limit. Routing then prefers another account in the same pool until it ends. This is RunHQ’s own backoff, not a reset the provider reported; these CLIs do not publish a remaining allowance, so none is shown or guessed. A task already running keeps its account.',
+        )}
       </p>
       {error && (
         <p role="alert" className="text-status-error mt-2 text-[11px]">
@@ -81,10 +85,14 @@ export function AgentAccountCooldowns({ visible = true }: { visible?: boolean })
                 <AgentProviderLogo backend={id} className="h-4 w-4" />
                 <strong className="text-fg font-medium">{name(id)}</strong>
                 <span className="text-fg-dim">
-                  reported a limit {formatAgentDuration(now - cooldown.since) ?? '0s'} ago
+                  {i18n.rich('reported a limit {value1} ago', {
+                    value1: formatAgentDuration(now - cooldown.since) ?? i18n.t('0s'),
+                  })}
                 </span>
                 <span className="text-fg-muted ml-auto">
-                  routing resumes in {formatAgentDuration(cooldown.until - now) ?? '0s'}
+                  {i18n.rich('routing resumes in {value1}', {
+                    value1: formatAgentDuration(cooldown.until - now) ?? i18n.t('0s'),
+                  })}
                 </span>
                 <button
                   type="button"
@@ -92,12 +100,12 @@ export function AgentAccountCooldowns({ visible = true }: { visible?: boolean })
                   onClick={() => void resume(id)}
                   className="hover:bg-fg/5 rounded-lg px-2 py-1 text-[11px] disabled:opacity-40"
                 >
-                  Resume now
+                  {i18n.t('Resume now')}
                 </button>
               </div>
               {cooldown.reason && (
                 <p className="text-fg-dim mt-2 text-[11px] break-words">
-                  Provider said: {cooldown.reason}
+                  {i18n.rich('Provider said: {value1}', { value1: cooldown.reason })}
                 </p>
               )}
             </li>
@@ -105,7 +113,7 @@ export function AgentAccountCooldowns({ visible = true }: { visible?: boolean })
         </ul>
       ) : (
         <p className="text-fg-muted mt-3 text-[11px]">
-          No account has reported a limit. Cool-downs appear here when one does.
+          {i18n.t('No account has reported a limit. Cool-downs appear here when one does.')}
         </p>
       )}
     </div>

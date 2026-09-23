@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -9,6 +10,7 @@ interface BranchTabProps {
 }
 
 export function BranchTab({ active, onClick, count, children }: BranchTabProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

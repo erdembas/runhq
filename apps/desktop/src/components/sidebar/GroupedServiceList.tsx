@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ServiceRow } from './ServiceRow';
@@ -28,6 +29,7 @@ export function GroupedServiceList({
   onEdit,
   onDelete,
 }: GroupedServiceListProps) {
+  i18n.useLocale();
   return (
     <>
       {groups.map((group) => {

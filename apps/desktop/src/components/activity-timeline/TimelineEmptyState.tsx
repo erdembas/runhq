@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Activity, FilterX, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { TimelineSize } from './types';
@@ -17,14 +18,17 @@ export function TimelineEmptyState({
   setSearch,
   size,
 }: TimelineEmptyStateProps) {
+  i18n.useLocale();
   if (search.trim()) {
     return (
       <div className="text-fg/40 flex flex-col items-center gap-2.5 px-6 py-20">
         <div className="bg-fg/5 flex h-10 w-10 items-center justify-center rounded-full">
           <Search size={18} className="text-fg/35" />
         </div>
-        <span className={cn('text-fg/60 font-semibold', size.title)}>No matches</span>
-        <span className={cn('text-fg/40', size.meta)}>for “{search.trim().slice(0, 28)}”</span>
+        <span className={cn('text-fg/60 font-semibold', size.title)}>{i18n.t('No matches')}</span>
+        <span className={cn('text-fg/40', size.meta)}>
+          {i18n.rich('for “{value1}”', { value1: search.trim().slice(0, 28) })}
+        </span>
         <button
           onClick={() => setSearch('')}
           className={cn(
@@ -32,7 +36,7 @@ export function TimelineEmptyState({
             size.meta,
           )}
         >
-          Clear search
+          {i18n.t('Clear search')}
         </button>
       </div>
     );
@@ -44,9 +48,9 @@ export function TimelineEmptyState({
         <div className="bg-fg/5 flex h-10 w-10 items-center justify-center rounded-full">
           <FilterX size={18} className="text-fg/35" />
         </div>
-        <span className={cn('text-fg/60 font-semibold', size.title)}>Filtered out</span>
+        <span className={cn('text-fg/60 font-semibold', size.title)}>{i18n.t('Filtered out')}</span>
         <span className={cn('text-fg/40 text-center', size.meta)}>
-          No events match current filters
+          {i18n.t('No events match current filters')}
         </span>
         <button
           onClick={clearFilters}
@@ -55,7 +59,7 @@ export function TimelineEmptyState({
             size.meta,
           )}
         >
-          Reset filters
+          {i18n.t('Reset filters')}
         </button>
       </div>
     );
@@ -66,9 +70,9 @@ export function TimelineEmptyState({
       <div className="bg-accent/10 flex h-10 w-10 items-center justify-center rounded-full">
         <Activity size={18} className="text-accent" />
       </div>
-      <span className={cn('text-fg/60 font-semibold', size.title)}>Nothing yet</span>
+      <span className={cn('text-fg/60 font-semibold', size.title)}>{i18n.t('Nothing yet')}</span>
       <span className={cn('text-fg/40 max-w-[240px] text-center', size.meta)}>
-        Start a service or commit — events will land here in real time.
+        {i18n.t('Start a service or commit — events will land here in real time.')}
       </span>
     </div>
   );

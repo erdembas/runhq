@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { Check, Sparkles } from 'lucide-react';
 
@@ -14,6 +15,7 @@ import type { AiActionHook } from '@/store/useAppStore';
  * `TurnView` re-render on every click.
  */
 export function ActionHookButton({ hook, content }: { hook: AiActionHook; content: string }) {
+  i18n.useLocale();
   const [applied, setApplied] = useState(false);
   const label = actionHookLabel(hook);
   if (!label) return null;
@@ -41,7 +43,7 @@ export function ActionHookButton({ hook, content }: { hook: AiActionHook; conten
         {applied ? (
           <>
             <Check className="h-3 w-3" />
-            <span>Applied</span>
+            <span>{i18n.t('Applied')}</span>
           </>
         ) : (
           <>

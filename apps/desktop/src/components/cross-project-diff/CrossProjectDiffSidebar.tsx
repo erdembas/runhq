@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Search, X } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { ServiceSection } from './ServiceSection';
@@ -32,6 +33,7 @@ export function CrossProjectDiffSidebar({
   onSelect,
   onOpenInDiffViewer,
 }: CrossProjectDiffSidebarProps) {
+  i18n.useLocale();
   return (
     <aside className="border-border flex shrink-0 flex-col border-r" style={{ width }}>
       <div className="border-border shrink-0 border-b p-2">
@@ -43,7 +45,7 @@ export function CrossProjectDiffSidebar({
           <input
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Filter by file or project…"
+            placeholder={i18n.t('Filter by file or project…')}
             className="border-border bg-surface text-fg placeholder:text-fg/40 focus:border-accent/60 h-7 w-full rounded border pr-6 pl-7 text-[12px] transition focus:outline-none"
           />
           {search && (
@@ -51,7 +53,7 @@ export function CrossProjectDiffSidebar({
               type="button"
               onClick={() => onSearchChange('')}
               className="text-fg/40 hover:text-fg absolute top-1/2 right-1.5 -translate-y-1/2"
-              aria-label="Clear filter"
+              aria-label={i18n.t('Clear filter')}
             >
               <X size={12} />
             </button>

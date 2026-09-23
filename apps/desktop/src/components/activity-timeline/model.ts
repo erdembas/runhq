@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import {
   Activity,
   AlertTriangle,
@@ -20,7 +21,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-emerald-500/15',
     ring: 'ring-emerald-500/30',
     accent: 'bg-emerald-500/60',
-    label: 'Started',
+    get label() {
+      return i18n.t('Started');
+    },
     severity: 0,
   },
   service_stopped: {
@@ -28,7 +31,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-slate-500/10',
     ring: 'ring-slate-500/20',
     accent: 'bg-slate-500/40',
-    label: 'Stopped',
+    get label() {
+      return i18n.t('Stopped');
+    },
     severity: 0,
   },
   service_crashed: {
@@ -36,7 +41,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-red-500/15',
     ring: 'ring-red-500/30',
     accent: 'bg-red-500/70',
-    label: 'Crashed',
+    get label() {
+      return i18n.t('Crashed');
+    },
     severity: 2,
   },
   git_commit: {
@@ -44,7 +51,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-violet-500/15',
     ring: 'ring-violet-500/30',
     accent: 'bg-violet-500/60',
-    label: 'Commit',
+    get label() {
+      return i18n.t('Commit');
+    },
     severity: 0,
   },
   git_push: {
@@ -52,7 +61,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-fuchsia-500/15',
     ring: 'ring-fuchsia-500/30',
     accent: 'bg-fuchsia-500/60',
-    label: 'Push',
+    get label() {
+      return i18n.t('Push');
+    },
     severity: 0,
   },
   git_pull: {
@@ -60,7 +71,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-teal-500/15',
     ring: 'ring-teal-500/30',
     accent: 'bg-teal-500/60',
-    label: 'Pull',
+    get label() {
+      return i18n.t('Pull');
+    },
     severity: 0,
   },
   git_checkout: {
@@ -68,7 +81,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-cyan-500/15',
     ring: 'ring-cyan-500/30',
     accent: 'bg-cyan-500/60',
-    label: 'Checkout',
+    get label() {
+      return i18n.t('Checkout');
+    },
     severity: 0,
   },
   git_branch_created: {
@@ -76,7 +91,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-indigo-500/15',
     ring: 'ring-indigo-500/30',
     accent: 'bg-indigo-500/60',
-    label: 'Branch',
+    get label() {
+      return i18n.t('Branch');
+    },
     severity: 0,
   },
   git_stash: {
@@ -84,7 +101,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-amber-500/15',
     ring: 'ring-amber-500/30',
     accent: 'bg-amber-500/60',
-    label: 'Stash',
+    get label() {
+      return i18n.t('Stash');
+    },
     severity: 0,
   },
   log_error: {
@@ -92,7 +111,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-rose-500/15',
     ring: 'ring-rose-500/30',
     accent: 'bg-rose-500/70',
-    label: 'Error',
+    get label() {
+      return i18n.t('Error');
+    },
     severity: 2,
   },
   log_warning: {
@@ -100,7 +121,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-amber-500/15',
     ring: 'ring-amber-500/30',
     accent: 'bg-amber-500/60',
-    label: 'Warning',
+    get label() {
+      return i18n.t('Warning');
+    },
     severity: 1,
   },
   file_changed: {
@@ -108,7 +131,9 @@ export const eventConfig: Record<string, TimelineEventConfig> = {
     bg: 'bg-sky-500/15',
     ring: 'ring-sky-500/30',
     accent: 'bg-sky-500/50',
-    label: 'File Changed',
+    get label() {
+      return i18n.t('File Changed');
+    },
     severity: 0,
   },
 };
@@ -118,7 +143,9 @@ export const defaultConfig: TimelineEventConfig = {
   bg: 'bg-fg/5',
   ring: 'ring-fg/10',
   accent: 'bg-fg/20',
-  label: 'Event',
+  get label() {
+    return i18n.t('Event');
+  },
   severity: 0,
 };
 
@@ -137,23 +164,98 @@ export const eventIcons = {
 };
 
 export const TIME_RANGES: Array<{ key: string; label: string; ms: () => number }> = [
-  { key: '1h', label: '1h', ms: () => 3_600_000 },
-  { key: '24h', label: '24h', ms: () => 86_400_000 },
-  { key: '7d', label: '7d', ms: () => 86_400_000 * 7 },
-  { key: '30d', label: '30d', ms: () => 86_400_000 * 30 },
-  { key: 'all', label: 'All', ms: () => 0 },
+  {
+    key: '1h',
+    get label() {
+      return i18n.t('1h');
+    },
+    ms: () => 3_600_000,
+  },
+  {
+    key: '24h',
+    get label() {
+      return i18n.t('24h');
+    },
+    ms: () => 86_400_000,
+  },
+  {
+    key: '7d',
+    get label() {
+      return i18n.t('7d');
+    },
+    ms: () => 86_400_000 * 7,
+  },
+  {
+    key: '30d',
+    get label() {
+      return i18n.t('30d');
+    },
+    ms: () => 86_400_000 * 30,
+  },
+  {
+    key: 'all',
+    get label() {
+      return i18n.t('All');
+    },
+    ms: () => 0,
+  },
 ];
 
 export const FILTER_PILLS: Array<{ key: string; label: string }> = [
-  { key: '', label: 'All' },
-  { key: 'service_started', label: 'Starts' },
-  { key: 'service_crashed', label: 'Crashes' },
-  { key: 'log_error', label: 'Errors' },
-  { key: 'log_warning', label: 'Warns' },
-  { key: 'git_commit', label: 'Commits' },
-  { key: 'git_push', label: 'Pushes' },
-  { key: 'git_pull', label: 'Pulls' },
-  { key: 'file_changed', label: 'Files' },
+  {
+    key: '',
+    get label() {
+      return i18n.t('All');
+    },
+  },
+  {
+    key: 'service_started',
+    get label() {
+      return i18n.t('Starts');
+    },
+  },
+  {
+    key: 'service_crashed',
+    get label() {
+      return i18n.t('Crashes');
+    },
+  },
+  {
+    key: 'log_error',
+    get label() {
+      return i18n.t('Errors');
+    },
+  },
+  {
+    key: 'log_warning',
+    get label() {
+      return i18n.t('Warns');
+    },
+  },
+  {
+    key: 'git_commit',
+    get label() {
+      return i18n.t('Commits');
+    },
+  },
+  {
+    key: 'git_push',
+    get label() {
+      return i18n.t('Pushes');
+    },
+  },
+  {
+    key: 'git_pull',
+    get label() {
+      return i18n.t('Pulls');
+    },
+  },
+  {
+    key: 'file_changed',
+    get label() {
+      return i18n.t('Files');
+    },
+  },
 ];
 
 export const TIMELINE_COLLAPSED_W = 44;
@@ -176,7 +278,7 @@ export function nameHue(name: string): number {
 
 export function formatTime(ts: string): string {
   try {
-    return new Date(ts).toLocaleTimeString([], {
+    return new Date(ts).toLocaleTimeString(i18n.getFormatLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -196,9 +298,13 @@ export function formatDateHeader(ts: string): string {
       a.getFullYear() === b.getFullYear() &&
       a.getMonth() === b.getMonth() &&
       a.getDate() === b.getDate();
-    if (sameDay(d, today)) return 'Today';
-    if (sameDay(d, yesterday)) return 'Yesterday';
-    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (sameDay(d, today)) return i18n.t('Today');
+    if (sameDay(d, yesterday)) return i18n.t('Yesterday');
+    return d.toLocaleDateString(i18n.getFormatLocale(), {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
   } catch {
     return '';
   }
@@ -214,11 +320,11 @@ export function dateBucket(ts: string): string {
 
 export function timeAgo(tsMs: number, now: number): string {
   const diff = now - tsMs;
-  if (diff < 5_000) return 'just now';
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 5_000) return i18n.t('just now');
+  if (diff < 60_000) return i18n.t('{value1}s ago', { value1: Math.floor(diff / 1000) });
+  if (diff < 3_600_000) return i18n.t('{value1}m ago', { value1: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return i18n.t('{value1}h ago', { value1: Math.floor(diff / 3_600_000) });
+  return i18n.t('{value1}d ago', { value1: Math.floor(diff / 86_400_000) });
 }
 
 export function getTimeSince(key: string): number | null {

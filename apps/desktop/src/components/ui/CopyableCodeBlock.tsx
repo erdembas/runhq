@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState, type ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -58,6 +59,7 @@ interface Props {
  *   will simply notice the icon didn't tick over and re-click.
  */
 export function CopyableCodeBlock({ raw, language, children, preClassName }: Props) {
+  i18n.useLocale();
   const [copied, setCopied] = useState(false);
 
   const onCopy = async () => {
@@ -99,8 +101,8 @@ export function CopyableCodeBlock({ raw, language, children, preClassName }: Pro
         <button
           type="button"
           onClick={onCopy}
-          title="Copy code to clipboard"
-          aria-label="Copy code to clipboard"
+          title={i18n.t('Copy code to clipboard')}
+          aria-label={i18n.t('Copy code to clipboard')}
           className={cn(
             'pointer-events-auto inline-flex h-6 items-center gap-1 rounded px-1.5',
             'border-border bg-surface text-fg-muted hover:bg-accent/15 hover:text-accent border',
@@ -108,7 +110,7 @@ export function CopyableCodeBlock({ raw, language, children, preClassName }: Pro
           )}
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          <span>{copied ? 'Copied' : 'Copy'}</span>
+          <span>{copied ? i18n.t('Copied') : i18n.t('Copy')}</span>
         </button>
       </div>
     </div>

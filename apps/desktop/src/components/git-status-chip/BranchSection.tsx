@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { Ref } from 'react';
 import { Check, GitBranch, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -37,6 +38,7 @@ export function BranchSection({
   onSubmitNewBranch,
   onCancelCreate,
 }: BranchSectionProps) {
+  i18n.useLocale();
   const {
     branches,
     remoteBranches,
@@ -52,7 +54,7 @@ export function BranchSection({
   return (
     <div className="border-border border-t">
       <div className="bg-surface-muted text-fg-dim flex items-center justify-between px-3 py-1.5 text-[10px] tracking-wide uppercase">
-        <span>Branches</span>
+        <span>{i18n.t('Branches')}</span>
         <span className="tracking-normal normal-case tabular-nums">
           {(branches?.length ?? 0) + (remoteBranches?.length ?? 0)}
         </span>
@@ -65,7 +67,7 @@ export function BranchSection({
             ref={searchInputRef}
             value={branchSearch}
             onChange={(e) => onBranchSearchChange(e.target.value)}
-            placeholder="Search branches…"
+            placeholder={i18n.t('Search branches…')}
             className="border-border bg-surface-muted/60 text-fg placeholder:text-fg-dim focus:border-accent/60 focus:bg-surface h-6 w-full rounded border pr-1.5 pl-6 text-[11.5px] transition focus:outline-none"
           />
           {branchSearch && (
@@ -73,7 +75,7 @@ export function BranchSection({
               type="button"
               onClick={() => onBranchSearchChange('')}
               className="text-fg-dim hover:text-fg absolute top-1/2 right-1 -translate-y-1/2"
-              aria-label="Clear search"
+              aria-label={i18n.t('Clear search')}
             >
               <X className="h-3 w-3" />
             </button>
@@ -85,14 +87,14 @@ export function BranchSection({
             onClick={() => onBranchTabChange('local')}
             count={branches?.length ?? 0}
           >
-            Local
+            {i18n.t('Local')}
           </BranchTab>
           <BranchTab
             active={branchTab === 'remote'}
             onClick={() => onBranchTabChange('remote')}
             count={remoteBranches?.length ?? 0}
           >
-            Remote
+            {i18n.t('Remote')}
           </BranchTab>
         </div>
       </div>
@@ -101,8 +103,11 @@ export function BranchSection({
         {filteredBranches?.length === 0 && (
           <div className="text-fg-dim px-3 py-4 text-center text-[11px]">
             {branchSearch
-              ? `No ${branchTab} branches match "${branchSearch}"`
-              : `No ${branchTab} branches`}
+              ? i18n.t('No {branchTab} branches match "{branchSearch}"', {
+                  branchTab: branchTab,
+                  branchSearch: branchSearch,
+                })
+              : i18n.t('No {branchTab} branches', { branchTab: branchTab })}
           </div>
         )}
         {filteredBranches?.map((branchName) => {
@@ -157,8 +162,8 @@ export function BranchSection({
                     e.stopPropagation();
                     onRequestDeleteBranch(branchName);
                   }}
-                  title={`Delete ${branchName}`}
-                  aria-label={`Delete ${branchName}`}
+                  title={i18n.t('Delete {branchName}', { branchName: branchName })}
+                  aria-label={i18n.t('Delete {branchName}', { branchName: branchName })}
                   className={cn(
                     'text-fg-dim hover:text-status-error hover:bg-status-error/10 flex h-5 w-5 shrink-0 items-center justify-center rounded transition',
                     'opacity-0 group-hover:opacity-100 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50',
@@ -196,7 +201,7 @@ export function BranchSection({
                   onCancelCreate();
                 }
               }}
-              placeholder={`new-branch from ${branch ?? 'HEAD'}`}
+              placeholder={i18n.t('new-branch from {value1}', { value1: branch ?? 'HEAD' })}
               className="border-border bg-surface-muted/60 text-fg placeholder:text-fg-dim focus:border-accent/60 focus:bg-surface h-6 min-w-0 flex-1 rounded border px-1.5 font-mono text-[11px] transition focus:outline-none"
             />
             <button
@@ -204,18 +209,20 @@ export function BranchSection({
               disabled={busy !== null || !newBranch.trim()}
               className="btn-chrome text-fg flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy === 'create' ? (
-                <RefreshCw className="h-3 w-3 animate-spin" />
-              ) : (
-                <Check className="h-3 w-3" />
-              )}
-              Create
+              {i18n.rich('{value1}Create', {
+                value1:
+                  busy === 'create' ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  ),
+              })}
             </button>
             <button
               type="button"
               onClick={onCancelCreate}
               className="text-fg-dim hover:text-fg flex h-6 w-6 shrink-0 items-center justify-center rounded transition"
-              aria-label="Cancel"
+              aria-label={i18n.t('Cancel')}
             >
               <X className="h-3 w-3" />
             </button>
@@ -228,7 +235,7 @@ export function BranchSection({
             className="text-fg-muted hover:text-fg hover:bg-surface-muted/60 flex w-full items-center gap-2 rounded px-1 py-1 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Plus className="text-fg-dim h-3 w-3" />
-            <span>New branch from {branch ?? 'HEAD'}…</span>
+            <span>{i18n.rich('New branch from {value1}…', { value1: branch ?? 'HEAD' })}</span>
           </button>
         )}
       </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type React from 'react';
 import { cn } from '@/lib/cn';
 
@@ -11,6 +12,7 @@ interface DashboardTabProps {
 }
 
 export function DashboardTab(props: DashboardTabProps) {
+  i18n.useLocale();
   const { isActive, activeTabRef, onActivate, onContextMenu, icon, label } = props;
 
   return (
@@ -32,7 +34,7 @@ export function DashboardTab(props: DashboardTabProps) {
         'border-border/60 outline-none focus-visible:outline-none',
         isActive ? 'bg-surface text-fg' : 'text-fg-muted hover:bg-surface/60 hover:text-fg',
       )}
-      title="Workspace dashboard"
+      title={i18n.t('Workspace dashboard')}
     >
       <span
         aria-hidden

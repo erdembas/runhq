@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { type makeAnsiConverter } from '@/lib/ansi';
@@ -20,6 +22,7 @@ export function ConsoleOutput({
   metaSize: string;
   maxHeightClass?: string;
 }) {
+  i18n.useLocale();
   const totals = useMemo(() => {
     let total = 0;
     let errors = 0;
@@ -70,13 +73,19 @@ export function ConsoleOutput({
           microSize,
         )}
       >
-        <span>Console output</span>
+        <span>{i18n.t('Console output')}</span>
         <span className="text-fg/25 tabular-nums">
-          · {totals.total} line{totals.total === 1 ? '' : 's'}
+          {i18n.rich('· {value1} line{plural3}', {
+            value1: totals.total,
+            plural3: totals.total === 1 ? '' : 's',
+          })}
         </span>
         {hasTabs && (
           <span className="text-fg/25 tabular-nums">
-            · {sections.length} command{sections.length === 1 ? '' : 's'}
+            {i18n.rich('· {value1} command{plural3}', {
+              value1: sections.length,
+              plural3: sections.length === 1 ? '' : 's',
+            })}
           </span>
         )}
         {totals.errors > 0 && (
@@ -121,9 +130,11 @@ export function ConsoleOutput({
                     ? 'border-accent/40 bg-accent/10 text-fg'
                     : 'border-border/40 text-fg/55 hover:border-border/70 hover:text-fg/85',
                 )}
-                title={`${section.label} · ${section.lines.length} line${
-                  section.lines.length === 1 ? '' : 's'
-                }`}
+                title={i18n.t('{value1} · {value2} line{plural3}', {
+                  value1: section.label,
+                  value2: section.lines.length,
+                  plural3: section.lines.length === 1 ? '' : 's',
+                })}
               >
                 <span className="truncate">{section.label}</span>
                 <span className={cn('tabular-nums', isActive ? 'text-fg/55' : 'text-fg/35')}>
@@ -157,7 +168,7 @@ export function ConsoleOutput({
       >
         {ordered.length === 0 ? (
           <div className={cn('text-fg/35 px-3 py-4 text-center', metaSize)}>
-            No console output captured.
+            {i18n.t('No console output captured.')}
           </div>
         ) : (
           <div className="py-1.5">

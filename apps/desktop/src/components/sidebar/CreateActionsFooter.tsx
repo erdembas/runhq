@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Layers, Plus } from 'lucide-react';
 import { AddSectionButton } from '../SectionMenus';
 import { modChord } from '@/lib/platform';
@@ -9,6 +10,7 @@ export function CreateActionsFooter({
   onAddService: () => void;
   onAddStack: () => void;
 }) {
+  i18n.useLocale();
   const cta =
     'border-border/80 bg-surface-raised text-fg hover:bg-surface-overlay hover:border-border-strong hover:shadow-md focus-visible:border-border-strong rounded-app-sm flex min-w-0 flex-1 items-center justify-center gap-1 border px-2 py-1.5 text-[11px] font-semibold shadow-sm transition active:scale-[0.98]';
   return (
@@ -17,19 +19,19 @@ export function CreateActionsFooter({
         <button
           type="button"
           onClick={onAddService}
-          title={`New service (${modChord('N')})`}
+          title={i18n.t('New service ({value1})', { value1: modChord('N') })}
           className={cta}
         >
           <Plus className="h-3 w-3 shrink-0" />
-          <span className="truncate">Service</span>
+          <span className="truncate">{i18n.t('Service')}</span>
         </button>
-        <button type="button" onClick={onAddStack} title="New stack" className={cta}>
+        <button type="button" onClick={onAddStack} title={i18n.t('New stack')} className={cta}>
           <Layers className="h-3 w-3 shrink-0" />
-          <span className="truncate">Stack</span>
+          <span className="truncate">{i18n.t('Stack')}</span>
         </button>
         <AddSectionButton className={cta}>
           <Plus className="h-3 w-3 shrink-0" />
-          <span className="truncate">Section</span>
+          <span className="truncate">{i18n.t('Section')}</span>
         </AddSectionButton>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { CheckCircle2, Clock, Loader2 } from 'lucide-react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import {
@@ -39,6 +40,7 @@ export function ServiceCardHealthStrip({
   onOpenDetail,
   onOpenOverlay,
 }: ServiceCardHealthStripProps) {
+  i18n.useLocale();
   const flagCount = countAttentionFlags(projectMeta);
   const hasOutdatedChip = (projectMeta?.outdated?.total ?? 0) > 0;
   const hasAuditChip =
@@ -71,8 +73,12 @@ export function ServiceCardHealthStrip({
               className="bg-fg-dim/10 text-fg-dim rounded-app-sm inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
               title={
                 projectMeta.last_activity
-                  ? `No activity since ${new Date(projectMeta.last_activity).toLocaleDateString()}`
-                  : 'No activity recorded'
+                  ? i18n.t('No activity since {value1}', {
+                      value1: new Date(projectMeta.last_activity).toLocaleDateString(
+                        i18n.getFormatLocale(),
+                      ),
+                    })
+                  : i18n.t('No activity recorded')
               }
             >
               <Clock className="h-3 w-3" />
@@ -114,26 +120,30 @@ export function ServiceCardHealthStrip({
       ) : isRuntimeProject && showFreshness ? (
         <span
           className="text-tone-success-fg/80 inline-flex items-center gap-1 text-[10px] font-semibold tracking-tight"
-          title="No outdated packages, no advisories, no stale activity"
+          title={i18n.t('No outdated packages, no advisories, no stale activity')}
         >
-          <CheckCircle2 className="h-3 w-3" />
-          All clear
+          {i18n.rich('{value1}All clear', { value1: <CheckCircle2 className="h-3 w-3" /> })}
         </span>
       ) : isRuntimeProject ? (
         <span
           className="text-fg-dim/80 inline-flex items-center gap-1 text-[10px] font-medium"
-          title="No dependency scan recorded yet — run “Rescan deps” to surface CVEs and outdated packages"
+          title={i18n.t(
+            'No dependency scan recorded yet — run “Rescan deps” to surface CVEs and outdated packages',
+          )}
         >
-          <span aria-hidden className="bg-fg-dim/40 inline-block h-1 w-1 rounded-full" />
-          Not yet scanned
+          {i18n.rich('{value1}Not yet scanned', {
+            value1: <span aria-hidden className="bg-fg-dim/40 inline-block h-1 w-1 rounded-full" />,
+          })}
         </span>
       ) : (
         <span
           className="text-fg-dim/50 inline-flex items-center gap-1 text-[10px] font-medium"
-          title="This project has no language runtime detected — dependency scans don't apply"
+          title={i18n.t(
+            "This project has no language runtime detected — dependency scans don't apply",
+          )}
         >
           <span aria-hidden>—</span>
-          <span>No dependency tracking</span>
+          <span>{i18n.t('No dependency tracking')}</span>
         </span>
       )}
 
@@ -142,8 +152,8 @@ export function ServiceCardHealthStrip({
           {isScanning && (
             <span
               className="inline-flex h-5 items-center px-1"
-              title="Dependency scan in progress for this project"
-              aria-label="Scanning dependencies"
+              title={i18n.t('Dependency scan in progress for this project')}
+              aria-label={i18n.t('Scanning dependencies')}
             >
               <Loader2 className="h-3 w-3 animate-spin" />
             </span>

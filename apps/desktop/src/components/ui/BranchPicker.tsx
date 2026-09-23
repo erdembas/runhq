@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronsUpDown, GitBranch, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -42,10 +44,11 @@ export function BranchPicker({
   value,
   onChange,
   options,
-  placeholder = 'Select branch…',
+  placeholder = i18n.t('Select branch…'),
   className,
   disabled,
 }: BranchPickerProps) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -231,7 +234,7 @@ export function BranchPicker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onInputKey}
-                placeholder="Search…"
+                placeholder={i18n.t('Search…')}
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
@@ -240,7 +243,9 @@ export function BranchPicker({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto py-1">
               {flat.length === 0 && (
-                <p className="text-fg/40 px-3 py-3 text-center text-[11px]">No matches</p>
+                <p className="text-fg/40 px-3 py-3 text-center text-[11px]">
+                  {i18n.t('No matches')}
+                </p>
               )}
               {groups.map(([groupName, items], gi) => (
                 <div key={groupName || `__g${gi}`}>

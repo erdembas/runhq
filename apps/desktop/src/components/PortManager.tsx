@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search, ExternalLink, X } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Dialog } from '@/components/ui/Dialog';
@@ -18,6 +20,7 @@ interface PortRow {
 }
 
 export function PortManager({ onClose }: Props) {
+  i18n.useLocale();
   const ports = useAppStore((s) => s.ports);
   const setPorts = useAppStore((s) => s.setPorts);
   const services = useAppStore((s) => s.services);
@@ -103,7 +106,7 @@ export function PortManager({ onClose }: Props) {
 
   const handleKill = (port: number) => {
     setPendingConfirm({
-      message: `Kill all processes on port ${port}?`,
+      message: i18n.t('Kill all processes on port {port}?', { port: port }),
       onConfirm: async () => {
         setPendingConfirm(null);
         setBusy(port);
@@ -123,8 +126,11 @@ export function PortManager({ onClose }: Props) {
 
   return (
     <Dialog
-      title="Port Manager"
-      subtitle={`${totalApp} app · ${totalSystem} system`}
+      title={i18n.t('Port Manager')}
+      subtitle={i18n.t('{totalApp} app · {totalSystem} system', {
+        totalApp: totalApp,
+        totalSystem: totalSystem,
+      })}
       onClose={onClose}
       size="lg"
     >
@@ -135,29 +141,29 @@ export function PortManager({ onClose }: Props) {
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by port, process, service, or PID…"
+            placeholder={i18n.t('Search by port, process, service, or PID…')}
             className="border-border bg-surface-raised text-fg placeholder:text-fg-dim focus:border-accent rounded-app-sm h-7 w-full border pr-2 pl-7 text-[11px] transition focus:outline-none"
           />
         </div>
 
         <Section
-          title="App Ports"
+          title={i18n.t('App Ports')}
           count={totalApp}
           rows={filteredApp}
           busy={busy}
           onKill={handleKill}
-          emptyMessage="No ports from your running services."
-          emptyHint="Start a service that binds a port to see it here."
+          emptyMessage={i18n.t('No ports from your running services.')}
+          emptyHint={i18n.t('Start a service that binds a port to see it here.')}
         />
 
         <Section
-          title="System Ports"
+          title={i18n.t('System Ports')}
           count={totalSystem}
           rows={filteredSystem}
           busy={busy}
           onKill={handleKill}
-          emptyMessage="No other listening ports detected."
-          emptyHint="Ports bound by processes outside RunHQ appear here."
+          emptyMessage={i18n.t('No other listening ports detected.')}
+          emptyHint={i18n.t('Ports bound by processes outside RunHQ appear here.')}
         />
       </div>
       {pendingConfirm && (
@@ -188,6 +194,7 @@ function Section({
   emptyMessage: string;
   emptyHint: string;
 }) {
+  i18n.useLocale();
   return (
     <div>
       <div className="text-fg-dim mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider uppercase">
@@ -204,12 +211,12 @@ function Section({
           <table className="w-full text-left text-[10px]">
             <thead>
               <tr className="bg-surface-muted/70 text-fg-dim border-border border-b text-[9px] font-semibold tracking-wider uppercase">
-                <th className="px-2.5 py-1.5">Port</th>
-                <th className="px-2.5 py-1.5">PID</th>
-                <th className="px-2.5 py-1.5">Process</th>
-                <th className="px-2.5 py-1.5">Service</th>
+                <th className="px-2.5 py-1.5">{i18n.t('Port')}</th>
+                <th className="px-2.5 py-1.5">{i18n.t('PID')}</th>
+                <th className="px-2.5 py-1.5">{i18n.t('Process')}</th>
+                <th className="px-2.5 py-1.5">{i18n.t('Service')}</th>
                 <th className="w-[1%] px-2.5 py-1.5 text-right">
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">{i18n.t('Actions')}</span>
                 </th>
               </tr>
             </thead>
@@ -241,7 +248,7 @@ function Section({
                       <div className="flex items-center justify-end gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                         <button
                           type="button"
-                          title="Open in browser"
+                          title={i18n.t('Open in browser')}
                           className="text-fg-dim hover:bg-accent/10 hover:text-accent rounded-app-sm inline-flex h-5 w-5 items-center justify-center transition"
                           onClick={() => void ipc.openUrl(localUrl(p.port))}
                         >
@@ -250,7 +257,7 @@ function Section({
                         <button
                           type="button"
                           disabled={isBusy}
-                          title="Kill port"
+                          title={i18n.t('Kill port')}
                           className={cn(
                             'rounded-app-sm inline-flex h-5 w-5 items-center justify-center transition',
                             isBusy

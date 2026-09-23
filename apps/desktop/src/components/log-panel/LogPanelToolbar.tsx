@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Network, Play, RotateCcw, Search, Square } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { GitStatusChip } from '@/components/GitStatusChip';
@@ -39,6 +40,7 @@ export function LogPanelToolbar({
   service,
   servicePid,
 }: LogPanelToolbarProps) {
+  i18n.useLocale();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1">
@@ -49,7 +51,7 @@ export function LogPanelToolbar({
             leftIcon={<Square className="h-3 w-3" />}
             onClick={onStop}
           >
-            Stop{service.cmds.length > 1 ? ' all' : ''}
+            {i18n.rich('Stop{value1}', { value1: service.cmds.length > 1 ? i18n.t(' all') : '' })}
           </Button>
         ) : (
           <Button
@@ -58,7 +60,7 @@ export function LogPanelToolbar({
             leftIcon={<Play className="h-3 w-3 fill-current" />}
             onClick={onStart}
           >
-            {service.cmds.length > 1 ? 'Play all' : 'Play'}
+            {service.cmds.length > 1 ? i18n.t('Play all') : i18n.t('Play')}
           </Button>
         )}
         <Button
@@ -67,7 +69,7 @@ export function LogPanelToolbar({
           leftIcon={<RotateCcw className="h-3 w-3" />}
           onClick={onRestart}
         >
-          Restart
+          {i18n.t('Restart')}
         </Button>
       </div>
 
@@ -81,10 +83,10 @@ export function LogPanelToolbar({
       <div className="relative max-w-[280px] min-w-36 flex-1">
         <Search className="text-fg-dim pointer-events-none absolute top-1/2 left-2.5 h-3 w-3 -translate-y-1/2" />
         <input
-          aria-label="Filter logs"
+          aria-label={i18n.t('Filter logs')}
           value={filter}
           onChange={(event) => onSetFilter(event.target.value)}
-          placeholder="Filter logs…"
+          placeholder={i18n.t('Filter logs…')}
           className="border-border bg-surface-muted/70 text-fg placeholder:text-fg-dim focus:border-accent/60 focus:bg-surface rounded-app-sm h-7 w-full border px-2 pl-7 text-[12px] transition focus:outline-none"
         />
         <kbd className="text-fg-dim border-border bg-surface absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded border px-1 font-mono text-[9.5px] md:inline">
@@ -96,7 +98,7 @@ export function LogPanelToolbar({
         <GitStatusChip key={service.id} serviceId={service.id} />
         <PopoverChip
           icon={<Network className="h-3 w-3" />}
-          label="Ports"
+          label={i18n.t('Ports')}
           count={ports.length}
           open={openPortsPopover}
           onToggle={() => onOpenPopoverChange(!openPortsPopover)}

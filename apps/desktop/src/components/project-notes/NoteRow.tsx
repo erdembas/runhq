@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -12,6 +13,7 @@ interface NoteRowProps {
 }
 
 export function NoteRow({ active, note, onDelete, onSelect }: NoteRowProps) {
+  i18n.useLocale();
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
@@ -54,8 +56,8 @@ export function NoteRow({ active, note, onDelete, onSelect }: NoteRowProps) {
               setArmed(true);
             }
           }}
-          title={armed ? 'Click again to confirm' : 'Delete note'}
-          aria-label="Delete note"
+          title={armed ? i18n.t('Click again to confirm') : i18n.t('Delete note')}
+          aria-label={i18n.t('Delete note')}
           className={cn(
             'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition',
             armed

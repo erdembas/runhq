@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { agentSupportsImages } from '@runhq/cockpit-ui';
 import type { AgentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
 
@@ -36,24 +37,32 @@ export const ACCOUNT_COOLDOWN_MS = 30 * 60_000;
 
 const text = (value: unknown, field: string, max = 160) => {
   if (typeof value !== 'string' || !value.trim() || value.length > max)
-    throw new Error(`A pool needs ${field}`);
+    throw new Error(i18n.t('A pool needs {field}', { field: field }));
   return value as string;
 };
 
 export function parseAccountPool(value: unknown): AgentAccountPool {
   const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const accounts = Array.isArray(raw.accounts) ? raw.accounts : [];
-  if (!accounts.length) throw new Error('A pool needs at least one account');
+  if (!accounts.length) throw new Error(i18n.t('A pool needs at least one account'));
   if (accounts.length > MAX_POOL_ACCOUNTS)
-    throw new Error(`A pool holds up to ${MAX_POOL_ACCOUNTS} accounts`);
+    throw new Error(
+      i18n.t('A pool holds up to {MAX_POOL_ACCOUNTS} accounts', {
+        MAX_POOL_ACCOUNTS: MAX_POOL_ACCOUNTS,
+      }),
+    );
   const ids: string[] = [];
   for (const account of accounts) {
     if (typeof account !== 'string' || !account.trim() || account.length > 100)
-      throw new Error('Invalid account in this pool');
+      throw new Error(i18n.t('Invalid account in this pool'));
     // A duplicate would let one account win a tie twice and misreport how wide the pool is.
     if (!ids.includes(account)) ids.push(account);
   }
-  return { id: text(raw.id, 'an id'), name: text(raw.name, 'a name'), accounts: ids };
+  return {
+    id: text(raw.id, i18n.t('an id')),
+    name: text(raw.name, i18n.t('a name')),
+    accounts: ids,
+  };
 }
 
 export interface AgentAccountCooldown {
@@ -161,9 +170,11 @@ export interface AgentAccountNeed {
 const DECLARED_PLAN_ADAPTERS = ['codex', 'claude', 'opencode'];
 
 export function accountCapabilityGap(adapter: string, need: AgentAccountNeed): string | null {
-  if (need.images && !agentSupportsImages(adapter)) return 'does not accept image attachments';
-  if (need.plan && !DECLARED_PLAN_ADAPTERS.includes(adapter)) return 'has no declared plan mode';
-  if (need.steering && adapter !== 'codex') return 'cannot steer a running turn';
+  if (need.images && !agentSupportsImages(adapter))
+    return i18n.t('does not accept image attachments');
+  if (need.plan && !DECLARED_PLAN_ADAPTERS.includes(adapter))
+    return i18n.t('has no declared plan mode');
+  if (need.steering && adapter !== 'codex') return i18n.t('cannot steer a running turn');
   return null;
 }
 
@@ -198,7 +209,11 @@ function noAccountReason(pool: AgentAccountPool, rejected: AgentAccountRejection
   if (rejected.length === 1) return describe(rejected[0]!);
   const listed = rejected.slice(0, 3).map(describe).join('; ');
   const rest = rejected.length - 3;
-  return `No account in ${pool.name} is free: ${listed}${rest > 0 ? `; and ${rest} more` : ''}`;
+  return i18n.t('No account in {value1} is free: {listed}{value3}', {
+    value1: pool.name,
+    listed: listed,
+    value3: rest > 0 ? i18n.t('; and {rest} more', { rest: rest }) : '',
+  });
 }
 
 /**
@@ -225,17 +240,21 @@ export function chooseAgentAccount(input: {
         id,
         name: id,
         signal: 'availability',
-        reason: 'is no longer a connection in this workspace',
+        reason: i18n.t('is no longer a connection in this workspace'),
       });
       continue;
     }
     const label = { id: candidate.id, name: candidate.name };
     if (!candidate.enabled) {
-      rejected.push({ ...label, signal: 'availability', reason: 'is disabled' });
+      rejected.push({ ...label, signal: 'availability', reason: i18n.t('is disabled') });
       continue;
     }
     if (!candidate.available) {
-      rejected.push({ ...label, signal: 'availability', reason: 'has no installed executable' });
+      rejected.push({
+        ...label,
+        signal: 'availability',
+        reason: i18n.t('has no installed executable'),
+      });
       continue;
     }
     const gap = accountCapabilityGap(candidate.adapter, need);
@@ -248,14 +267,14 @@ export function chooseAgentAccount(input: {
       rejected.push({
         ...label,
         signal: 'quota',
-        reason: 'reported a limit and is on cool-down',
+        reason: i18n.t('reported a limit and is on cool-down'),
       });
       continue;
     }
     const limit = input.capacity.providers[candidate.id] ?? 8;
     const free = limit - (input.occupied.providers[candidate.id] ?? 0);
     if (free <= 0) {
-      rejected.push({ ...label, signal: 'load', reason: 'has no free execution slot' });
+      rejected.push({ ...label, signal: 'load', reason: i18n.t('has no free execution slot') });
       continue;
     }
     eligible.push({ candidate, free });
@@ -272,7 +291,7 @@ export function chooseAgentAccount(input: {
   if (input.occupied.total >= input.capacity.global)
     return {
       accountId: null,
-      reason: 'Waiting for a global execution slot',
+      reason: i18n.t('Waiting for a global execution slot'),
       grounds: '',
       rejected,
     };
@@ -284,9 +303,12 @@ export function chooseAgentAccount(input: {
     // A single connection was not chosen over anything, so claiming a comparison would be noise.
     reason:
       input.pool.accounts.length > 1
-        ? `${best.candidate.name} had the most free slots in ${input.pool.name}`
+        ? i18n.t('{value1} had the most free slots in {value2}', {
+            value1: best.candidate.name,
+            value2: input.pool.name,
+          })
         : '',
-    grounds: input.pool.accounts.length > 1 ? 'had the most free slots' : '',
+    grounds: input.pool.accounts.length > 1 ? i18n.t('had the most free slots') : '',
     rejected,
   };
 }
@@ -447,10 +469,14 @@ export function parseRoutingNote(value: unknown): AgentRoutingNote | null {
 
 /** One line a person can check: which account, out of which pool, and on what grounds. */
 export function describeRoutingNote(note: AgentRoutingNote): string {
-  const from = note.poolName ? ` from ${note.poolName}` : '';
+  const from = note.poolName ? i18n.t(' from {value1}', { value1: note.poolName }) : '';
   // The account and the pool are already named here, so the grounds stay a short clause rather
   // than a second sentence repeating both.
   return note.reason
-    ? `RunHQ chose ${note.accountName}${from}, which ${note.reason}`
-    : `RunHQ chose ${note.accountName}${from}`;
+    ? i18n.t('RunHQ chose {value1}{from}, which {value3}', {
+        value1: note.accountName,
+        from: from,
+        value3: note.reason,
+      })
+    : i18n.t('RunHQ chose {value1}{from}', { value1: note.accountName, from: from });
 }

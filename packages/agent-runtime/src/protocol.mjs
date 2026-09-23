@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { clearInterval, clearTimeout, setInterval, setTimeout } from 'node:timers';
+import { SessionTitle } from './titles.mjs';
+import { automaticApproval } from './permissions.mjs';
 
 export const MAX_TEXT = 128 * 1024;
 export const clip = (value) => String(value ?? '').slice(-MAX_TEXT);
@@ -25,7 +28,8 @@ export async function* jsonLines(stream) {
 
 export class Context {
   constructor(config, emit) {
-    this.config = config;
+    this.sessionTitle = new SessionTitle(config, emit);
+    this.config = { ...config, prompt: this.sessionTitle.prompt(config) };
     this.emit = emit;
     this.children = new Set();
     this.requests = new Map();
@@ -47,14 +51,47 @@ export class Context {
     this.item(id, kind, title || item?.title || kind, (item?.text ?? '') + text, 'running');
   }
   flush() {
-    for (const id of this.dirty) this.emit({ type: 'item', item: this.items.get(id) });
+    for (const id of this.dirty) {
+      const item = this.items.get(id);
+      if (item.kind === 'assistant' && this.sessionTitle.enabled) {
+        const text = this.sessionTitle.visible(item.text, item.status);
+        if (text) this.emit({ type: 'item', item: { ...item, text } });
+      } else this.emit({ type: 'item', item });
+    }
     this.dirty.clear();
   }
-  async ask(request, respond) {
+  async ask(request, respond, approval) {
     const id = String(request.id ?? randomUUID());
     if (this.requests.has(id)) return;
     this.requests.set(id, respond);
     this.flush();
+    const value = !this.cancelled && automaticApproval(this.config, request, approval);
+    if (value) {
+      try {
+        await this.answer(id, value);
+        this.item(
+          `automatic-approval:${id}`,
+          'automatic_approval',
+          request.title,
+          pretty({
+            request: request.details,
+            response: value,
+            policy: this.config.permission_policy,
+          }),
+        );
+        return;
+      } catch (error) {
+        this.item(
+          `automatic-approval:${id}`,
+          'automatic_approval',
+          request.title,
+          pretty({ request: request.details, error: error.message }),
+          'failed',
+        );
+        // Keep failed submissions answerable through the ordinary request card.
+        if (this.cancelled || !this.requests.has(id)) return;
+      }
+    }
     this.emit({ type: 'request', request: { ...request, id } });
   }
   async answer(id, value) {

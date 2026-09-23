@@ -1,6 +1,8 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 
 export function ZeroState({ icon, title, hint }: { icon: ReactNode; title: string; hint: string }) {
+  i18n.useLocale();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
       {icon}

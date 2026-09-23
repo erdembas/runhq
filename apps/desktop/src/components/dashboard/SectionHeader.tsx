@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 
 export function SectionHeader({
@@ -25,6 +26,7 @@ export function SectionHeader({
   onClick?: () => void;
   actions?: React.ReactNode;
 }) {
+  i18n.useLocale();
   const headerTint =
     tone === 'accent'
       ? 'bg-accent/5 border-accent/20 hover:bg-accent/10'
@@ -68,8 +70,10 @@ export function SectionHeader({
         </span>
         {runningCount > 0 && (
           <span className="bg-status-running/15 text-status-running inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
-            <span className="bg-status-running h-1.5 w-1.5 rounded-full" />
-            {runningCount} on
+            {i18n.rich('{value1}{runningCount} on', {
+              value1: <span className="bg-status-running h-1.5 w-1.5 rounded-full" />,
+              runningCount: runningCount,
+            })}
           </span>
         )}
       </Wrapper>
@@ -93,6 +97,7 @@ export function HeaderAction({
   tone?: 'run' | 'danger';
   children: React.ReactNode;
 }) {
+  i18n.useLocale();
   const toneClass =
     tone === 'run'
       ? 'hover:bg-status-running/12 hover:text-status-running'

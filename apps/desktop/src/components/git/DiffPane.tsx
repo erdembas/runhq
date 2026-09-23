@@ -1,4 +1,6 @@
-import { useMemo, useRef } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useRef } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import {
   ChevronRight,
@@ -56,6 +58,7 @@ export function DiffPane({
   fileLoading,
   emptyLabel,
 }: DiffPaneProps) {
+  i18n.useLocale();
   // "Full file" toggle lives in the global store so every surface that
   // mounts a DiffPane (Changes / Commit / History / Cross-Project)
   // stays in sync, AND so the parent's fetch logic can observe the
@@ -115,7 +118,7 @@ export function DiffPane({
     return (
       <div className="text-fg/40 flex flex-1 flex-col items-center justify-center gap-3 text-sm">
         <File size={42} className="text-fg/15" strokeWidth={1} />
-        <p>{emptyLabel ?? 'Select a file to view the diff'}</p>
+        <p>{emptyLabel ?? i18n.t('Select a file to view the diff')}</p>
       </div>
     );
   }
@@ -175,10 +178,10 @@ export function DiffPane({
           onClick={() => setShowUnchanged(!showUnchanged)}
           title={
             showUnchanged
-              ? 'Collapse unchanged regions (show only diffs + 3 lines context)'
-              : 'Show full file — expand every unchanged line'
+              ? i18n.t('Collapse unchanged regions (show only diffs + 3 lines context)')
+              : i18n.t('Show full file — expand every unchanged line')
           }
-          aria-label="Toggle full-file view"
+          aria-label={i18n.t('Toggle full-file view')}
           aria-pressed={showUnchanged}
           className={cn(
             'flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium transition',
@@ -186,7 +189,9 @@ export function DiffPane({
           )}
         >
           {showUnchanged ? <FoldVertical size={11} /> : <UnfoldVertical size={11} />}
-          <span className="hidden sm:inline">{showUnchanged ? 'Full file' : 'Diffs only'}</span>
+          <span className="hidden sm:inline">
+            {showUnchanged ? i18n.t('Full file') : i18n.t('Diffs only')}
+          </span>
         </button>
         <button
           ref={explainTriggerRef}
@@ -198,10 +203,10 @@ export function DiffPane({
           disabled={!fileDiff || binaryInfo === true}
           title={
             binaryInfo
-              ? 'AI explanation is unavailable for binary files'
-              : 'Explain this diff in the AI chat panel'
+              ? i18n.t('AI explanation is unavailable for binary files')
+              : i18n.t('Explain this diff in the AI chat panel')
           }
-          aria-label="Explain this diff with AI"
+          aria-label={i18n.t('Explain this diff with AI')}
           className={cn(
             'flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium transition',
             'disabled:cursor-not-allowed disabled:opacity-40',
@@ -209,7 +214,7 @@ export function DiffPane({
           )}
         >
           <Sparkles size={11} />
-          <span className="hidden sm:inline">Explain</span>
+          <span className="hidden sm:inline">{i18n.t('Explain')}</span>
         </button>
         {explainPopover}
         {fileLoading && <RefreshCw size={10} className="text-fg/30 animate-spin" />}
@@ -225,11 +230,11 @@ export function DiffPane({
           />
         ) : monaco.error ? (
           <div className="text-tone-critical-fg flex h-full items-center justify-center px-6 text-[12px]">
-            Couldn't load editor: {monaco.error}
+            {i18n.rich("Couldn't load editor: {value1}", { value1: monaco.error })}
           </div>
         ) : !monaco.ready ? (
           <div className="bg-surface flex h-full items-center justify-center">
-            <span className="text-fg/30 text-xs">Loading editor…</span>
+            <span className="text-fg/30 text-xs">{i18n.t('Loading editor…')}</span>
           </div>
         ) : (
           <DiffEditor
@@ -274,7 +279,7 @@ export function DiffPane({
             }
             loading={
               <div className="bg-surface flex h-full items-center justify-center">
-                <span className="text-fg/30 text-xs">Loading editor…</span>
+                <span className="text-fg/30 text-xs">{i18n.t('Loading editor…')}</span>
               </div>
             }
           />

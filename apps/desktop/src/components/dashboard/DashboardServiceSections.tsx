@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { Layers, Pencil, Play, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function DashboardServiceSections({ model }: Props) {
+  i18n.useLocale();
   return (
     <>
       {model.stacks.map((stack) => (
@@ -32,6 +34,7 @@ export function DashboardServiceSections({ model }: Props) {
 }
 
 function StackSection({ model, stack }: Props & { stack: StackDef }) {
+  i18n.useLocale();
   const stackServices = stack.service_ids
     .map((sid) => model.services.find((s) => s.id === sid))
     .filter((svc): svc is ServiceDef => !!svc);
@@ -67,7 +70,7 @@ function StackSection({ model, stack }: Props & { stack: StackDef }) {
           <>
             {runningCount > 0 ? (
               <HeaderAction
-                title="Stop all"
+                title={i18n.t('Stop all')}
                 onClick={() => void ipc.stopStack(stack.id)}
                 tone="danger"
               >
@@ -75,21 +78,24 @@ function StackSection({ model, stack }: Props & { stack: StackDef }) {
               </HeaderAction>
             ) : (
               <HeaderAction
-                title="Start all"
+                title={i18n.t('Start all')}
                 onClick={() => void ipc.startStack(stack.id)}
                 tone="run"
               >
                 <Play className="h-3.5 w-3.5" />
               </HeaderAction>
             )}
-            <HeaderAction title="Restart all" onClick={() => void ipc.restartStack(stack.id)}>
+            <HeaderAction
+              title={i18n.t('Restart all')}
+              onClick={() => void ipc.restartStack(stack.id)}
+            >
               <RotateCcw className="h-3.5 w-3.5" />
             </HeaderAction>
-            <HeaderAction title="Edit stack" onClick={() => model.openStackEditor(stack)}>
+            <HeaderAction title={i18n.t('Edit stack')} onClick={() => model.openStackEditor(stack)}>
               <Pencil className="h-3.5 w-3.5" />
             </HeaderAction>
             <HeaderAction
-              title="Delete stack"
+              title={i18n.t('Delete stack')}
               tone="danger"
               onClick={() => model.requestDeleteStack(stack)}
             >
@@ -108,6 +114,7 @@ function StackSection({ model, stack }: Props & { stack: StackDef }) {
 }
 
 function GroupSection({ model, group }: Props & { group: DashGroup }) {
+  i18n.useLocale();
   const visibleGroupServices = model.visibleServiceIds
     ? group.services.filter((svc) => model.visibleServiceIds?.has(svc.id))
     : group.services;
@@ -137,6 +144,7 @@ function GroupSection({ model, group }: Props & { group: DashGroup }) {
 }
 
 function FlatServiceGrid({ model }: Props) {
+  i18n.useLocale();
   if (model.sortedEligibleServices.length === 0) return null;
   return (
     <ServiceGrid>
@@ -152,6 +160,7 @@ function ServiceCardSlot({
   svc,
   draggable,
 }: Props & { svc: ServiceDef; draggable?: boolean }) {
+  i18n.useLocale();
   const hidden = model.visibleServiceIds !== null && !model.visibleServiceIds.has(svc.id);
   return (
     <CardSearchSlot hidden={hidden}>
@@ -168,6 +177,7 @@ function ServiceCardSlot({
 }
 
 function ServiceGrid({ children }: { children: ReactNode }) {
+  i18n.useLocale();
   return (
     <div className="mt-3 grid grid-cols-1 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
       {children}
@@ -176,29 +186,32 @@ function ServiceGrid({ children }: { children: ReactNode }) {
 }
 
 function NoMatchesEmpty({ model }: Props) {
+  i18n.useLocale();
   return (
     <div className="border-border/60 bg-surface-raised/40 rounded-app flex flex-col items-center gap-2 border border-dashed px-6 py-10 text-center">
       <Search className="text-fg-dim/70 h-5 w-5" />
       <p className="text-fg text-[13px] font-medium">
         {model.effectiveQuery !== '' ? (
           <>
-            No matches for <span className="text-accent font-mono">"{model.effectiveQuery}"</span>
+            {i18n.rich('No matches for {value1}', {
+              value1: <span className="text-accent font-mono">"{model.effectiveQuery}"</span>,
+            })}
           </>
         ) : (
-          'No projects match the current filters'
+          i18n.t('No projects match the current filters')
         )}
       </p>
       <p className="text-fg-dim text-[11.5px]">
         {model.effectiveQuery !== ''
-          ? 'Search covers names, tags, ports, commands, and paths.'
-          : 'Try clearing one or more filters above.'}
+          ? i18n.t('Search covers names, tags, ports, commands, and paths.')
+          : i18n.t('Try clearing one or more filters above.')}
       </p>
       <button
         type="button"
         onClick={model.clearFilters}
         className="text-accent hover:text-accent/80 mt-1 text-[11.5px] font-semibold transition"
       >
-        Clear all filters
+        {i18n.t('Clear all filters')}
       </button>
     </div>
   );

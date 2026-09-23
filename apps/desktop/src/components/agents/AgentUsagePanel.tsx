@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { Activity, Loader2, Save } from 'lucide-react';
 import { AgentProviderLogo, SearchableSelect } from '@runhq/cockpit-ui';
 import { useVisibleStore } from '@/lib/useVisibleStore';
@@ -19,7 +21,8 @@ import {
 } from './agentCapacity';
 
 const limits = Array.from({ length: 8 }, (_, index) => index + 1);
-const count = (value: number | null) => (value === null ? 'Unknown' : value.toLocaleString());
+const count = (value: number | null) =>
+  value === null ? i18n.t('Unknown') : value.toLocaleString(i18n.getFormatLocale());
 
 export function AgentUsagePanel({
   projectId,
@@ -28,6 +31,7 @@ export function AgentUsagePanel({
   projectId?: string;
   visible?: boolean;
 }) {
+  i18n.useLocale();
   const sessions = useVisibleStore(useAgentStore, (state) => state.sessions, visible);
   const tools = useVisibleStore(useAgentStore, (state) => state.tools, visible);
   const queues = useVisibleStore(useAgentQueueStore, (state) => state.queues, visible);
@@ -94,14 +98,17 @@ export function AgentUsagePanel({
   };
   return (
     <section
-      aria-label="Agent usage and capacity"
+      aria-label={i18n.t('Agent usage and capacity')}
       className="overlay-scroll min-h-0 flex-1 space-y-5 overflow-auto p-4"
     >
       <header className="flex flex-wrap items-center gap-2">
         <Activity className="text-accent h-4 w-4" />
-        <h2 className="text-fg text-[14px] font-semibold">Capacity & usage</h2>
+        <h2 className="text-fg text-[14px] font-semibold">{i18n.t('Capacity & usage')}</h2>
         <span className="text-fg-dim ml-auto text-[12px]">
-          {occupied.total} / {ready ? preferences.global : '…'} execution slots in use
+          {i18n.rich('{value1} / {value2} execution slots in use', {
+            value1: occupied.total,
+            value2: ready ? preferences.global : '…',
+          })}
         </span>
       </header>
       {(error || libraryError) && (
@@ -118,17 +125,18 @@ export function AgentUsagePanel({
             }}
             className="underline"
           >
-            Reload saved settings
+            {i18n.t('Reload saved settings')}
           </button>
         </div>
       )}
       <div className="border-border rounded-xl border p-4">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <div className="flex-1">
-            <h3 className="text-fg text-[12px] font-medium">Concurrent tasks</h3>
+            <h3 className="text-fg text-[12px] font-medium">{i18n.t('Concurrent tasks')}</h3>
             <p className="text-fg-dim mt-1 text-[11px]">
-              Limits apply across all projects. Tasks waiting for your answer still occupy a slot;
-              changing limits does not stop tasks already running.
+              {i18n.t(
+                'Limits apply across all projects. Tasks waiting for your answer still occupy a slot; changing limits does not stop tasks already running.',
+              )}
             </p>
           </div>
           <button
@@ -142,22 +150,27 @@ export function AgentUsagePanel({
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            {saving ? 'Saving…' : 'Save limits'}
+            {saving ? i18n.t('Saving…') : i18n.t('Save limits')}
           </button>
         </div>
         <fieldset disabled={!ready || saving} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="text-fg-muted flex items-center justify-between gap-3 text-[12px]">
-            All tools
-            <SearchableSelect
-              label="Global concurrent tasks"
-              searchable={false}
-              compact
-              className="w-24"
-              menuWidth={160}
-              value={String(draft.global)}
-              options={limits.map((limit) => ({ value: String(limit), label: String(limit) }))}
-              onChange={(value) => setDraft((current) => ({ ...current, global: Number(value) }))}
-            />
+            {i18n.rich('All tools{value1}', {
+              value1: (
+                <SearchableSelect
+                  label={i18n.t('Global concurrent tasks')}
+                  searchable={false}
+                  compact
+                  className="w-24"
+                  menuWidth={160}
+                  value={String(draft.global)}
+                  options={limits.map((limit) => ({ value: String(limit), label: String(limit) }))}
+                  onChange={(value) =>
+                    setDraft((current) => ({ ...current, global: Number(value) }))
+                  }
+                />
+              ),
+            })}
           </label>
           {providerIds.map((id) => (
             <label
@@ -166,14 +179,14 @@ export function AgentUsagePanel({
             >
               <span className="truncate">{providerName(id)}</span>
               <SearchableSelect
-                label={`${providerName(id)} concurrent tasks`}
+                label={i18n.t('{value1} concurrent tasks', { value1: providerName(id) })}
                 searchable={false}
                 compact
                 className="w-32"
                 menuWidth={180}
                 value={draft.providers[id] === undefined ? '' : String(draft.providers[id])}
                 options={[
-                  { value: '', label: 'Global limit' },
+                  { value: '', label: i18n.t('Global limit') },
                   ...limits.map((limit) => ({ value: String(limit), label: String(limit) })),
                 ]}
                 onChange={(value) =>
@@ -191,8 +204,10 @@ export function AgentUsagePanel({
         {!ready && (
           <p className="text-fg-dim mt-3 text-[11px]">
             {libraryError
-              ? 'Limits unavailable. Queued messages remain paused until saved settings load.'
-              : 'Loading saved limits…'}
+              ? i18n.t(
+                  'Limits unavailable. Queued messages remain paused until saved settings load.',
+                )
+              : i18n.t('Loading saved limits…')}
           </p>
         )}
       </div>
@@ -215,24 +230,31 @@ export function AgentUsagePanel({
                 <AgentProviderLogo backend={id} className="h-4 w-4" />
                 <strong className="text-fg font-medium">{providerName(id)}</strong>
                 <span className="text-fg-dim ml-auto">
-                  {occupied.providers[id] ?? 0} /{' '}
-                  {ready ? Math.min(preferences.global, preferences.providers[id] ?? 8) : '…'} slots
+                  {i18n.rich('{value1} / {value2} slots', {
+                    value1: occupied.providers[id] ?? 0,
+                    value2: ready
+                      ? Math.min(preferences.global, preferences.providers[id] ?? 8)
+                      : '…',
+                  })}
                 </span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                 <div>
-                  <dt className="text-fg-dim text-[10px]">Saved token snapshots</dt>
+                  <dt className="text-fg-dim text-[10px]">{i18n.t('Saved token snapshots')}</dt>
                   <dd className="text-fg mt-0.5 tabular-nums">
-                    {reported.length ? count(tokens) : 'Unknown'}
+                    {reported.length ? count(tokens) : i18n.t('Unknown')}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-fg-dim text-[10px]">Queued messages</dt>
+                  <dt className="text-fg-dim text-[10px]">{i18n.t('Queued messages')}</dt>
                   <dd className="text-fg mt-0.5 tabular-nums">{queued}</dd>
                 </div>
               </dl>
               <p className="text-fg-dim mt-2 text-[10px]">
-                {reported.length} of {tasks.length} tasks report token totals.
+                {i18n.rich('{value1} of {value2} tasks report token totals.', {
+                  value1: reported.length,
+                  value2: tasks.length,
+                })}
               </p>
             </div>
           );
@@ -241,16 +263,18 @@ export function AgentUsagePanel({
       <div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-fg text-[12px] font-medium">
-            Task reports{projectId ? ' · current project' : ''}
+            {i18n.rich('Task reports{value1}', {
+              value1: projectId ? i18n.t(' · current project') : '',
+            })}
           </h3>
           <SearchableSelect
-            label="Usage provider filter"
+            label={i18n.t('Usage provider filter')}
             searchable={false}
             className="w-40 max-w-full"
             menuWidth={220}
             value={provider}
             options={[
-              { value: '', label: 'All tools' },
+              { value: '', label: i18n.t('All tools') },
               ...providerIds.map((id) => ({ value: id, label: providerName(id) })),
             ]}
             onChange={setProvider}
@@ -261,14 +285,14 @@ export function AgentUsagePanel({
             <thead className="bg-fg/3 text-fg-dim">
               <tr>
                 {[
-                  'Task',
-                  'State / waiting cause',
-                  'Time (measured here)',
-                  'Input',
-                  'Output',
-                  'Total',
-                  'Reported cost',
-                  'Scope',
+                  i18n.t('Task'),
+                  i18n.t('State / waiting cause'),
+                  i18n.t('Time (measured here)'),
+                  i18n.t('Input'),
+                  i18n.t('Output'),
+                  i18n.t('Total'),
+                  i18n.t('Reported cost'),
+                  i18n.t('Scope'),
                 ].map((label) => (
                   <th key={label} className="px-3 py-2 font-medium whitespace-nowrap">
                     {label}
@@ -286,12 +310,12 @@ export function AgentUsagePanel({
                     .pauseReason ??
                   (ready
                     ? agentCapacityWaitReason(session.backend, preferences, occupied)
-                    : 'Waiting for saved capacity settings');
+                    : i18n.t('Waiting for saved capacity settings'));
                 const disabled =
                   tools.find((tool) => tool.id === session.backend)?.enabled === false;
                 const state =
                   disabled && queue.length
-                    ? 'Tool disabled · queue paused'
+                    ? i18n.t('Tool disabled · queue paused')
                     : agentExecutionState(session, queue, waiting);
                 return (
                   <tr key={session.id} className="border-border/60 border-t">
@@ -306,16 +330,20 @@ export function AgentUsagePanel({
                     <td className="text-fg-muted max-w-64 px-3 py-3" title={queue[0]?.error}>
                       {state}
                       {queue.length > 0 && (
-                        <span className="text-fg-dim block">{queue.length} queued</span>
+                        <span className="text-fg-dim block">
+                          {i18n.rich('{value1} queued', { value1: queue.length })}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap tabular-nums">
                       <span className="text-fg">
-                        {timing.current ?? 'Not measured'}
-                        {timing.isRunning && timing.current ? ' · running' : ''}
+                        {timing.current ?? i18n.t('Not measured')}
+                        {timing.isRunning && timing.current ? i18n.t(' · running') : ''}
                       </span>
                       {timing.total && (
-                        <span className="text-fg-dim block">{timing.total} total</span>
+                        <span className="text-fg-dim block">
+                          {i18n.rich('{value1} total', { value1: timing.total })}
+                        </span>
                       )}
                     </td>
                     {[usage.input, usage.output, usage.total].map((value, index) => (
@@ -325,11 +353,15 @@ export function AgentUsagePanel({
                     ))}
                     <td className="text-fg px-3 py-3 whitespace-nowrap tabular-nums">
                       {usage.cost === null
-                        ? 'Unknown'
-                        : `${usage.cost.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${usage.currency ?? '(unspecified currency)'}`}
+                        ? i18n.t('Unknown')
+                        : `${usage.cost.toLocaleString(i18n.getFormatLocale(), { maximumFractionDigits: 6 })} ${usage.currency ?? i18n.t('(unspecified currency)')}`}
                     </td>
                     <td className="text-fg-dim px-3 py-3 whitespace-nowrap">
-                      {usage.scope === 'unknown' ? 'Not reported' : `Latest ${usage.scope} report`}
+                      {usage.scope === 'unknown'
+                        ? i18n.t('Not reported')
+                        : i18n.t('Latest {value1} report', {
+                            value1: i18n.enumLabel('usageScope', usage.scope),
+                          })}
                     </td>
                   </tr>
                 );
@@ -337,7 +369,7 @@ export function AgentUsagePanel({
               {!rows.length && (
                 <tr>
                   <td colSpan={8} className="text-fg-dim px-4 py-8 text-center">
-                    No task usage to show yet.
+                    {i18n.t('No task usage to show yet.')}
                   </td>
                 </tr>
               )}
@@ -345,9 +377,9 @@ export function AgentUsagePanel({
           </table>
         </div>
         <p className="text-fg-dim mt-2 text-[10px]">
-          Saved token snapshots sum the latest report from each task. Providers report different
-          scopes; these values are not lifetime usage or account billing. Missing values remain
-          unknown.
+          {i18n.t(
+            'Saved token snapshots sum the latest report from each task. Providers report different scopes; these values are not lifetime usage or account billing. Missing values remain unknown.',
+          )}
         </p>
       </div>
     </section>

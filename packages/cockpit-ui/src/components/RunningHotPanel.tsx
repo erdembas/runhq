@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import { Flame } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { formatBytes, formatPercent } from '../lib/format';
@@ -27,6 +30,7 @@ interface Props {
  * Pure presentation — caller computes the rows + totals.
  */
 export function RunningHotPanel({ rows, totalMemoryBytes, totalCpuPercent, className }: Props) {
+  i18n.useLocale();
   return (
     <section
       className={cn(
@@ -36,15 +40,27 @@ export function RunningHotPanel({ rows, totalMemoryBytes, totalCpuPercent, class
     >
       <header className="flex items-center justify-between text-[11px]">
         <div className="text-fg-muted flex items-center gap-1.5 font-semibold tracking-[0.06em] uppercase">
-          <Flame className="text-accent h-3 w-3" />
-          Running hot
-          <span className="text-fg-dim font-mono text-[10px] tracking-normal normal-case">
-            {rows.length} running
-          </span>
+          {i18n.rich('{value1}Running hot{value2}', {
+            value1: <Flame className="text-accent h-3 w-3" />,
+            value2: (
+              <span className="text-fg-dim font-mono text-[10px] tracking-normal normal-case">
+                {i18n.rich('{value1} running', { value1: rows.length })}
+              </span>
+            ),
+          })}
         </div>
         <div className="text-fg-muted flex items-center gap-3 font-mono tabular-nums">
-          <span>{totalCpuPercent.toFixed(1)}%</span>
-          <span>{Math.round(totalMemoryBytes / (1024 * 1024))} MB</span>
+          <span>
+            {i18n.number(totalCpuPercent, {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1,
+              useGrouping: false,
+            })}
+            %
+          </span>
+          <span>
+            {i18n.rich('{value1} MB', { value1: Math.round(totalMemoryBytes / (1024 * 1024)) })}
+          </span>
         </div>
       </header>
       <ul className="flex flex-col gap-1.5">

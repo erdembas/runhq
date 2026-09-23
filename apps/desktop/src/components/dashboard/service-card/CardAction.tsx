@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -9,6 +10,7 @@ interface CardActionProps {
 }
 
 export function CardAction({ title, onClick, tone, children }: CardActionProps) {
+  i18n.useLocale();
   const toneClass =
     tone === 'accent'
       ? 'hover:bg-accent/10 hover:text-accent'

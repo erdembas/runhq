@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -38,6 +39,7 @@ export function LogXtermView({
   serviceId,
   visible,
 }: Props) {
+  i18n.useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const termContainerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -409,7 +411,9 @@ export function LogXtermView({
 
   const showEmptyState = lines.length === 0;
   const emptyMessage =
-    totalLogs === 0 ? 'No logs yet. Start the service to see output.' : 'No matches.';
+    totalLogs === 0
+      ? i18n.t('No logs yet. Start the service to see output.')
+      : i18n.t('No matches.');
 
   return (
     <div ref={containerRef} className="relative h-full w-full">

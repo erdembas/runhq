@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 interface MenuSectionProps {
   label: string;
   action?: React.ReactNode;
@@ -5,6 +6,7 @@ interface MenuSectionProps {
 }
 
 export function MenuSection({ label, action, children }: MenuSectionProps) {
+  i18n.useLocale();
   return (
     <div className="px-3 pt-2.5 pb-2">
       <div className="mb-1.5 flex items-center justify-between">

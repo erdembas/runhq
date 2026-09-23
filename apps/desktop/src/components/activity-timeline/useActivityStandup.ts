@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useCallback, useEffect } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAiSurfaceTrigger } from '@/components/ai/useAiSurfaceTrigger';
@@ -9,7 +10,7 @@ export function useActivityStandup(onCopied: () => void) {
       const since = Date.now() - 86_400_000;
       const text = await ipc.exportStandup(since);
       if (!text.trim()) {
-        console.warn('Nothing to polish — timeline is empty for the last 24h.');
+        console.warn(i18n.t('Nothing to polish — timeline is empty for the last 24h.'));
         return null;
       }
       const contextSystemMessage = [
@@ -22,7 +23,7 @@ export function useActivityStandup(onCopied: () => void) {
       ].join('\n');
       return {
         origin: 'standup' as const,
-        title: 'Standup polish',
+        title: i18n.t('Standup polish'),
         context: { kind: 'standup', raw_chars: text.length },
         draftPrompt: 'Polish this into Yesterday / Today / Blockers.',
         contextSystemMessage,

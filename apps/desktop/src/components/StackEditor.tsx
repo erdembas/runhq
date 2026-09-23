@@ -1,4 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useState } from 'react';
 import { GripVertical, Layers, Plus, X } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
@@ -17,6 +19,7 @@ interface Props {
 }
 
 export function StackEditor({ stack, onClose }: Props) {
+  i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
   const upsertStack = useAppStore((s) => s.upsertStack);
@@ -91,25 +94,25 @@ export function StackEditor({ stack, onClose }: Props) {
   return (
     <Dialog
       onClose={onClose}
-      title={stack ? 'Edit Stack' : 'New Stack'}
+      title={stack ? i18n.t('Edit Stack') : i18n.t('New Stack')}
       size="md"
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
+            {i18n.t('Cancel')}
           </Button>
           <Button variant="primary" size="sm" onClick={handleSave} disabled={!isValid || saving}>
-            {saving ? 'Saving…' : stack ? 'Save' : 'Create Stack'}
+            {saving ? i18n.t('Saving…') : stack ? i18n.t('Save') : i18n.t('Create Stack')}
           </Button>
         </div>
       }
     >
       <div className="flex flex-col gap-5">
-        <Field label="Stack Name" hint="A name for this group of services">
+        <Field label={i18n.t('Stack Name')} hint={i18n.t('A name for this group of services')}>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Full-Stack App"
+            placeholder={i18n.t('e.g. Full-Stack App')}
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isValid) handleSave();
@@ -120,20 +123,22 @@ export function StackEditor({ stack, onClose }: Props) {
         <Switch
           checked={autoStart}
           onChange={setAutoStart}
-          label="Auto-start on app launch"
-          description="Launches every service in this stack automatically when Runner HQ boots."
+          label={i18n.t('Auto-start on app launch')}
+          description={i18n.t(
+            'Launches every service in this stack automatically when Runner HQ boots.',
+          )}
         />
 
         <Card>
           <CardHeader
             icon={<Layers className="text-accent h-3 w-3" />}
-            title="Services in Stack"
+            title={i18n.t('Services in Stack')}
             count={selectedIds.length}
-            hint={selectedServices.length > 1 ? 'Drag to reorder' : undefined}
+            hint={selectedServices.length > 1 ? i18n.t('Drag to reorder') : undefined}
           />
           {selectedServices.length === 0 ? (
             <div className="text-fg-dim px-4 py-6 text-center text-[11.5px]">
-              Click a service below to add it here.
+              {i18n.t('Click a service below to add it here.')}
             </div>
           ) : (
             <div className="divide-border divide-y">
@@ -168,7 +173,7 @@ export function StackEditor({ stack, onClose }: Props) {
                       <span className="text-accent text-[11px] tabular-nums">:{svc.port}</span>
                     )}
                     <IconButton
-                      label="Remove"
+                      label={i18n.t('Remove')}
                       icon={<X className="h-3 w-3" />}
                       size="xs"
                       onClick={() => removeService(svc.id)}
@@ -181,12 +186,12 @@ export function StackEditor({ stack, onClose }: Props) {
         </Card>
 
         <Card>
-          <CardHeader title="Available Services" count={unassignedServices.length} />
+          <CardHeader title={i18n.t('Available Services')} count={unassignedServices.length} />
           {unassignedServices.length === 0 ? (
             <div className="text-fg-dim px-4 py-5 text-center text-[11.5px]">
               {services.length === 0
-                ? 'No services configured yet.'
-                : 'All services are already in this stack.'}
+                ? i18n.t('No services configured yet.')
+                : i18n.t('All services are already in this stack.')}
             </div>
           ) : (
             <div className="divide-border max-h-48 divide-y overflow-y-auto">
@@ -226,6 +231,7 @@ export function StackEditor({ stack, onClose }: Props) {
  * light mode readable (where raised == overlay == pure white).
  */
 function Card({ children }: { children: React.ReactNode }) {
+  i18n.useLocale();
   return <div className="border-border rounded-app-sm overflow-hidden border">{children}</div>;
 }
 
@@ -240,6 +246,7 @@ function CardHeader({
   count: number;
   hint?: string;
 }) {
+  i18n.useLocale();
   return (
     <div className="border-border bg-surface-muted text-fg-dim flex items-center justify-between gap-2 border-b px-3 py-1.5 text-[10px] tracking-wide uppercase">
       <div className="flex items-center gap-1.5">

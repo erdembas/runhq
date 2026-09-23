@@ -1,9 +1,39 @@
 use crate::AppState;
 use runhq_core::{
-    agents::{AgentWorkflow, CreateAgentWorkflow, WorkflowDestination},
+    agents::{AgentWorkflow, CreateAgentWorkflow, UpdateWorkflowSteps, WorkflowDestination},
     AppResult,
 };
 use tauri::State;
+
+#[tauri::command]
+pub async fn agent_workflow_edit(
+    id: String,
+    editing: bool,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_edit(&id, editing).await
+}
+#[tauri::command]
+pub async fn agent_workflow_update_steps(
+    id: String,
+    input: UpdateWorkflowSteps,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_update_steps(&id, input).await
+}
+#[tauri::command]
+pub async fn agent_workflow_review_decision(
+    id: String,
+    step_id: String,
+    finished_at: i64,
+    decision: String,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state
+        .agents
+        .workflow_review_decision(&id, &step_id, finished_at, &decision)
+        .await
+}
 
 #[tauri::command]
 pub async fn agent_workflows(state: State<'_, AppState>) -> AppResult<Vec<AgentWorkflow>> {
@@ -15,6 +45,14 @@ pub async fn agent_workflow_create(
     state: State<'_, AppState>,
 ) -> AppResult<AgentWorkflow> {
     state.agents.workflow_create(input).await
+}
+#[tauri::command]
+pub async fn agent_workflow_launch(
+    id: String,
+    after_session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_launch(&id, after_session_id).await
 }
 #[tauri::command]
 pub async fn agent_workflow_implement(

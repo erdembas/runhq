@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -16,6 +17,7 @@ interface Props<K extends string> {
 }
 
 export function Tabs<K extends string>({ tabs, value, onChange, className }: Props<K>) {
+  i18n.useLocale();
   return (
     <div
       role="tablist"

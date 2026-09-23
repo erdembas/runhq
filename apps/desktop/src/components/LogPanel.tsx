@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useState } from 'react';
 import type { DetailTab } from '@/components/ProjectDetailDrawer';
 import { ServiceLayout } from '@/components/layout/ServiceLayout';
 import { activeCommandLogName, listGroups } from '@/components/layout/layoutModel';
@@ -31,6 +33,7 @@ interface LogPanelProps {
 }
 
 export function LogPanel({ serviceId, isActive }: LogPanelProps) {
+  i18n.useLocale();
   const selectedId = serviceId;
   const service = useAppStore((s) => s.services.find((x) => x.id === serviceId) ?? null);
   const status = useAppStore((s) => s.statuses[serviceId]);
@@ -131,8 +134,11 @@ export function LogPanel({ serviceId, isActive }: LogPanelProps) {
       ) {
         e.preventDefault();
         const msg = activeCmd
-          ? `Stop "${activeCmd}" command on ${service.name}?`
-          : `Stop ${service.name}?`;
+          ? i18n.t('Stop "{activeCmd}" command on {value2}?', {
+              activeCmd: activeCmd,
+              value2: service.name,
+            })
+          : i18n.t('Stop {value1}?', { value1: service.name });
         setPendingConfirm({
           message: msg,
           onConfirm: () => {
@@ -150,7 +156,7 @@ export function LogPanel({ serviceId, isActive }: LogPanelProps) {
   if (!service || !selectedId) {
     return (
       <div className="text-fg-dim flex flex-1 items-center justify-center text-[13px]">
-        {!selectedId ? 'Select a service to view its logs.' : 'Loading service…'}
+        {!selectedId ? i18n.t('Select a service to view its logs.') : i18n.t('Loading service…')}
       </div>
     );
   }
@@ -187,7 +193,7 @@ export function LogPanel({ serviceId, isActive }: LogPanelProps) {
         onEdit={() => openEditor(service)}
         onDelete={() => {
           setPendingConfirm({
-            message: `Delete "${service.name}"?`,
+            message: i18n.t('Delete "{value1}"?', { value1: service.name }),
             onConfirm: async () => {
               setPendingConfirm(null);
               await ipc.stopService(service.id).catch(() => undefined);

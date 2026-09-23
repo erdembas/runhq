@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { SectionBlock } from './SectionBlock';
 import { FlatItems, SectionBody, type SidebarItem } from './SectionBody';
 import { UnassignedBlock } from './UnassignedBlock';
@@ -50,6 +51,7 @@ export function SidebarSectionLayout({
   onEditStack,
   onDeleteStack,
 }: SidebarSectionLayoutProps) {
+  i18n.useLocale();
   const commonProps = {
     statuses,
     selectedServiceId,
@@ -82,7 +84,7 @@ export function SidebarSectionLayout({
   if (searching && ![...itemsBySection.values()].some((items) => items.length))
     return (
       <p className="text-fg-dim px-4 py-6 text-center text-[12px]">
-        No matching projects or stacks.
+        {i18n.t('No matching projects or stacks.')}
       </p>
     );
 

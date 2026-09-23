@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Activity, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAppStore } from '@/store/useAppStore';
@@ -23,18 +24,32 @@ interface RailItem {
 }
 
 const ITEMS: RailItem[] = [
-  { id: 'activity', label: 'Activity', icon: Activity },
-  { id: 'ai', label: 'AI Assistant', icon: Sparkles, shortcut: '⌘L' },
+  {
+    id: 'activity',
+    get label() {
+      return i18n.t('Activity');
+    },
+    icon: Activity,
+  },
+  {
+    id: 'ai',
+    get label() {
+      return i18n.t('AI Assistant');
+    },
+    icon: Sparkles,
+    shortcut: '⌘L',
+  },
 ];
 
 export function RightActivityBar() {
+  i18n.useLocale();
   const active = useAppStore((s) => s.rightPanel);
   const toggle = useAppStore((s) => s.toggleRightPanel);
 
   return (
     <nav
       className="bg-surface border-border/60 z-30 flex w-9 shrink-0 flex-col items-center gap-1 border-l py-1.5"
-      aria-label="Right activity bar"
+      aria-label={i18n.t('Right activity bar')}
     >
       {ITEMS.map((item) => {
         const isActive = active === item.id;

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
@@ -46,6 +47,7 @@ interface FileContextMenuProps {
  * one-frame jump.
  */
 export function FileContextMenu({ x, y, items, onClose }: FileContextMenuProps) {
+  i18n.useLocale();
   const ref = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
 

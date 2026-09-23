@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type { TerminalOutput } from '@/types';
 
@@ -56,7 +57,7 @@ export const terminalIpc = {
       // Keep input ordered, but stop sending a paste as soon as its shell closes.
       for (let offset = 0; offset < data.length; offset += 4096) {
         if (!generation || generations.get(id) !== generation) {
-          throw new Error('Terminal is restarting');
+          throw new Error(i18n.t('Terminal is restarting'));
         }
         await invoke<void>('terminal_write', {
           id,

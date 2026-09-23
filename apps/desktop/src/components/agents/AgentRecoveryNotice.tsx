@@ -1,9 +1,11 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { useAgentStore } from '@/store/useAgentStore';
 
 export function AgentRecoveryNotice({ onOpenSession }: { onOpenSession?: (id: string) => void }) {
+  i18n.useLocale();
   const [dismissed, setDismissed] = useState(false);
   const queueError = useAgentQueueStore((state) => state.persistenceError);
   const recoveredIds = useAgentQueueStore((state) => state.recoveredSessionIds);
@@ -25,7 +27,7 @@ export function AgentRecoveryNotice({ onOpenSession }: { onOpenSession?: (id: st
       <div className="min-w-0 flex-1 space-y-1.5">
         <p className={error ? 'text-status-error' : 'text-fg'}>
           {error ||
-            `${draftCount ? `${draftCount} draft${draftCount === 1 ? '' : 's'} restored. ` : ''}${recoveredIds.length ? `${recoveredIds.length} queue${recoveredIds.length === 1 ? '' : 's'} recovered and paused. Review each task before resuming.` : 'Your unsent text is ready in its task or project.'}`}
+            `${draftCount ? i18n.t('{draftCount} draft{plural2} restored. ', { draftCount: draftCount, plural2: draftCount === 1 ? '' : 's' }) : ''}${recoveredIds.length ? i18n.t('{value1} queue{plural2} recovered and paused. Review each task before resuming.', { value1: recoveredIds.length, plural2: recoveredIds.length === 1 ? '' : 's' }) : i18n.t('Your unsent text is ready in its task or project.')}`}
         </p>
         {error && (
           <button
@@ -36,7 +38,7 @@ export function AgentRecoveryNotice({ onOpenSession }: { onOpenSession?: (id: st
               useAgentStore.getState().retryDraftPersistence();
             }}
           >
-            Retry local save
+            {i18n.t('Retry local save')}
           </button>
         )}
         {!!recoveredIds.length && onOpenSession && (
@@ -48,7 +50,9 @@ export function AgentRecoveryNotice({ onOpenSession }: { onOpenSession?: (id: st
                 className="text-accent truncate underline"
                 onClick={() => onOpenSession(id)}
               >
-                Review {sessions[id]?.title ?? 'recovered task'}
+                {i18n.rich('Review {value1}', {
+                  value1: sessions[id]?.title ?? i18n.t('recovered task'),
+                })}
               </button>
             ))}
           </div>
@@ -57,7 +61,7 @@ export function AgentRecoveryNotice({ onOpenSession }: { onOpenSession?: (id: st
       {!error && (
         <button
           type="button"
-          aria-label="Dismiss recovery notice"
+          aria-label={i18n.t('Dismiss recovery notice')}
           className="text-fg-dim p-1"
           onClick={() => setDismissed(true)}
         >

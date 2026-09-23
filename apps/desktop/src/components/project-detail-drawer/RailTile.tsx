@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { cn } from '@/lib/cn';
 import type { Tone } from './model';
 
@@ -16,6 +17,7 @@ export function RailTile({
   tone?: Tone;
   neutral?: boolean;
 }) {
+  i18n.useLocale();
   // Single-line tile: UPPERCASE label + count inline. Keeps the rail
   // short (one band above the search) and scannable — the count
   // reads as a number, not a headline under a sub-headline.

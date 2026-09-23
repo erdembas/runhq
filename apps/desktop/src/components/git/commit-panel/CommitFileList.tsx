@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { FileSearchInput } from '@/components/git/shared';
 import { CommitFileTreeSection } from '@/components/git/commit-panel/CommitFileTreeSection';
 import type { CommitPanelStore } from '@/components/git/useCommitPanelStore';
@@ -34,34 +35,35 @@ export function CommitFileList({
   onStageFile,
   onUnstageFile,
 }: CommitFileListProps) {
+  i18n.useLocale();
   return (
     <>
       <FileSearchInput value={panel.fileSearch} onChange={(fileSearch) => patch({ fileSearch })} />
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         <CommitFileTreeSection
           side="staged"
-          title="Staged Changes"
+          title={i18n.t('Staged Changes')}
           entries={stagedEntries}
           allEntries={stagedEntriesAll}
           tree={stagedTree}
           panel={panel}
           patch={patch}
           searching={searching}
-          emptyLabel="Nothing staged"
+          emptyLabel={i18n.t('Nothing staged')}
           onAllAction={onUnstageAll}
           onFileAction={onUnstageFile}
         />
         <div className="mt-2" />
         <CommitFileTreeSection
           side="unstaged"
-          title="Changes"
+          title={i18n.t('Changes')}
           entries={unstagedEntries}
           allEntries={unstagedEntriesAll}
           tree={unstagedTree}
           panel={panel}
           patch={patch}
           searching={searching}
-          emptyLabel="No changes"
+          emptyLabel={i18n.t('No changes')}
           emptyWhileLoading={panel.loading}
           onAllAction={onStageAll}
           onFileAction={onStageFile}

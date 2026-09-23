@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { lazy, Suspense } from 'react';
 import { Drawer } from '@/components/ui/Drawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -44,6 +45,7 @@ export function LogPanelOverlays({
   onCancelConfirm,
   onRescan,
 }: LogPanelOverlaysProps) {
+  i18n.useLocale();
   return (
     <>
       {pendingConfirm && (
@@ -55,8 +57,10 @@ export function LogPanelOverlays({
       )}
 
       {licenseOpen && (
-        <Drawer onClose={onCloseLicense} ariaLabel="License compliance" size="lg">
-          <Suspense fallback={<div className="text-fg-dim p-4 text-[12px]">Loading…</div>}>
+        <Drawer onClose={onCloseLicense} ariaLabel={i18n.t('License compliance')} size="lg">
+          <Suspense
+            fallback={<div className="text-fg-dim p-4 text-[12px]">{i18n.t('Loading…')}</div>}
+          >
             <LicensePanel
               serviceId={service.id}
               serviceName={service.name}

@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 
@@ -22,6 +23,7 @@ export function WorkspaceGroupHeader({
   actions?: ReactNode;
   activity?: ReactNode;
 }) {
+  i18n.useLocale();
   return (
     <header className="bg-surface-raised/95 sticky top-0 z-10 mb-0.5 rounded-md backdrop-blur-sm">
       <div className="hover:bg-fg/4 flex items-center gap-1 rounded-md pr-1 transition-colors">
@@ -41,7 +43,7 @@ export function WorkspaceGroupHeader({
           />
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{name}</span>
           <span
-            title={`${running} running · ${count} total`}
+            title={i18n.t('{running} running · {count} total', { running: running, count: count })}
             className={`min-w-5 text-right text-[10px] tabular-nums ${running ? 'text-status-running' : 'text-fg-dim'}`}
           >
             {running ? `${running}/${count}` : count}

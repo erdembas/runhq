@@ -42,6 +42,8 @@ export interface WorkflowStep {
   effort: string;
   mode: string;
   session_id: string | null;
+  /** Continue this earlier producing step's conversation. Reviews always use their own session. */
+  continue_from?: string | null;
   input_step_id: string | null;
   depends_on: string[];
   /** This task's own instruction. Empty means it is described by the workflow objective alone. */
@@ -60,7 +62,13 @@ export interface WorkflowStep {
   started_at: number | null;
   finished_at: number | null;
   error: string | null;
+  review_policy?: WorkflowReviewPolicy | '';
+  review_outcome?: 'passed' | 'findings' | 'unknown' | null;
+  review_summary?: string | null;
+  review_decision?: 'approved' | 'fix_requested' | null;
+  review_fix_attempts?: number;
 }
+export type WorkflowReviewPolicy = 'continue' | 'on_findings' | 'approval' | 'auto_fix';
 export type WorkflowRole = 'plan' | 'implement' | 'review' | 'revise' | 'validate';
 export type WorkflowWorkspace = 'shared' | 'own';
 export type WorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked';
@@ -93,6 +101,10 @@ export interface AgentWorkflow {
   updated_at: number;
   cleaned: boolean;
   auto_progress: boolean;
+  launch_pending?: boolean;
+  editing?: boolean;
+  edit_revision?: number;
+  start_after?: { session_id: string; title: string } | null;
   /** How many tasks may run at once. 0 derives the bound from the capacity settings. */
   concurrency: number;
   /** Tasks whose results were applied to the shared checkout, in the order they landed. */
@@ -157,10 +169,25 @@ export interface CreateWorkflowStep {
   /** Tasks that must finish first. An empty list is a task that starts straight away. */
   depends_on: string[];
   workspace: WorkflowWorkspace;
+  continue_from?: string | null;
+  review_policy?: WorkflowReviewPolicy | '';
 }
 export const agentWorkflowIpc = {
+  edit: (id: string, editing: boolean) =>
+    invoke<AgentWorkflow>('agent_workflow_edit', { id, editing }),
+  updateSteps: (id: string, revision: number, steps: CreateWorkflowStep[]) =>
+    invoke<AgentWorkflow>('agent_workflow_update_steps', { id, input: { revision, steps } }),
+  reviewDecision: (
+    id: string,
+    stepId: string,
+    finishedAt: number,
+    decision: 'approve' | 'fix' | 'retry',
+  ) =>
+    invoke<AgentWorkflow>('agent_workflow_review_decision', { id, stepId, finishedAt, decision }),
   list: () => invoke<AgentWorkflow[]>('agent_workflows'),
   create: (input: CreateAgentWorkflow) => invoke<AgentWorkflow>('agent_workflow_create', { input }),
+  launch: (id: string, afterSessionId?: string) =>
+    invoke<AgentWorkflow>('agent_workflow_launch', { id, afterSessionId: afterSessionId ?? null }),
   implement: (id: string) => invoke<AgentWorkflow>('agent_workflow_implement', { id }),
   runStep: (id: string, stepId?: string) =>
     invoke<AgentWorkflow>('agent_workflow_run_step', { id, stepId }),

@@ -1,9 +1,12 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   Bot,
   Wrench,
   CircleHelp,
   FolderPlus,
+  FolderGit2,
   Plus,
   Search,
   Trash2,
@@ -31,6 +34,7 @@ import type { AgentTaskTemplate } from '@runhq/cockpit-ui';
 import type { AgentProject, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
@@ -48,6 +52,7 @@ import { AgentNewSession } from './AgentNewSession';
 import { AgentSessionView } from './AgentSessionView';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
+import { useResizableWidth } from '@/lib/useResizableWidth';
 import { AgentDecisionInbox } from './AgentDecisionInbox';
 import { AgentRecoveryNotice } from './AgentRecoveryNotice';
 import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
@@ -59,20 +64,69 @@ import type { AgentRecipe } from './agentLibraryModel';
 import type { AgentItem } from '@runhq/cockpit-types';
 
 const AGENT_TASK_FILTERS = [
-  { value: 'all', label: 'All tasks' },
-  { value: 'attention', label: 'Needs attention' },
-  { value: 'active', label: 'Working' },
-  { value: 'ready', label: 'Ready' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'archived', label: 'Archived' },
+  {
+    value: 'all',
+    get label() {
+      return i18n.t('All tasks');
+    },
+  },
+  {
+    value: 'attention',
+    get label() {
+      return i18n.t('Needs attention');
+    },
+  },
+  {
+    value: 'active',
+    get label() {
+      return i18n.t('Working');
+    },
+  },
+  {
+    value: 'ready',
+    get label() {
+      return i18n.t('Ready');
+    },
+  },
+  {
+    value: 'completed',
+    get label() {
+      return i18n.t('Completed');
+    },
+  },
+  {
+    value: 'archived',
+    get label() {
+      return i18n.t('Archived');
+    },
+  },
 ];
 
 export function AgentWorkspace({ visible, project }: { visible: boolean; project?: AgentProject }) {
+  i18n.useLocale();
   const sessionsId = useId();
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [workspaceWidth, setWorkspaceWidth] = useState(0);
+  const maxSessionsWidth = workspaceWidth ? Math.min(480, Math.floor(workspaceWidth * 0.45)) : 480;
+  const minSessionsWidth = Math.min(200, maxSessionsWidth);
   const [sessionsCollapsed, setSessionsCollapsed] = usePersistentBoolean(
     'runhq.agent-session-list-collapsed',
     false,
   );
+  const sessionsWidth = useResizableWidth({
+    storageKey: 'runhq.agent-session-list.width',
+    defaultWidth: 260,
+    min: minSessionsWidth,
+    max: maxSessionsWidth,
+  });
+  const sessionResizeProps = {
+    ...sessionsWidth.handleProps,
+    'aria-label': i18n.t('Resize conversation list'),
+    'aria-controls': sessionsId,
+    'aria-valuemin': minSessionsWidth,
+    'aria-valuemax': maxSessionsWidth,
+    'aria-valuenow': sessionsWidth.width,
+  };
   const storedProjects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
   const projects = project ? [project] : storedProjects;
   const projectOptions = useAgentProjectOptions(storedProjects, visible);
@@ -93,6 +147,19 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
   const [view, setView] = useState<
     'overview' | 'conversations' | 'inbox' | 'workflows' | 'library' | 'usage'
   >(selectedId ? 'conversations' : 'overview');
+  useEffect(() => {
+    if (!visible || view !== 'conversations') return;
+    const element = workspaceRef.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width > 0) setWorkspaceWidth(width);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [visible, view]);
   const [template, setTemplate] = useState<AgentTaskTemplate | undefined>();
   const [recipe, setRecipe] = useState<AgentRecipe | undefined>();
   const [workflowRecipe, setWorkflowRecipe] = useState<AgentRecipe | undefined>();
@@ -165,7 +232,9 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
       ? routingPool(next.backend.slice('pool:'.length))
       : null;
     setRouting(
-      backend && pool ? { poolName: pool.name, reason: 'had a free execution slot' } : undefined,
+      backend && pool
+        ? { poolName: pool.name, reason: i18n.t('had a free execution slot') }
+        : undefined,
     );
     setRecipe(backend === next.backend ? next : { ...next, backend });
     setTemplate(undefined);
@@ -233,12 +302,14 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     const account = handoffAccount(source);
     const taken = account
       ? {
-          reason: `takes over after ${source.backend_name || source.backend} reported a limit`,
+          reason: i18n.t('takes over after {value1} reported a limit', {
+            value1: source.backend_name || source.backend,
+          }),
         }
       : undefined;
     startRecipe({
       id: crypto.randomUUID(),
-      name: `Follow up · ${source.title}`,
+      name: i18n.t('Follow up · {value1}', { value1: source.title }),
       sourceSessionId: source.id,
       projectId: source.project_id,
       prompt: `Continue the work described below in a new agent session. Inspect the current files before making changes.\n\nSource task: ${source.title}\nWorkspace: ${source.cwd}\nBranch: ${source.branch || 'local checkout'}\n\nRecent conversation:\n${items
@@ -276,7 +347,11 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
   const addProject = async () => {
     setError(null);
     try {
-      const path = await open({ directory: true, multiple: false, title: 'Add an agent project' });
+      const path = await open({
+        directory: true,
+        multiple: false,
+        title: i18n.t('Add an agent project'),
+      });
       if (typeof path !== 'string') return;
       const project = await ipc.agentAddProject('', path);
       await useAgentStore.getState().refresh(true);
@@ -290,20 +365,23 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     <div className="bg-surface flex min-h-0 min-w-0 flex-1 flex-col">
       {deleteTarget && (
         <ConfirmDialog
-          title="Delete conversation?"
-          message={`“${deleteTarget.title}” and its message history will be permanently removed from RunHQ. Project files, Git worktrees and the agent tool’s own history will be kept.`}
-          confirmLabel="Delete conversation"
+          title={i18n.t('Delete conversation?')}
+          message={i18n.t(
+            '“{value1}” and its message history will be permanently removed from RunHQ. Project files, Git worktrees and the agent tool’s own history will be kept.',
+            { value1: deleteTarget.title },
+          )}
+          confirmLabel={i18n.t('Delete conversation')}
           onConfirm={() => void deleteConversation(deleteTarget.id)}
           onCancel={() => setDeleteTarget(null)}
         />
       )}
       <header className="border-border/70 flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-1.5">
-        {!project && <h1 className="text-fg mr-2 text-[13px] font-semibold">Agents</h1>}
+        {!project && <h1 className="text-fg mr-2 text-[13px] font-semibold">{i18n.t('Agents')}</h1>}
         {view === 'conversations' && (
           <button
             type="button"
-            aria-label={sessionsCollapsed ? 'Show task list' : 'Hide task list'}
-            title={sessionsCollapsed ? 'Show task list' : 'Hide task list'}
+            aria-label={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
+            title={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
             aria-expanded={!sessionsCollapsed}
             aria-controls={sessionsId}
             onClick={() => setSessionsCollapsed((value) => !value)}
@@ -312,15 +390,19 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             <PanelLeft className="h-3.5 w-3.5" />
           </button>
         )}
-        <div className="flex items-center gap-0.5" role="group" aria-label="Agent workspace view">
+        <div
+          className="flex items-center gap-0.5"
+          role="group"
+          aria-label={i18n.t('Agent workspace view')}
+        >
           {(
             [
-              { value: 'overview', label: 'Overview', icon: LayoutDashboard },
-              { value: 'conversations', label: 'Conversations', icon: MessagesSquare },
-              { value: 'inbox', label: 'Inbox', icon: Inbox },
-              { value: 'workflows', label: 'Workflows', icon: GitPullRequest },
-              { value: 'library', label: 'Library', icon: BookOpen },
-              { value: 'usage', label: 'Usage', icon: ChartNoAxesCombined },
+              { value: 'overview', label: i18n.t('Overview'), icon: LayoutDashboard },
+              { value: 'conversations', label: i18n.t('Conversations'), icon: MessagesSquare },
+              { value: 'inbox', label: i18n.t('Inbox'), icon: Inbox },
+              { value: 'workflows', label: i18n.t('Workflows'), icon: GitPullRequest },
+              { value: 'library', label: i18n.t('Library'), icon: BookOpen },
+              { value: 'usage', label: i18n.t('Usage'), icon: ChartNoAxesCombined },
             ] as const
           ).map(({ value, label, icon: Icon }) => (
             <button
@@ -335,7 +417,11 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             </button>
           ))}
         </div>
-        {working > 0 && <span className="text-fg-dim ml-2 text-[11px]">{working} working</span>}
+        {working > 0 && (
+          <span className="text-fg-dim ml-2 text-[11px]">
+            {i18n.rich('{working} working', { working: working })}
+          </span>
+        )}
         {needsAttention > 0 && (
           <button
             onClick={() => {
@@ -346,14 +432,16 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             }}
             className="text-accent flex items-center gap-1 text-[12px]"
           >
-            <CircleHelp className="h-3.5 w-3.5" />
-            {needsAttention} need you
+            {i18n.rich('{value1}{needsAttention} need you', {
+              value1: <CircleHelp className="h-3.5 w-3.5" />,
+              needsAttention: needsAttention,
+            })}
           </button>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <button
-            title="Agent tools"
-            aria-label="Agent tools"
+            title={i18n.t('Agent tools')}
+            aria-label={i18n.t('Agent tools')}
             onClick={() => useAgentStore.setState({ toolsOpen: true })}
             className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
           >
@@ -361,8 +449,8 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
           </button>
           {!project && (
             <button
-              aria-label="Add project"
-              title="Add project"
+              aria-label={i18n.t('Add project')}
+              title={i18n.t('Add project')}
               onClick={() => void addProject()}
               className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
             >
@@ -374,14 +462,13 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             onClick={() => startTask()}
             className="border-border text-fg hover:bg-fg/5 flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium disabled:opacity-40"
           >
-            <Plus className="h-3.5 w-3.5" />
-            New task
+            {i18n.rich('{value1}New task', { value1: <Plus className="h-3.5 w-3.5" /> })}
           </button>
           {view === 'conversations' && selected && !creating && (
             <button
               type="button"
-              aria-label="Close conversation view"
-              title="Close conversation view"
+              aria-label={i18n.t('Close conversation view')}
+              title={i18n.t('Close conversation view')}
               onClick={() => {
                 select(null);
                 setView('overview');
@@ -405,17 +492,23 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               void useAgentStore.getState().refresh();
             }}
           >
-            Retry
+            {i18n.t('Retry')}
           </button>
         </div>
       )}
       <AgentRecoveryNotice onOpenSession={openConversation} />
       <AgentUsageNotifications visible={visible} onOpenSession={openConversation} />
-      <div className={`flex min-h-0 min-w-0 flex-1 ${view === 'overview' ? 'flex-col' : ''}`}>
+      <div
+        ref={workspaceRef}
+        className={`flex min-h-0 min-w-0 flex-1 ${view === 'overview' ? 'flex-col' : ''}`}
+      >
         <aside
           id={sessionsId}
-          className={`border-border bg-surface shrink-0 flex-col ${!['overview', 'conversations'].includes(view) || (view === 'conversations' && sessionsCollapsed) ? 'hidden' : 'flex'} ${view === 'overview' ? 'border-b' : 'w-44 border-r md:w-52 xl:w-56'}`}
-          aria-label="Project agent sessions"
+          className={`border-border bg-surface relative min-w-0 shrink-0 flex-col ${!['overview', 'conversations'].includes(view) || (view === 'conversations' && sessionsCollapsed) ? 'hidden' : 'flex'} ${view === 'overview' ? 'border-b' : 'border-r'}`}
+          style={
+            view === 'conversations' ? { width: sessionsWidth.width, maxWidth: '45%' } : undefined
+          }
+          aria-label={i18n.t('Project agent sessions')}
         >
           <div
             className={
@@ -426,19 +519,21 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
           >
             {!project && (
               <SearchableSelect
-                label="Filter by project"
+                label={i18n.t('Filter by project')}
                 indentGrouped
                 value={projectFilter}
                 options={[
                   {
                     value: '',
-                    label: 'All projects',
-                    description: `${projects.length} projects in your workspace`,
+                    label: i18n.t('All projects'),
+                    description: i18n.t('{value1} projects in your workspace', {
+                      value1: projects.length,
+                    }),
                   },
                   ...projectOptions,
                 ]}
                 onChange={(value) => useAgentStore.setState({ projectFilter: value })}
-                searchPlaceholder="Find a project or group…"
+                searchPlaceholder={i18n.t('Find a project or group…')}
                 className={view === 'overview' ? 'w-56 max-w-full' : 'w-full'}
               />
             )}
@@ -447,15 +542,15 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             >
               <Search className="text-fg-dim h-3.5 w-3.5" />
               <input
-                aria-label="Search agent sessions"
+                aria-label={i18n.t('Search agent sessions')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search tasks…"
+                placeholder={i18n.t('Search tasks…')}
                 className="text-fg w-full bg-transparent py-2 text-[12px] outline-none"
               />
             </div>
             <SearchableSelect
-              label="Filter tasks by status"
+              label={i18n.t('Filter tasks by status')}
               searchable={false}
               compact
               menuWidth={200}
@@ -478,31 +573,45 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                     className={`w-full space-y-1.5 rounded-md p-2.5 text-left transition-colors ${selectedId === s.id && !creating ? 'bg-fg/7' : 'hover:bg-fg/4'}`}
                   >
                     <div className="flex items-center gap-2 pr-6">
-                      <AgentProviderLogo backend={s.backend} className="text-fg-muted h-4 w-4" />
-                      <span className="text-fg min-w-0 flex-1 truncate text-[13px] font-medium">
+                      <AgentProviderLogo
+                        backend={s.backend}
+                        className="text-fg-muted h-4 w-4 shrink-0"
+                      />
+                      <span
+                        className="text-fg min-w-0 flex-1 truncate text-[13px] font-medium"
+                        title={s.title}
+                      >
                         {s.title}
                       </span>
                       {s.unread && (
                         <span
                           className="bg-accent h-1.5 w-1.5 rounded-full"
-                          aria-label="Unread update"
+                          aria-label={i18n.t('Unread update')}
                         />
                       )}
                     </div>
-                    <p className="text-fg-dim truncate text-[11px]">
-                      {s.project_name} ·{' '}
-                      {s.backend_name || agentProviderNames[s.backend] || s.backend}
-                      {s.isolated ? ' · worktree' : ''}
+                    <p
+                      className="text-fg-muted flex min-w-0 items-center gap-1.5 text-[11px] font-medium"
+                      title={s.project_name}
+                    >
+                      <FolderGit2 className="text-accent/80 h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate">{s.project_name}</span>
                     </p>
-                    <AgentStatusBadge status={s.status} />
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                      <AgentStatusBadge status={s.status} />
+                      <span className="text-fg-dim min-w-0 truncate text-[10px]">
+                        {s.backend_name || agentProviderNames[s.backend] || s.backend}
+                        {s.isolated ? i18n.t(' · worktree') : ''}
+                      </span>
+                    </div>
                   </button>
                   <button
                     type="button"
-                    aria-label={`Delete conversation: ${s.title}`}
+                    aria-label={i18n.t('Delete conversation: {value1}', { value1: s.title })}
                     title={
                       agentIsActive(s.status)
-                        ? 'Stop the active turn before deleting'
-                        : 'Delete conversation'
+                        ? i18n.t('Stop the active turn before deleting')
+                        : i18n.t('Delete conversation')
                     }
                     disabled={agentIsActive(s.status) || deletingId !== null}
                     onClick={() => setDeleteTarget(s)}
@@ -518,15 +627,28 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               ))}
               {!filtered.length && (
                 <p className="text-fg-dim px-3 py-8 text-center text-[12px]">
-                  {ready ? 'No tasks in this view.' : 'Loading your workspace…'}
+                  {ready ? i18n.t('No tasks in this view.') : i18n.t('Loading your workspace…')}
                 </p>
               )}
             </div>
           )}
           {view === 'conversations' && (
             <div className="border-border/60 text-fg-dim border-t px-3 py-2 text-[11px]">
-              {project ? project.name : `${projects.length} projects`} · {all.length} sessions
+              {i18n.rich('{value1} · {value2} sessions', {
+                value1: project
+                  ? project.name
+                  : i18n.t('{value1} projects', { value1: projects.length }),
+                value2: all.length,
+              })}
             </div>
+          )}
+          {view === 'conversations' && !sessionsCollapsed && (
+            <ResizeHandle
+              handleProps={sessionResizeProps}
+              dragging={sessionsWidth.dragging}
+              className="focus-visible:bg-accent/15 absolute inset-y-0 -right-1 w-2 touch-none focus-visible:outline-none"
+              title={i18n.t('Resize conversation list · drag or use ←/→ · double-click to reset')}
+            />
           )}
         </aside>
         {view === 'inbox' ? (
@@ -632,12 +754,13 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               </div>
               <h2 className="text-fg text-xl font-semibold">
                 {project
-                  ? `Agent sessions for ${project.name}`
-                  : 'Every project. Every agent. One workspace.'}
+                  ? i18n.t('Agent sessions for {value1}', { value1: project.name })
+                  : i18n.t('Every project. Every agent. One workspace.')}
               </h2>
               <p className="text-fg-muted mt-3 text-[13px] leading-relaxed">
-                Run your agent tools alongside your services. Follow their progress, answer
-                questions and review changes without switching windows.
+                {i18n.t(
+                  'Run your agent tools alongside your services. Follow their progress, answer questions and review changes without switching windows.',
+                )}
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-3">
                 <button
@@ -645,20 +768,22 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                   onClick={() => startTask()}
                   className="bg-accent text-surface rounded-md px-4 py-2 text-[13px] font-medium disabled:opacity-40"
                 >
-                  Start a task
+                  {i18n.t('Start a task')}
                 </button>
                 {!project && (
                   <button
                     onClick={() => void addProject()}
                     className="border-border text-fg rounded-md border px-4 py-2 text-[13px]"
                   >
-                    Add a project
+                    {i18n.t('Add a project')}
                   </button>
                 )}
               </div>
               {needsAttention > 0 && (
                 <p className="text-accent mt-6 text-[12px]">
-                  {needsAttention} task(s) are waiting for your response.
+                  {i18n.rich('{needsAttention} task(s) are waiting for your response.', {
+                    needsAttention: needsAttention,
+                  })}
                 </p>
               )}
             </div>

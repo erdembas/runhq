@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useState } from 'react';
 import { ListChecks } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -22,6 +24,7 @@ function PlanDocument({
   disabled: boolean;
   onBuild: (body: string) => void;
 }) {
+  i18n.useLocale();
   const key = `runhq:plan:${sessionId}:${plan.id}`;
   const [override, setOverride] = useState<string | null>(() => {
     try {
@@ -40,7 +43,9 @@ function PlanDocument({
       else localStorage.setItem(key, value);
       setError('');
     } catch {
-      setError('Your edit is available in this view but could not be saved on this device.');
+      setError(
+        i18n.t('Your edit is available in this view but could not be saved on this device.'),
+      );
     }
   };
   return (
@@ -84,6 +89,7 @@ export function AgentPlanPanel({
   disabled: boolean;
   onBuild: (body: string) => void;
 }) {
+  i18n.useLocale();
   const plans = useMemo(() => collectAgentPlans(items, planMode), [items, planMode]);
   const [selectedId, setSelectedId] = useState('');
   const plan = plans.find((entry) => entry.id === selectedId) ?? plans.at(-1);
@@ -91,10 +97,11 @@ export function AgentPlanPanel({
     return (
       <div className="text-fg-muted m-auto max-w-md p-8 text-center">
         <ListChecks className="mx-auto mb-4 h-8 w-8 text-violet-400" />
-        <h3 className="text-fg font-medium">Think it through. Then build.</h3>
+        <h3 className="text-fg font-medium">{i18n.t('Think it through. Then build.')}</h3>
         <p className="mt-2 text-[13px] leading-relaxed">
-          Choose Plan in the composer and describe your task. Review the agent’s approach here,
-          refine it, and build when you are ready.
+          {i18n.t(
+            'Choose Plan in the composer and describe your task. Review the agent’s approach here, refine it, and build when you are ready.',
+          )}
         </p>
       </div>
     );
@@ -102,16 +109,16 @@ export function AgentPlanPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       {plans.length > 1 && (
         <div className="border-border flex items-center gap-2 border-b px-5 py-2">
-          <span className="text-fg-dim text-[11px]">Plan</span>
+          <span className="text-fg-dim text-[11px]">{i18n.t('Plan')}</span>
           <SearchableSelect
-            label="Plan document"
+            label={i18n.t('Plan document')}
             compact
             className="min-w-0 flex-1"
             value={plan.id}
             options={plans.map((entry, index) => ({
               value: entry.id,
               label: entry.title,
-              description: `Document ${index + 1}`,
+              description: i18n.t('Document {value1}', { value1: index + 1 }),
             }))}
             onChange={setSelectedId}
           />

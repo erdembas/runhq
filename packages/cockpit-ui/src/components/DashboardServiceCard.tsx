@@ -1,5 +1,6 @@
 'use client';
 
+import * as i18n from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { ResourceSample, ServiceDef, Status } from '@runhq/cockpit-types';
 import {
@@ -85,6 +86,7 @@ export function DashboardServiceCard({
   selected,
   className,
 }: Props) {
+  i18n.useLocale();
   const cmdCount = service.cmds?.length ?? 0;
   const cmdSummary =
     cmdCount > 0
@@ -162,14 +164,14 @@ export function DashboardServiceCard({
             {isRunning ? (
               <>
                 <Check className="text-status-running h-3 w-3" />
-                <span>All clear</span>
+                <span>{i18n.t('All clear')}</span>
               </>
             ) : isStarting ? (
-              <span className="text-status-starting">Starting…</span>
+              <span className="text-status-starting">{i18n.t('Starting…')}</span>
             ) : isStopped ? (
-              <span className="text-fg-dim">Idle · no dependencies missing</span>
+              <span className="text-fg-dim">{i18n.t('Idle · no dependencies missing')}</span>
             ) : (
-              <span className="text-status-error">Needs attention</span>
+              <span className="text-status-error">{i18n.t('Needs attention')}</span>
             )}
           </div>
         </div>
@@ -183,7 +185,7 @@ export function DashboardServiceCard({
               onClick={stopAndRun()}
               className="bg-tone-warning/15 text-tone-warning-fg hover:bg-tone-warning/25 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition"
             >
-              why?
+              {i18n.t('why?')}
             </button>
           </div>
         ) : (
@@ -197,7 +199,9 @@ export function DashboardServiceCard({
 
       {cmdSummary && (
         <div className="text-fg-muted flex items-center gap-1.5 text-[11px]">
-          <span className="text-fg-dim font-mono tabular-nums">{cmdCount} commands</span>
+          <span className="text-fg-dim font-mono tabular-nums">
+            {i18n.rich('{cmdCount} commands', { cmdCount: cmdCount })}
+          </span>
           <span className="text-fg-dim">·</span>
           <span className="text-fg-muted truncate font-mono">{cmdSummary}</span>
         </div>
@@ -210,7 +214,7 @@ export function DashboardServiceCard({
             onClick={stopAndRun(onToggleStatus)}
             className="bg-status-error/15 text-status-error hover:bg-status-error/25 flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-[11px] font-semibold transition active:scale-95"
           >
-            <Square className="h-3 w-3" /> Stop
+            {i18n.rich('{value1} Stop', { value1: <Square className="h-3 w-3" /> })}
           </button>
         ) : (
           <button
@@ -220,14 +224,14 @@ export function DashboardServiceCard({
             className="bg-status-running/15 text-status-running hover:bg-status-running/25 flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-[11px] font-semibold transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Play className={cn('h-3 w-3', isStarting && 'animate-pulse')} />{' '}
-            {isStarting ? 'Starting' : 'Start'}
+            {isStarting ? i18n.t('Starting') : i18n.t('Start')}
           </button>
         )}
         <button
           type="button"
           onClick={stopAndRun(onRestart)}
           className="border-border bg-surface-muted text-fg-dim hover:text-fg active:text-accent flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border transition"
-          aria-label="Restart"
+          aria-label={i18n.t('Restart')}
         >
           <RotateCcw className="h-3 w-3" />
         </button>
@@ -239,7 +243,7 @@ export function DashboardServiceCard({
               'border-border bg-surface-muted hover:text-fg flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border transition',
               menuOpen ? 'text-fg border-border-strong' : 'text-fg-dim',
             )}
-            aria-label="More"
+            aria-label={i18n.t('More')}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
           >
@@ -257,8 +261,7 @@ export function DashboardServiceCard({
                 onClick={() => setMenuOpen(false)}
                 className="text-fg-muted hover:bg-surface-muted hover:text-fg flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11.5px] transition"
               >
-                <ScrollText className="h-3.5 w-3.5" />
-                View logs
+                {i18n.rich('{value1}View logs', { value1: <ScrollText className="h-3.5 w-3.5" /> })}
               </button>
               <button
                 type="button"
@@ -269,8 +272,9 @@ export function DashboardServiceCard({
                 }}
                 className="text-fg-muted hover:bg-surface-muted hover:text-fg flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11.5px] transition"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Restart service
+                {i18n.rich('{value1}Restart service', {
+                  value1: <RotateCcw className="h-3.5 w-3.5" />,
+                })}
               </button>
               <button
                 type="button"
@@ -283,8 +287,7 @@ export function DashboardServiceCard({
                 }}
                 className="text-fg-muted hover:bg-surface-muted hover:text-fg flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11.5px] transition"
               >
-                <Copy className="h-3.5 w-3.5" />
-                Copy command
+                {i18n.rich('{value1}Copy command', { value1: <Copy className="h-3.5 w-3.5" /> })}
               </button>
             </div>
           )}
@@ -299,7 +302,7 @@ export function DashboardServiceCard({
             type="button"
             onClick={stopAndRun()}
             className="border-border text-fg-dim hover:text-fg flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border transition"
-            aria-label="Open in editor"
+            aria-label={i18n.t('Open in editor')}
           >
             <Code2 className="h-3 w-3" />
           </button>

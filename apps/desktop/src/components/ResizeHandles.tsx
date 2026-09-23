@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**
@@ -34,6 +35,7 @@ const EDGE = 8;
 const CORNER = 18;
 
 export function ResizeHandles() {
+  i18n.useLocale();
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[60]" data-resize-handles>
       {/* Edges (drawn first so corners paint on top) */}

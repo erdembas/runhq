@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { Check, Code2, Copy, ExternalLink, FolderOpen, Loader2, RefreshCw, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -28,6 +29,7 @@ export function DrawerHeader({
   onOpenInEditor: (command: string, path: string) => void;
   onJump: (id: string) => void;
 }) {
+  i18n.useLocale();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
   const branch = project.git_status?.branch ?? null;
@@ -57,7 +59,10 @@ export function DrawerHeader({
           {branch && (
             <span
               className="text-fg/55 border-border inline-flex min-w-0 shrink items-center gap-1 rounded border px-1.5 py-px text-[10px]"
-              title={`Branch: ${branch}${dirty ? ' (dirty)' : ''}`}
+              title={i18n.t('Branch: {branch}{value2}', {
+                branch: branch,
+                value2: dirty ? i18n.t(' (dirty)') : '',
+              })}
             >
               <span className="truncate font-mono">{branch}</span>
               {dirty && <span className="bg-tone-warning h-1.5 w-1.5 shrink-0 rounded-full" />}
@@ -70,7 +75,7 @@ export function DrawerHeader({
             setOpen={setMenuOpen}
             items={[
               {
-                label: 'Jump to project',
+                label: i18n.t('Jump to project'),
                 icon: <ExternalLink size={12} />,
                 onClick: () => onJump(project.service_id),
               },
@@ -80,7 +85,7 @@ export function DrawerHeader({
                 // for Rails, etc.) without us guessing from `editors[0]`.
                 // Finder/Explorer sits below a divider as the non-editor
                 // escape hatch — same "Open in..." family, different tool.
-                label: 'Open in…',
+                label: i18n.t('Open in…'),
                 icon: <Code2 size={12} />,
                 children:
                   editors.length > 0
@@ -92,14 +97,14 @@ export function DrawerHeader({
                         })),
                         { separator: true as const },
                         {
-                          label: IS_MAC ? 'Open in Finder' : 'Open in Explorer',
+                          label: IS_MAC ? i18n.t('Open in Finder') : i18n.t('Open in Explorer'),
                           icon: <FolderOpen size={12} />,
                           onClick: () => onOpenPath(project.cwd),
                         },
                       ]
                     : [
                         {
-                          label: IS_MAC ? 'Open in Finder' : 'Open in Explorer',
+                          label: IS_MAC ? i18n.t('Open in Finder') : i18n.t('Open in Explorer'),
                           icon: <FolderOpen size={12} />,
                           onClick: () => onOpenPath(project.cwd),
                         },
@@ -107,13 +112,13 @@ export function DrawerHeader({
               },
               { separator: true },
               {
-                label: pathCopied ? 'Path copied' : 'Copy project path',
+                label: pathCopied ? i18n.t('Path copied') : i18n.t('Copy project path'),
                 icon: pathCopied ? <Check size={12} /> : <Copy size={12} />,
                 onClick: copyPath,
               },
             ]}
           />
-          <IconBtn label="Close (Esc)" onClick={onClose}>
+          <IconBtn label={i18n.t('Close (Esc)')} onClick={onClose}>
             <X size={14} />
           </IconBtn>
         </div>
@@ -124,10 +129,10 @@ export function DrawerHeader({
         <button
           type="button"
           onClick={copyPath}
-          title={pathCopied ? 'Copied' : 'Click to copy project path'}
+          title={pathCopied ? i18n.t('Copied') : i18n.t('Click to copy project path')}
           className="text-fg/40 hover:text-fg/70 min-w-0 truncate text-left font-mono text-[10px] transition"
         >
-          {pathCopied ? 'Path copied' : project.cwd}
+          {pathCopied ? i18n.t('Path copied') : project.cwd}
         </button>
         <div className="flex shrink-0 items-center gap-2 text-[10px]">
           <span className="text-fg/40 tabular-nums">{scanFreshness(lastScanAt)}</span>
@@ -139,10 +144,12 @@ export function DrawerHeader({
               'text-fg/55 hover:text-accent hover:bg-fg/5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition',
               scanning && 'hover:text-fg/55 cursor-not-allowed opacity-60 hover:bg-transparent',
             )}
-            title={scanning ? 'Scan in progress…' : 'Rescan dependencies (all projects)'}
+            title={
+              scanning ? i18n.t('Scan in progress…') : i18n.t('Rescan dependencies (all projects)')
+            }
           >
             {scanning ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-            <span>{scanning ? 'Scanning' : 'Rescan'}</span>
+            <span>{scanning ? i18n.t('Scanning') : i18n.t('Rescan')}</span>
           </button>
         </div>
       </div>

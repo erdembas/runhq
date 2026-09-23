@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Layers, ArrowDownWideNarrow, Zap } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -31,12 +32,13 @@ import { cn } from '@/lib/cn';
  *     UI"; subtle variation reads as "loading data".
  */
 export function DashboardSkeleton() {
+  i18n.useLocale();
   return (
     <div
       className="bg-surface relative flex min-h-0 flex-1 overflow-hidden"
       role="status"
       aria-live="polite"
-      aria-label="Loading dashboard"
+      aria-label={i18n.t('Loading dashboard')}
     >
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="relative flex-1 overflow-y-auto">
@@ -69,7 +71,7 @@ export function DashboardSkeleton() {
                   <span className="from-accent to-accent-hover border-accent/40 inline-flex h-5 w-5 items-center justify-center rounded-md border bg-gradient-to-br text-white shadow-[0_2px_8px_-2px_rgb(var(--accent)/0.6)]">
                     <Zap className="h-3 w-3" />
                   </span>
-                  <span className="text-fg">RunHQ</span>
+                  <span className="text-fg">{i18n.t('RunHQ')}</span>
                   <SkeletonBar className="h-2 w-8 opacity-60" />
                   <span className="text-fg-dim mx-1 opacity-30">·</span>
                   <SkeletonBar className="h-2 w-20 opacity-60" />
@@ -162,6 +164,7 @@ type CardVariant = 'wide' | 'narrow' | 'mid' | 'long' | 'tall' | 'compact';
 const SKELETON_CARDS: CardVariant[] = ['wide', 'mid', 'narrow', 'long', 'compact', 'tall'];
 
 function ServiceCardSkeleton({ variant }: { variant: CardVariant }) {
+  i18n.useLocale();
   // Centralise the per-variant numbers so the visual rhythm is
   // adjustable from one place. Widths are intentionally in the
   // 28-44 / 16-28 range — enough variation to break monotony,
@@ -226,6 +229,7 @@ function ServiceCardSkeleton({ variant }: { variant: CardVariant }) {
  * eye gently engaged during the wait.
  */
 function SkeletonBar({ className }: { className?: string }) {
+  i18n.useLocale();
   return (
     <span aria-hidden className={cn('bg-fg/10 inline-block animate-pulse rounded-md', className)} />
   );

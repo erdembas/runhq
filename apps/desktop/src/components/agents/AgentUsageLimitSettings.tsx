@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import { Loader2, Save } from 'lucide-react';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
@@ -12,13 +14,22 @@ import {
 } from './agentUsagePolicy';
 
 const labels = {
-  tokenWarning: 'Warn at reported tokens',
-  tokenPause: 'Pause queue at reported tokens',
-  usdWarning: 'Warn at reported USD',
-  usdPause: 'Pause queue at reported USD',
+  get tokenWarning() {
+    return i18n.t('Warn at reported tokens');
+  },
+  get tokenPause() {
+    return i18n.t('Pause queue at reported tokens');
+  },
+  get usdWarning() {
+    return i18n.t('Warn at reported USD');
+  },
+  get usdPause() {
+    return i18n.t('Pause queue at reported USD');
+  },
 };
 
 export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean }) {
+  i18n.useLocale();
   const saved = useVisibleStore(
     useAgentLibraryStore,
     (state) => state.records['preferences:usage'],
@@ -63,14 +74,17 @@ export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean 
     }
   };
   return (
-    <section aria-label="Reported usage rules" className="border-border rounded-xl border p-4">
+    <section
+      aria-label={i18n.t('Reported usage rules')}
+      className="border-border rounded-xl border p-4"
+    >
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div className="flex-1">
-          <h3 className="text-fg text-[12px] font-medium">Reported usage rules</h3>
+          <h3 className="text-fg text-[12px] font-medium">{i18n.t('Reported usage rules')}</h3>
           <p className="text-fg-dim mt-1 text-[11px]">
-            Choose warnings and when to pause queued followups for each tool. Each comparison uses
-            its latest report: a thread total, latest turn or latest message. Running tasks
-            continue; these rules do not cap account spending.
+            {i18n.t(
+              'Choose warnings and when to pause queued followups for each tool. Each comparison uses its latest report: a thread total, latest turn or latest message. Running tasks continue; these rules do not cap account spending.',
+            )}
           </p>
         </div>
         <button
@@ -84,17 +98,17 @@ export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean 
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          {busy ? 'Saving…' : 'Save rules'}
+          {busy ? i18n.t('Saving…') : i18n.t('Save rules')}
         </button>
       </div>
       <fieldset disabled={!ready || busy} className="space-y-3">
         <div className="flex flex-wrap items-center gap-4">
           <SearchableSelect
-            label="Usage rules tool"
+            label={i18n.t('Usage rules tool')}
             searchable={false}
             className="w-40 max-w-full"
             menuWidth={220}
-            placeholder="No tools available"
+            placeholder={i18n.t('No tools available')}
             value={selected}
             options={providerIds.map((id) => ({
               value: id,
@@ -103,14 +117,17 @@ export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean 
             onChange={setProvider}
           />
           <label className="text-fg-muted flex items-center gap-2 text-[12px]">
-            <input
-              type="checkbox"
-              checked={draft.notifications}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, notifications: event.target.checked }))
-              }
-            />
-            Show in-app threshold alerts
+            {i18n.rich('{value1}Show in-app threshold alerts', {
+              value1: (
+                <input
+                  type="checkbox"
+                  checked={draft.notifications}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, notifications: event.target.checked }))
+                  }
+                />
+              ),
+            })}
           </label>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -123,7 +140,7 @@ export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean 
                 aria-label={labels[field]}
                 min={field.startsWith('token') ? 1 : 0.000001}
                 step={field.startsWith('token') ? 1 : 'any'}
-                placeholder="Off"
+                placeholder={i18n.t('Off')}
                 value={rule[field] ?? ''}
                 onChange={(event) =>
                   setDraft((current) => {
@@ -146,7 +163,9 @@ export function AgentUsageLimitSettings({ visible = true }: { visible?: boolean 
       )}
       {support.unsupported.map((message) => (
         <p key={message} className="text-fg-dim mt-2 text-[11px]">
-          {message} Its queue is not blocked by unavailable data.
+          {i18n.rich('{message} Its queue is not blocked by unavailable data.', {
+            message: message,
+          })}
         </p>
       ))}
     </section>

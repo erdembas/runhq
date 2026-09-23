@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -10,6 +11,7 @@ interface IconToolProps {
 }
 
 export function IconTool({ onClick, tooltip, icon, active, disabled }: IconToolProps) {
+  i18n.useLocale();
   return (
     <button
       type="button"

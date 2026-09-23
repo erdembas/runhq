@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
@@ -13,6 +14,7 @@ interface DependencyTableProps {
 }
 
 export function DependencyTable({ entries, expanded, onToggle }: DependencyTableProps) {
+  i18n.useLocale();
   const [showAll, setShowAll] = useState(false);
   const total = entries.length;
   const visible = showAll ? entries : entries.slice(0, INITIAL_LIMIT);
@@ -26,17 +28,17 @@ export function DependencyTable({ entries, expanded, onToggle }: DependencyTable
         onClick={onToggle}
       >
         {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {total} {total === 1 ? 'dependency' : 'dependencies'}
+        {total} {total === 1 ? i18n.t('dependency') : i18n.t('dependencies')}
       </button>
       {expanded && (
         <div className="mt-2">
           <table className="w-full text-[11px]">
             <thead className="bg-surface-raised/40 sticky top-0 backdrop-blur">
               <tr className="text-fg-dim border-border border-b">
-                <th className="px-2 py-1.5 text-left font-medium">Package</th>
-                <th className="px-2 py-1.5 text-left font-medium">Version</th>
-                <th className="px-2 py-1.5 text-left font-medium">License</th>
-                <th className="px-2 py-1.5 text-left font-medium">Risk</th>
+                <th className="px-2 py-1.5 text-left font-medium">{i18n.t('Package')}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{i18n.t('Version')}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{i18n.t('License')}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{i18n.t('Risk')}</th>
               </tr>
             </thead>
             <tbody>
@@ -60,7 +62,7 @@ export function DependencyTable({ entries, expanded, onToggle }: DependencyTable
               onClick={() => setShowAll(true)}
               className="text-accent hover:bg-accent/5 mt-1 block w-full rounded px-2 py-1.5 text-center text-[11px] font-medium transition"
             >
-              Show all {total} packages...
+              {i18n.rich('Show all {total} packages...', { total: total })}
             </button>
           )}
         </div>

@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useState, type RefObject } from 'react';
 import { Sparkles } from 'lucide-react';
 import { DocumentReleaseDetail } from '@/components/whatsnew/DocumentReleaseDetail';
@@ -22,6 +23,7 @@ export function ReleaseDetail({
   onAfterAction,
   scrollerRef,
 }: ReleaseDetailProps) {
+  i18n.useLocale();
   const [lightbox, setLightbox] = useState<{
     src: string;
     alt: string;
@@ -46,11 +48,11 @@ export function ReleaseDetail({
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-fg text-[22px] leading-tight font-semibold tracking-tight">
-              RunHQ {release.version}
+              {i18n.rich('RunHQ {value1}', { value1: release.version })}
             </h2>
             <span className="text-fg-dim/90 text-[12px]">·</span>
             <span className="text-fg-dim text-[12px]">
-              Released {formatReleaseDate(release.releasedAt)}
+              {i18n.rich('Released {value1}', { value1: formatReleaseDate(release.releasedAt) })}
             </span>
           </div>
           <p className="text-fg-muted text-[14px] leading-relaxed">{release.headline}</p>
@@ -59,10 +61,11 @@ export function ReleaseDetail({
               type="button"
               onClick={onOpenModal}
               className="text-accent hover:text-accent/85 inline-flex items-center gap-1 text-[11px] font-medium transition-colors"
-              title="Open the release modal with the same content in a focused popup"
+              title={i18n.t('Open the release modal with the same content in a focused popup')}
             >
-              <Sparkles className="h-3 w-3" />
-              View as What&apos;s New
+              {i18n.rich("{value1}View as What's New", {
+                value1: <Sparkles className="h-3 w-3" />,
+              })}
             </button>
             <span className="text-fg-dim/60 text-[11px]">·</span>
             <a
@@ -71,7 +74,7 @@ export function ReleaseDetail({
               rel="noreferrer noopener"
               className="text-fg-dim hover:text-fg text-[11px] font-medium underline-offset-2 transition-colors hover:underline"
             >
-              Read full changelog ↗
+              {i18n.t('Read full changelog ↗')}
             </a>
           </div>
         </div>
@@ -110,11 +113,13 @@ export function ReleaseDetail({
             rel="noreferrer noopener"
             className="text-fg-dim hover:text-fg text-[12px] font-medium underline-offset-2 transition-colors hover:underline"
           >
-            Read full changelog ↗
+            {i18n.t('Read full changelog ↗')}
           </a>
           <span className="text-fg-dim/80 text-[10px] tracking-wider uppercase">
-            {release.highlights.length} highlight
-            {release.highlights.length === 1 ? '' : 's'}
+            {i18n.rich('{value1} highlight{plural3}', {
+              value1: release.highlights.length,
+              plural3: release.highlights.length === 1 ? '' : 's',
+            })}
           </span>
         </footer>
       </article>

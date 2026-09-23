@@ -1,9 +1,10 @@
+import { i18nCore } from './helpers/i18n.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { URL } from 'node:url';
 import { TextEncoder } from 'node:util';
-import { runInNewContext } from 'node:vm';
+import { runInNewContext } from './helpers/i18n-vm.mjs';
 import ts from 'typescript';
 
 const exports = {};
@@ -12,7 +13,14 @@ runInNewContext(
     readFileSync(new URL('../src/components/agents/agentLibraryModel.ts', import.meta.url), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
   ).outputText,
-  { exports, TextEncoder },
+  {
+    exports,
+    TextEncoder,
+    require: (name) => {
+      if (name === '@runhq/cockpit-ui/i18n/core') return i18nCore;
+      throw new Error(name);
+    },
+  },
 );
 const {
   parseRecipeSteps,

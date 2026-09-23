@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -28,12 +30,13 @@ function loadEdit(key: string, original: string) {
   } catch {
     return {
       source: original,
-      error: 'Local storage is unavailable. Edits will last until this canvas is closed.',
+      error: i18n.t('Local storage is unavailable. Edits will last until this canvas is closed.'),
     };
   }
 }
 
 function CanvasSession({ sessionId, items }: { sessionId: string; items: AgentItem[] }) {
+  i18n.useLocale();
   const artifacts = useMemo(() => extractAgentCanvasArtifacts(items), [items]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = artifacts.find((artifact) => artifact.id === selectedId) ?? artifacts.at(-1);
@@ -59,6 +62,7 @@ function CanvasEditor({
   selected?: AgentCanvasArtifact;
   onSelect: (id: string) => void;
 }) {
+  i18n.useLocale();
   const storageKey = agentCanvasStorageKey(sessionId, selected?.id ?? '');
   const original = selected?.source ?? '';
   const saved = useMemo(() => loadEdit(storageKey, original), [storageKey, original]);
@@ -87,7 +91,9 @@ function CanvasEditor({
       .catch(() => {
         if (active)
           setPreviewError(
-            'Could not start the local preview. Source editing and file export are still available.',
+            i18n.t(
+              'Could not start the local preview. Source editing and file export are still available.',
+            ),
           );
       });
     return () => {
@@ -97,18 +103,21 @@ function CanvasEditor({
   const preview = useMemo(() => {
     if (!nativePreview || !kind || kind === 'markdown') return {};
     if (previewError) return { status: previewError };
-    if (!previewEndpoint) return { status: 'Starting the local preview…' };
+    if (!previewEndpoint) return { status: i18n.t('Starting the local preview…') };
     try {
       const encoded = encodeURIComponent(previewDocument);
       if (previewDocument.length > 500000 || encoded.length > 1500000) {
         return {
-          status:
+          status: i18n.t(
             'This artifact is too large for live preview. Edit its source or save it as a file.',
+          ),
         };
       }
       return { url: `${previewEndpoint}#${encoded}` };
     } catch {
-      return { status: 'The source contains invalid text. Edit its source before previewing.' };
+      return {
+        status: i18n.t('The source contains invalid text. Edit its source before previewing.'),
+      };
     }
   }, [nativePreview, kind, previewError, previewEndpoint, previewDocument]);
   const updateSource = (next: string) => {
@@ -118,7 +127,9 @@ function CanvasEditor({
       if (next === original) localStorage.removeItem(storageKey);
       else localStorage.setItem(storageKey, JSON.stringify({ original, source: next }));
     } catch {
-      setError('This edit could not be saved locally. Keep this canvas open or save it as a file.');
+      setError(
+        i18n.t('This edit could not be saved locally. Keep this canvas open or save it as a file.'),
+      );
     }
   };
   const download = async () => {
@@ -146,7 +157,7 @@ function CanvasEditor({
       setError(null);
     } catch {
       if (url) URL.revokeObjectURL(url);
-      setError('The file could not be downloaded. You can copy its contents from Source.');
+      setError(i18n.t('The file could not be downloaded. You can copy its contents from Source.'));
     } finally {
       setSaving(false);
     }
@@ -174,7 +185,9 @@ function CanvasEditor({
             setPromptCopied(true);
             setError(null);
           })
-          .catch(() => setError('Could not copy the prompt. Select and copy the example above.'));
+          .catch(() =>
+            setError(i18n.t('Could not copy the prompt. Select and copy the example above.')),
+          );
       }}
       markdownPreview={
         selected?.kind === 'markdown' ? (
@@ -186,7 +199,9 @@ function CanvasEditor({
               // Keep generated Markdown inside the canvas; remote images must not fetch from the host.
               img: ({ alt }) => (
                 <span className="border-border text-fg-dim my-3 block rounded-lg border border-dashed p-4 text-[12px]">
-                  {alt || 'Image'} · Image resource omitted
+                  {i18n.rich('{value1} · Image resource omitted', {
+                    value1: alt || i18n.t('Image'),
+                  })}
                 </span>
               ),
               a: ({ children, href }) => (
@@ -205,5 +220,6 @@ function CanvasEditor({
 }
 
 export function AgentCanvasPanel({ sessionId, items }: { sessionId: string; items: AgentItem[] }) {
+  i18n.useLocale();
   return <CanvasSession key={sessionId} sessionId={sessionId} items={items} />;
 }

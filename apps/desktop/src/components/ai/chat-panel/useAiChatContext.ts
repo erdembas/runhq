@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useEffect, useMemo } from 'react';
 import type { MutableRefObject } from 'react';
 import { ipc } from '@/lib/ipc';
@@ -28,7 +29,11 @@ export function useAiChatContext({
 }: Args) {
   const contextChips = useMemo(() => {
     const chips: { id: string; label: string }[] = [];
-    if (selectedService) chips.push({ id: 'service', label: `service: ${selectedService.name}` });
+    if (selectedService)
+      chips.push({
+        id: 'service',
+        label: i18n.t('service: {value1}', { value1: selectedService.name }),
+      });
     return chips;
   }, [selectedService]);
 

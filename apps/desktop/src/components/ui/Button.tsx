@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -29,22 +30,25 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
   (
     { variant = 'secondary', size = 'md', leftIcon, rightIcon, className, children, ...rest },
     ref,
-  ) => (
-    <button
-      ref={ref}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        SIZE[size],
-        VARIANT[variant],
-        className,
-      )}
-      {...rest}
-    >
-      {leftIcon}
-      {children}
-      {rightIcon}
-    </button>
-  ),
+  ) => {
+    i18n.useLocale();
+    return (
+      <button
+        ref={ref}
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          SIZE[size],
+          VARIANT[variant],
+          className,
+        )}
+        {...rest}
+      >
+        {leftIcon}
+        {children}
+        {rightIcon}
+      </button>
+    );
+  },
 );
 Button.displayName = 'Button';

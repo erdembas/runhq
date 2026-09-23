@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -19,6 +20,7 @@ const SIZE = {
 } as const;
 
 export function Dialog({ title, subtitle, onClose, children, footer, size = 'md' }: Props) {
+  i18n.useLocale();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -51,7 +53,7 @@ export function Dialog({ title, subtitle, onClose, children, footer, size = 'md'
               </p>
             )}
           </div>
-          <IconButton label="Close" icon={<X />} onClick={onClose} size="md" />
+          <IconButton label={i18n.t('Close')} icon={<X />} onClick={onClose} size="md" />
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>

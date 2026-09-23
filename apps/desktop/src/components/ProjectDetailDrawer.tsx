@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AdvisoriesPanel } from '@/components/project-detail-drawer/AdvisoriesPanel';
 import { DrawerHeader } from '@/components/project-detail-drawer/DrawerHeader';
 import { OutdatedPanel } from '@/components/project-detail-drawer/OutdatedPanel';
@@ -35,6 +37,7 @@ export function ProjectDetailDrawer({
   onOpenUrl,
   onJump,
 }: ProjectDetailDrawerProps) {
+  i18n.useLocale();
   const [tab, setTab] = useState<DetailTab>(initialTab);
   const [query, setQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all');
@@ -155,7 +158,7 @@ export function ProjectDetailDrawer({
       className="absolute inset-0 z-[60] flex p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Project details"
+      aria-label={i18n.t('Project details')}
     >
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"

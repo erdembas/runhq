@@ -1,3 +1,6 @@
+'use client';
+
+import * as i18n from '../i18n';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
@@ -22,6 +25,7 @@ interface Props {
  * making them interactive would suggest the demo is a real window.
  */
 export function CockpitChrome({ title, statusPill, children, className }: Props) {
+  i18n.useLocale();
   return (
     <div
       className={cn(

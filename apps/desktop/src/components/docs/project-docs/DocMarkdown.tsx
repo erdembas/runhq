@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -31,6 +32,7 @@ export function DocMarkdown({
   onSelectDoc,
   wide,
 }: MarkdownProps) {
+  i18n.useLocale();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [activeHeading, setActiveHeading] = useState<string | null>(null);

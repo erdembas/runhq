@@ -1,3 +1,4 @@
+import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -11,13 +12,35 @@ import { ipc } from '@/lib/ipc';
  * a monitor even in dark mode — matching Slack / Linear / Notion.
  */
 const OPTIONS: Array<{ key: Theme; icon: React.ReactNode; label: string; hint: string }> = [
-  { key: 'light', icon: <Sun className="h-3.5 w-3.5" />, label: 'Light', hint: 'Bright UI' },
-  { key: 'dark', icon: <Moon className="h-3.5 w-3.5" />, label: 'Dark', hint: 'Dim UI' },
+  {
+    key: 'light',
+    icon: <Sun className="h-3.5 w-3.5" />,
+    get label() {
+      return i18n.t('Light');
+    },
+    get hint() {
+      return i18n.t('Bright UI');
+    },
+  },
+  {
+    key: 'dark',
+    icon: <Moon className="h-3.5 w-3.5" />,
+    get label() {
+      return i18n.t('Dark');
+    },
+    get hint() {
+      return i18n.t('Dim UI');
+    },
+  },
   {
     key: 'system',
     icon: <Monitor className="h-3.5 w-3.5" />,
-    label: 'System',
-    hint: 'Follow OS',
+    get label() {
+      return i18n.t('System');
+    },
+    get hint() {
+      return i18n.t('Follow OS');
+    },
   },
 ];
 
@@ -28,6 +51,7 @@ const ICONS: Record<Theme, React.ReactNode> = {
 };
 
 export function ThemeMenu() {
+  i18n.useLocale();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -53,7 +77,7 @@ export function ThemeMenu() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={`Theme: ${theme}`}
+        title={i18n.t('Theme: {theme}', { theme: theme })}
         className={cn(
           'rounded-app-sm hover:bg-surface-overlay hover:text-fg flex items-center gap-1.5 px-1.5 py-1 transition',
           open ? 'bg-surface-overlay text-fg' : 'text-fg-muted',

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { History } from 'lucide-react';
 import { ReleaseDetail } from '@/components/release-notes/ReleaseDetail';
 import { EmptyState, SelectionEmpty } from '@/components/release-notes/ReleaseEmptyStates';
@@ -8,6 +10,7 @@ import { useTheme } from '@/lib/theme';
 import { useAppStore } from '@/store/useAppStore';
 
 export function ReleaseNotes() {
+  i18n.useLocale();
   const releases = useMemo(() => getAllReleases(), []);
   const appVersion = useAppStore((s) => s.appVersion);
   const openWhatsNew = useAppStore((s) => s.openWhatsNew);
@@ -81,11 +84,12 @@ export function ReleaseNotes() {
       <header className="border-border bg-surface flex shrink-0 items-center border-b px-5 py-3">
         <div className="min-w-0">
           <span className="text-fg-dim inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
-            <History className="text-accent h-3 w-3" />
-            Release notes
+            {i18n.rich('{value1}Release notes', {
+              value1: <History className="text-accent h-3 w-3" />,
+            })}
           </span>
           <h1 className="text-fg text-[14px] leading-tight font-semibold tracking-tight">
-            Every release at a glance
+            {i18n.t('Every release at a glance')}
           </h1>
         </div>
       </header>
@@ -96,7 +100,7 @@ export function ReleaseNotes() {
         <div className="flex min-h-0 flex-1">
           <aside className="border-border bg-surface-raised/30 w-[240px] shrink-0 overflow-y-auto border-r p-2">
             <div className="text-fg-dim/80 px-2 pt-1 pb-2 text-[10px] font-semibold tracking-wider uppercase">
-              Releases
+              {i18n.t('Releases')}
             </div>
             <div className="flex flex-col gap-0.5">
               {releases.map((release) => (

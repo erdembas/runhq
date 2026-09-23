@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
+import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import { CATEGORIES } from '@/lib/categories';
 import { cn } from '@/lib/cn';
@@ -27,6 +29,7 @@ export function TagInput({
   onAdd: (v: string) => void;
   onRemove: (v: string) => void;
 }) {
+  i18n.useLocale();
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -139,7 +142,7 @@ export function TagInput({
           }}
           onKeyDown={handleKeyDown}
           onFocus={() => setOpen(true)}
-          placeholder={tags.length ? '' : 'Add category — frontend, worker, …'}
+          placeholder={tags.length ? '' : i18n.t('Add category — frontend, worker, …')}
           className="text-fg placeholder:text-fg-dim min-w-[120px] flex-1 bg-transparent text-[11px] focus:outline-none"
           role="combobox"
           aria-expanded={open}
@@ -155,7 +158,7 @@ export function TagInput({
             inputRef.current?.focus();
           }}
           className="text-fg-dim hover:text-fg-muted shrink-0 transition"
-          aria-label={open ? 'Close suggestions' : 'Open suggestions'}
+          aria-label={open ? i18n.t('Close suggestions') : i18n.t('Open suggestions')}
         >
           <ChevronDown className={cn('h-3 w-3 transition', open && 'rotate-180')} />
         </button>
@@ -209,7 +212,9 @@ export function TagInput({
               >
                 <Plus className="text-accent h-3 w-3 shrink-0" />
                 <span>
-                  Create <span className="text-fg font-medium">&ldquo;{q}&rdquo;</span>
+                  {i18n.rich('Create {value1}', {
+                    value1: <span className="text-fg font-medium">&ldquo;{q}&rdquo;</span>,
+                  })}
                 </span>
               </li>
             )}
