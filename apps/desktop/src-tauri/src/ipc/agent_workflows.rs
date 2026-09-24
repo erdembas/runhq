@@ -149,3 +149,51 @@ pub async fn agent_workflow_inventory(
 ) -> AppResult<Vec<runhq_core::agents::WorkflowWorktree>> {
     state.agents.workflow_inventory().await
 }
+
+#[tauri::command]
+pub async fn agent_workflow_import_recipes(path: String) -> AppResult<serde_json::Value> {
+    tokio::task::spawn_blocking(move || {
+        runhq_core::agents::import_workflow_recipes(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|error| runhq_core::AppError::other(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn agent_pipeline_import(
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<runhq_core::agents::PipelineRun> {
+    let agents = state.agents.clone();
+    tauri::async_runtime::spawn_blocking(move || agents.pipeline_import(path.into()))
+        .await
+        .map_err(|e| runhq_core::AppError::other(e.to_string()))?
+}
+#[tauri::command]
+pub async fn agent_pipelines(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<runhq_core::agents::PipelineSummary>> {
+    state.agents.pipeline_summaries()
+}
+#[tauri::command]
+pub async fn agent_pipeline_get(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<runhq_core::agents::PipelineRun> {
+    state.agents.pipeline_get(&id)
+}
+#[tauri::command]
+pub async fn agent_pipeline_control(
+    id: String,
+    revision: u64,
+    action: String,
+    step_id: Option<String>,
+    backend: String,
+    reviewer: String,
+    state: State<'_, AppState>,
+) -> AppResult<runhq_core::agents::PipelineRun> {
+    state
+        .agents
+        .pipeline_control(&id, revision, &action, step_id, backend, reviewer)
+        .await
+}

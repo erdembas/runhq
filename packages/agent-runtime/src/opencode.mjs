@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { pretty, questionsFrom, requireAnswers } from './protocol.mjs';
 import { validateAttachments } from './attachments.mjs';
 import { openCodeApproval } from './permissions.mjs';
+import { openCodePause } from './opencode-pause.mjs';
 
 export async function* sseEvents(body) {
   const decoder = new TextDecoder();
@@ -37,8 +38,17 @@ async function availablePort() {
 }
 
 export async function runOpenCode(ctx, catalog = false) {
+  if (!catalog) validateAttachments(ctx.config.attachments, 'opencode');
+  const pause = catalog ? undefined : await openCodePause(ctx);
+  try {
+    return await runOpenCodeServer(ctx, catalog, pause);
+  } finally {
+    pause?.close();
+  }
+}
+
+async function runOpenCodeServer(ctx, catalog, pause) {
   const cfg = ctx.config;
-  if (!catalog) validateAttachments(cfg.attachments, 'opencode');
   const port = await availablePort();
   const password = randomUUID();
   const headers = {
@@ -52,6 +62,7 @@ export async function runOpenCode(ctx, catalog = false) {
     {
       env: {
         ...process.env,
+        ...pause?.env,
         OPENCODE_SERVER_USERNAME: 'runhq',
         OPENCODE_SERVER_PASSWORD: password,
       },
@@ -123,6 +134,8 @@ export async function runOpenCode(ctx, catalog = false) {
     ? await api(`/session/${encodeURIComponent(cfg.native_id)}`)
     : await api('/session', 'POST', { title: cfg.title });
   const id = session.id;
+  const agent = cfg.agent || (cfg.mode === 'plan' ? 'plan' : 'build');
+  pause?.bind(id, agent);
   ctx.emit({ type: 'native', id });
   const streamAbort = new AbortController();
   const response = await fetch(`${base}/event?directory=${encodeURIComponent(cfg.cwd)}`, {
@@ -139,6 +152,7 @@ export async function runOpenCode(ctx, catalog = false) {
   const messageRoles = new Map();
   ctx.interrupt = async () => {
     ctx.cancelled = true;
+    ctx.pause.close();
     await api(`/session/${id}/abort`, 'POST');
     // Abort endpoint acknowledges completion; terminate this owned server afterwards.
     resolveDone({ status: 'cancelled' });
@@ -161,7 +175,11 @@ export async function runOpenCode(ctx, catalog = false) {
       if (e.type === 'session.idle' && active && busy)
         resolveDone({ status: ctx.cancelled ? 'cancelled' : 'completed' });
       if (e.type === 'session.error')
-        resolveDone({ status: 'failed', error: p.error?.data?.message ?? pretty(p.error) });
+        resolveDone(
+          ctx.cancelled
+            ? { status: 'cancelled' }
+            : { status: 'failed', error: p.error?.data?.message ?? pretty(p.error) },
+        );
       if (e.type === 'message.part.updated') {
         const part = p.part;
         if (messageRoles.get(part.messageID) === 'user') continue;
@@ -258,7 +276,6 @@ export async function runOpenCode(ctx, catalog = false) {
   const slash = cfg.prompt.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
   const [providerID, ...modelParts] = (cfg.model ?? '').split('/');
   const model = modelParts.length ? { providerID, modelID: modelParts.join('/') } : undefined;
-  const agent = cfg.agent || (cfg.mode === 'plan' ? 'plan' : 'build');
   try {
     if (slash) {
       // Command endpoint is synchronous; the event consumer remains active during execution.

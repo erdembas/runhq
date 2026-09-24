@@ -19,6 +19,8 @@ export function AgentWorkflowStudio({
     const escape = (event: KeyboardEvent) => {
       if (event.defaultPrevented || document.querySelector('[role="listbox"]')) return;
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         setExpanded(false);
         toggle.current?.focus();
       }
@@ -48,7 +50,7 @@ export function AgentWorkflowStudio({
       role={expanded ? 'dialog' : undefined}
       aria-modal={expanded || undefined}
       aria-label={i18n.t('Workflow studio')}
-      className={`workflow-studio border-border bg-bg overflow-auto rounded-xl border shadow-sm ${expanded ? 'workflow-studio-expanded fixed inset-3 z-50 shadow-2xl' : ''}`}
+      className={`workflow-studio border-border bg-surface-raised overflow-auto rounded-xl border shadow-sm ${expanded ? 'workflow-studio-expanded fixed inset-3 z-50 shadow-2xl' : ''}`}
     >
       <div className="bg-surface border-border flex flex-wrap items-center gap-3 border-b px-4 py-3">
         {toolbar}

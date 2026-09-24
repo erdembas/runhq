@@ -1,3 +1,4 @@
+import { workflowExecutionError } from './workflowExecutionMessages';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { CircleCheck, CircleHelp, GitBranch, Inbox, Loader2, Lock } from 'lucide-react';
@@ -154,7 +155,8 @@ export function AgentWorkflowBoard({
           {step.prompt || workflow.objective}
         </p>
         <p className="text-fg-dim text-[10px]">
-          {providerName(step.target)} · {lanes.find((item) => item.id === lane)?.label}
+          {step.role === 'shell' ? i18n.t('Terminal command') : providerName(step.target)} ·{' '}
+          {lanes.find((item) => item.id === lane)?.label}
         </p>
         {waiting.length > 0 && (
           <p className="text-fg-dim text-[10px]">
@@ -182,7 +184,49 @@ export function AgentWorkflowBoard({
             {i18n.t('Result held back: it conflicts with this workflow’s checkout.')}
           </p>
         )}
-        {step.error && <p className="text-warning line-clamp-2 text-[10px]">{step.error}</p>}
+        {step.error && (
+          <p className="text-warning line-clamp-2 text-[10px]">
+            {workflowExecutionError(step.error)}
+          </p>
+        )}
+        {!!step.result?.attempts.length && (
+          <details className="text-fg-muted text-xs">
+            <summary>{i18n.t('Execution history')}</summary>
+            {step.result.attempts.map((attempt, index) => (
+              <div key={index} className="mt-2 space-y-1">
+                <p>
+                  {i18n.t('Attempt {attempt}: {outcome}', {
+                    attempt: i18n.number(index + 1),
+                    outcome:
+                      attempt.outcome === 'pass'
+                        ? i18n.t('Passed')
+                        : attempt.outcome === 'findings'
+                          ? i18n.t('Findings')
+                          : attempt.outcome === 'skipped'
+                            ? i18n.t('Skipped')
+                            : i18n.t('Failed'),
+                  })}
+                </p>
+                {attempt.exit_code != null && (
+                  <p>{i18n.t('Exit code: {code}', { code: i18n.number(attempt.exit_code) })}</p>
+                )}
+                {attempt.error && <p>{workflowExecutionError(attempt.error)}</p>}
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap">{attempt.output}</pre>
+              </div>
+            ))}
+          </details>
+        )}
+        {step.result?.retry_at && step.status === 'pending' && (
+          <p className="text-fg-muted text-xs">
+            {i18n.t('Retry scheduled for {time}', {
+              time: i18n.date(step.result.retry_at, {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              }),
+            })}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
           {lane === 'ready' && (
             <button
@@ -194,7 +238,7 @@ export function AgentWorkflowBoard({
               {i18n.t('Start')}
             </button>
           )}
-          {step.status === 'failed' && (
+          {['failed', 'blocked'].includes(step.status) && (
             <button
               type="button"
               disabled={!canStart || waiting.length > 0}

@@ -21,6 +21,7 @@ impl WorkflowStep {
             workspace: self.workspace.clone(),
             continue_from: self.continue_from.clone(),
             review_policy: self.review_policy.clone(),
+            execution: self.execution.clone(),
         }
     }
 
@@ -135,7 +136,7 @@ impl AgentManager {
                 return Err(invalid("The queue changed since this editor opened. Reopen it to use the latest steps."));
             }
             if input.steps.is_empty() || input.steps.len() > MAX_WORKFLOW_STEPS {
-                return Err(invalid("A workflow needs between 1 and 64 steps"));
+                return Err(invalid("A workflow needs between 1 and 512 steps"));
             }
             validate_declared_graph(&input.steps)?;
             let mut next = workflow_declared_graph(
@@ -219,7 +220,26 @@ impl AgentManager {
             })
             .map(|item| item.text)
             .unwrap_or_default();
-        let (outcome, summary) = review_verdict(&text);
+        let (outcome, summary) = if step.execution.result_format != "none" {
+            match execution_outcome(&step.execution, &text).as_str() {
+                "pass" => ("passed".into(), text.clone()),
+                "findings" => ("findings".into(), text.clone()),
+                _ => ("unknown".into(), "workflow.result_rejected".into()),
+            }
+        } else {
+            review_verdict(&text)
+        };
+        step.result.outcome = Some(
+            match outcome.as_str() {
+                "passed" => "pass",
+                "findings" => "findings",
+                _ => "blocked",
+            }
+            .into(),
+        );
+        if let Some(attempt) = step.result.attempts.last_mut() {
+            attempt.outcome = step.result.outcome.clone().unwrap();
+        }
         step.review_outcome = Some(outcome);
         step.review_summary = Some(summary);
         step.review_decision = None;
@@ -231,7 +251,34 @@ impl AgentManager {
         w: &mut AgentWorkflow,
         id: &str,
     ) -> AppResult<()> {
-        if w.steps.len() + 2 > MAX_WORKFLOW_STEPS {
+        let review = w.step(id).ok_or_else(|| invalid("Unknown review"))?;
+        let verification: Vec<WorkflowExecution> = if review.execution.fix_commands.is_empty() {
+            review
+                .depends_on
+                .iter()
+                .filter_map(|id| w.step(id))
+                .filter(|s| s.role == "shell")
+                .map(|s| {
+                    let mut p = s.execution.clone();
+                    p.run_if = None;
+                    p
+                })
+                .collect()
+        } else {
+            review
+                .execution
+                .fix_commands
+                .iter()
+                .map(|command| WorkflowExecution {
+                    command: command.clone(),
+                    timeout_minutes: review.execution.timeout_minutes,
+                    working_directory: review.execution.working_directory.clone(),
+                    lock: review.execution.lock.clone(),
+                    ..WorkflowExecution::default()
+                })
+                .collect()
+        };
+        if w.steps.len() + 2 + verification.len() > MAX_WORKFLOW_STEPS {
             return Err(invalid(
                 "No room for a correction and review; edit the queue first",
             ));
@@ -247,19 +294,52 @@ impl AgentManager {
             .steps
             .iter()
             .rev()
-            .find(|step| ancestors.contains(&step.id) && workflow_role_produces(&step.role))
+            .find(|step| {
+                ancestors.contains(&step.id)
+                    && workflow_role_produces(&step.role)
+                    && step.role != "shell"
+            })
             .ok_or_else(|| invalid("This review has no preceding work to correct"))?
             .clone();
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let fix_id = format!("fix-{}", &suffix[..10]);
         let check_id = format!("review-{}", &suffix[..10]);
-        let fix = WorkflowStep {
+        let mut fix = WorkflowStep {
             id: fix_id.clone(), role: "revise".into(), target: producer.target,
             model: producer.model, effort: producer.effort, workspace: "shared".into(),
             prompt: format!("Address the findings from review {id}. Change only what is needed to resolve them, then summarize what you fixed.\n\n{}", review.review_summary.as_deref().unwrap_or("Read the preceding review.")),
             depends_on: vec![id.into()], input_step_id: Some(id.into()),
+            execution: producer.execution.clone(),
             ..WorkflowStep::migrated()
         };
+        if !review.execution.fix_prompt.trim().is_empty() {
+            fix.prompt = format!(
+                "{}\n\nReview findings:\n{}",
+                review.execution.fix_prompt,
+                review
+                    .review_summary
+                    .as_deref()
+                    .unwrap_or("Read the preceding review.")
+            );
+        }
+        fix.execution.run_if = None;
+        let mut inserted = vec![fix];
+        let mut previous = fix_id.clone();
+        for (at, execution) in verification.into_iter().enumerate() {
+            let gate_id = format!("gate-{}-{at}", &suffix[..10]);
+            inserted.push(WorkflowStep {
+                id: gate_id.clone(),
+                role: "shell".into(),
+                target: review.target.clone(),
+                prompt: execution.command.clone(),
+                depends_on: vec![previous.clone()],
+                input_step_id: Some(previous),
+                workspace: "shared".into(),
+                execution,
+                ..WorkflowStep::migrated()
+            });
+            previous = gate_id;
+        }
         let check = WorkflowStep {
             id: check_id.clone(),
             role: review.role.clone(),
@@ -271,10 +351,11 @@ impl AgentManager {
                 "Review the corrected work again, including the previous findings.\n\n{}",
                 review.prompt
             ),
-            depends_on: vec![fix_id.clone()],
-            input_step_id: Some(fix_id),
+            depends_on: vec![previous.clone()],
+            input_step_id: Some(previous),
             review_policy: review.review_policy.clone(),
             review_fix_attempts: review.review_fix_attempts + 1,
+            execution: review.execution.clone(),
             ..WorkflowStep::migrated()
         };
         for step in &mut w.steps {
@@ -283,10 +364,16 @@ impl AgentManager {
                     *dependency = check_id.clone();
                 }
             }
+            if let Some(condition) = &mut step.execution.run_if {
+                if condition.step_id == id {
+                    condition.step_id = check_id.clone();
+                }
+            }
             step.input_step_id = step.depends_on.first().cloned();
         }
         w.steps[index].review_decision = Some("fix_requested".into());
-        w.steps.splice(index + 1..index + 1, [fix, check]);
+        inserted.push(check);
+        w.steps.splice(index + 1..index + 1, inserted);
         validate_declared_graph(
             &w.steps
                 .iter()
@@ -751,6 +838,266 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         manager.workflow_preview(&w.id).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn three_corrections_rerun_checks_and_stop_at_the_configured_limit() {
+        let (temp, manager, w) = fixture("auto_fix", "findings").await;
+        let editing = manager.workflow_edit(&w.id, true).await.unwrap();
+        let mut declared = steps("auto_fix");
+        declared[1].execution.max_fix_attempts = 3;
+        declared[1].execution.fix_commands =
+            vec![r#"node -e "require('node:fs').appendFileSync('gates.log', 'gate\n')""#.into()];
+        manager
+            .workflow_update_steps(
+                &w.id,
+                UpdateWorkflowSteps {
+                    revision: editing.edit_revision,
+                    steps: declared,
+                },
+            )
+            .await
+            .unwrap();
+        std::fs::write(temp.path().join("release"), "ok").unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        let paused = wait(&manager, &w.id, |w| {
+            w.stage == "awaiting_review" && w.steps.len() == 13
+        })
+        .await;
+        assert_eq!(
+            paused.steps.iter().filter(|s| s.role == "revise").count(),
+            3
+        );
+        assert_eq!(
+            paused
+                .steps
+                .iter()
+                .filter(|s| s.role == "shell" && s.status == "completed")
+                .count(),
+            3
+        );
+        let last = paused
+            .steps
+            .iter()
+            .find(|s| s.review_needs_decision())
+            .unwrap();
+        assert_eq!(last.review_fix_attempts, 3);
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&paused.cwd).join("gates.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+        assert_eq!(paused.step("second").unwrap().status, "pending");
+        std::fs::write(temp.path().join("verdict"), "pass").unwrap();
+        manager
+            .workflow_review_decision(&w.id, &last.id, last.finished_at.unwrap(), "retry")
+            .await
+            .unwrap();
+        let ready = wait(&manager, &w.id, |w| w.stage == "ready").await;
+        assert_eq!(ready.steps.len(), 13);
+    }
+
+    #[tokio::test]
+    async fn shell_records_exit_output_and_retries_without_replaying_predecessors() {
+        let (temp, manager, w) = fixture("on_findings", "pass").await;
+        let editing = manager.workflow_edit(&w.id, true).await.unwrap();
+        let mut declared = steps("on_findings");
+        declared.insert(1, CreateWorkflowStep { id: Some("gate".into()), role: "shell".into(), target: "codex".into(), prompt: "Verify".into(), depends_on: Some(vec!["first".into()]), execution: WorkflowExecution { command: r#"node -e "const fs=require('node:fs'); if(fs.existsSync('retry-marker')) console.log('recovered'); else {fs.writeFileSync('retry-marker','');console.log('initial-failure');process.exit(7)}""#.into(), max_retries: 1, retry_delay_seconds: 0, ..Default::default() }, ..Default::default() });
+        declared[2].depends_on = Some(vec!["gate".into()]);
+        manager
+            .workflow_update_steps(
+                &w.id,
+                UpdateWorkflowSteps {
+                    revision: editing.edit_revision,
+                    steps: declared,
+                },
+            )
+            .await
+            .unwrap();
+        std::fs::write(temp.path().join("release"), "ok").unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        let ready = wait(&manager, &w.id, |w| w.stage == "ready").await;
+        let gate = ready.step("gate").unwrap();
+        assert_eq!(gate.result.attempts.len(), 2);
+        assert_eq!(gate.result.attempts[0].exit_code, Some(7));
+        assert!(gate.result.attempts[0].output.contains("initial-failure"));
+        assert_eq!(gate.result.attempts[1].exit_code, Some(0));
+        assert_eq!(ready.step("first").unwrap().result.attempts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn shell_failure_stops_admission_and_can_be_retried_explicitly() {
+        let (temp, manager, w) = fixture("on_findings", "pass").await;
+        let editing = manager.workflow_edit(&w.id, true).await.unwrap();
+        let mut declared = steps("on_findings");
+        declared.insert(
+            1,
+            CreateWorkflowStep {
+                id: Some("gate".into()),
+                role: "shell".into(),
+                target: "codex".into(),
+                prompt: "Verify".into(),
+                depends_on: Some(vec!["first".into()]),
+                execution: WorkflowExecution {
+                    command: r#"node -e "process.exit(require('node:fs').existsSync('allowed') ? 0 : 1)""#.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        declared[2].depends_on = Some(vec!["gate".into()]);
+        manager
+            .workflow_update_steps(
+                &w.id,
+                UpdateWorkflowSteps {
+                    revision: editing.edit_revision,
+                    steps: declared,
+                },
+            )
+            .await
+            .unwrap();
+        std::fs::write(temp.path().join("release"), "ok").unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        let stopped = wait(&manager, &w.id, |w| {
+            w.step("gate").unwrap().status == "failed"
+        })
+        .await;
+        assert_eq!(stopped.step("review").unwrap().status, "pending");
+        std::fs::write(Path::new(&stopped.cwd).join("allowed"), "ok").unwrap();
+        manager
+            .workflow_run_named_step(&w.id, "gate")
+            .await
+            .unwrap();
+        let ready = wait(&manager, &w.id, |w| w.stage == "ready").await;
+        assert_eq!(ready.step("gate").unwrap().result.attempts.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_named_resource_serializes_steps_across_workflows() {
+        let (temp, manager, w) = fixture("on_findings", "pass").await;
+        let editing = manager.workflow_edit(&w.id, true).await.unwrap();
+        let mut declared = steps("on_findings");
+        declared[0].execution.lock = "shared-database".into();
+        manager
+            .workflow_update_steps(
+                &w.id,
+                UpdateWorkflowSteps {
+                    revision: editing.edit_revision,
+                    steps: declared.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        let other = manager
+            .workflow_create(CreateAgentWorkflow {
+                project_id: w.project_id.clone(),
+                backend: "codex".into(),
+                reviewer_backend: "codex".into(),
+                objective: "Other workflow".into(),
+                steps: declared,
+                auto_progress: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        wait(&manager, &w.id, |w| {
+            w.step("first").unwrap().status == "running"
+        })
+        .await;
+        manager.workflow_launch(&other.id, None).await.unwrap();
+        manager.workflow_schedule(&other.id).await.unwrap();
+        assert_eq!(
+            manager
+                .workflow(&other.id)
+                .unwrap()
+                .step("first")
+                .unwrap()
+                .status,
+            "pending"
+        );
+        std::fs::write(temp.path().join("release"), "ok").unwrap();
+        let first = wait(&manager, &w.id, |w| w.stage == "ready").await;
+        let second = wait(&manager, &other.id, |w| w.stage == "ready").await;
+        assert!(
+            second.step("first").unwrap().started_at >= first.step("first").unwrap().finished_at
+        );
+    }
+
+    #[tokio::test]
+    async fn recorded_outcome_skips_a_conditional_step_without_starting_its_agent() {
+        let (temp, manager, w) = fixture("on_findings", "pass").await;
+        let bridge = temp.path().join("bridge.cjs");
+        let source = std::fs::read_to_string(&bridge).unwrap().replace(
+            "let text = 'Done';",
+            "let text = 'PIPELINE_RESULT: SUCCESS';",
+        );
+        std::fs::write(&bridge, source).unwrap();
+        let editing = manager.workflow_edit(&w.id, true).await.unwrap();
+        let mut declared = steps("on_findings");
+        declared[0].execution.result_format = "pipeline".into();
+        declared[2].depends_on = Some(vec!["review".into(), "first".into()]);
+        declared[2].execution.run_if = Some(WorkflowCondition {
+            step_id: "first".into(),
+            outcomes: vec!["findings".into()],
+        });
+        manager
+            .workflow_update_steps(
+                &w.id,
+                UpdateWorkflowSteps {
+                    revision: editing.edit_revision,
+                    steps: declared,
+                },
+            )
+            .await
+            .unwrap();
+        std::fs::write(temp.path().join("release"), "ok").unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        let ready = wait(&manager, &w.id, |w| w.stage == "ready").await;
+        assert_eq!(
+            ready.step("second").unwrap().result.outcome.as_deref(),
+            Some("skipped")
+        );
+        assert!(ready.step("second").unwrap().session_id.is_none());
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("calls"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn deadline_interrupts_an_agent_and_records_a_recoverable_failure() {
+        let (temp, manager, w) = fixture("on_findings", "pass").await;
+        let bridge = temp.path().join("bridge.cjs");
+        let source = std::fs::read_to_string(&bridge).unwrap().replace("if (msg.type !== 'start') return;", "if (msg.type === 'interrupt') { emit({type:'ack',command_id:msg.command_id}); emit({type:'finished',status:'cancelled'}); process.exit(0); } if (msg.type !== 'start') return;");
+        std::fs::write(&bridge, source).unwrap();
+        manager.workflow_launch(&w.id, None).await.unwrap();
+        wait(&manager, &w.id, |w| {
+            w.step("first").unwrap().status == "running"
+        })
+        .await;
+        {
+            let _gate = manager.workflow_gate.lock().await;
+            let mut active = manager.workflow(&w.id).unwrap();
+            active.steps[0].execution.timeout_minutes = 1;
+            active.steps[0].started_at = Some(now() - 61000);
+            manager.save_workflow(&mut active).unwrap();
+            manager.workflow_monitor(&active, "first");
+        }
+        let stopped = wait(&manager, &w.id, |w| {
+            w.step("first").unwrap().status == "failed"
+        })
+        .await;
+        assert_eq!(
+            stopped.step("first").unwrap().error.as_deref(),
+            Some("workflow.timed_out")
+        );
+        assert_eq!(stopped.step("first").unwrap().result.attempts.len(), 1);
+        assert_eq!(stopped.step("review").unwrap().status, "pending");
+    }
     #[tokio::test]
     async fn editing_pause_survives_restart_and_stale_review_cannot_be_accepted() {
         let (temp, manager, w) = fixture("approval", "pass").await;

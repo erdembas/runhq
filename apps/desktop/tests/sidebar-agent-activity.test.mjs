@@ -33,6 +33,7 @@ function load(name) {
           CheckCheck: 'CheckCheck',
           CircleAlert: 'CircleAlert',
           Square: 'Square',
+          Pause: 'Pause',
         };
       if (id === '../lib/cn') return { cn: (...values) => values.filter(Boolean).join(' ') };
       throw new Error(`Unexpected import ${id}`);
@@ -57,6 +58,24 @@ const session = (id, status = 'running', extra = {}) => ({
 });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const record = (...sessions) => Object.fromEntries(sessions.map((entry) => [entry.id, entry]));
+
+test('paused sessions remain discoverable without being reported as working', () => {
+  const summary = summarizeAgentActivity([
+    session('paused-task', 'running', { pause_state: 'paused' }),
+  ]);
+  assert.equal(summary.working, 0);
+  assert.equal(summary.paused, 1);
+  assert.equal(summary.targetSessionId, 'paused-task');
+  assert.equal(agentActivityLabel(summary), '1 paused');
+  const badge = AgentActivityBadge({ activity: summary, name: 'Project', onClick() {} });
+  assert.match(badge.props['aria-label'], /1 paused/);
+  const select = createAgentActivitySelector();
+  const running = record(session('task', 'running', { pause_state: 'running' }));
+  const paused = record(session('task', 'running', { pause_state: 'paused' }));
+  assert.equal(select({ sessions: running }), running);
+  assert.equal(select({ sessions: paused }), paused);
+  assert.equal(select({ sessions: running }), running);
+});
 
 test('counts live, waiting, stopping and unread-completed sessions separately', () => {
   const summary = summarizeAgentActivity([

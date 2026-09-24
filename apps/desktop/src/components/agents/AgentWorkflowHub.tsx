@@ -1,3 +1,8 @@
+import { AgentPipelineHub } from './AgentPipelineHub';
+import { open as openWorkflowFile } from '@tauri-apps/plugin-dialog';
+import { parseRecipe, portableAgentRecipe, type AgentRecipe } from './agentLibraryModel';
+import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
+import { workflowExecutionError } from './workflowExecutionMessages';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Choice';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
@@ -14,6 +19,7 @@ import {
   RefreshCw,
   Square,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import type { AgentItem } from '@runhq/cockpit-types';
 import { agentIsActive, SearchableSelect } from '@runhq/cockpit-ui';
@@ -189,6 +195,10 @@ export function AgentWorkflowHub({
   useAgentDiscovery(visible);
   const [workflows, setWorkflows] = useState<AgentWorkflow[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [importOptions, setImportOptions] = useState<AgentRecipe[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [importedName, setImportedName] = useState('');
+  const [showPackages, setShowPackages] = useState(false);
   const [creating, setCreating] = useState(!!initialRecipe);
   const handledRequest = useRef<string>();
   useEffect(() => {
@@ -329,6 +339,57 @@ export function AgentWorkflowHub({
       }));
     });
   }, [available, reviewers, backend, reviewer, model, effort, initialRecipe]);
+  const openImportedWorkflow = (recipe: AgentRecipe) => {
+    const importedSteps = recipeStepsToCreateSteps(recipe.workflowSteps ?? [], (target) =>
+      resolvePool(target, available),
+    );
+    setSteps(
+      importedSteps.length
+        ? importedSteps
+        : [
+            {
+              ...newWorkflowStep('implement', resolvePool(recipe.backend, available), 'implement'),
+              prompt: recipe.prompt,
+              model: recipe.model,
+              effort: recipe.effort,
+              mode: recipe.mode,
+            },
+            newWorkflowStep('review', reviewers[0]?.id ?? '', 'review', ['implement']),
+          ],
+    );
+    setObjective(recipe.prompt);
+    setAcceptance(recipe.acceptance);
+    setSetup(recipe.setupCommands);
+    setChecks(recipe.checkCommands);
+    setImportedName(recipe.name);
+    setAutoProgress(false);
+    setImportOptions([]);
+    setCreating(true);
+  };
+  const importWorkflow = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const path = await openWorkflowFile({
+        multiple: false,
+        filters: [{ name: i18n.t('Workflow file'), extensions: ['json'] }],
+      });
+      if (typeof path !== 'string') return;
+      const data = (await agentWorkflowIpc.importRecipes(path)) as {
+        version?: number;
+        recipes?: unknown[];
+      };
+      if (data.version !== 1 || !Array.isArray(data.recipes) || !data.recipes.length)
+        throw new Error(i18n.t('Unsupported recipe file'));
+      const recipes = data.recipes.map((value) => portableAgentRecipe(parseRecipe(value)));
+      if (recipes.length === 1) openImportedWorkflow(recipes[0]!);
+      else setImportOptions(recipes);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setImporting(false);
+    }
+  };
   const stepsProblem = workflowStepsProblem(steps);
   const chosenProject = projectId || newProject || projects[0]?.id || '';
   const chosenBackend = backend || available[0]?.id || '';
@@ -518,6 +579,14 @@ export function AgentWorkflowHub({
     !!implementationSession && agentIsActive(implementationSession.status);
   const reviewActive =
     !!reviewId && !!sessions[reviewId] && agentIsActive(sessions[reviewId].status);
+  if (showPackages)
+    return (
+      <AgentPipelineHub
+        visible={visible}
+        onBack={() => setShowPackages(false)}
+        onOpenSession={onOpenSession}
+      />
+    );
   return (
     <section
       aria-label={i18n.t('Agent workflows')}
@@ -527,7 +596,7 @@ export function AgentWorkflowHub({
         <AgentWorkflowLaunchDialog
           tasks={launchTasks}
           busy={busy}
-          error={error}
+          error={error ? workflowExecutionError(error) : null}
           canSaveDraft={launchChoice === 'create'}
           onChoose={chooseLaunch}
           onClose={() => setLaunchChoice(null)}
@@ -549,6 +618,18 @@ export function AgentWorkflowHub({
           </div>
         )}
         <div className="flex gap-2">
+          <button type="button" className={button} onClick={() => setShowPackages(true)}>
+            {i18n.t('Pipeline packages')}
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={busy || importing || creating}
+            onClick={() => void importWorkflow()}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {i18n.t('Import workflow')}
+          </button>
           <button
             type="button"
             className={button}
@@ -571,7 +652,12 @@ export function AgentWorkflowHub({
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={button} onClick={() => setCreating((v) => !v)}>
+          <button
+            type="button"
+            className={button}
+            disabled={importing}
+            onClick={() => setCreating((v) => !v)}
+          >
             {i18n.rich('{value1} New workflow', { value1: <Plus className="h-3.5 w-3.5" /> })}
           </button>
         </div>
@@ -581,7 +667,7 @@ export function AgentWorkflowHub({
           role="alert"
           className="border-danger/20 bg-danger/5 text-danger m-4 rounded-lg border p-3 text-xs"
         >
-          {error}
+          {workflowExecutionError(error)}
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -646,6 +732,34 @@ export function AgentWorkflowHub({
             </div>
           </details>
         )}
+        {!!importOptions.length && !creating && (
+          <section
+            className="border-border mb-4 space-y-3 rounded-xl border p-5"
+            aria-label={i18n.t('Choose a workflow')}
+          >
+            <h3 className="text-sm font-semibold">{i18n.t('Choose a workflow')}</h3>
+            <p className="text-fg-muted text-xs">
+              {i18n.t(
+                'Open as a one-time draft. Nothing runs until you start it; no recipe is saved.',
+              )}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {importOptions.map((recipe, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={`${button} justify-start`}
+                  onClick={() => openImportedWorkflow(recipe)}
+                >
+                  {recipe.name}
+                </button>
+              ))}
+            </div>
+            <button type="button" className={button} onClick={() => setImportOptions([])}>
+              {i18n.t('Cancel')}
+            </button>
+          </section>
+        )}
         {creating ? (
           <form
             onSubmit={(event) => {
@@ -659,10 +773,12 @@ export function AgentWorkflowHub({
           >
             <div>
               <h3 className="text-fg text-lg font-semibold">
-                {i18n.t('What would you like to get done?')}
+                {importedName || i18n.t('What would you like to get done?')}
               </h3>
               <p className="text-fg-muted mt-1 text-xs">
-                {i18n.t('Start with a brief and a ready-made workflow, then adjust any step.')}
+                {i18n.t(
+                  'Open as a one-time draft. Nothing runs until you start it; no recipe is saved.',
+                )}
               </p>
             </div>
             <fieldset disabled={busy} className="space-y-5">
@@ -1050,7 +1166,7 @@ export function AgentWorkflowHub({
                           : i18n.t('Unclear verdict')}
                     </p>
                     <p className="text-fg-muted text-xs whitespace-pre-wrap">
-                      {step.review_summary}
+                      {step.review_summary && workflowExecutionError(step.review_summary)}
                     </p>
                     {!!step.review_fix_attempts && (
                       <p className="text-fg-dim text-[11px]">
@@ -1144,7 +1260,7 @@ export function AgentWorkflowHub({
                 </details>
                 {current.error && (
                   <p role="status" className="text-warning mt-3 text-xs">
-                    {current.error}
+                    {workflowExecutionError(current.error)}
                   </p>
                 )}
               </div>

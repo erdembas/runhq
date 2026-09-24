@@ -147,6 +147,35 @@ test('a provider switch sends canonical role-encoded history into a fresh run', 
   assert.equal(cliChatPrompt(history).includes('Do not change files'), true);
 });
 
+test('a paused CLI chat keeps its stream and transcript until the same turn completes', async () => {
+  const states = ['pausing', 'paused', 'running'];
+  const h = harness({
+    pages: states.map((pause_state) => ({
+      session: { id: 'runtime-session', status: 'running', pause_state, pending: [] },
+      items: [item('a', 'assistant', 'Preserved response')],
+      before: null,
+    })),
+  });
+  let waits = 0;
+  const result = await runCliChat({
+    ...h.args,
+    wait: async () => {
+      waits++;
+      assert.equal(
+        h.calls.some(([method]) => method === 'update'),
+        false,
+      );
+      assert.equal(h.calls.filter(([method]) => method === 'start').length, 1);
+    },
+  });
+  assert.equal(waits, 3);
+  assert.equal(result.status, 'completed');
+  assert.equal(h.snapshots[1].snapshot.session.pause_state, 'paused');
+  assert.equal(h.snapshots[1].content, 'Preserved response');
+  assert.equal(h.calls.filter(([method]) => method === 'create').length, 1);
+  assert.equal(h.calls.filter(([method]) => method === 'interrupt').length, 0);
+});
+
 test('native input and approval requests are surfaced without being answered automatically', async () => {
   const pending = [{ id: 'approval', kind: 'approval', title: 'Allow command?' }];
   const h = harness({

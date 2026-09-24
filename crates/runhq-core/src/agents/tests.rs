@@ -44,6 +44,7 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         last_turn_ms: None,
         total_run_ms: 0,
         runtime_state: Value::Null,
+        pause_state: None,
         workflow_read_only: false,
         pending: vec![],
     };
@@ -369,6 +370,7 @@ fn restart_does_not_replay_turns_or_restore_stale_approvals() {
     manager
         .mutate(&session.id, |s, _| {
             s.turn_started_at = Some(now() - 60_000);
+            s.pause_state = Some("paused".into());
             Ok(())
         })
         .unwrap();
@@ -385,6 +387,93 @@ fn restart_does_not_replay_turns_or_restore_stale_approvals() {
     assert_eq!(s.turn_started_at, None);
     assert_eq!(s.total_run_ms, 0);
     assert_eq!(s.last_turn_ms, None);
+    assert_eq!(s.pause_state, None);
+}
+
+#[tokio::test]
+async fn cooperative_pause_retains_the_turn_and_only_runtime_events_change_its_state() {
+    let (dir, manager, session) = setup();
+    assert!(manager.pause(&session.id, false).await.is_err());
+    std::fs::write(
+        dir.path().join("bridge.cjs"),
+        r#"
+const readline = require('node:readline');
+const emit = x => process.stdout.write(JSON.stringify(x)+'\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const command = JSON.parse(line);
+  if (command.type === 'start') {
+    emit({type:'native',id:'same-native-turn'});
+    emit({type:'status',status:'running'});
+    emit({type:'pause',state:'running'});
+  } else if (command.type === 'pause') {
+    emit({type:'pause',state:'pausing'});
+    setTimeout(() => {
+      emit({type:'item',item:{id:'tool-result',kind:'tool',title:'Read',text:'Preserved result',status:'completed'}});
+      emit({type:'pause',state:'paused'});
+    }, 80);
+  } else if (command.type === 'resume') {
+    emit({type:'pause',state:'running'});
+    queueMicrotask(() => emit({type:'finished',status:'completed'}));
+  } else if (command.type === 'interrupt') {
+    emit({type:'pause',state:'paused'}); // Late checkpoint cannot override stopping.
+    queueMicrotask(() => emit({type:'finished',status:'cancelled'}));
+  }
+  if (command.command_id) emit({type:'ack',command_id:command.command_id});
+});
+"#,
+    )
+    .unwrap();
+    manager.start(turn_input(&session)).await.unwrap();
+    wait_for_session(&manager, &session.id, "pause support", |s| {
+        s.pause_state.is_some()
+    })
+    .await
+    .unwrap();
+    manager.pause(&session.id, false).await.unwrap();
+    let paused = wait_for_session(&manager, &session.id, "checkpoint", |s| {
+        s.pause_state.as_deref() == Some("paused")
+    })
+    .await
+    .unwrap();
+    assert!(paused.active());
+    assert_eq!(paused.native_id.as_deref(), Some("same-native-turn"));
+    assert!(manager.state.lock().running.contains_key(&session.id));
+    assert!(manager.start(turn_input(&session)).await.is_err());
+    assert!(manager
+        .update(&session.id, None, Some(true), false)
+        .is_err());
+    manager.pause(&session.id, true).await.unwrap();
+    wait_inactive(&manager, &session.id).await;
+    let snapshot = manager.snapshot(&session.id, None).unwrap();
+    assert_eq!(snapshot.session.status, "completed");
+    assert_eq!(snapshot.session.pause_state, None);
+    assert_eq!(
+        snapshot
+            .items
+            .iter()
+            .filter(|i| i.text == "Preserved result")
+            .count(),
+        1
+    );
+    assert!(manager.pause(&session.id, true).await.is_err());
+
+    manager.start(turn_input(&session)).await.unwrap();
+    wait_for_session(&manager, &session.id, "pause support", |s| {
+        s.pause_state.is_some()
+    })
+    .await
+    .unwrap();
+    manager.pause(&session.id, false).await.unwrap();
+    wait_for_session(&manager, &session.id, "checkpoint", |s| {
+        s.pause_state.as_deref() == Some("paused")
+    })
+    .await
+    .unwrap();
+    manager.interrupt(&session.id).await.unwrap();
+    wait_inactive(&manager, &session.id).await;
+    let stopped = manager.session(&session.id).unwrap();
+    assert_eq!(stopped.status, "cancelled");
+    assert_eq!(stopped.pause_state, None);
 }
 
 #[test]

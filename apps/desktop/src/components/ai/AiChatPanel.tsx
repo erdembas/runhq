@@ -22,6 +22,7 @@ import { isCliChatProvider } from './chat-panel/aiChatProviders';
 import { useAiCliProject } from './chat-panel/useAiCliProject';
 import { AgentRequestCard } from '@runhq/cockpit-ui';
 import { ipc } from '@/lib/ipc';
+import { AgentPauseControl } from '@/components/agents/AgentPauseControl';
 
 interface AiChatPanelProps {
   /**
@@ -346,6 +347,15 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
           )
         }
         onCancel={cancel}
+        runControls={
+          cliSession && (
+            <AgentPauseControl
+              key={cliSession.id}
+              session={cliSession}
+              onError={setProviderError}
+            />
+          )
+        }
         onInput={setInput}
         onManageModels={openAiSettingsFromPicker}
         onPickerOpenChange={setPickerOpen}

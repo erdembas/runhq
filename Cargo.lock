@@ -3919,10 +3919,12 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
+ "flate2",
  "listeners",
  "nix 0.29.0",
  "parking_lot",
  "portable-pty",
+ "regex",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
@@ -3936,6 +3938,7 @@ dependencies = [
  "tracing",
  "uuid",
  "windows 0.61.3",
+ "zip",
 ]
 
 [[package]]
@@ -7327,6 +7330,7 @@ checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "arbitrary",
  "crc32fast",
+ "flate2",
  "indexmap 2.14.0",
  "memchr",
 ]

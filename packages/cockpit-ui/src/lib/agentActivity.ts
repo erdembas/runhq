@@ -8,6 +8,7 @@ export interface AgentActivitySummary {
   issues: number;
   unread: number;
   stopping: number;
+  paused?: number;
   targetSessionId?: string;
   targetProjectId?: string;
 }
@@ -42,6 +43,9 @@ export function summarizeAgentActivity(sessions: Iterable<AgentSession>): AgentA
     } else if (session.status === 'completed' && session.unread) {
       summary.unread++;
       priority = 2;
+    } else if (session.status === 'running' && session.pause_state === 'paused') {
+      summary.paused = (summary.paused ?? 0) + 1;
+      priority = 3;
     } else if (session.status === 'running') {
       summary.working++;
       priority = 3;
@@ -70,6 +74,7 @@ export function agentActivityLabel(summary: AgentActivitySummary): string {
   return [
     summary.working ? i18n.t('{value1} working', { value1: summary.working }) : '',
     summary.starting ? i18n.t('{value1} starting', { value1: summary.starting }) : '',
+    summary.paused ? i18n.t('{count} paused', { count: i18n.number(summary.paused) }) : '',
     summary.waiting
       ? i18n.t('{value1} waiting for your decision', { value1: summary.waiting })
       : '',

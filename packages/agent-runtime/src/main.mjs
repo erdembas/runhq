@@ -93,7 +93,12 @@ async function main() {
           if (command.type === 'answer') await context.answer(command.id, command.value);
           else if (command.type === 'interrupt') {
             context.cancelled = true;
+            context.pause.close();
             await context.interrupt?.();
+          } else if (command.type === 'pause') {
+            context.pause.request();
+          } else if (command.type === 'resume') {
+            context.pause.resume();
           } else if (command.type === 'steer') {
             if (!context.steer)
               throw new Error('This backend does not support steering an active turn');

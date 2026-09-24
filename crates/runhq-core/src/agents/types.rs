@@ -122,6 +122,10 @@ pub struct AgentSession {
     pub total_run_ms: i64,
     #[serde(default)]
     pub runtime_state: Value,
+    /// Live cooperative control, independent of permission/input status. None means this
+    /// run has not advertised a supported checkpoint. Never survives a process restart.
+    #[serde(default)]
+    pub pause_state: Option<String>,
     #[serde(default)]
     pub workflow_read_only: bool,
     pub pending: Vec<AgentRequest>,

@@ -91,6 +91,10 @@ pub async fn agent_interrupt(id: String, state: State<'_, AppState>) -> AppResul
     state.agents.interrupt(&id).await
 }
 #[tauri::command]
+pub async fn agent_pause(id: String, resume: bool, state: State<'_, AppState>) -> AppResult<()> {
+    state.agents.pause(&id, resume).await
+}
+#[tauri::command]
 pub async fn agent_steer(id: String, text: String, state: State<'_, AppState>) -> AppResult<()> {
     state.agents.steer(&id, text).await
 }

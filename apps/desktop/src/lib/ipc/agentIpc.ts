@@ -53,6 +53,7 @@ export const agentIpc = {
   agentAnswer: (id: string, requestId: string, value: unknown) =>
     invoke<void>('agent_answer', { id, requestId, value }),
   agentInterrupt: (id: string) => invoke<void>('agent_interrupt', { id }),
+  agentPause: (id: string, resume = false) => invoke<void>('agent_pause', { id, resume }),
   agentDelete: (id: string) => invoke<void>('agent_delete', { id }),
   agentSteer: (id: string, text: string) => invoke<void>('agent_steer', { id, text }),
   agentUpdate: (id: string, updates: { title?: string; archived?: boolean; read?: boolean }) =>

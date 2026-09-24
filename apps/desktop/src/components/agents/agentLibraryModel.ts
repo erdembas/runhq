@@ -41,7 +41,7 @@ export interface AgentRecipe {
  */
 export interface AgentRecipeStep {
   id?: string;
-  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+  role: 'plan' | 'implement' | 'review' | 'revise' | 'validate' | 'shell';
   target: string;
   model: string;
   effort: string;
@@ -51,9 +51,10 @@ export interface AgentRecipeStep {
   workspace?: 'shared' | 'own';
   continueFrom?: string;
   reviewPolicy?: import('@/lib/ipc/agentWorkflowIpc').WorkflowReviewPolicy | '';
+  execution?: import('@/lib/ipc/agentWorkflowIpc').WorkflowExecution;
 }
-const WORKFLOW_ROLES = ['plan', 'implement', 'review', 'revise', 'validate'];
-export const MAX_RECIPE_STEPS = 64;
+const WORKFLOW_ROLES = ['plan', 'implement', 'review', 'revise', 'validate', 'shell'];
+export const MAX_RECIPE_STEPS = 512;
 
 /**
  * Read a saved division of labour. A recipe is exportable and importable, so this is a trust
@@ -97,7 +98,9 @@ export function parseRecipeSteps(value: unknown): AgentRecipeStep[] {
       !['', 'continue', 'on_findings', 'approval', 'auto_fix'].includes(String(step.reviewPolicy))
     )
       throw new Error(i18n.t('Invalid review policy'));
+    const execution = parseWorkflowExecution(step.execution);
     return {
+      ...(execution ? { execution } : {}),
       id: step.id as string | undefined,
       role: step.role as AgentRecipeStep['role'],
       target: (step.target as string) ?? '',
@@ -402,4 +405,69 @@ export function downloadAgentJson(name: string, value: unknown) {
   link.download = name;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Retain only understood policies; reject unknown fields instead of losing behavior on import. */
+export function parseWorkflowExecution(
+  raw: unknown,
+): import('@/lib/ipc/agentWorkflowIpc').WorkflowExecution | undefined {
+  if (raw === undefined) return undefined;
+  const value = object(raw);
+  const numeric: Record<string, number> = {
+    timeout_minutes: 10080,
+    idle_timeout_minutes: 10080,
+    max_retries: 10,
+    retry_delay_seconds: 86400,
+    max_fix_attempts: 10,
+  };
+  const strings = [
+    'command',
+    'fix_prompt',
+    'working_directory',
+    'lock',
+    'result_format',
+    'success_regex',
+    'failure_regex',
+    'on_failure',
+  ];
+  const allowed = [...Object.keys(numeric), ...strings, 'run_if', 'fix_commands'];
+  const invalid = () => new Error(i18n.t('Invalid workflow execution settings.'));
+  for (const [key, entry] of Object.entries(value)) {
+    if (!allowed.includes(key)) throw invalid();
+    if (
+      key in numeric &&
+      (!Number.isInteger(entry) || Number(entry) < 0 || Number(entry) > numeric[key]!)
+    )
+      throw invalid();
+    if (strings.includes(key) && (typeof entry !== 'string' || entry.length > 128 * 1024))
+      throw invalid();
+  }
+  if (
+    value.result_format !== undefined &&
+    !['none', 'json', 'pipeline', 'review'].includes(String(value.result_format))
+  )
+    throw invalid();
+  if (value.on_failure !== undefined && !['pause', 'cancel'].includes(String(value.on_failure)))
+    throw invalid();
+  if (
+    value.fix_commands !== undefined &&
+    (!Array.isArray(value.fix_commands) ||
+      value.fix_commands.length > 12 ||
+      value.fix_commands.some((v) => typeof v !== 'string' || !v.trim()))
+  )
+    throw invalid();
+  if (value.run_if != null) {
+    const condition = object(value.run_if);
+    if (
+      Object.keys(condition).some((k) => !['step_id', 'outcomes'].includes(k)) ||
+      typeof condition.step_id !== 'string' ||
+      !Array.isArray(condition.outcomes) ||
+      !condition.outcomes.length ||
+      condition.outcomes.some((v) => !['pass', 'findings', 'skipped'].includes(v))
+    )
+      throw invalid();
+  }
+  return globalThis.structuredClone(
+    value,
+  ) as import('@/lib/ipc/agentWorkflowIpc').WorkflowExecution;
 }

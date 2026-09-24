@@ -23,6 +23,7 @@ pub enum StepWait {
     Checkout,
     Capacity,
     WorkflowLimit,
+    Resource,
 }
 
 impl AgentManager {
@@ -68,6 +69,9 @@ impl AgentManager {
         } else {
             w.concurrency as usize
         };
+        if self.workflow_resource_busy(w, step) {
+            return StepWait::Resource;
+        }
         if w.steps.iter().filter(|s| s.status == "running").count() >= limit {
             return StepWait::WorkflowLimit;
         }
@@ -92,6 +96,9 @@ impl AgentManager {
             {
                 return StepWait::Checkout;
             }
+        }
+        if step.role == "shell" {
+            return StepWait::Ready;
         }
         // A pool is resolved when the step starts; until then only the number of free slots for the
         // whole provider can be judged, which is what the pool itself would pick from.
@@ -271,7 +278,11 @@ impl AgentManager {
         let _gate = self.workflow_gate.lock().await;
         let mut w = self.workflow(id)?;
         self.reconcile_workflow(&mut w).await?;
-        if !Self::workflow_accepts_steps(&w) {
+        if !Self::workflow_accepts_steps(&w)
+            || w.steps
+                .iter()
+                .any(|s| matches!(s.status.as_str(), "failed" | "blocked"))
+        {
             return Ok(false);
         }
         // Results land before anything new is admitted, because landing one changes the checkout the
@@ -311,11 +322,7 @@ impl AgentManager {
             .min_by_key(|step| workflow_role_produces(&step.role))
             .cloned()
         {
-            let outcome = if workflow_role_produces(&step.role) {
-                self.workflow_start_producing(&mut w, step.clone()).await
-            } else {
-                self.workflow_start_reviewing(&mut w, step.clone()).await
-            };
+            let outcome = self.workflow_start_execution(&mut w, step.clone()).await;
             match outcome {
                 Ok(_) => started = true,
                 Err(error) => {
@@ -337,7 +344,11 @@ impl AgentManager {
             if let Some(started) = w.step(&step.id).filter(|step| step.status == "running") {
                 claimed.push(PathBuf::from(started.step_root(&w)));
             }
-            if !Self::workflow_accepts_steps(&w) {
+            if !Self::workflow_accepts_steps(&w)
+                || w.steps
+                    .iter()
+                    .any(|s| matches!(s.status.as_str(), "failed" | "blocked"))
+            {
                 break;
             }
         }

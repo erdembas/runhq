@@ -9,7 +9,7 @@ import {
 } from './agentWorkflowGraph';
 
 /** A workflow holds dozens of tasks; the bound exists so one cannot be made unreadable by accident. */
-export const MAX_WORKFLOW_STEPS = 64;
+export const MAX_WORKFLOW_STEPS = 512;
 export const MAX_WORKFLOW_TASK_PROMPT = 128 * 1024;
 /** A task key is typed by hand and repeated in other tasks' dependencies, so it stays short. */
 export const WORKFLOW_TASK_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -20,9 +20,16 @@ export const WORKFLOW_ROLE_LABELS: Record<string, string> = {
   review: 'review',
   revise: 'revision',
   validate: 'validation',
+  shell: 'shell',
 };
 
 export const WORKFLOW_ROLE_OPTIONS = [
+  {
+    value: 'shell',
+    get label() {
+      return i18n.t('Terminal command');
+    },
+  },
   {
     value: 'plan',
     get label() {
@@ -107,9 +114,14 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
     if (seen.has(id))
       error(id, i18n.t('Two tasks use the key “{id}”; keys must be unique.', { id: id }));
     seen.add(id);
-    if (!task.prompt.trim()) error(id, i18n.t('“{id}” has no instruction.', { id: id }));
+    if (!task.prompt.trim() && task.role !== 'shell')
+      error(id, i18n.t('“{id}” has no instruction.', { id: id }));
     if (task.prompt.length > MAX_WORKFLOW_TASK_PROMPT)
       error(id, i18n.t('The instruction for “{id}” is too long.', { id: id }));
+    if (task.role === 'shell' && (!task.execution?.command?.trim() || task.workspace === 'own'))
+      error(id, i18n.t('A terminal step needs a command and the shared working copy.'));
+    if (task.execution?.run_if && !task.depends_on.includes(task.execution.run_if.step_id))
+      error(id, i18n.t('A condition must refer to a direct dependency.'));
     if (!task.target) error(id, i18n.t('“{id}” needs an account.', { id: id }));
     if (task.workspace === 'own' && !workflowRoleProduces(task.role))
       error(
@@ -226,7 +238,11 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
   for (const [left, right] of workflowConcurrentProducerPairs(tasks)) {
     const a = tasks.find((task) => task.id === left);
     const b = tasks.find((task) => task.id === right);
-    if (a?.workspace !== 'own' && b?.workspace !== 'own')
+    if (
+      a?.workspace !== 'own' &&
+      b?.workspace !== 'own' &&
+      !(a?.execution?.lock && a.execution.lock === b?.execution?.lock)
+    )
       error(
         right,
         i18n.t(

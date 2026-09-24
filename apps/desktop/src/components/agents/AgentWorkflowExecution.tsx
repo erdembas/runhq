@@ -23,7 +23,7 @@ export function AgentWorkflowExecution({
     custom: i18n.t('Choose exactly which steps must finish before this step starts.'),
   };
   return (
-    <div className="border-border bg-surface flex flex-wrap items-center gap-3 rounded-xl border p-3">
+    <div className="flex flex-wrap items-center gap-3">
       <div className="w-60 shrink-0">
         <p className="text-fg-dim mb-1.5 text-[11px]">{i18n.t('Prompt execution')}</p>
         <SearchableSelect

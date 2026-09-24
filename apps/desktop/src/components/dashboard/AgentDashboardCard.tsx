@@ -80,7 +80,7 @@ export function AgentDashboardCard({
         </span>
       )}
       <div className="border-border/60 mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-        <AgentStatusBadge status={session.status} />
+        <AgentStatusBadge status={session.status} pauseState={session.pause_state} />
         <time
           className="text-fg-dim text-[10px]"
           dateTime={updated.toISOString()}

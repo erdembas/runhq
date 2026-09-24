@@ -35,6 +35,7 @@ function load(relative, imports = {}) {
       exports,
       CSS: { escape: (value) => value },
       require: (name) => {
+        if (name === './AgentPauseControl') return { AgentPauseControl: () => null };
         if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'fragment' };
         if (name === 'lucide-react') return new Proxy({}, { get: (_, icon) => icon });
         if (Object.hasOwn(imports, name)) return imports[name];

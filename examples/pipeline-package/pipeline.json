@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "name": "One-time change",
+  "settings": {
+    "pathsRelativeTo": "pipelineFile",
+    "agentWorkingDirectory": "/absolute/path/to/your/repository",
+    "shellWorkingDirectory": ".",
+    "agentMode": "agent",
+    "agentTimeoutMinutes": 240,
+    "locks": {
+      "main": {
+        "maxConcurrent": 1
+      }
+    },
+    "review": {
+      "maxReviewsPerPlan": 3,
+      "maxFixesPerPlan": 2,
+      "acceptConditionalFromReview": 2
+    }
+  },
+  "assets": ["verify.sh"],
+  "steps": [
+    {
+      "id": "start",
+      "type": "human",
+      "message": "Review the project, prompts and verification command before approving."
+    },
+    {
+      "id": "implement",
+      "type": "agent",
+      "lock": "main",
+      "dependsOn": ["start"],
+      "promptFile": "prompts/implement.md",
+      "success": {
+        "lastLineRegex": "^PIPELINE_RESULT: (SUCCESS|PARTIAL)$"
+      },
+      "haltIf": {
+        "lastLineRegex": "^PIPELINE_RESULT: (BLOCKED|FAILED)$"
+      }
+    },
+    {
+      "id": "gate",
+      "type": "shell",
+      "lock": "main",
+      "dependsOn": ["implement"],
+      "command": "bash ./verify.sh",
+      "success": {
+        "exitCode": 0
+      },
+      "haltIf": {
+        "exitCodeNot": 0
+      }
+    },
+    {
+      "id": "review",
+      "type": "agent",
+      "dependsOn": ["gate"],
+      "promptFile": "prompts/review.md",
+      "capture": {
+        "verdict": {
+          "lastLineRegex": "^REVIEW_VERDICT: (PASS|CONDITIONAL|FAIL)$",
+          "group": 1
+        }
+      },
+      "maxRuns": 3
+    },
+    {
+      "id": "fix",
+      "type": "agent",
+      "lock": "main",
+      "dependsOn": ["review"],
+      "promptFile": "prompts/fix.md",
+      "runIf": "!(review.verdict == 'PASS' || (review.verdict == 'CONDITIONAL' && review.runCount >= 2)) && review.runCount < 3",
+      "success": {
+        "lastLineRegex": "^PIPELINE_RESULT: (SUCCESS|PARTIAL)$"
+      },
+      "haltIf": {
+        "lastLineRegex": "^PIPELINE_RESULT: (BLOCKED|FAILED)$"
+      },
+      "maxRuns": 2
+    },
+    {
+      "id": "fix-gate",
+      "type": "shell",
+      "lock": "main",
+      "dependsOn": ["fix"],
+      "command": "bash ./verify.sh",
+      "success": {
+        "exitCode": 0
+      },
+      "haltIf": {
+        "exitCodeNot": 0
+      },
+      "maxRuns": 2,
+      "onSuccess": {
+        "rerun": "review"
+      }
+    },
+    {
+      "id": "done",
+      "type": "barrier",
+      "dependsOn": ["review"],
+      "completeIf": "review.verdict == 'PASS' || (review.verdict == 'CONDITIONAL' && review.runCount >= 2)",
+      "haltIf": "!(review.verdict == 'PASS' || (review.verdict == 'CONDITIONAL' && review.runCount >= 2)) && review.runCount >= 3"
+    }
+  ]
+}

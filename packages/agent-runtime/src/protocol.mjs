@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { clearInterval, clearTimeout, setInterval, setTimeout } from 'node:timers';
 import { SessionTitle } from './titles.mjs';
 import { automaticApproval } from './permissions.mjs';
+import { PauseGate } from './pause.mjs';
 
 export const MAX_TEXT = 128 * 1024;
 export const clip = (value) => String(value ?? '').slice(-MAX_TEXT);
@@ -32,12 +33,17 @@ export class Context {
     this.config = { ...config, prompt: this.sessionTitle.prompt(config) };
     this.emit = emit;
     this.children = new Set();
+    this.cleanups = new Set();
     this.requests = new Map();
     this.permissionRequests = new Map();
     this.answering = new Set();
     this.items = new Map();
     this.dirty = new Set();
     this.cancelled = false;
+    this.pause = new PauseGate((event) => {
+      this.flush();
+      this.emit(event);
+    });
     this.flushTimer = setInterval(() => this.flush(), 60);
     this.flushTimer.unref();
   }
@@ -176,6 +182,8 @@ export class Context {
     return child;
   }
   close() {
+    this.pause.close();
+    for (const cleanup of this.cleanups) cleanup();
     clearInterval(this.flushTimer);
     this.flush();
     for (const child of this.children) child.kill();

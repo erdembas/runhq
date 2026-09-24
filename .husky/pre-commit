@@ -29,7 +29,12 @@ STAGED_RUST=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^crate
 
 if [ -n "$STAGED_RUST" ]; then
   echo "→ cargo test -p runhq-core"
-  cargo test -p runhq-core 2>&1
+  # Git exports repository-local variables to hooks. Fixture repositories must
+  # not inherit them, or their git commands can mutate this checkout's index.
+  (
+    unset $(git rev-parse --local-env-vars)
+    cargo test -p runhq-core 2>&1
+  )
   if [ $? -ne 0 ]; then
     echo "error: cargo test failed — fix test failures before committing."
     exit 1

@@ -1,3 +1,4 @@
+import { workflowExecutionError } from './workflowExecutionMessages';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
@@ -272,7 +273,7 @@ export function AgentDecisionInbox({
                 </p>
                 {detail && (
                   <p className="text-fg-muted mt-2 line-clamp-3 text-[12px] whitespace-pre-wrap">
-                    {detail}
+                    {workflowExecutionError(detail)}
                   </p>
                 )}
                 <button
