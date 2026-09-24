@@ -10,7 +10,11 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ipc } from '@/lib/ipc';
 import type { AiProvider, AiTestResult } from '@/types';
 
-export function AiProviderManager() {
+export function AiProviderManager({
+  onProvidersChange,
+}: {
+  onProvidersChange?: (providers: AiProvider[]) => void;
+}) {
   i18n.useLocale();
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,13 +26,15 @@ export function AiProviderManager() {
 
   const reload = useCallback(async () => {
     try {
-      setProviders(await ipc.listAiProviders());
+      const list = await ipc.listAiProviders();
+      setProviders(list);
+      onProvidersChange?.(list);
     } catch (error) {
       console.error('list_ai_providers failed', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onProvidersChange]);
 
   useEffect(() => {
     void reload();
@@ -113,16 +119,7 @@ export function AiProviderManager() {
         <>
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-fg-dim text-[11.5px] leading-snug">
-              {i18n.rich(
-                'RunHQ talks to any service that speaks the OpenAI Chat Completions API — cloud gateways (OpenAI, OpenRouter, Groq, …) or a local server on {value1} (Ollama, LM Studio). Add one or more, mark a default, and the AI surfaces will use it.',
-                {
-                  value1: (
-                    <span className="text-fg/80 font-mono text-[10.5px]">
-                      {i18n.t('localhost')}
-                    </span>
-                  ),
-                },
-              )}
+              {i18n.t('Connect a cloud API or a local server such as Ollama or LM Studio.')}
             </p>
             <Button
               variant="primary"

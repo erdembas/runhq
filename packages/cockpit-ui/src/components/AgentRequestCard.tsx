@@ -501,6 +501,35 @@ export function AgentRequestCard({
                   {choice.label}
                 </button>
               ))}
+              {request.workspace_approval && (
+                <>
+                  <button
+                    type="button"
+                    disabled={locked}
+                    className={button}
+                    aria-describedby={`${cardId}-workspace-permission`}
+                    onClick={() =>
+                      void send({
+                        decision: request.workspace_approval!.decision,
+                        permission_scope: 'workspace',
+                      })
+                    }
+                  >
+                    {i18n.t('Allow all tools for this workspace')}
+                  </button>
+                  <p
+                    id={`${cardId}-workspace-permission`}
+                    className="text-fg-dim w-full text-[11px] break-words"
+                  >
+                    {i18n.t(
+                      'Allow commands, file changes and network access for tasks in {workspace}, including future tasks. Manage saved permissions in Settings.',
+                      {
+                        workspace: request.workspace_approval.path,
+                      },
+                    )}
+                  </p>
+                </>
+              )}
               {busy && (
                 <Loader2
                   aria-label={i18n.t('Sending decision')}

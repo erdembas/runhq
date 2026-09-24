@@ -1,15 +1,15 @@
 import type { AgentBackend, AiProvider } from '@/types';
+import type { AiGenerationSettings } from '@/lib/ai/aiGenerationSettings';
 
-export interface CliChatProvider {
+export interface CliChatProvider extends AiGenerationSettings {
   id: string;
   name: string;
-  model: string;
   default: boolean;
   context_window?: number | null;
   cli: AgentBackend;
 }
 
-export type AiChatProvider = AiProvider | CliChatProvider;
+export type AiChatProvider = (AiProvider | CliChatProvider) & AiGenerationSettings;
 
 export function isCliChatProvider(provider: AiChatProvider): provider is CliChatProvider {
   return 'cli' in provider;

@@ -18,7 +18,17 @@ function load(name) {
     ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText,
-    { exports, crypto: { randomUUID }, TextEncoder, setTimeout },
+    {
+      exports,
+      crypto: { randomUUID },
+      TextEncoder,
+      setTimeout,
+      require: (name) => {
+        if (name === '@/lib/ai/aiGenerationSettings')
+          return load('../../../lib/ai/aiGenerationSettings');
+        throw new Error(`Unexpected import ${name}`);
+      },
+    },
   );
   return exports;
 }
@@ -273,4 +283,32 @@ test('ACP keeps its provider-defined default mode and unavailable/terminal tools
   assert.equal(providers.length, 2);
   assert.equal(canUseChatProvider(providers[0]), true);
   assert.equal(canUseChatProvider(providers[1]), false);
+});
+
+test('selected reasoning effort, work mode and profile reach both CLI session creation and its turn', async () => {
+  const h = harness();
+  await runCliChat({
+    ...h.args,
+    model: 'selected-model',
+    effort: 'high',
+    mode: 'default',
+    agent: 'reviewer',
+  });
+  for (const method of ['create', 'start']) {
+    const input = h.calls.find(([name]) => name === method)[1];
+    assert.equal(input.model, 'selected-model');
+    assert.equal(input.effort, 'high');
+    assert.equal(input.mode, 'default');
+    assert.equal(input.agent, 'reviewer');
+  }
+  assert.match(h.calls.find(([name]) => name === 'start')[1].prompt, /selected agent mode/);
+});
+
+test('ACP Ask retains its exact native mode and a read-only prompt', async () => {
+  const h = harness({ tool: { ...backend, id: 'cursor', adapter: 'acp' } });
+  await runCliChat({ ...h.args, mode: 'default', agent: 'ask', effort: 'provider-variant' });
+  const start = h.calls.find(([name]) => name === 'start')[1];
+  assert.equal(start.agent, 'ask');
+  assert.equal(start.effort, 'provider-variant');
+  assert.match(start.prompt, /Do not change files/);
 });

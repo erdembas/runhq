@@ -17,6 +17,7 @@ interface Args {
   loadedConversationIdRef: MutableRefObject<string | null>;
   persistUserMessage: (turn: Turn, conversationId: string) => Promise<void>;
   provider: AiChatProvider | null;
+  setConversationProvider: (id: string | null, provider: AiChatProvider) => void;
   runStream: (args: {
     targetTurnId: string;
     targetConvId: string;
@@ -69,6 +70,7 @@ export function useAiChatSending(args: Args) {
         }
       }
 
+      args.setConversationProvider(convId, activeProvider);
       const userTurn: Turn = { id: `u-${Date.now()}`, role: 'user', content: text };
       const startedAt = Date.now();
       const assistantTurn: Turn = {

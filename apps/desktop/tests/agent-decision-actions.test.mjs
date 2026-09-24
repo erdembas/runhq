@@ -13,6 +13,12 @@ function setup() {
   };
   let finish;
   const sent = [];
+  const library = {
+    refreshes: 0,
+    refresh: async () => {
+      library.refreshes++;
+    },
+  };
   runInNewContext(
     ts.transpileModule(
       readFileSync(
@@ -25,6 +31,8 @@ function setup() {
       exports,
       require: (name) => {
         if (name === '@/store/useAgentStore') return { useAgentStore: { getState: () => state } };
+        if (name === '@/store/useAgentLibraryStore')
+          return { useAgentLibraryStore: { getState: () => library } };
         if (name === '@/lib/ipc')
           return {
             ipc: {
@@ -40,7 +48,7 @@ function setup() {
       },
     },
   );
-  return { ...exports, state, sent, finish: () => finish() };
+  return { ...exports, state, sent, library, finish: () => finish() };
 }
 
 test('decision reply retains the exact provider payload and rejects concurrent answers', async () => {
@@ -57,6 +65,18 @@ test('decision reply retains the exact provider payload and rejects concurrent a
   assert.equal(context.sent[0][2], value);
   context.finish();
   await first;
+  assert.equal(context.library.refreshes, 0);
+});
+
+test('a saved workspace grant refreshes permission settings after the backend acknowledges it', async () => {
+  const context = setup();
+  const value = { decision: 'accept', permission_scope: 'workspace' };
+  const answer = context.answerPendingAgentRequest('task', 'request', value);
+  assert.equal(context.library.refreshes, 0);
+  context.finish();
+  await answer;
+  assert.equal(context.library.refreshes, 1);
+  assert.equal(context.sent[0][2], value);
 });
 
 test('resolved and cancelling requests are rejected before IPC', async () => {

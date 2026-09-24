@@ -20,25 +20,29 @@ export const aiIpc = {
   testAiProvider: (id: string) => invoke<AiTestResult>('test_ai_provider', { id }),
   aiChatCompletion: (input: {
     provider_id?: string | null;
+    model?: string | null;
     messages: ChatMessage[];
     options?: ChatOptions;
   }) => invoke<ChatResponse>('ai_chat_completion', { input }),
   aiGenerateCommitMessage: (input: {
     service_id: ServiceId;
     provider_id?: string | null;
+    model?: string | null;
     hint?: string | null;
   }) => invoke<GenerateCommitResult>('ai_generate_commit_message', { input }),
-  aiCommitChatContext: (input: { service_id: ServiceId }) =>
+  aiCommitChatContext: (input: { service_id: ServiceId; hint?: string | null }) =>
     invoke<{
       branch: string | null;
       diff: string;
       recent_subjects: string[];
       diff_truncated: boolean;
+      messages: ChatMessage[];
     }>('ai_commit_chat_context', { input }),
 
   aiChatCompletionStream: (
     input: {
       provider_id?: string | null;
+      model?: string | null;
       messages: ChatMessage[];
       options?: ChatOptions;
     },

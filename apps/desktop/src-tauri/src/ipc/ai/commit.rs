@@ -28,11 +28,14 @@ pub struct CommitChatContext {
     /// pill or similar without re-implementing the size policy. Set
     /// when we cap the staged diff at `MAX_COMMIT_CHAT_DIFF_CHARS`.
     pub diff_truncated: bool,
+    pub messages: Vec<ai::ChatMessage>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CommitChatContextInput {
     pub service_id: String,
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 /// Soft cap for the staged-diff blob shipped to the chat panel. Big
@@ -54,7 +57,11 @@ pub async fn ai_commit_chat_context(
         .map_err(|e| AppError::Other(format!("diff task join failed: {e}")))??;
     let mut diff_truncated = false;
     if diff.len() > MAX_COMMIT_CHAT_DIFF_CHARS {
-        diff.truncate(MAX_COMMIT_CHAT_DIFF_CHARS);
+        let mut end = MAX_COMMIT_CHAT_DIFF_CHARS;
+        while !diff.is_char_boundary(end) {
+            end -= 1;
+        }
+        diff.truncate(end);
         diff.push_str("\n[diff truncated by RunHQ — only the leading hunks were sent]");
         diff_truncated = true;
     }
@@ -68,7 +75,14 @@ pub async fn ai_commit_chat_context(
 
     let branch = git::status(&cwd).and_then(|s| s.branch);
 
+    let messages = ai::build_commit_prompt(
+        &diff,
+        branch.as_deref(),
+        &recent_subjects,
+        input.hint.as_deref(),
+    );
     Ok(CommitChatContext {
+        messages,
         branch,
         diff,
         recent_subjects,
@@ -78,6 +92,9 @@ pub async fn ai_commit_chat_context(
 
 #[derive(Debug, Deserialize)]
 pub struct GenerateCommitInput {
+    /// Request-scoped override; the stored provider remains unchanged.
+    #[serde(default)]
+    pub model: Option<String>,
     /// Service whose working tree we summarise. Service id (rather than
     /// raw cwd) keeps the surface uniform with every other git command.
     pub service_id: String,
@@ -106,7 +123,15 @@ pub async fn ai_generate_commit_message(
     state: State<'_, AppState>,
 ) -> AppResult<GenerateCommitResult> {
     let cwd = resolve_cwd(&input.service_id, &state)?;
-    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let mut provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    if let Some(model) = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        provider.model = model.to_string();
+    }
 
     // Pull tone-matching context off the main thread — git shells out,
     // so even quick reads block briefly. Wrapping in `spawn_blocking`

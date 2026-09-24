@@ -2,6 +2,7 @@ import * as i18n from '@runhq/cockpit-ui/i18n';
 import { ChevronRight, MessageSquareText, ShieldCheck, ShieldX } from 'lucide-react';
 import type { AgentItem } from '@runhq/cockpit-types';
 import { describeAgentResponse } from './agentResponse';
+import { AgentMessageCopyButton } from './AgentMessageCopyButton';
 
 export function AgentUserMessage({ item, request }: { item: AgentItem; request?: AgentItem }) {
   i18n.useLocale();
@@ -10,7 +11,8 @@ export function AgentUserMessage({ item, request }: { item: AgentItem; request?:
     return (
       <article className="bg-fg/5 text-fg ml-6 rounded-lg px-4 py-3 text-[13px] break-words whitespace-pre-wrap">
         <div className="text-fg-dim mb-1 text-[11px]">{item.title}</div>
-        {item.text}
+        <div>{item.text}</div>
+        <AgentMessageCopyButton text={item.text} />
       </article>
     );
 
@@ -87,6 +89,9 @@ export function AgentUserMessage({ item, request }: { item: AgentItem; request?:
           </pre>
         </div>
       </details>
+      <div className="px-3.5 pb-2">
+        <AgentMessageCopyButton text={item.text} />
+      </div>
     </article>
   );
 }

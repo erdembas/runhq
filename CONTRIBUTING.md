@@ -23,13 +23,21 @@ See [`README.md`](./README.md#repository-layout) for the full tree.
 
 ```bash
 pnpm install
-pnpm tauri:dev          # hot reload for UI + backend
+pnpm dev               # macOS: local app with the installed data and UI profile
+pnpm dev:hot           # hot reload; macOS uses a separate UI profile
 
 pnpm lint && pnpm typecheck && pnpm format:check
 cargo test -p runhq-core
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 ```
+
+Quit any running RunHQ before starting development so it can open the agent
+database. On macOS, `pnpm dev` rebuilds a local bundle that shares the installed
+app's database **and** WebKit storage, including project groups and layouts.
+Restart with `pnpm dev` after editing. `pnpm dev:hot` shares the backend database
+by default but uses a separate UI profile; `RUNHQ_HOME` can isolate its backend
+data for QA. Use `pnpm dev:ui` only for the frontend server without native APIs.
 
 Keep commits small and focused. Use [Conventional Commits](https://www.conventionalcommits.org/):
 

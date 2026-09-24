@@ -1,3 +1,5 @@
+import { AiProviderControls } from './AiProviderControls';
+import { changeAiGenerationSettings } from '@/lib/ai/aiGenerationSettings';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import type { AiChatProvider } from './chat-panel/aiChatProviders';
@@ -104,6 +106,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     setPickerOpen,
     setProjectNotesContext,
     setProvider,
+    setConversationProvider,
     setProviderError,
     setProviders,
     setProvidersLoaded,
@@ -147,7 +150,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
     turnsByConv,
   });
 
-  const { resolveProject, projectControl } = useAiCliProject(
+  const { resolveProject, projectControl, catalogProjectId } = useAiCliProject(
     Boolean(provider && isCliChatProvider(provider)),
     selectedService,
     setProviderError,
@@ -167,6 +170,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   });
 
   const { openAiSettingsFromPicker, selectProvider } = useAiProviderPicker({
+    activeConversationId,
     isOpen,
     pendingAutoSendPromptRef,
     pendingAutoSendRef,
@@ -231,6 +235,7 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
   });
 
   const { continueTruncated, send } = useAiChatSending({
+    setConversationProvider,
     activeConversationId,
     cancel,
     contextSystemMessage,
@@ -318,6 +323,28 @@ export function AiChatPanel({ variant = 'drawer', open = true, onClose }: AiChat
         tokenCount={tokenCount}
         turnsLength={turns.length}
         projectControl={projectControl}
+        providerControls={
+          provider && (
+            <AiProviderControls
+              provider={provider}
+              projectId={catalogProjectId}
+              disabled={isStreaming}
+              onChange={(change) =>
+                setProvider((current) =>
+                  current
+                    ? changeAiGenerationSettings(
+                        current,
+                        change,
+                        isCliChatProvider(current)
+                          ? (current.cli.adapter ?? current.cli.id)
+                          : undefined,
+                      )
+                    : current,
+                )
+              }
+            />
+          )
+        }
         onCancel={cancel}
         onInput={setInput}
         onManageModels={openAiSettingsFromPicker}

@@ -1,3 +1,4 @@
+import type { AiGenerationSettings } from '@/lib/ai/aiGenerationSettings';
 import type { ConversationOrigin } from '@/types';
 
 /**
@@ -17,6 +18,7 @@ export interface AiDraft {
    *  against stale drafts firing into the wrong chat after a fast
    *  rail-icon click. */
   conversationId: string;
+  origin?: ConversationOrigin;
   /** Pre-filled composer text. The panel injects it; the user sees
    *  it in the textarea and can edit before sending. */
   draftPrompt?: string;
@@ -42,6 +44,8 @@ export interface AiDraft {
    *  the user's choice next to the trigger button so the panel
    *  doesn't need to ask again. */
   forcedProviderId?: string;
+  forcedModel?: string;
+  forcedSettings?: AiGenerationSettings;
 }
 
 export interface OpenAiChatInput {
@@ -66,6 +70,8 @@ export interface OpenAiChatInput {
    *  and pass it through here so the panel can fire immediately
    *  against the chosen model — no in-panel re-prompt. */
   forcedProviderId?: string;
+  forcedModel?: string;
+  forcedSettings?: AiGenerationSettings;
 }
 
 export interface AiChatStoreSlice {

@@ -564,6 +564,104 @@ readline.createInterface({input:process.stdin}).once('line', line => {
 }
 
 #[tokio::test]
+async fn workspace_approval_is_validated_persisted_and_reused_on_followup() {
+    let (dir, manager, session) = setup();
+    std::fs::write(dir.path().join("bridge.cjs"), r#"
+const assert = require('node:assert/strict');
+const readline = require('node:readline');
+const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const command = JSON.parse(line);
+ if (command.type === 'start') {
+   if (command.config.permission_policy === 'all') {
+     emit({type:'finished',status:'completed'}); process.exit(0);
+   }
+   emit({type:'request',request:{id:'tool',kind:'approval',title:'Allow Bash?',choices:[{label:'Allow once',value:'accept'},{label:'Deny',value:'decline'}],workspace_approval:{decision:'accept',path:command.config.cwd}}});
+ } else if (command.type === 'answer') {
+   assert.deepEqual(command.value, {decision:'accept',permission_scope:'workspace'});
+   emit({type:'resolved',id:'tool'});
+   emit({type:'ack',command_id:command.command_id});
+   setTimeout(() => { emit({type:'finished',status:'completed'}); process.exit(0); }, 30);
+ }
+});
+"#).unwrap();
+    manager.start(turn_input(&session)).await.unwrap();
+    let waiting = wait_for_session(&manager, &session.id, "a workspace approval", |session| {
+        !session.pending.is_empty()
+    })
+    .await
+    .unwrap();
+    let request = &waiting.pending[0];
+    for value in [
+        json!({"decision":"decline","permission_scope":"workspace"}),
+        json!({"decision":"accept","permission_scope":"global"}),
+        json!({"decision":"accept","permission_scope":"workspace","reject":true}),
+    ] {
+        assert!(manager
+            .answer(&session.id, &request.id, value)
+            .await
+            .is_err());
+        assert_eq!(manager.permission_policy_for(&session.cwd).unwrap(), "ask");
+    }
+    for kind in ["question", "form"] {
+        manager
+            .mutate(&session.id, |s, _| {
+                s.pending[0].kind = kind.into();
+                Ok(())
+            })
+            .unwrap();
+        assert!(manager
+            .answer(
+                &session.id,
+                &request.id,
+                json!({"decision":"accept","permission_scope":"workspace"})
+            )
+            .await
+            .is_err());
+    }
+    manager
+        .mutate(&session.id, |s, _| {
+            s.pending[0].kind = "approval".into();
+            s.mode = "plan".into();
+            Ok(())
+        })
+        .unwrap();
+    assert!(manager
+        .answer(
+            &session.id,
+            &request.id,
+            json!({"decision":"accept","permission_scope":"workspace"})
+        )
+        .await
+        .is_err());
+    manager
+        .mutate(&session.id, |s, _| {
+            s.mode = "default".into();
+            Ok(())
+        })
+        .unwrap();
+    manager
+        .answer(
+            &session.id,
+            &request.id,
+            json!({"decision":"accept","permission_scope":"workspace"}),
+        )
+        .await
+        .unwrap();
+    wait_inactive(&manager, &session.id).await;
+    assert_eq!(manager.permission_policy_for(&session.cwd).unwrap(), "all");
+    assert_eq!(manager.permission_policy().unwrap(), "ask");
+    let snapshot = manager.snapshot(&session.id, None).unwrap();
+    assert!(snapshot
+        .items
+        .iter()
+        .any(|item| item.id.starts_with("answer:") && item.text.contains("workspace")));
+    manager.start(turn_input(&session)).await.unwrap();
+    wait_inactive(&manager, &session.id).await;
+    assert_eq!(manager.session(&session.id).unwrap().status, "completed");
+}
+
+#[tokio::test]
 async fn image_attachments_reach_runtime_without_persisting_image_bytes_in_transcript() {
     let (dir, manager, session) = setup();
     std::fs::write(

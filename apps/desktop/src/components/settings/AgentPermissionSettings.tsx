@@ -16,6 +16,14 @@ export function AgentPermissionSettings() {
   const stored = (records['preferences:permissions']?.value as { policy?: unknown } | undefined)
     ?.policy;
   const policy = stored === 'read' || stored === 'all' ? stored : 'ask';
+  const workspaces = Object.values(records).flatMap((record) => {
+    const value = record.value as { path?: unknown; policy?: unknown } | null;
+    return record.key.startsWith('preferences:workspace-permissions:') &&
+      value?.policy === 'all' &&
+      typeof value.path === 'string'
+      ? [{ key: record.key, path: value.path }]
+      : [];
+  });
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -62,6 +70,40 @@ export function AgentPermissionSettings() {
           'Questions and forms still need your response. Plan mode and independent reviews keep manual approvals. Automatic decisions appear in the conversation.',
         )}
       </p>
+      {workspaces.length > 0 && (
+        <div className="border-border mt-4 border-t pt-4">
+          <h3 className="text-fg text-sm font-medium">{i18n.t('Workspace permissions')}</h3>
+          <p className="text-fg-muted mt-1 text-[12px]">
+            {i18n.t(
+              'Saved workspace permissions allow all tools for tasks started in these folders. Removing a permission applies from the next turn.',
+            )}
+          </p>
+          <ul className="mt-2 space-y-2">
+            {workspaces.map((workspace) => (
+              <li key={workspace.key} className="flex items-center gap-3 text-[12px]">
+                <span className="text-fg min-w-0 flex-1 break-all">{workspace.path}</span>
+                <button
+                  type="button"
+                  disabled={saving}
+                  aria-label={i18n.t('Remove permission for {workspace}', {
+                    workspace: workspace.path,
+                  })}
+                  className="text-fg-muted hover:text-fg shrink-0 underline disabled:opacity-50"
+                  onClick={() => {
+                    setSaving(true);
+                    setSaveFailed(false);
+                    void save(workspace.key, null)
+                      .catch(() => setSaveFailed(true))
+                      .finally(() => setSaving(false));
+                  }}
+                >
+                  {i18n.t('Remove')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {(saveFailed || (!ready && error)) && (
         <div role="alert" className="text-status-error mt-2 text-[12px]">
           <p>

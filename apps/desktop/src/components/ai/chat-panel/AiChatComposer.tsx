@@ -31,6 +31,7 @@ interface Props {
   tokenCount: number | null;
   turnsLength: number;
   projectControl?: ReactNode;
+  providerControls?: ReactNode;
   onCancel: () => void;
   onInput: (value: string) => void;
   onManageModels: () => void;
@@ -81,6 +82,9 @@ export function AiChatComposer(props: Props) {
               'max-h-[180px] min-h-[24px]',
             )}
           />
+          {props.providerControls && (
+            <div className="border-border/30 border-t px-2 py-1">{props.providerControls}</div>
+          )}
           <div className="flex items-center gap-1 px-1.5 pt-1 pb-1.5">
             <ModelControl {...props} />
             <span className="flex-1" />
@@ -145,7 +149,7 @@ function ModelControl(props: Props) {
         onClick={() => props.onPickerOpenChange(!props.pickerOpen)}
         title={
           props.provider
-            ? `${props.provider.name} · ${cli ? i18n.t('CLI default model') : props.provider.model}`
+            ? `${props.provider.name} · ${props.provider.model || (cli ? i18n.t('CLI default model') : '')}`
             : i18n.t('Choose a CLI tool or API provider')
         }
         aria-haspopup="listbox"
@@ -168,7 +172,9 @@ function ModelControl(props: Props) {
       </button>
       {props.pickerOpen && (
         <ModelPicker
-          providers={props.providers}
+          providers={props.providers.map((entry) =>
+            entry.id === props.provider?.id ? props.provider : entry,
+          )}
           activeId={props.provider?.id ?? null}
           onSelect={props.onSelectProvider}
           onManage={props.onManageModels}

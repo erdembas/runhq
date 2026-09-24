@@ -1,7 +1,8 @@
 import { useRef } from 'react';
+import type { AiChatProvider } from '@/components/ai/chat-panel/aiChatProviders';
 import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { AiProvider, DiffSummary, GitStatus } from '@/types';
+import type { DiffSummary, GitStatus } from '@/types';
 import type { FileEntry, TreeNode } from '@/lib/gitDiff';
 import { collectFolderPaths } from '@/lib/gitDiff';
 
@@ -43,7 +44,7 @@ interface CommitPanelState {
   treeMode: CommitTreeMode;
   ctxMenu: CommitContextMenu | null;
   discardConfirm: { file: FileEntry } | null;
-  providers: AiProvider[] | null;
+  providers: AiChatProvider[] | null;
   pickerOpen: boolean;
 }
 

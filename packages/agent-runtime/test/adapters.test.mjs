@@ -171,6 +171,37 @@ test(
   },
 );
 
+test('Claude workspace approval allows successive Bash calls without another prompt', async () => {
+  const events = [];
+  const ctx = new Context({ cwd: process.cwd(), prompt: 'Run checks' }, (e) => events.push(e));
+  const mockQuery = ({ options }) => ({
+    close() {},
+    async *[Symbol.asyncIterator]() {
+      const signal = new AbortController().signal;
+      for (const id of ['first', 'second']) {
+        const input = { command: `echo ${id}` };
+        assert.deepEqual(await options.canUseTool('Bash', input, { toolUseID: id, signal }), {
+          behavior: 'allow',
+          updatedInput: input,
+        });
+      }
+      yield { type: 'result', is_error: false };
+    },
+  });
+  try {
+    const result = runClaude(ctx, false, mockQuery);
+    await until(() => ctx.requests.has('first'));
+    await ctx.answer('first', { decision: 'accept', permission_scope: 'workspace' });
+    assert.equal((await result).status, 'completed');
+    assert.deepEqual(
+      events.filter((e) => e.type === 'request').map((e) => e.request.id),
+      ['first'],
+    );
+  } finally {
+    ctx.close();
+  }
+});
+
 test(
   'Bridge acknowledges an answer when OpenCode finishes before the HTTP reply',
   { timeout: 15000, skip: process.platform === 'win32' },

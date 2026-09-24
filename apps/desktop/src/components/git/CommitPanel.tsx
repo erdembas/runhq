@@ -234,13 +234,14 @@ export function CommitPanel({
     }
   }, [serviceId, panel.message, panel.amend, canCommit, onAfterMutation, patch, reload]);
 
-  const { generateButtonRef, generateMessage, runGenerate } = useCommitMessageGenerator({
-    serviceId,
-    panel,
-    patch,
-    stagedCount: stagedEntriesAll.length,
-    messageRef,
-  });
+  const { generateButtonRef, generateMessage, runGenerate, generationControls } =
+    useCommitMessageGenerator({
+      serviceId,
+      panel,
+      patch,
+      stagedCount: stagedEntriesAll.length,
+      messageRef,
+    });
 
   const pushNow = useCallback(async () => {
     patch({ pushing: true, error: null });
@@ -284,6 +285,7 @@ export function CommitPanel({
           canCommit={canCommit}
           onCommit={() => void commitNow()}
           onPush={() => void pushNow()}
+          generationControls={generationControls}
           onGenerate={() => void generateMessage()}
           onGenerateWithProvider={(provider) => void runGenerate(provider)}
           onMessageKeyDown={onKeyDownMessage}

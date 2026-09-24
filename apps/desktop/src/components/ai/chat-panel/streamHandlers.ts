@@ -3,6 +3,7 @@ import type { ChatMessage, StreamChunk } from '@/types';
 import type { Turn } from '../chatPanelTypes';
 import { CONTINUE_PROMPT, NUDGE_FINAL_ANSWER_PROMPT } from './constants';
 import type { RunStreamFn } from './useAiChatState';
+import type { AiChatProvider } from './aiChatProviders';
 
 export function handleDone(args: {
   appendOnly: boolean;
@@ -16,6 +17,7 @@ export function handleDone(args: {
   persistAssistantTurnRef: MutableRefObject<((turn: Turn, convId: string) => Promise<void>) | null>;
   reasoningChunkCount: number;
   retryAttempt: number;
+  providerOverride?: AiChatProvider;
   runStreamRef: MutableRefObject<RunStreamFn | null>;
   sawAnyDelta: boolean;
   setTurnsForConv: (convId: string, updater: Turn[] | ((prev: Turn[]) => Turn[])) => void;
@@ -110,6 +112,7 @@ export function handleStreamError(args: {
   inFlightConvsRef: MutableRefObject<Set<string>>;
   persistAssistantTurnRef: MutableRefObject<((turn: Turn, convId: string) => Promise<void>) | null>;
   retryAttempt: number;
+  providerOverride?: AiChatProvider;
   runStreamRef: MutableRefObject<RunStreamFn | null>;
   setTurnsForConv: (convId: string, updater: Turn[] | ((prev: Turn[]) => Turn[])) => void;
   targetConvId: string;
@@ -149,6 +152,7 @@ export function handleStreamError(args: {
       ],
       appendOnly: true,
       retryAttempt: 1,
+      providerOverride: args.providerOverride,
     });
   }
 }
@@ -181,6 +185,7 @@ function retryFromScratch(args: Parameters<typeof handleDone>[0]) {
     history: args.history,
     appendOnly: false,
     retryAttempt: 1,
+    providerOverride: args.providerOverride,
   });
 }
 
@@ -199,5 +204,6 @@ function continueStream(
     ],
     appendOnly: true,
     retryAttempt: 1,
+    providerOverride: args.providerOverride,
   });
 }

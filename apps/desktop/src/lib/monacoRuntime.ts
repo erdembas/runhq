@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { loader } from '@monaco-editor/react';
+import { configureMonacoWorkers } from './monacoWorkers';
 
 type MonacoModule = typeof import('monaco-editor');
 
@@ -7,6 +8,7 @@ let monacoPromise: Promise<MonacoModule> | null = null;
 
 export function ensureMonaco(): Promise<MonacoModule> {
   if (!monacoPromise) {
+    configureMonacoWorkers();
     monacoPromise = import('monaco-editor').then((monaco) => {
       loader.config({ monaco });
       return monaco;

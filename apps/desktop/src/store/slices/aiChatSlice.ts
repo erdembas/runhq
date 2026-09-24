@@ -103,6 +103,9 @@ export const createAiChatSlice: AppStoreSlice = (set) => ({
       actionHook: input.actionHook ?? { kind: 'none' },
       autoSend: input.autoSend ?? false,
       forcedProviderId: input.forcedProviderId,
+      forcedModel: input.forcedModel,
+      forcedSettings: input.forcedSettings,
+      origin: input.origin,
     };
 
     // Stash draft + active id + open the panel atomically. Doing

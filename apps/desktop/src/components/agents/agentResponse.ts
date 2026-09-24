@@ -131,6 +131,8 @@ export function describeAgentResponse(item: AgentItem, request?: AgentItem): Age
     return null;
   }
   if (!record(value)) return null;
+  if (value.permission_scope === 'workspace' && typeof value.decision === 'string')
+    return { label: i18n.t('Allowed for this workspace'), tone: 'allowed', fields: [] };
   if (Object.hasOwn(value, 'decision')) {
     const decision =
       typeof value.decision === 'string' && Object.hasOwn(decisions, value.decision)
