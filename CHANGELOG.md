@@ -8,9 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.3.0](https://github.com/erdembas/runhq/compare/v3.2.0...v3.3.0) (2026-09-24)
 
 
-### Features
+### Task queues and immediate starts
 
-* **desktop:** send queued messages now and customize chat defaults ([#170](https://github.com/erdembas/runhq/issues/170)) ([4fffd8d](https://github.com/erdembas/runhq/commit/4fffd8d9369e444c6ec5bdaec8a4fadf6446dda7))
+- Send any queued follow-up immediately by interrupting the active turn and continuing in the same conversation with its existing context.
+- Preserve queued message order, attachments and request identities; wait for shutdown before starting the selected message.
+- Honor Start now for independent tasks in the selected local workspace while retaining capacity and workflow isolation checks.
+- Retry saved first messages without creating duplicate tasks or losing the chosen workspace and model.
+
+### Message sending and chat defaults
+
+- Send messages with Enter and insert new lines with Shift+Enter. Choose Command/Ctrl+Enter in Settings → Keyboard Shortcuts to restore the previous behavior.
+- Save agent, model, effort, mode and workspace defaults for new chats across projects while preserving open drafts and recipe choices.
+- Include English/Turkish controls and in-app release notes for every change.
+
+[Implementation: #170](https://github.com/erdembas/runhq/pull/170).
 
 ## [3.2.0](https://github.com/erdembas/runhq/compare/v3.1.0...v3.2.0) (2026-09-24)
 
