@@ -11,6 +11,7 @@ import { createAgentRecoveryPersistence } from '@/lib/agentRecoveryPersistence';
 import { useAgentStore } from './useAgentStore';
 import { useAgentLibraryStore } from './useAgentLibraryStore';
 import { agentSessionIsHistoryOnly } from '@/components/agents/agentComposerPolicy';
+import { agentTaskDependencyState } from '@/components/agents/agentTaskStart';
 import { agentUsagePreferences, evaluateAgentUsage } from '@/components/agents/agentUsagePolicy';
 import {
   agentCapacityPreferences,
@@ -36,6 +37,15 @@ export const useAgentQueueStore = create<{
 
 export const agentTurnQueue = createAgentTurnQueue({
   initial,
+  dependencyState: (turn) => {
+    if (!turn.startAfter) return 'ready';
+    const { sessions, deletedIds } = useAgentStore.getState();
+    return agentTaskDependencyState(
+      sessions[turn.session_id],
+      sessions[turn.startAfter.sessionId],
+      !!deletedIds[turn.startAfter.sessionId],
+    );
+  },
   canStart: (id, manual) => {
     const store = useAgentStore.getState();
     const session = store.sessions[id];

@@ -38,7 +38,7 @@ import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
 import { agentContextImages, buildAgentContextPrompt, type AgentRecipe } from './agentLibraryModel';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
-import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { agentTurnQueue, useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
 import {
   chooseAgentAccount,
@@ -52,6 +52,9 @@ import {
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { initialAgentTaskRecovery } from './agentSendRecovery';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AgentWorkflowLaunchDialog } from './AgentWorkflowLaunchDialog';
+import { workflowLaunchCandidates } from './agentWorkflowLaunch';
+import type { AgentTaskStartDependency } from './agentTaskStart';
 
 export function AgentNewSession({
   onClose,
@@ -101,6 +104,9 @@ export function AgentNewSession({
   const [isolated, setIsolated] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [choosingStart, setChoosingStart] = useState(false);
+  const sessions = useVisibleStore(useAgentStore, (s) => s.sessions, visible);
+  const launchTasks = workflowLaunchCandidates(sessions, projectId);
   const [error, setError] = useState<string | null>(null);
   const [forgetLaunch, setForgetLaunch] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTaskTemplate['id']>();
@@ -115,6 +121,24 @@ export function AgentNewSession({
           ? agentWorkspaceIpc.handoffCreate(sourceSessionId, input)
           : ipc.agentCreate(input),
       start: ipc.agentStart,
+      queue: async (turn, startAfter) => {
+        const session = useAgentStore.getState().sessions[turn.session_id];
+        if (!session)
+          throw new Error(
+            i18n.t('Could not save the queued task. Retry saving before continuing.'),
+          );
+        const existing = useAgentQueueStore
+          .getState()
+          .queues[turn.session_id]?.some((entry) => entry.request_id === turn.request_id);
+        if (existing) useAgentQueueStore.getState().retryPersistence();
+        else if (!agentTurnQueue.enqueue({ ...turn, startAfter }))
+          throw new Error(
+            i18n.t('Could not save the queued task. Retry saving before continuing.'),
+          );
+        const queueError = useAgentQueueStore.getState().persistenceError;
+        if (queueError) throw new Error(queueError);
+        return useAgentStore.getState().sessions[turn.session_id] ?? session;
+      },
       recovery: initialAgentTaskRecovery,
       created: (session, text) => {
         useAgentStore.getState().merge(session);
@@ -327,7 +351,7 @@ export function AgentNewSession({
     else useAgentStore.getState().select(session.id);
     onClose();
   };
-  const send = async () => {
+  const send = async (startAfter?: AgentTaskStartDependency) => {
     if (!canSend) return;
     setBusy(true);
     setError(null);
@@ -351,7 +375,7 @@ export function AgentNewSession({
         },
         prompt,
         images,
-        { sourceSessionId, draftText },
+        { sourceSessionId, draftText, startAfter },
       );
       useAgentStore.getState().merge(session);
       const routing = routedFrom ?? initialRouting;
@@ -388,16 +412,47 @@ export function AgentNewSession({
       launcher.current.complete();
       if (mounted.current) openSession(session);
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) {
+        setChoosingStart(false);
+        setError(String(e));
+      }
     } finally {
       if (mounted.current) setBusy(false);
     }
+  };
+  const requestSend = () => {
+    if (!canSend || choosingStart) return;
+    if (
+      !launcher.current.recovery &&
+      !launcher.current.session &&
+      workflowLaunchCandidates(useAgentStore.getState().sessions, projectId).length
+    )
+      setChoosingStart(true);
+    else void send();
   };
   return (
     <section
       aria-label={i18n.t('New agent task')}
       className="overlay-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 py-8 lg:px-8"
     >
+      {choosingStart && (
+        <AgentWorkflowLaunchDialog
+          kind="task"
+          tasks={launchTasks}
+          busy={busy}
+          canSaveDraft={false}
+          onClose={() => setChoosingStart(false)}
+          onChoose={(choice) => {
+            if (choice.mode === 'draft') return;
+            const preceding =
+              choice.mode === 'after'
+                ? launchTasks.find((task) => task.id === choice.sessionId)
+                : undefined;
+            if (choice.mode === 'after' && !preceding) return;
+            void send(preceding ? { sessionId: preceding.id, title: preceding.title } : undefined);
+          }}
+        />
+      )}
       {forgetLaunch && (
         <ConfirmDialog
           title={i18n.t('Forget this saved launch?')}
@@ -449,9 +504,13 @@ export function AgentNewSession({
             <p>
               {restorationError ||
                 (recovered?.phase === 'accepted'
-                  ? i18n.t(
-                      'Your first message was accepted. Continue to finish saving this task; the message will not be sent again.',
-                    )
+                  ? recovered.startAfter
+                    ? i18n.t(
+                        'Your first message is queued. Continue to finish saving this task; it will keep its selected start time.',
+                      )
+                    : i18n.t(
+                        'Your first message was accepted. Continue to finish saving this task; the message will not be sent again.',
+                      )
                   : i18n.t(
                       'A saved first message is waiting. Continue with its original workspace, model and context. A repeated request uses the same task and message IDs.',
                     ))}
@@ -569,7 +628,7 @@ export function AgentNewSession({
         <AgentComposer
           value={recovered?.draftText ?? input}
           onChange={setInput}
-          onSend={() => void send()}
+          onSend={requestSend}
           busy={busy}
           disabled={locked}
           placeholder={i18n.t('Ask your agent to build, fix, or explore…')}
@@ -630,7 +689,9 @@ export function AgentNewSession({
                   ? i18n.t('Continue saved first message')
                   : launcher.current.session
                     ? i18n.t('Retry first message')
-                    : i18n.t('Send message')
+                    : launchTasks.length
+                      ? i18n.t('Choose start time')
+                      : i18n.t('Send message')
               }
               title={
                 canSend
@@ -639,7 +700,7 @@ export function AgentNewSession({
                     ? connection.title
                     : i18n.t('Write a message to start')
               }
-              onClick={() => void send()}
+              onClick={requestSend}
               disabled={!canSend}
               className="bg-fg text-surface hover:bg-fg/85 disabled:bg-fg/8 disabled:text-fg-dim flex h-8 w-8 items-center justify-center rounded-xl shadow-sm transition-colors disabled:shadow-none"
             >

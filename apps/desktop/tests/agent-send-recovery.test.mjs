@@ -25,6 +25,7 @@ function load(path) {
         if (name === '@/lib/agentRecoveryPersistence')
           return load('../src/lib/agentRecoveryPersistence.ts');
         if (name === './agentTurnQueue') return load('../src/components/agents/agentTurnQueue.ts');
+        if (name === './agentTaskStart') return load('../src/components/agents/agentTaskStart.ts');
         if (name === '@runhq/cockpit-ui')
           return load('../../../packages/cockpit-ui/src/lib/agentAttachments.ts');
         throw new Error(name);

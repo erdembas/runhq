@@ -1,8 +1,11 @@
+import { Input, Textarea } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Choice';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
+  ChevronDown,
   GitBranch,
   GitPullRequest,
   Loader2,
@@ -51,7 +54,7 @@ export interface AgentWorkflowRecipe {
   steps?: CreateWorkflowStep[];
 }
 const field =
-  'border-fg/15 bg-surface text-fg w-full rounded-lg border px-3 py-2 text-xs focus:border-accent focus:outline-none';
+  'border-fg/15 bg-surface text-fg w-full rounded-lg border px-3 py-2 text-xs focus:border-accent focus:ring-accent/15 focus:ring-2 focus:outline-none';
 const button =
   'border-fg/15 hover:bg-fg/5 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40';
 const label = 'text-fg-muted flex flex-col gap-1.5 text-xs';
@@ -638,41 +641,43 @@ export function AgentWorkflowHub({
               </p>
             </div>
             <fieldset disabled={busy} className="space-y-5">
-              <label className={`${label} max-w-sm`}>
-                {i18n.rich('Project{value1}', {
-                  value1: (
-                    <SearchableSelect
-                      label={i18n.t('Workflow project')}
-                      indentGrouped
-                      value={chosenProject}
-                      disabled={!!projectId || busy}
-                      options={projectOptions}
-                      onChange={setNewProject}
-                      searchPlaceholder={i18n.t('Find a project or group…')}
-                    />
-                  ),
-                })}
-              </label>
-              <label className={label}>
-                {i18n.rich('Shared context · optional{value1}{value2}', {
-                  value1: (
-                    <textarea
-                      rows={3}
-                      className={field}
-                      value={objective}
-                      onChange={(e) => setObjective(e.target.value)}
-                      placeholder={i18n.t(
-                        'For example: Add a search field to the project list so I can find projects by name.',
-                      )}
-                    />
-                  ),
-                  value2: (
-                    <span className="text-fg-dim text-[11px]">
-                      {i18n.t('Every step gets this context.')}
-                    </span>
-                  ),
-                })}
-              </label>
+              <div className="grid items-start gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
+                <label className={label}>
+                  {i18n.rich('Project{value1}', {
+                    value1: (
+                      <SearchableSelect
+                        label={i18n.t('Workflow project')}
+                        indentGrouped
+                        value={chosenProject}
+                        disabled={!!projectId || busy}
+                        options={projectOptions}
+                        onChange={setNewProject}
+                        searchPlaceholder={i18n.t('Find a project or group…')}
+                      />
+                    ),
+                  })}
+                </label>
+                <label className={label}>
+                  {i18n.rich('Shared context · optional{value1}{value2}', {
+                    value1: (
+                      <Textarea
+                        rows={2}
+                        className={field}
+                        value={objective}
+                        onChange={(e) => setObjective(e.target.value)}
+                        placeholder={i18n.t(
+                          'For example: Add a search field to the project list so I can find projects by name.',
+                        )}
+                      />
+                    ),
+                    value2: (
+                      <span className="text-fg-dim text-[11px]">
+                        {i18n.t('Every step gets this context.')}
+                      </span>
+                    ),
+                  })}
+                </label>
+              </div>
               <AgentWorkflowTasks
                 projectId={chosenProject}
                 steps={steps}
@@ -694,7 +699,7 @@ export function AgentWorkflowHub({
                 <label className={label}>
                   {i18n.rich('Success criteria · optional{value1}', {
                     value1: (
-                      <textarea
+                      <Textarea
                         rows={2}
                         className={field}
                         value={acceptance}
@@ -705,13 +710,14 @@ export function AgentWorkflowHub({
                   })}
                 </label>
               </div>
-              <details className="border-border rounded-xl border p-4">
-                <summary className="text-fg-muted cursor-pointer text-xs">
+              <details className="group/project border-border rounded-xl border p-4">
+                <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between text-xs [&::-webkit-details-marker]:hidden">
                   {i18n.t('Advanced project settings')}
+                  <ChevronDown className="size-3.5 transition-transform group-open/project:rotate-180" />
                 </summary>
                 <label className={`${label} mt-3`}>
                   {i18n.t('Automated checks · optional')}
-                  <textarea
+                  <Textarea
                     rows={2}
                     className={`${field} font-mono`}
                     value={checks}
@@ -728,7 +734,7 @@ export function AgentWorkflowHub({
                   <label className={label}>
                     {i18n.rich('Start from branch or commit{value1}', {
                       value1: (
-                        <input
+                        <Input
                           className={field}
                           value={baseRef}
                           onChange={(e) => setBaseRef(e.target.value)}
@@ -740,7 +746,7 @@ export function AgentWorkflowHub({
                   <label className={label}>
                     {i18n.rich('Setup commands · optional{value1}', {
                       value1: (
-                        <textarea
+                        <Textarea
                           rows={2}
                           className={`${field} font-mono`}
                           value={setup}
@@ -758,8 +764,7 @@ export function AgentWorkflowHub({
                 </p>
               </details>
               <label className="text-fg-muted flex items-start gap-2 text-xs">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={autoProgress}
                   onChange={(e) => setAutoProgress(e.target.checked)}
                 />
@@ -1105,7 +1110,7 @@ export function AgentWorkflowHub({
                         'Copy only the files you name from the original project. Paths must be project-relative, ignored by Git in this worktree and at most 1 MiB each. Their contents stay outside saved history and integration patches.',
                       )}
                     </p>
-                    <textarea
+                    <Textarea
                       aria-label={i18n.t('Environment file paths')}
                       className={`${field} font-mono`}
                       rows={2}
@@ -1298,8 +1303,7 @@ export function AgentWorkflowHub({
                           '{value1}I reviewed the findings and this diff and accept applying it to the displayed destination.',
                           {
                             value1: (
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={accepted}
                                 onChange={(e) => setAccepted(e.target.checked)}
                               />
@@ -1335,7 +1339,7 @@ export function AgentWorkflowHub({
                           <label className="text-fg-muted text-xs">
                             {i18n.rich('Branch name{value1}', {
                               value1: (
-                                <input
+                                <Input
                                   className={field}
                                   value={branchName}
                                   onChange={(e) => setBranchName(e.target.value)}
@@ -1347,7 +1351,7 @@ export function AgentWorkflowHub({
                           <label className="text-fg-muted text-xs">
                             {i18n.rich('Commit message{value1}', {
                               value1: (
-                                <input
+                                <Input
                                   className={field}
                                   value={commitMessage}
                                   onChange={(e) => setCommitMessage(e.target.value)}

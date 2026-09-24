@@ -1,10 +1,23 @@
+import { Textarea } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Choice';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowRight, Check, Plus, ScanEye, Trash2, Undo2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Plus,
+  ScanEye,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import type { AgentBackend } from '@runhq/cockpit-types';
 import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
 import { AgentWorkflowCanvas } from './AgentWorkflowCanvas';
+import { AgentWorkflowViewToggle } from './AgentWorkflowViewToggle';
 import { AgentWorkflowPromptQueue } from './AgentWorkflowPromptQueue';
 import { AgentWorkflowReviewPolicy } from './AgentWorkflowReviewPolicy';
 import { AgentWorkflowModelControls } from './AgentWorkflowModelControls';
@@ -30,7 +43,7 @@ import {
 } from './agentWorkflowStepPolicy';
 
 const field =
-  'border-border bg-surface text-fg focus:border-accent w-full rounded-lg border px-3 py-2 text-xs focus:outline-none';
+  'border-border bg-surface text-fg focus:border-accent focus:ring-accent/15 focus:ring-2 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none';
 const label = 'text-fg-muted flex flex-col gap-1.5 text-xs';
 const button =
   'border-border hover:bg-fg/5 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs disabled:opacity-40';
@@ -64,7 +77,7 @@ export function AgentWorkflowTasks({
 }) {
   i18n.useLocale();
   const locked = new Set(lockedIds);
-  const [view, setView] = useState<'list' | 'map'>('list');
+  const [view, setView] = useState<'list' | 'map'>('map');
   const [selected, setSelected] = useState<string | null>(null);
   const [previous, setPrevious] = useState<CreateWorkflowStep[] | null>(null);
   const [queuing, setQueuing] = useState(false);
@@ -108,6 +121,7 @@ export function AgentWorkflowTasks({
       return;
     }
     setQueuing(false);
+    setView('map');
     setConversation('separate');
     const next = createWorkflowTemplate(template, producers[0]?.id ?? '', reviewers[0]?.id ?? '');
     change(next);
@@ -179,30 +193,19 @@ export function AgentWorkflowTasks({
             setSelected(next[0]?.id ?? null);
             setConversation(mode);
             setQueuing(false);
+            setView('map');
             onQueueCreated?.();
           }}
         />
       ) : (
         <>
-          <div className="border-border overflow-hidden rounded-xl border">
-            <div className="bg-surface flex flex-wrap items-center gap-2 px-4 py-3">
+          <div className="border-border overflow-hidden rounded-xl border shadow-sm">
+            <div className="bg-surface border-border flex flex-wrap items-center gap-3 border-b px-4 py-3">
               <span className="text-fg text-xs font-medium">{i18n.t('Your workflow')}</span>
               <span className="text-fg-dim text-[11px]">
-                {i18n.rich('{value1} steps', { value1: steps.length })}
+                {i18n.plural('{count} step', '{count} steps', steps.length)}
               </span>
-              <div role="group" aria-label={i18n.t('Workflow editor view')} className="flex gap-1">
-                {(['list', 'map'] as const).map((option) => (
-                  <button
-                    type="button"
-                    key={option}
-                    className={button}
-                    aria-pressed={view === option}
-                    onClick={() => setView(option)}
-                  >
-                    {option === 'list' ? i18n.t('Prompt list') : i18n.t('Map · advanced')}
-                  </button>
-                ))}
-              </div>
+              <AgentWorkflowViewToggle value={view} onChange={setView} />
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {previous && (
                   <button
@@ -250,9 +253,9 @@ export function AgentWorkflowTasks({
                 </button>
               </div>
             </div>
-            <div className="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_300px]">
               <div className="min-w-0">
-                {view === 'list' ? (
+                {view === 'list' && (
                   <ol aria-label={i18n.t('Steps in execution order')} className="space-y-2 p-3">
                     {steps.map((step, index) => (
                       <li
@@ -316,31 +319,39 @@ export function AgentWorkflowTasks({
                       </li>
                     )}
                   </ol>
-                ) : (
-                  <>
-                    <AgentWorkflowCanvas
-                      steps={steps}
-                      selected={current?.id}
-                      onSelect={setSelected}
-                      providerName={providerName}
-                      disabled={disabled}
-                      problems={
-                        new Set(
-                          blocking.flatMap((problem) => (problem.taskId ? [problem.taskId] : [])),
-                        )
-                      }
-                      onConnect={({ source, target }) => connect(source, target)}
-                    />
-                    <p className="border-border text-fg-dim border-t px-4 py-2 text-[11px]">
-                      {i18n.t('Select a step to edit it. Connect the dots to change the order.')}
-                    </p>
-                  </>
                 )}
+                <div hidden={view !== 'map'}>
+                  <AgentWorkflowCanvas
+                    steps={steps}
+                    selected={current?.id}
+                    onSelect={setSelected}
+                    providerName={providerName}
+                    disabled={disabled}
+                    problems={
+                      new Set(
+                        blocking.flatMap((problem) => (problem.taskId ? [problem.taskId] : [])),
+                      )
+                    }
+                    onConnect={({ source, target }) => connect(source, target)}
+                    canConnect={(source, target) =>
+                      !locked.has(target) && canConnectWorkflowTasks(steps, source, target)
+                    }
+                    onDisconnect={(source, target) => {
+                      if (disabled || locked.has(target)) return;
+                      const step = steps.find((entry) => entry.id === target);
+                      if (step)
+                        update(target, {
+                          depends_on: step.depends_on.filter((id) => id !== source),
+                        });
+                    }}
+                    lockedIds={lockedIds}
+                  />
+                </div>
               </div>
               {current && (
                 <fieldset
                   disabled={disabled || currentLocked}
-                  className="border-border bg-surface min-w-0 space-y-4 border-t p-4 xl:border-t-0 xl:border-l"
+                  className="border-border bg-surface min-w-0 space-y-4 border-t p-4 lg:max-h-[520px] lg:overflow-y-auto lg:border-t-0 lg:border-l"
                 >
                   {currentLocked && (
                     <p className="text-fg-dim text-xs">
@@ -443,7 +454,7 @@ export function AgentWorkflowTasks({
                   <label className={label}>
                     {i18n.rich('What should happen?{value1}', {
                       value1: (
-                        <textarea
+                        <Textarea
                           rows={4}
                           className={field}
                           value={current.prompt}
@@ -494,16 +505,17 @@ export function AgentWorkflowTasks({
                       onChange={(review_policy) => update(current.id, { review_policy })}
                     />
                   )}
-                  <details key={current.id} className="text-xs">
-                    <summary className="text-fg-muted cursor-pointer">
+                  <details
+                    key={current.id}
+                    className="group/dependencies border-border/70 rounded-lg border p-2.5 text-xs"
+                  >
+                    <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
                       {i18n.rich('Run after · {value1}', {
                         value1: current.depends_on.length
-                          ? i18n.t('{value1} step{plural2}', {
-                              value1: current.depends_on.length,
-                              plural2: current.depends_on.length === 1 ? '' : 's',
-                            })
+                          ? i18n.plural('{count} step', '{count} steps', current.depends_on.length)
                           : i18n.t('Starts immediately'),
                       })}
+                      <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/dependencies:rotate-180" />
                     </summary>
                     <p className="text-fg-dim mt-2 text-[11px]">
                       {i18n.t('Wait for all selected steps to finish.')}
@@ -518,11 +530,11 @@ export function AgentWorkflowTasks({
                               key={step.id}
                               className="text-fg-muted flex items-start gap-2 text-[11px]"
                             >
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={checked}
                                 disabled={
                                   disabled ||
+                                  currentLocked ||
                                   (!checked && !canConnectWorkflowTasks(steps, step.id, current.id))
                                 }
                                 onChange={() =>
@@ -543,18 +555,20 @@ export function AgentWorkflowTasks({
                         })}
                     </div>
                   </details>
-                  <details className="text-xs">
-                    <summary className="text-fg-muted cursor-pointer">
+                  <details className="group/settings border-border/70 rounded-lg border p-2.5 text-xs">
+                    <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
                       {i18n.t('Advanced step settings')}
+                      <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/settings:rotate-180" />
                     </summary>
                     <div className="mt-3 space-y-3">
                       <label className="text-fg-muted flex items-start gap-2 text-[11px]">
                         {i18n.rich('{value1}Give this step a separate working copy', {
                           value1: (
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={current.workspace === 'own'}
-                              disabled={disabled || !workflowRoleProduces(current.role)}
+                              disabled={
+                                disabled || currentLocked || !workflowRoleProduces(current.role)
+                              }
                               onChange={(event) =>
                                 update(current.id, {
                                   workspace: event.target.checked ? 'own' : 'shared',

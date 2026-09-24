@@ -248,3 +248,53 @@ test('persistence failures block initial creation and preserve accepted launch u
   launcher.complete();
   assert.equal(recovery.load(input.project_id), null);
 });
+
+test('a queued new task saves the dependency and exact first message across retry and reload', async () => {
+  const recovery = persistedRecovery();
+  const dependency = { sessionId: 'running-task', title: 'Finish migration' };
+  const attachments = [{ name: 'screen.png', mime_type: 'image/png', data: 'aW1hZ2U=' }];
+  let creates = 0;
+  let starts = 0;
+  const queued = [];
+  const deps = {
+    recovery,
+    create: async () => {
+      creates++;
+      return session;
+    },
+    created: () => {},
+    start: async () => {
+      starts++;
+      return session;
+    },
+    queue: async (turn, startAfter) => {
+      queued.push({ turn, startAfter });
+      if (queued.length === 1) throw new Error('Storage unavailable');
+      return session;
+    },
+  };
+  await assert.rejects(
+    createAgentTaskLauncher(deps).send(input, 'Original message', attachments, {
+      startAfter: dependency,
+    }),
+    /Storage unavailable/,
+  );
+  assert.deepEqual(recovery.load(input.project_id).startAfter, dependency);
+  const reopened = createAgentTaskLauncher(deps);
+  await reopened.send(input, 'Changed message', [], {
+    startAfter: { sessionId: 'different', title: 'Other' },
+  });
+  assert.equal(creates, 1);
+  assert.equal(starts, 0);
+  assert.equal(queued[1].turn.request_id, queued[0].turn.request_id);
+  assert.equal(queued[1].turn.prompt, 'Original message');
+  assert.deepEqual(JSON.parse(JSON.stringify(queued[1].turn.attachments)), attachments);
+  assert.deepEqual(queued[1].startAfter, dependency);
+  await createAgentTaskLauncher(deps).send(input, 'Another retry');
+  assert.equal(
+    queued.length,
+    2,
+    'an accepted queue must not enqueue twice after a cleanup failure',
+  );
+  reopened.complete();
+});

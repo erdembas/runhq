@@ -14,6 +14,7 @@ function load(path) {
   runInNewContext(source, {
     exports,
     require(name) {
+      if (name === './agentTaskStart') return load('../src/components/agents/agentTaskStart.ts');
       if (name === '@runhq/cockpit-ui')
         return load('../../../packages/cockpit-ui/src/lib/agentAttachments.ts');
       throw new Error(name);
@@ -261,4 +262,137 @@ test('artifact cleanup removes only the deleted session including all edits', ()
   assert.equal(entries.size, 4);
   assert.equal(entries.has('runhq:plan:session:plan1'), false);
   assert.equal(entries.get('runhq:agent-canvas:v1:["another-session","artifact"]'), 'keep');
+});
+
+const { agentTaskDependencyState } = load('../src/components/agents/agentTaskStart.ts');
+const preceding = (status = 'running', extra = {}) => ({
+  id: 'preceding',
+  project_id: 'project',
+  status,
+  pending: [],
+  archived: false,
+  ...extra,
+});
+const target = { id: 'session', project_id: 'project' };
+const dependency = { sessionId: 'preceding', title: 'Existing task' };
+
+test('dependent tasks wait for success in their own project and do not mistake loading for deletion', () => {
+  for (const status of [
+    'running',
+    'starting',
+    'waiting_input',
+    'waiting_permission',
+    'cancelling',
+    'idle',
+  ])
+    assert.equal(agentTaskDependencyState(target, preceding(status), false), 'waiting');
+  assert.equal(agentTaskDependencyState(target, undefined, false), 'waiting');
+  assert.equal(agentTaskDependencyState(undefined, preceding('completed'), false), 'waiting');
+  assert.equal(
+    agentTaskDependencyState(target, preceding('completed', { pending: [{}] }), false),
+    'waiting',
+  );
+  assert.equal(agentTaskDependencyState(target, preceding('completed'), false), 'ready');
+  for (const status of ['failed', 'interrupted', 'cancelled'])
+    assert.equal(agentTaskDependencyState(target, preceding(status), false), 'blocked');
+  assert.equal(agentTaskDependencyState(target, undefined, true), 'blocked');
+  assert.equal(
+    agentTaskDependencyState(target, preceding('completed', { archived: true }), false),
+    'blocked',
+  );
+  assert.equal(
+    agentTaskDependencyState(target, preceding('completed', { project_id: 'other' }), false),
+    'blocked',
+  );
+  assert.equal(
+    agentTaskDependencyState(target, { ...target, status: 'completed', pending: [] }, false),
+    'blocked',
+  );
+});
+
+test('a dependent first message waits, cannot be reordered behind follow-ups, and dispatches once', async () => {
+  let source = preceding();
+  let active = false;
+  let snapshot;
+  const calls = [];
+  const queue = createAgentTurnQueue({
+    canStart: () => !active,
+    dependencyState: () => agentTaskDependencyState(target, source, false),
+    changed: (value) => {
+      snapshot = value;
+    },
+    start: async (turn) => {
+      calls.push(turn);
+      active = true;
+    },
+  });
+  queue.enqueue({ ...input('first'), startAfter: dependency });
+  queue.enqueue(input('follow-up'));
+  queue.move('session', 'first', 1);
+  queue.move('session', 'follow-up', -1);
+  assert.equal(snapshot.session[0].request_id, 'first');
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 0);
+  source = preceding('completed');
+  queue.notify('session');
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].request_id, 'first');
+  assert.equal('startAfter' in calls[0], false, 'scheduling metadata must not reach the provider');
+  assert.equal(calls[0].model, 'chosen-model');
+  assert.equal(snapshot.session[0].request_id, 'follow-up');
+});
+
+test('failed dependencies pause; start now explicitly bypasses the wait but still respects capacity', async () => {
+  let hasSlot = true;
+  let snapshot;
+  const calls = [];
+  const queue = createAgentTurnQueue({
+    canStart: () => hasSlot,
+    dependencyState: () => 'blocked',
+    changed: (value) => {
+      snapshot = value;
+    },
+    start: async (turn) => {
+      calls.push(turn);
+    },
+  });
+  queue.enqueue({ ...input('first'), startAfter: dependency });
+  await tick();
+  assert.equal(snapshot.session[0].state, 'failed');
+  assert.equal(calls.length, 0);
+  queue.resume('session');
+  await tick();
+  assert.equal(calls.length, 0, 'resume keeps the selected dependency');
+  hasSlot = false;
+  queue.startNow('session');
+  await tick();
+  assert.equal(calls.length, 0);
+  assert.equal(snapshot.session[0].startAfter, undefined);
+  hasSlot = true;
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].request_id, 'first');
+});
+
+test('cancelling a waiting first message prevents it from starting after the dependency finishes', async () => {
+  let ready = false;
+  const calls = [];
+  const queue = createAgentTurnQueue({
+    canStart: () => true,
+    dependencyState: () => (ready ? 'ready' : 'waiting'),
+    changed: () => {},
+    start: async (turn) => {
+      calls.push(turn);
+    },
+  });
+  queue.enqueue({ ...input('first'), startAfter: dependency });
+  queue.remove('session', 'first');
+  ready = true;
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 0);
 });

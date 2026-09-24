@@ -15,6 +15,7 @@ function load(path) {
     {
       exports,
       require(name) {
+        if (name === './agentTaskStart') return load('../src/components/agents/agentTaskStart.ts');
         if (name === '@runhq/cockpit-ui')
           return load('../../../packages/cockpit-ui/src/lib/agentAttachments.ts');
         throw new Error(name);
@@ -229,4 +230,41 @@ test('decision inbox isolates project and request type and sorts oldest wait fir
   assert.equal(scoped[0].session.id, 'a');
   assert.equal(agentDecisionWait(100, 30_100), '30s');
   assert.equal(agentDecisionWait(100, 3_900_100), '1h 5m');
+});
+
+test('a restored task retains its start dependency and stays paused until reviewed', async () => {
+  const startAfter = { sessionId: 'preceding', title: 'Existing task' };
+  const record = { session: [{ ...turn('first'), startAfter }] };
+  assert.equal(isAgentQueueRecord(record), true);
+  assert.equal(isAgentQueueRecord({ session: [{ ...turn('first'), startAfter: {} }] }), false);
+  assert.equal(
+    isAgentQueueRecord({
+      session: [{ ...turn('first'), startAfter: { ...startAfter, sessionId: 'session' } }],
+    }),
+    false,
+  );
+  const initial = recoverAgentQueues(JSON.parse(JSON.stringify(record)));
+  assert.deepEqual(initial.session[0].startAfter, startAfter);
+  let ready = false;
+  const calls = [];
+  const queue = createAgentTurnQueue({
+    initial,
+    canStart: () => true,
+    dependencyState: () => (ready ? 'ready' : 'waiting'),
+    changed: () => {},
+    start: async (input) => {
+      calls.push(input);
+    },
+  });
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 0);
+  queue.resume('session');
+  await tick();
+  assert.equal(calls.length, 0);
+  ready = true;
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].request_id, 'first');
 });

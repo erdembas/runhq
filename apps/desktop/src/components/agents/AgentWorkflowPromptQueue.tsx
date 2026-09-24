@@ -1,3 +1,5 @@
+import { Textarea } from '@/components/ui/Input';
+import { Checkbox, Radio } from '@/components/ui/Choice';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
@@ -16,7 +18,7 @@ import {
 const button =
   'border-border hover:bg-fg/5 inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs disabled:opacity-40';
 const field =
-  'border-border bg-surface text-fg focus:border-accent w-full rounded-lg border px-3 py-2 text-xs focus:outline-none';
+  'border-border bg-surface text-fg focus:border-accent focus:ring-accent/15 focus:ring-2 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none';
 
 export function AgentWorkflowPromptQueue({
   projectId,
@@ -85,8 +87,7 @@ export function AgentWorkflowPromptQueue({
             key={value}
             className={`bg-surface flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${conversation === value ? 'border-accent' : 'border-border'}`}
           >
-            <input
-              type="radio"
+            <Radio
               name="queue-conversation"
               value={value}
               checked={conversation === value}
@@ -181,7 +182,7 @@ export function AgentWorkflowPromptQueue({
                 </button>
               </div>
             </div>
-            <textarea
+            <Textarea
               id={`queued-prompt-${row.id}`}
               className={field}
               rows={3}
@@ -216,8 +217,7 @@ export function AgentWorkflowPromptQueue({
               <label className="text-fg-muted flex items-center gap-2 text-[11px]">
                 {i18n.rich('{value1}Review prompt {value2} before continuing', {
                   value1: (
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={row.review}
                       onChange={(event) =>
                         setRows(

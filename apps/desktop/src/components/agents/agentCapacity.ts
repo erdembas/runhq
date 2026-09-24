@@ -70,6 +70,8 @@ export function agentExecutionState(
     return queue.length ? i18n.t('Archived · queue paused') : i18n.t('Archived');
   if (queue[0]?.state === 'failed') return i18n.t('Queue paused · review and resume');
   if (queue[0]?.state === 'sending') return i18n.t('Sending queued message');
+  if (queue[0]?.startAfter)
+    return i18n.t('Waiting for: {value1}', { value1: queue[0].startAfter.title });
   if (['failed', 'interrupted', 'cancelled'].includes(session.status))
     return queue.length
       ? (capacityReason ?? 'Queue paused after interruption')
