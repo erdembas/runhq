@@ -117,8 +117,24 @@ Requirements:
 git clone https://github.com/erdembas/runhq.git
 cd runhq
 pnpm install
-pnpm tauri:dev
+pnpm dev
 ```
+
+On macOS, `pnpm dev` builds and opens the local `.app` with the installed app's
+bundle identifier and `tauri://localhost` origin. This shares both `~/.runhq`
+(`config.json`, `agents.db`) and the installed WebKit profile (project groups,
+ordering, layouts and drafts). It clears QA configuration overrides and uses
+`~/.runhq`. Quit any running RunHQ first; changes affect the installed app's data.
+After editing, quit the local app and run `pnpm dev` again to rebuild it.
+
+`pnpm dev:hot` (or `pnpm tauri:dev`) provides UI/backend hot reload. On macOS,
+this bare executable has a separate WebKit profile and localhost origin, so its
+project groups and UI preferences can differ even though it opens the same
+`~/.runhq` database. On other platforms, `pnpm dev` uses this Tauri dev workflow.
+`RUNHQ_HOME` can override the backend data directory in the hot-reload workflow.
+
+`pnpm dev:ui` starts only Vite for frontend work; a browser tab does not provide
+the native database and service APIs.
 
 Common checks:
 

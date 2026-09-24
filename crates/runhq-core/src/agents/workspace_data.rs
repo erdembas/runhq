@@ -239,7 +239,8 @@ impl AgentManager {
     }
 
     pub fn workspace_save(&self, key: String, value: Option<Value>) -> AppResult<()> {
-        if key.len() > 160
+        let workspace_permission = key.starts_with(super::permissions::WORKSPACE_PERMISSION_PREFIX);
+        if key.len() > if workspace_permission { 8192 } else { 160 }
             || ![
                 "recipe:",
                 "memory:",
@@ -256,6 +257,10 @@ impl AgentManager {
             return Err(invalid("Unknown workspace record type"));
         }
         if let Some(value) = &value {
+            if workspace_permission && !super::permissions::valid_workspace_permission(&key, value)
+            {
+                return Err(invalid("Invalid workspace permission grant"));
+            }
             if key == "preferences:permissions"
                 && !super::permissions::valid_policy(&value["policy"])
             {

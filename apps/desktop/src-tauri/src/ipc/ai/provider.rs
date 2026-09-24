@@ -142,6 +142,9 @@ pub async fn test_ai_provider(id: String, state: State<'_, AppState>) -> AppResu
 
 #[derive(Debug, Deserialize)]
 pub struct ChatRequestInput {
+    /// Request-scoped override; the stored provider remains unchanged.
+    #[serde(default)]
+    pub model: Option<String>,
     /// When `None`, we resolve the user's default provider. Lets feature
     /// surfaces (commit panel, future inline chat, etc.) call this
     /// without each one re-implementing default-resolution.
@@ -157,7 +160,15 @@ pub async fn ai_chat_completion(
     input: ChatRequestInput,
     state: State<'_, AppState>,
 ) -> AppResult<ChatResponse> {
-    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let mut provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    if let Some(model) = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        provider.model = model.to_string();
+    }
     ai::chat_completion(&provider, input.messages, input.options).await
 }
 

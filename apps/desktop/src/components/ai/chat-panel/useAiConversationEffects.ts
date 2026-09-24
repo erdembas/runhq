@@ -6,7 +6,8 @@ import { ipc } from '@/lib/ipc';
 import { useAppStore, type AiActionHook, type AiDraft } from '@/store/useAppStore';
 import type { Conversation } from '@/types';
 import type { Turn } from '../chatPanelTypes';
-import { canUseChatProvider, isCliChatProvider, rememberChatProvider } from './aiChatProviders';
+import { canUseChatProvider } from './aiChatProviders';
+import { configuredAiProvider } from '@/lib/ai/aiPreferences';
 
 type SendRef = RefObject<
   ((overrideText?: string, providerOverride?: AiChatProvider) => Promise<void>) | null
@@ -107,7 +108,7 @@ function useConsumeDraft({
   setInput,
   setPickerOpen,
   setProvider,
-  setProviders,
+  setProviderError,
   surfaceContextByConvRef,
 }: Args) {
   useEffect(() => {
@@ -130,27 +131,40 @@ function useConsumeDraft({
     const shouldAutoSend = aiDraft.autoSend === true;
     const forcedProviderId = aiDraft.forcedProviderId ?? null;
     const prompt = aiDraft.draftPrompt;
+    const forcedModel = aiDraft.forcedModel;
+    const forcedSettings = aiDraft.forcedSettings;
+    const origin = aiDraft.origin ?? 'free';
     clearAiDraft();
     const availableProviders = providers.filter(canUseChatProvider);
-    if (!shouldAutoSend || availableProviders.length === 0) return;
+    if (availableProviders.length === 0) return;
 
-    if (forcedProviderId) {
-      const forced = availableProviders.find((p) => p.id === forcedProviderId);
-      if (forced) {
+    try {
+      const selected = forcedProviderId
+        ? availableProviders.find((entry) => entry.id === forcedProviderId)
+        : configuredAiProvider(providers, origin);
+      if (forcedProviderId && !selected) {
+        throw new Error(
+          i18n.t(
+            'The AI provider selected for this use case is unavailable. Update its selection in Settings → AI providers.',
+          ),
+        );
+      }
+      if (selected) {
+        const forced = forcedSettings
+          ? { ...selected, ...forcedSettings }
+          : forcedModel !== undefined
+            ? { ...selected, model: forcedModel }
+            : selected;
         setProvider(forced);
-        rememberChatProvider(forced);
-        if (!isCliChatProvider(forced))
-          void ipc
-            .setDefaultAiProvider(forced.id)
-            .then(() =>
-              setProviders((prev) => prev.map((x) => ({ ...x, default: x.id === forced.id }))),
-            )
-            .catch(() => {});
-        void sendRef.current?.(prompt, forced);
+        if (shouldAutoSend) void sendRef.current?.(prompt, forced);
         return;
       }
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
+      return;
     }
 
+    if (!shouldAutoSend) return;
     if (availableProviders.length === 1) {
       void sendRef.current?.(prompt, availableProviders[0]);
       return;
@@ -174,7 +188,7 @@ function useConsumeDraft({
     setInput,
     setPickerOpen,
     setProvider,
-    setProviders,
+    setProviderError,
     surfaceContextByConvRef,
   ]);
 }

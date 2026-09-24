@@ -1,6 +1,6 @@
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
-import { memo, useEffect, useId, useRef, useState } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Archive,
   ArrowDown,
@@ -74,6 +74,7 @@ import { AgentTaskLinks } from './AgentTaskLinks';
 import { AgentUsageGuardNotice } from './AgentUsageNotifications';
 import { AgentSessionProject } from './AgentSessionProject';
 import { AgentUserMessage } from './AgentUserMessage';
+import { AgentMessageNavigator } from './AgentMessageNavigator';
 
 const emptyQueue: never[] = [];
 const emptyItems: AgentItem[] = [];
@@ -215,6 +216,10 @@ export function AgentSessionView({
   );
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const [navigatedMessageId, setNavigatedMessageId] = useState<string>();
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const loadingEarlierRef = useRef(false);
+  const earlierAnchor = useRef<{ before: number; element: HTMLElement; top: number } | null>(null);
   const requestRef = useRef<{ key: string; id: string } | null>(null);
   const sendingRef = useRef(false);
   const queued = useVisibleStore(
@@ -240,6 +245,46 @@ export function AgentSessionView({
     model,
   );
   const items = snapshot?.items ?? emptyItems;
+  const userMessages = useMemo(
+    () => items.filter((item) => item.kind === 'user' && !item.id.startsWith('answer:')),
+    [items],
+  );
+  useLayoutEffect(() => {
+    const anchor = earlierAnchor.current;
+    if (!anchor || snapshot?.before === anchor.before || !scroll.current) return;
+    scroll.current.scrollTop += anchor.element.getBoundingClientRect().top - anchor.top;
+    earlierAnchor.current = null;
+  }, [snapshot?.before]);
+  const loadEarlierMessages = async () => {
+    if (loadingEarlierRef.current || !snapshot?.before) return;
+    loadingEarlierRef.current = true;
+    setLoadingEarlier(true);
+    follow.current = false;
+    const viewport = scroll.current;
+    const top = viewport?.getBoundingClientRect().top ?? 0;
+    const element = Array.from(
+      viewport?.querySelectorAll<HTMLElement>('[data-agent-item]') ?? [],
+    ).find((child) => child.getBoundingClientRect().bottom > top);
+    earlierAnchor.current = element
+      ? { before: snapshot.before, element, top: element.getBoundingClientRect().top }
+      : null;
+    try {
+      await loadOlder();
+    } finally {
+      loadingEarlierRef.current = false;
+      setLoadingEarlier(false);
+    }
+  };
+  const navigateToMessage = (id: string) => {
+    const viewport = scroll.current;
+    const message = viewport?.querySelector<HTMLElement>(`[data-agent-item="${CSS.escape(id)}"]`);
+    if (!viewport || !message) return;
+    follow.current = false;
+    setNavigatedMessageId(id);
+    viewport.scrollTop +=
+      message.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 16;
+    message.focus({ preventScroll: true });
+  };
   const requests = useMemo(
     () => new Map(items.filter((item) => item.kind === 'request').map((item) => [item.id, item])),
     [items],
@@ -646,11 +691,17 @@ export function AgentSessionView({
                   const el = scroll.current;
                   if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
                 }}
-                className="overlay-scroll flex-1 space-y-5 overflow-auto px-5 py-6 lg:px-8"
+                className={`overlay-scroll min-h-0 flex-1 space-y-5 overflow-auto py-6 pr-5 lg:pr-8 ${userMessages.length || snapshot?.before ? 'pl-10 lg:pl-12' : 'pl-5 lg:pl-8'}`}
               >
                 {snapshot?.before && (
-                  <button className={`${quietButton} mx-auto`} onClick={() => void loadOlder()}>
-                    {i18n.t('Load earlier activity')}
+                  <button
+                    className={`${quietButton} mx-auto`}
+                    disabled={loadingEarlier}
+                    onClick={() => void loadEarlierMessages()}
+                  >
+                    {loadingEarlier
+                      ? i18n.t('Loading earlier messages…')
+                      : i18n.t('Load earlier activity')}
                   </button>
                 )}
                 {!snapshot && !snapshotError && (
@@ -672,10 +723,11 @@ export function AgentSessionView({
                     <div
                       key={group.item.id}
                       data-agent-item={group.item.id}
+                      tabIndex={group.item.kind === 'user' ? -1 : undefined}
                       className={
-                        focusItemId === group.item.id
-                          ? 'ring-accent/40 ring-offset-surface rounded-lg ring-1 ring-offset-4'
-                          : undefined
+                        focusItemId === group.item.id || navigatedMessageId === group.item.id
+                          ? 'ring-accent/40 ring-offset-surface rounded-lg ring-1 ring-offset-4 outline-none'
+                          : 'outline-none'
                       }
                     >
                       <TranscriptItem
@@ -744,6 +796,15 @@ export function AgentSessionView({
                   </div>
                 )}
               </div>
+              <AgentMessageNavigator
+                messages={userMessages}
+                scrollRef={scroll}
+                visible={visible && tab === 'chat'}
+                hasEarlier={!!snapshot?.before}
+                loadingEarlier={loadingEarlier}
+                onLoadEarlier={() => void loadEarlierMessages()}
+                onNavigate={navigateToMessage}
+              />
               <button
                 aria-label={i18n.t('Follow latest activity')}
                 className="bg-surface-raised border-border text-fg-muted absolute right-4 bottom-3 rounded-full border p-1.5 shadow-sm"

@@ -1,5 +1,5 @@
 import type { AiChatProvider } from './aiChatProviders';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type SetStateAction } from 'react';
 import type { AiActionHook } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import type { ChatMessage, ConversationMessage } from '@/types';
@@ -19,7 +19,28 @@ export function useAiChatState() {
   const [input, setInput] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [providers, setProviders] = useState<AiChatProvider[]>([]);
-  const [provider, setProvider] = useState<AiChatProvider | null>(null);
+  const activeConversationId = useAppStore((s) => s.activeConversationId);
+  const [providersByConversation, setProvidersByConversation] = useState<
+    Record<string, AiChatProvider | null>
+  >({});
+  const provider = providersByConversation[activeConversationId ?? ''] ?? null;
+  const setConversationProvider = useCallback(
+    (id: string | null, value: SetStateAction<AiChatProvider | null>) => {
+      const key = id ?? '';
+      setProvidersByConversation((previous) => {
+        const current = previous[key] ?? null;
+        const next = typeof value === 'function' ? value(current) : value;
+        return current === next ? previous : { ...previous, [key]: next };
+      });
+    },
+    [],
+  );
+  const setProvider = useCallback(
+    (value: SetStateAction<AiChatProvider | null>) => {
+      setConversationProvider(activeConversationId, value);
+    },
+    [activeConversationId, setConversationProvider],
+  );
   const [providerError, setProviderError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [providersLoaded, setProvidersLoaded] = useState(false);
@@ -46,7 +67,6 @@ export function useAiChatState() {
   const selectedService = useAppStore((s) =>
     s.selectedServiceId ? s.services.find((x) => x.id === s.selectedServiceId) : null,
   );
-  const activeConversationId = useAppStore((s) => s.activeConversationId);
   const setActiveConversation = useAppStore((s) => s.setActiveConversation);
   const openTabs = useAppStore((s) => s.openTabs);
   const closeTab = useAppStore((s) => s.closeTab);
@@ -173,6 +193,7 @@ export function useAiChatState() {
     setPickerOpen,
     setProjectNotesContext,
     setProvider,
+    setConversationProvider,
     setProviderError,
     setProviders,
     setProvidersLoaded,

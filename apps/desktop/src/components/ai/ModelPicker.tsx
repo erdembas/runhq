@@ -104,7 +104,9 @@ export function ModelPicker({
                     <div className="text-fg-dim/70 truncate text-[10px]">
                       {cli
                         ? cli.available
-                          ? i18n.t('CLI · Default model')
+                          ? p.model
+                            ? i18n.t('CLI · {model}', { model: p.model })
+                            : i18n.t('CLI · Default model')
                           : cli.error || i18n.t('CLI not found')
                         : p.model}
                     </div>

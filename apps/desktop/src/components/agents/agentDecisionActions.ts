@@ -1,6 +1,7 @@
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { ipc } from '@/lib/ipc';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 
 const replies = new Set<string>();
 
@@ -25,6 +26,13 @@ export async function answerPendingAgentRequest(
   replies.add(key);
   try {
     await ipc.agentAnswer(sessionId, requestId, value);
+    if (
+      value &&
+      typeof value === 'object' &&
+      'permission_scope' in value &&
+      value.permission_scope === 'workspace'
+    )
+      await useAgentLibraryStore.getState().refresh();
     await useAgentStore.getState().refresh(true);
   } finally {
     replies.delete(key);

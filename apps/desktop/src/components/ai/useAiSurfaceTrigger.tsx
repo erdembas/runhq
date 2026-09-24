@@ -1,12 +1,9 @@
 import { type ReactNode, type RefObject, useCallback, useRef, useState } from 'react';
-import { ipc } from '@/lib/ipc';
 import { useAppStore, type OpenAiChatInput } from '@/store/useAppStore';
-import { useAgentStore } from '@/store/useAgentStore';
-import {
-  canUseChatProvider,
-  cliChatProviders,
-  type AiChatProvider,
-} from './chat-panel/aiChatProviders';
+import { canUseChatProvider, type AiChatProvider } from './chat-panel/aiChatProviders';
+import { aiGenerationSettings } from '@/lib/ai/aiGenerationSettings';
+import { configuredAiProvider } from '@/lib/ai/aiPreferences';
+import { loadAiProviders } from '@/lib/ai/loadAiProviders';
 import { ModelChooserPopover } from './ModelChooserPopover';
 
 /**
@@ -25,10 +22,14 @@ interface UseAiSurfaceTriggerOptions {
    *  `null`/`undefined` cancels the dispatch silently — handy for
    *  guarded states (no staged changes, empty diff). */
   buildPayload: () =>
-    | Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId'>
+    | Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId' | 'forcedModel' | 'forcedSettings'>
     | null
     | undefined
-    | Promise<Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId'> | null | undefined>;
+    | Promise<
+        | Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId' | 'forcedModel' | 'forcedSettings'>
+        | null
+        | undefined
+      >;
 }
 
 interface AiSurfaceTrigger<T extends HTMLElement> {
@@ -56,6 +57,7 @@ interface AiSurfaceTrigger<T extends HTMLElement> {
  * Replaces the old "send the user to the chat panel and let *it*
  * ask which model" flow. The new UX:
  *
+ *   • A saved use-case/default selection → send directly with its model.
  *   • 0 providers configured → open the panel anyway; its empty-
  *     state banner already directs the user to AI Settings.
  *   • 1 provider configured → fire the chat directly, prompt is
@@ -86,33 +88,11 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [providers, setProviders] = useState<AiChatProvider[] | null>(null);
 
-  // We re-fetch the provider list at every click so newly added /
-  // deleted models are reflected without a refresh — the IPC is a
-  // single SQL row read, costs nothing. The first click pays the
-  // round-trip latency before the popover opens (a few ms locally),
-  // subsequent clicks open instantly because providers are cached
-  // in state and re-fetched in the background to catch updates.
-  const fetchProviders = useCallback(async (): Promise<AiChatProvider[]> => {
-    try {
-      const [apiResult] = await Promise.allSettled([
-        ipc.listAiProviders(),
-        useAgentStore.getState().toolsReady
-          ? Promise.resolve()
-          : useAgentStore.getState().refreshTools(),
-      ]);
-      const list = [
-        ...(apiResult.status === 'fulfilled' ? apiResult.value : []),
-        ...cliChatProviders(useAgentStore.getState().tools).filter(canUseChatProvider),
-      ];
-      setProviders(list);
-      return list;
-    } catch {
-      // Treat IPC failure as "no providers" — the panel surfaces a
-      // sensible error from its own retry. Better than blocking the
-      // user's click on a transient blip.
-      setProviders([]);
-      return [];
-    }
+  const [error, setError] = useState<string | null>(null);
+  const fetchProviders = useCallback(async () => {
+    const list = await loadAiProviders();
+    setProviders(list.filter(canUseChatProvider));
+    return list;
   }, []);
 
   // Hold latest payload-builder + dispatch in refs so the click
@@ -122,17 +102,12 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
   const buildPayloadRef = useRef(buildPayload);
   buildPayloadRef.current = buildPayload;
 
-  // Async payload support: a slow `buildPayload` (e.g. fetching
-  // the staged diff over IPC) shouldn't block the popover from
-  // appearing for multi-model setups. Strategy:
-  //   • Multi-model path: open the popover immediately, kick off
-  //     buildPayload in parallel, then dispatch when both the user
-  //     pick AND the payload are ready.
-  //   • Single-model / no-model path: fetch payload, then fire.
-  // The pending payload promise lives in a ref so we can await it
-  // again on selection without re-running buildPayload.
+  // Keep the prepared evidence while the user chooses a provider. Resolve the
+  // use-case preference from the payload's origin before deciding to show a picker.
   const pendingPayloadRef = useRef<Promise<
-    Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId'> | null | undefined
+    | Omit<OpenAiChatInput, 'autoSend' | 'forcedProviderId' | 'forcedModel' | 'forcedSettings'>
+    | null
+    | undefined
   > | null>(null);
 
   const dispatch = useCallback(
@@ -145,28 +120,30 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
         ...payload,
         autoSend: true,
         forcedProviderId: forced?.id,
+        forcedModel: forced?.model,
+        forcedSettings: forced ? aiGenerationSettings(forced) : undefined,
       });
     },
     [openAiChat],
   );
 
   const onClick = useCallback(async () => {
-    const list = await fetchProviders();
-    if (list.length <= 1) {
-      // 0 or 1 providers — fire payload + dispatch sequentially.
-      // For zero providers we still open the panel (with payload)
-      // so the user lands on the empty-state banner. For one, we
-      // pin that provider so the panel skips the in-panel picker.
-      void dispatch(list.length === 1 ? list[0] : undefined);
-      return;
+    setError(null);
+    try {
+      const [list, payload] = await Promise.all([fetchProviders(), buildPayloadRef.current()]);
+      if (!payload) return;
+      pendingPayloadRef.current = Promise.resolve(payload);
+      const configured = configuredAiProvider(list, payload.origin);
+      const available = list.filter(canUseChatProvider);
+      if (configured || available.length <= 1) {
+        await dispatch(configured ?? available[0]);
+        return;
+      }
+      setPopoverOpen(true);
+    } catch (error) {
+      pendingPayloadRef.current = null;
+      setError(String(error instanceof Error ? error.message : error));
     }
-    // Multi-model: kick off payload prep in the background so the
-    // user's click feels instant — popover opens right away. By
-    // the time they pick a model the IPC will usually be done.
-    pendingPayloadRef.current = Promise.resolve(buildPayloadRef.current());
-    // Refresh in background while the popover is up so a model
-    // added between clicks shows up without dismiss-and-retry.
-    setPopoverOpen(true);
   }, [fetchProviders, dispatch]);
 
   const handleSelect = useCallback(
@@ -192,6 +169,10 @@ export function useAiSurfaceTrigger<T extends HTMLElement = HTMLElement>({
       onSelect={handleSelect}
       onDismiss={handleDismiss}
     />
+  ) : error ? (
+    <span role="alert" className="text-[11px] text-rose-400">
+      {error}
+    </span>
   ) : null;
 
   return { triggerRef, onClick, popover };

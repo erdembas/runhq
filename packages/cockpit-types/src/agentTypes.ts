@@ -43,6 +43,8 @@ export interface AgentRequest {
   details: string;
   questions: AgentQuestion[] | null;
   choices: { label: string; value: unknown }[] | null;
+  /** RunHQ's opt-in workspace grant, advertised only for ordinary tool permissions. */
+  workspace_approval?: { decision: string; path: string } | null;
   schema: Record<string, unknown> | null;
   url?: string | null;
 }

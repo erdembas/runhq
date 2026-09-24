@@ -1,9 +1,9 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { GitCommit, RefreshCw, Sparkles, Upload } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { ModelChooserPopover } from '@/components/ai/ModelChooserPopover';
-import type { AiProvider } from '@/types';
+import type { AiChatProvider } from '@/components/ai/chat-panel/aiChatProviders';
 import type { CommitPanelStore } from '@/components/git/useCommitPanelStore';
 
 interface CommitComposerProps {
@@ -18,7 +18,8 @@ interface CommitComposerProps {
   onCommit: () => void;
   onPush: () => void;
   onGenerate: () => void;
-  onGenerateWithProvider: (provider: AiProvider) => void;
+  generationControls: ReactNode;
+  onGenerateWithProvider: (provider: AiChatProvider) => void;
   onMessageKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
@@ -34,6 +35,7 @@ export function CommitComposer({
   onCommit,
   onPush,
   onGenerate,
+  generationControls,
   onGenerateWithProvider,
   onMessageKeyDown,
 }: CommitComposerProps) {
@@ -99,6 +101,7 @@ export function CommitComposer({
           />
         )}
       </div>
+      {generationControls}
       {panel.generationMeta && !panel.generating && (
         <div className="text-fg/40 flex items-center gap-1 text-[10px]">
           <Sparkles size={9} className="text-accent/70" />

@@ -23,6 +23,8 @@ pub struct AgentRequest {
     #[serde(default)]
     pub choices: Value,
     #[serde(default)]
+    pub workspace_approval: Value,
+    #[serde(default)]
     pub schema: Value,
     #[serde(default)]
     pub url: Option<String>,

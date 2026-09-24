@@ -462,6 +462,39 @@ test('object approval choices are passed through without transformation', async 
   assert.equal(actual, decision);
 });
 
+test('workspace approval is explicit, includes its scope and locks while submitting', async () => {
+  const pending = deferred();
+  const sent = [];
+  const h = mount({
+    request: request(null, {
+      kind: 'approval',
+      choices: [{ label: 'Allow once', value: 'accept' }],
+      workspace_approval: { decision: 'accept', path: '/projects/example' },
+    }),
+    onAnswer: (value) => {
+      sent.push(plain(value));
+      return pending.promise;
+    },
+  });
+  assert(h.all().some((node) => node.type === 'p' && text(node).includes('/projects/example')));
+  h.click(h.button('Allow all tools for this workspace'));
+  assert.equal(h.click(h.button('Allow once')), false);
+  assert.deepEqual(sent, [{ decision: 'accept', permission_scope: 'workspace' }]);
+  pending.resolve();
+  await h.settle();
+});
+
+test('ordinary approvals without workspace metadata do not invent a workspace grant', () => {
+  const h = mount({
+    request: request(null, {
+      kind: 'approval',
+      choices: [{ label: 'Allow once', value: 'accept' }],
+    }),
+    onAnswer: async () => {},
+  });
+  assert(!h.all().some((node) => node.type === 'button' && text(node).includes('workspace')));
+});
+
 test('URL forms open the supplied URL and confirm without invented content', async () => {
   const opened = [];
   const sent = [];

@@ -33,6 +33,7 @@ export class Context {
     this.emit = emit;
     this.children = new Set();
     this.requests = new Map();
+    this.permissionRequests = new Map();
     this.answering = new Set();
     this.items = new Map();
     this.dirty = new Set();
@@ -64,7 +65,32 @@ export class Context {
     const id = String(request.id ?? randomUUID());
     if (this.requests.has(id)) return;
     this.requests.set(id, respond);
+    this.permissionRequests.set(id, { request, approval });
     this.flush();
+    if ((await this.autoApprove(id)) || !this.requests.has(id)) return;
+    const workspaceApproval =
+      this.config.cwd &&
+      automaticApproval({ ...this.config, permission_policy: 'all' }, request, approval);
+    this.emit({
+      type: 'request',
+      request: {
+        ...request,
+        id,
+        ...(workspaceApproval
+          ? {
+              workspace_approval: {
+                decision: workspaceApproval.decision,
+                path: this.config.cwd,
+              },
+            }
+          : {}),
+      },
+    });
+  }
+  async autoApprove(id) {
+    const pending = this.permissionRequests.get(id);
+    if (!pending || this.answering.has(id)) return false;
+    const { request, approval } = pending;
     const value = !this.cancelled && automaticApproval(this.config, request, approval);
     if (value) {
       try {
@@ -79,7 +105,7 @@ export class Context {
             policy: this.config.permission_policy,
           }),
         );
-        return;
+        return true;
       } catch (error) {
         this.item(
           `automatic-approval:${id}`,
@@ -89,25 +115,47 @@ export class Context {
           'failed',
         );
         // Keep failed submissions answerable through the ordinary request card.
-        if (this.cancelled || !this.requests.has(id)) return;
+        if (this.cancelled || !this.requests.has(id)) return true;
       }
     }
-    this.emit({ type: 'request', request: { ...request, id } });
+    return false;
   }
   async answer(id, value) {
     const respond = this.requests.get(id);
     if (!respond) throw new Error('This request is no longer pending');
     if (this.answering.has(id)) throw new Error('This response is already being submitted');
+    const workspace = value?.permission_scope === 'workspace';
+    if (workspace) {
+      const pending = this.permissionRequests.get(id);
+      const allowed =
+        pending &&
+        this.config.cwd &&
+        !this.cancelled &&
+        automaticApproval(
+          { ...this.config, permission_policy: 'all' },
+          pending.request,
+          pending.approval,
+        );
+      if (!allowed || value.reject || value.decision !== allowed.decision)
+        throw new Error('This request cannot grant workspace permissions');
+      // The owner persists this explicit grant before delivering the answer. Set it before
+      // unblocking the tool so its next request sees the new policy immediately.
+      this.config.permission_policy = 'all';
+    }
     this.answering.add(id);
     try {
-      await respond(value);
+      await respond(workspace ? { decision: value.decision } : value);
       this.resolve(id);
     } finally {
       this.answering.delete(id);
     }
+    if (workspace)
+      for (const pendingId of [...this.permissionRequests.keys()])
+        await this.autoApprove(pendingId);
   }
   resolve(id) {
     this.requests.delete(String(id));
+    this.permissionRequests.delete(String(id));
     this.emit({ type: 'resolved', id: String(id) });
   }
   child(executable, args, options = {}) {
@@ -132,6 +180,7 @@ export class Context {
     this.flush();
     for (const child of this.children) child.kill();
     this.requests.clear();
+    this.permissionRequests.clear();
   }
 }
 

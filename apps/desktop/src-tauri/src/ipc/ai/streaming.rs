@@ -17,7 +17,15 @@ pub async fn ai_chat_completion_stream(
     on_chunk: tauri::ipc::Channel<StreamChunk>,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    let mut provider = resolve_ai_provider(input.provider_id.as_deref(), &state)?;
+    if let Some(model) = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        provider.model = model.to_string();
+    }
     stream_with_fallback(&provider, input.messages, input.options, on_chunk).await
 }
 

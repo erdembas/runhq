@@ -796,7 +796,7 @@ impl AgentManager {
         } else {
             None
         };
-        let permission_policy = self.permission_policy()?;
+        let permission_policy = self.permission_policy_for(&session.cwd)?;
         let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"title_prompt":title_prompt,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"read_only_review":session.workflow_read_only,"permission_policy":permission_policy});
         stdin
             .write_all(format!("{}\n", json!({"type":"start","config":config})).as_bytes())
@@ -945,7 +945,7 @@ impl AgentManager {
         if serde_json::to_vec(&value)?.len() > 256 * 1024 {
             return Err(invalid("Answer is too large"));
         }
-        let request = {
+        let (request, cwd) = {
             let state = self.state.lock();
             let runtime = state
                 .running
@@ -966,8 +966,29 @@ impl AgentManager {
             if session.workflow_read_only && request.kind != "question" {
                 return Err(invalid("Independent reviewers cannot receive tool or write permission grants. Stop the review and use the implementation task for changes."));
             }
-            request.clone()
+            if value.get("permission_scope").is_some()
+                && (value["permission_scope"] != "workspace"
+                    || request.kind != "approval"
+                    || session.mode == "plan"
+                    || session.agent == "plan"
+                    || value["reject"] == true
+                    || request.workspace_approval["decision"].as_str().is_none()
+                    || request.workspace_approval["decision"] != value["decision"]
+                    || request.workspace_approval["path"] != session.cwd
+                    || !request.choices.as_array().is_some_and(|choices| {
+                        choices
+                            .iter()
+                            .any(|choice| choice["value"] == value["decision"])
+                    }))
+            {
+                return Err(invalid("This request cannot grant workspace permissions"));
+            }
+            (request.clone(), session.cwd.clone())
         };
+        if value["permission_scope"] == "workspace" {
+            // Persist before allowing execution: a failed save must leave the tool waiting.
+            self.allow_workspace_permissions(&cwd)?;
+        }
         self.control(
             id,
             json!({"type":"answer","id":request.native_id,"value":value}),

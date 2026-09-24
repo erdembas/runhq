@@ -244,6 +244,7 @@ export function useAiStreamRunner({
             persistAssistantTurnRef,
             reasoningChunkCount,
             retryAttempt,
+            providerOverride: activeProvider,
             runStreamRef,
             sawAnyDelta,
             setTurnsForConv,
@@ -262,6 +263,7 @@ export function useAiStreamRunner({
             inFlightConvsRef,
             persistAssistantTurnRef,
             retryAttempt,
+            providerOverride: activeProvider,
             runStreamRef,
             setTurnsForConv,
             targetConvId,
@@ -284,6 +286,10 @@ export function useAiStreamRunner({
             const result = await runCliChat({
               client: ipc,
               backend: activeProvider.cli,
+              model: activeProvider.model,
+              effort: activeProvider.effort,
+              mode: activeProvider.mode,
+              agent: activeProvider.agent,
               projectId,
               history,
               signal: controller.signal,
@@ -341,7 +347,12 @@ export function useAiStreamRunner({
           return;
         }
         await ipc.aiChatCompletionStream(
-          { provider_id: activeProvider.id, messages: history, options: { temperature: 0.4 } },
+          {
+            provider_id: activeProvider.id,
+            model: activeProvider.model,
+            messages: history,
+            options: { temperature: 0.4 },
+          },
           onChunk,
         );
       } catch (e) {

@@ -2,10 +2,21 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "desktop-native",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"]
+    },
+    {
       "name": "desktop-ui",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@runhq/desktop", "dev"],
       "port": 1420
+    },
+    {
+      "name": "desktop-qa",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@runhq/desktop", "exec", "vite", "--port", "1430"],
+      "port": 1430
     }
   ]
 }
