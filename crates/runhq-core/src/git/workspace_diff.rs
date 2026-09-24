@@ -184,8 +184,16 @@ fn diff_recreated_file(root: &Path, path: &[u8], blob: &BaselineBlob) -> AppResu
     };
     let before_prefix = scratch_prefix("runhq-before");
     let after_prefix = scratch_prefix("runhq-after");
-    let before = Path::new(&before_prefix).join(&relative);
-    let after = Path::new(&after_prefix).join(&relative);
+    // Git preserves separators from --no-index arguments in patch headers.
+    // Keep Git's slash spelling on Windows as well, without rewriting literal
+    // backslashes that are valid filename characters on Unix.
+    let prefixed_path = |prefix: &str| {
+        let mut path = OsString::from(format!("{prefix}/"));
+        path.push(relative.as_os_str());
+        PathBuf::from(path)
+    };
+    let before = prefixed_path(&before_prefix);
+    let after = prefixed_path(&after_prefix);
     std::fs::create_dir_all(scratch.path().join(&before).parent().unwrap())?;
     std::fs::create_dir_all(scratch.path().join(&after).parent().unwrap())?;
     let before_file = scratch.path().join(&before);

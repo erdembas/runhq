@@ -259,8 +259,8 @@ mod tests {
         );
 
         let prompt = workspace_prompt(session.workspace.as_ref(), "Update both").unwrap();
-        assert!(prompt.contains(&a.to_string_lossy().to_string()));
-        assert!(prompt.contains(&b.to_string_lossy().to_string()));
+        assert!(prompt.contains(&serde_json::to_string(&a.to_string_lossy()).unwrap()));
+        assert!(prompt.contains(&serde_json::to_string(&b.to_string_lossy()).unwrap()));
         assert_eq!(workspace_prompt(None, "unchanged").unwrap(), "unchanged");
         let mut isolated = input;
         isolated.isolated = true;

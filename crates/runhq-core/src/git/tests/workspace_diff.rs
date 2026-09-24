@@ -16,6 +16,16 @@ fn seed(dir: &Path) -> String {
     git(dir, &["rev-parse", "HEAD"]).trim().to_owned()
 }
 
+fn quoted_filename() -> (&'static str, &'static str) {
+    // Windows forbids control characters in filenames. Non-ASCII names still
+    // exercise Git's quoted path format on that platform.
+    if cfg!(windows) {
+        ("café.txt", "caf\\303\\251.txt")
+    } else {
+        ("tab\tfile.txt", "tab\\tfile.txt")
+    }
+}
+
 #[test]
 fn workspace_diff_includes_commits_staged_unstaged_and_untracked_without_writes() {
     let td = tempfile::tempdir().unwrap();
@@ -107,11 +117,15 @@ fn workspace_diff_renders_binary_empty_and_quoted_untracked_paths() {
     seed(td.path());
     std::fs::write(td.path().join("binary.bin"), b"a\0b").unwrap();
     write_file(td.path(), "empty.txt", "");
-    write_file(td.path(), "tab\tfile.txt", "tabbed path\n");
+    let (name, quoted) = quoted_filename();
+    write_file(td.path(), name, "quoted path\n");
     let raw = workspace_diff_raw(td.path(), None).unwrap();
     assert!(raw.contains("Binary files /dev/null and b/binary.bin differ"));
     assert!(raw.contains("diff --git a/empty.txt b/empty.txt\nnew file mode"));
-    assert!(raw.contains("diff --git \"a/tab\\tfile.txt\" \"b/tab\\tfile.txt\""));
+    assert!(
+        raw.contains(&format!("diff --git \"a/{quoted}\" \"b/{quoted}\"")),
+        "{raw}"
+    );
 }
 
 #[cfg(unix)]
@@ -160,7 +174,10 @@ fn workspace_diff_compares_recreated_untracked_file_with_its_original_contents()
     write_file(root, "staged.txt", "recreated content\n");
     let raw = workspace_diff_raw(root, Some(&base)).unwrap();
     assert_eq!(raw.matches("diff --git ").count(), 1, "{raw}");
-    assert!(raw.starts_with("diff --git a/staged.txt b/staged.txt\n"));
+    assert!(
+        raw.starts_with("diff --git a/staged.txt b/staged.txt\n"),
+        "{raw}"
+    );
     assert!(raw.contains("-before\n+recreated content"));
     assert!(!raw.contains("deleted file mode"));
     assert!(!raw.contains("new file mode"));
@@ -174,15 +191,16 @@ fn workspace_diff_recreated_file_preserves_quoted_paths_and_content() {
     let root = td.path();
     seed(root);
     std::fs::create_dir_all(root.join("runhq-before/directory")).unwrap();
-    let name = "runhq-before/directory/tab\tfile.txt";
-    write_file(root, name, "a/before/ must remain in file content\n");
-    git(root, &["add", name]);
+    let (filename, quoted) = quoted_filename();
+    let name = format!("runhq-before/directory/{filename}");
+    write_file(root, &name, "a/before/ must remain in file content\n");
+    git(root, &["add", &name]);
     git(root, &["commit", "-qm", "quoted path"]);
-    git(root, &["rm", "--cached", name]);
-    write_file(root, name, "b/after/ must also remain\n");
+    git(root, &["rm", "--cached", &name]);
+    write_file(root, &name, "b/after/ must also remain\n");
     let raw = workspace_diff_raw(root, None).unwrap();
     assert!(
-        raw.contains("diff --git \"a/runhq-before/directory/tab\\tfile.txt\" \"b/runhq-before/directory/tab\\tfile.txt\"")
+        raw.contains(&format!("diff --git \"a/runhq-before/directory/{quoted}\" \"b/runhq-before/directory/{quoted}\"")), "{raw}"
     );
     assert!(raw.contains("-a/before/ must remain in file content"));
     assert!(raw.contains("+b/after/ must also remain"));
