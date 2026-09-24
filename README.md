@@ -80,6 +80,9 @@ brew upgrade --cask runhq
 
 Download the latest installer from [GitHub Releases](https://github.com/erdembas/runhq/releases/latest).
 
+The [3.4.0 release](https://github.com/erdembas/runhq/releases/tag/v3.4.0) brings project workspaces,
+side-by-side task changes and shared multi-project tasks, with English and Turkish support.
+
 - **macOS:** `.dmg` for Apple Silicon or Intel
 - **Linux:** `.deb`, `.rpm`, or `.AppImage`
 - **Windows:** `.exe` or `.msi`
