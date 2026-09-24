@@ -7,10 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.0](https://github.com/erdembas/runhq/compare/v3.3.0...v3.4.0) (2026-09-24)
 
+### Project workspaces
 
-### Features
+- Move between overview, agents, run commands, Git, docs, notes and health checks in one project workspace.
+- Preview project READMEs and preserve open terminals, task drafts and navigation state.
+- Organize projects and shared workspaces with section navigation and an attention center.
 
-* **desktop:** unify project workspaces and multi-project agent tasks ([#172](https://github.com/erdembas/runhq/issues/172)) ([51b4daf](https://github.com/erdembas/runhq/commit/51b4dafdbfe09ba0b8875c907e372cabbc5fe77a))
+### Tasks and workflows
+
+- Review task changes beside the conversation with folder/file navigation, readable diffs and an expanded view that preserves selection and scroll position.
+- Open a terminal in the task workspace and use an expanded workflow studio to follow execution.
+- Keep existing task tabs accessible through the new project navigation.
+
+### Multi-project workspaces
+
+- Connect selected projects under a shared folder, save shared instructions and choose each task's project scope.
+- Configure run groups with validated service and command selections.
+- Inspect per-project changes and recorded check evidence, including files that already had local changes before the task.
+
+All new desktop controls and in-app release notes support English and Turkish.
+
+[Implementation: #172](https://github.com/erdembas/runhq/pull/172).
 
 ## [3.3.0](https://github.com/erdembas/runhq/compare/v3.2.0...v3.3.0) (2026-09-24)
 
