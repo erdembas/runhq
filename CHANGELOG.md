@@ -7,15 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.5.0](https://github.com/erdembas/runhq/compare/v3.4.0...v3.5.0) (2026-09-24)
 
+RunHQ 3.5 adds portable coding pipelines, clearer workflow editing and agent pause controls.
 
-### Features
+### Coding pipelines
 
-* **desktop:** run portable coding pipelines and pause supported agents ([#176](https://github.com/erdembas/runhq/issues/176)) ([b9f32ac](https://github.com/erdembas/runhq/commit/b9f32accfacdb5d6475b3185cf78d4fe2f250211))
+- Import JSON or ZIP packages with prompt files, scripts and up to 512 agent, shell, human-approval and barrier steps. Open a one-time workflow without saving a recipe.
+- Coordinate dependencies, conditions, resource locks and bounded correction/review rounds; verify each correction with a terminal command and retain its exit code and output.
+- Review captured read-only repository snapshots with earlier implementation reports and verification evidence. Save every attempt and review report.
+- Stop new work after a failed check, request human approval and resume interrupted work explicitly. Configure step deadlines, retries and supported agent/model choices.
 
+### Workflow editing and agent control
 
-### Documentation
+- Edit recipes across the full window, import prompt files and inspect step attempts and recovery states.
+- Pause Claude and OpenCode at supported checkpoints, then continue the same conversation. Codex and Cursor retain their existing stop controls.
+- English and Turkish desktop controls and in-app release notes.
 
-* highlight the 3.4.0 workspace release ([#174](https://github.com/erdembas/runhq/issues/174)) ([45768d5](https://github.com/erdembas/runhq/commit/45768d5d6971d607bba26427ba625e473efd8cb6))
+**Getting started:** Workflows → Pipeline packages → Import pipeline package. Reimport an updated ZIP to capture its latest files; existing drafts keep their original copy. Review repository paths and branches before starting.
+
+Provider authentication, permissions and usage limits still apply. Package imports create a draft and do not automatically execute scripts or agents.
+
+[Implementation: #176](https://github.com/erdembas/runhq/pull/176).
 
 ## [3.4.0](https://github.com/erdembas/runhq/compare/v3.3.0...v3.4.0) (2026-09-24)
 
