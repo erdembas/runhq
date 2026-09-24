@@ -3,14 +3,66 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to rebuild (e.g. v3.1.0).'
+        required: true
+        type: string
+      family:
+        description: 'Rebuild only this platform family; all release assets are still verified.'
+        required: true
+        default: all
+        type: choice
+        options: [all, macos, linux, windows]
+
+# Bundled Monaco language workers exceed Node's default ~2 GB heap on macOS.
+# Job-wide inheritance also covers Tauri's beforeBuildCommand.
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
 
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Resolve release source and platforms
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      # Use the workflow revision's helpers, including when repairing an older tag.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Select platforms
+        id: plan
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_FAMILY: ${{ inputs.family || 'all' }}
+        run: node scripts/release-plan.mjs
+      - name: Resolve the original tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.plan.outputs.tag }}
+          path: release-source
+      - name: Validate versions and pin the source commit
+        id: source
+        env:
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          node scripts/release-plan.mjs --check-version release-source
+          echo "commit=$(git -C release-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   release:
     name: Release (${{ matrix.family }} ${{ matrix.arch }})
+    needs: prepare
     permissions:
       contents: write
     # Every matrix entry is now treated as required. Earlier releases
@@ -28,56 +80,17 @@ jobs:
     # leaks the secret — only its presence.
     env:
       APPLE_CERT_PRESENT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # ── macOS ─────────────────────────────────────────────────
-          - platform: macos-latest
-            family: macos
-            arch: aarch64
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            family: macos
-            arch: x64
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-
-          # ── Linux ─────────────────────────────────────────────────
-          - platform: ubuntu-22.04
-            family: linux
-            arch: amd64
-            target: x86_64-unknown-linux-gnu
-            args: ''
-          - platform: ubuntu-22.04-arm
-            family: linux
-            arch: arm64
-            target: aarch64-unknown-linux-gnu
-            args: ''
-
-          # ── Windows ───────────────────────────────────────────────
-          - platform: windows-latest
-            family: windows
-            arch: x64
-            target: x86_64-pc-windows-msvc
-            args: ''
-          # ARM64 is cross-compiled on the x64 Windows runner via the
-          # MSVC ARM64 toolchain. tauri-bundler picks up `--target` and
-          # produces NSIS + MSI installers that boot natively on ARM
-          # Windows hosts. Cross-compile keeps us off the
-          # `windows-11-arm` runner pool, which still has spotty
-          # availability for free public-repo minutes.
-          - platform: windows-latest
-            family: windows
-            arch: arm64
-            target: aarch64-pc-windows-msvc
-            args: --target aarch64-pc-windows-msvc
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
 
       - name: Install Linux dependencies
         if: matrix.family == 'linux'
@@ -145,8 +158,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'RunHQ ${{ github.ref_name }}'
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: 'RunHQ ${{ needs.prepare.outputs.tag }}'
           releaseBody: 'See the assets below to download and install RunHQ.'
           releaseDraft: true
           prerelease: false
@@ -172,8 +185,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'RunHQ ${{ github.ref_name }}'
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: 'RunHQ ${{ needs.prepare.outputs.tag }}'
           releaseBody: 'See the assets below to download and install RunHQ.'
           releaseDraft: true
           prerelease: false
@@ -189,12 +202,11 @@ jobs:
           FAMILY: ${{ matrix.family }}
           ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: bash scripts/publish-release-aliases.sh
 
   verify:
     name: Verify release assets and updater
-    needs: release
+    needs: [prepare, release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -207,7 +219,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
           verification_dir="$RUNNER_TEMP/release-verification"
@@ -225,10 +237,9 @@ jobs:
   # build and 404s on the download URLs (see docs/RELEASING.md).
   homebrew:
     name: Update Homebrew Cask
-    needs: verify
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare, verify]
     uses: ./.github/workflows/homebrew-tap.yml
     with:
-      tag: ${{ github.ref_name }}
+      tag: ${{ needs.prepare.outputs.tag }}
     secrets:
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -7,9 +7,53 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, URL } from 'node:url';
 import test from 'node:test';
 import { releaseLayout, verifyRelease } from './verify-release.mjs';
+import { checkReleaseVersions, releasePlan } from './release-plan.mjs';
 import { onRequest } from '../functions/api/updates/latest.js';
 
 const { Request, Response } = globalThis;
+
+test('release recovery selects only the requested platform without changing the tag', () => {
+  const complete = releasePlan('v3.1.0');
+  assert.equal(complete.matrix.include.length, 6);
+  for (const family of ['macos', 'linux', 'windows']) {
+    const recovery = releasePlan('v3.1.0', family);
+    assert.equal(recovery.tag, 'v3.1.0');
+    assert.equal(recovery.matrix.include.length, 2);
+    assert(recovery.matrix.include.every((target) => target.family === family));
+  }
+  for (const tag of [
+    'main',
+    'refs/tags/v3.1.0',
+    'v3.1.0\nmatrix={}',
+    'v3.1.0\n',
+    'v3.1.0-rc.1',
+    undefined,
+  ])
+    assert.throws(() => releasePlan(tag), /stable vX.Y.Z/);
+  assert.throws(() => releasePlan('v3.1.0', 'darwin'), /Unknown release family/);
+});
+
+test('release recovery rejects source versions that differ from the target tag before uploading', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'runhq release versions '));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const files = {
+    'package.json': '{"version":"3.1.0"}',
+    'apps/desktop/package.json': '{"version":"3.1.0"}',
+    'apps/desktop/src-tauri/tauri.conf.json': '{"version":"3.1.0"}',
+    'apps/desktop/src-tauri/Cargo.toml': 'version = "3.1.0" # x-release-please-version',
+    'crates/runhq-core/Cargo.toml': 'version = "3.1.0" # x-release-please-version',
+  };
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
+  assert.doesNotThrow(() => checkReleaseVersions(root, 'v3.1.0'));
+  for (const [path, content] of Object.entries(files)) {
+    writeFileSync(join(root, path), content.replace('3.1.0', '3.2.0'));
+    assert.throws(() => checkReleaseVersions(root, 'v3.1.0'), /does not match release/);
+    writeFileSync(join(root, path), content);
+  }
+});
 
 function updaterRequest(method = 'GET') {
   return { request: new Request('https://runhq.dev/api/updates/latest', { method }) };

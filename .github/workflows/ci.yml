@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Match release builds, including the macOS frontend build before Clippy.
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+
 jobs:
   frontend:
     name: Frontend (lint + typecheck + build)
