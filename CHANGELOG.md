@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0](https://github.com/erdembas/runhq/compare/v3.0.1...v3.1.0) (2026-09-24)
+
+
+### Features
+
+* **desktop:** configure AI providers and restore diff highlighting ([#165](https://github.com/erdembas/runhq/issues/165)) ([1a49bfc](https://github.com/erdembas/runhq/commit/1a49bfc26b0bef474e3adeb5e1c863e2b797893d))
+
 ## [3.0.1](https://github.com/erdembas/runhq/compare/v3.0.0...v3.0.1) (2026-09-23)
 
 Fixes the blank desktop window on startup introduced in 3.0.0. Turkish and English
