@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0](https://github.com/erdembas/runhq/compare/v3.4.0...v3.5.0) (2026-09-24)
+
+
+### Features
+
+* **desktop:** run portable coding pipelines and pause supported agents ([#176](https://github.com/erdembas/runhq/issues/176)) ([b9f32ac](https://github.com/erdembas/runhq/commit/b9f32accfacdb5d6475b3185cf78d4fe2f250211))
+
+
+### Documentation
+
+* highlight the 3.4.0 workspace release ([#174](https://github.com/erdembas/runhq/issues/174)) ([45768d5](https://github.com/erdembas/runhq/commit/45768d5d6971d607bba26427ba625e473efd8cb6))
+
 ## [3.4.0](https://github.com/erdembas/runhq/compare/v3.3.0...v3.4.0) (2026-09-24)
 
 ### Project workspaces
