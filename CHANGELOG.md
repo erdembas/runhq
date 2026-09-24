@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0](https://github.com/erdembas/runhq/compare/v3.2.0...v3.3.0) (2026-09-24)
+
+
+### Features
+
+* **desktop:** send queued messages now and customize chat defaults ([#170](https://github.com/erdembas/runhq/issues/170)) ([4fffd8d](https://github.com/erdembas/runhq/commit/4fffd8d9369e444c6ec5bdaec8a4fadf6446dda7))
+
 ## [3.2.0](https://github.com/erdembas/runhq/compare/v3.1.0...v3.2.0) (2026-09-24)
 
 ### Visual workflows
