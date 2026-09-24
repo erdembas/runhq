@@ -155,6 +155,8 @@ export interface AgentTurnInput {
   mode?: 'default' | 'plan';
   agent?: string;
   attachments?: AgentAttachment[];
+  /** Explicitly start this turn alongside ordinary tasks in the same checkout. */
+  allow_parallel_checkout?: boolean;
 }
 
 /** An inline image selected by the user, sent as native provider image content. */

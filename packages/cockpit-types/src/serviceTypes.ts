@@ -131,15 +131,19 @@ export interface AppInfo {
 }
 
 /**
- * Every keyboard shortcut the user can rebind. Two scopes coexist
+ * Every keyboard shortcut the user can rebind. Three scopes coexist
  * here: `quick_action` and `focus_main` are OS-level globals
  * registered with Tauri's `tauri-plugin-global-shortcut` (active
- * even when RunHQ is hidden / unfocused), everything else is a
- * window-level binding handled by a React keydown listener (only
- * fires while the RunHQ window has focus). Stored together so a
+ * even when RunHQ is hidden / unfocused). Panel and tab shortcuts
+ * use a window-level React keydown listener; `send_message` is
+ * handled only by focused message composers. Stored together so a
  * single `prefs.json` round-trip persists every key.
  */
 export interface Shortcuts {
+  // ---- Message composer ----
+  /** Send the current message; Shift+Enter always inserts a new line. */
+  send_message: 'Enter' | 'CmdOrCtrl+Enter';
+
   // ---- Global ----
   quick_action: string;
   /**

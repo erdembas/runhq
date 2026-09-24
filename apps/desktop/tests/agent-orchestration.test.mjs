@@ -22,7 +22,9 @@ function load(path) {
   });
   return exports;
 }
-const { createAgentTurnQueue } = load('../src/components/agents/agentTurnQueue.ts');
+const { createAgentTurnQueue, recoverAgentQueues } = load(
+  '../src/components/agents/agentTurnQueue.ts',
+);
 const { collectAgentPlans, agentPlanDocument, buildAgentPlanPrompt } = load(
   '../../../packages/cockpit-ui/src/lib/agentPlans.ts',
 );
@@ -342,6 +344,7 @@ test('a dependent first message waits, cannot be reordered behind follow-ups, an
   assert.equal(calls[0].request_id, 'first');
   assert.equal('startAfter' in calls[0], false, 'scheduling metadata must not reach the provider');
   assert.equal(calls[0].model, 'chosen-model');
+  assert.equal(calls[0].allow_parallel_checkout, undefined);
   assert.equal(snapshot.session[0].request_id, 'follow-up');
 });
 
@@ -371,11 +374,58 @@ test('failed dependencies pause; start now explicitly bypasses the wait but stil
   await tick();
   assert.equal(calls.length, 0);
   assert.equal(snapshot.session[0].startAfter, undefined);
+  assert.equal(snapshot.session[0].allow_parallel_checkout, true);
   hasSlot = true;
   queue.notify('session');
   await tick();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].request_id, 'first');
+  assert.equal(calls[0].allow_parallel_checkout, true);
+});
+
+test('start now saves checkout sharing before dispatch and retains it through restart recovery', async () => {
+  let saved;
+  let canSave = true;
+  const calls = [];
+  const queue = createAgentTurnQueue({
+    canStart: () => true,
+    dependencyState: () => 'waiting',
+    changed: (value) => {
+      if (!canSave) return false;
+      saved = JSON.parse(JSON.stringify(value));
+    },
+    start: async (turn) => calls.push(turn),
+  });
+  queue.enqueue({ ...input('first'), startAfter: dependency });
+  canSave = false;
+  queue.startNow('session');
+  await tick();
+  assert.equal(calls.length, 0, 'a failed save must never start the parallel turn');
+  canSave = true;
+  queue.notify('session');
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].allow_parallel_checkout, true);
+
+  const restored = recoverAgentQueues({
+    session: [{ ...input('retry'), state: 'sending', allow_parallel_checkout: true }],
+  });
+  const reopened = createAgentTurnQueue({
+    initial: restored,
+    canStart: () => true,
+    changed: (value) => {
+      saved = value;
+    },
+    start: async (turn) => calls.push(turn),
+  });
+  reopened.notify('session');
+  await tick();
+  assert.equal(calls.length, 1, 'restart still requires reviewing an uncertain send');
+  reopened.resume('session');
+  await tick();
+  assert.equal(calls[1].request_id, 'retry');
+  assert.equal(calls[1].allow_parallel_checkout, true);
+  assert.equal(saved.session.length, 0);
 });
 
 test('cancelling a waiting first message prevents it from starting after the dependency finishes', async () => {

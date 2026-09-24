@@ -7,10 +7,12 @@ export function AgentMessageQueue({
   entries,
   paused,
   disabled,
+  sendNowDisabled,
   onRemove,
   onMove,
   onResume,
   onStartNow,
+  onSendNow,
   onOpenDependency,
 }: {
   entries: {
@@ -22,16 +24,20 @@ export function AgentMessageQueue({
   }[];
   paused: boolean;
   disabled?: boolean;
+  sendNowDisabled?: boolean;
   onRemove: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
   onResume: () => void;
   onStartNow?: () => void;
+  onSendNow?: (requestId: string) => void;
   onOpenDependency?: (sessionId: string) => void;
 }) {
   i18n.useLocale();
   if (!entries.length) return null;
   const button = 'text-fg-dim hover:text-fg rounded p-1 disabled:opacity-25';
   const preceding = entries[0]?.startAfter;
+  const interrupting = entries.some((entry) => entry.state === 'interrupting');
+  const inFlight = interrupting || entries.some((entry) => entry.state === 'sending');
   return (
     <section
       aria-label={i18n.t('Queued messages')}
@@ -43,16 +49,18 @@ export function AgentMessageQueue({
           {i18n.rich('Up next · {value1}', { value1: entries.length })}
         </span>
         <span className="text-fg-dim min-w-0 flex-1">
-          {paused
-            ? i18n.t('Paused')
-            : preceding
-              ? i18n.t('Waiting for: {value1}', { value1: preceding.title })
-              : i18n.t('Runs after this task completes')}
+          {interrupting
+            ? i18n.t('Stopping current turn…')
+            : paused
+              ? i18n.t('Paused')
+              : preceding
+                ? i18n.t('Waiting for: {value1}', { value1: preceding.title })
+                : i18n.t('Runs after this task completes')}
         </span>
         {preceding && onStartNow && (
           <button
             type="button"
-            disabled={disabled || entries[0]?.state === 'sending'}
+            disabled={disabled || inFlight}
             onClick={onStartNow}
             className="text-accent disabled:opacity-40"
           >
@@ -61,7 +69,7 @@ export function AgentMessageQueue({
         )}
         {paused && (
           <button
-            disabled={disabled}
+            disabled={disabled || inFlight}
             onClick={onResume}
             className="text-accent flex items-center gap-1 disabled:opacity-40"
           >
@@ -83,7 +91,7 @@ export function AgentMessageQueue({
           <li key={entry.request_id} className="border-border/50 border-t py-1.5 first:border-0">
             <div className="flex items-center gap-2">
               <span className="text-fg-dim w-3 text-[10px]">
-                {entry.state === 'sending' ? (
+                {entry.state === 'sending' || entry.state === 'interrupting' ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   index + 1
@@ -92,9 +100,24 @@ export function AgentMessageQueue({
               <p className="text-fg-muted min-w-0 flex-1 truncate text-[12px]" title={entry.prompt}>
                 {entry.prompt}
               </p>
+              {!preceding && onSendNow && (
+                <button
+                  type="button"
+                  aria-label={i18n.t('Send queued message {position} now', { position: index + 1 })}
+                  title={i18n.t(
+                    'Stop the current turn and send this message in the same conversation.',
+                  )}
+                  disabled={sendNowDisabled || inFlight}
+                  onClick={() => onSendNow(entry.request_id)}
+                  className="text-accent shrink-0 rounded px-1 py-1 text-[11px] disabled:opacity-40"
+                >
+                  {i18n.t('Send now')}
+                </button>
+              )}
               <button
                 aria-label={i18n.t('Move queued message {value1} up', { value1: index + 1 })}
                 disabled={
+                  interrupting ||
                   index === 0 ||
                   entry.state !== 'queued' ||
                   entries[index - 1]?.state !== 'queued' ||
@@ -109,6 +132,7 @@ export function AgentMessageQueue({
               <button
                 aria-label={i18n.t('Move queued message {value1} down', { value1: index + 1 })}
                 disabled={
+                  interrupting ||
                   index === entries.length - 1 ||
                   entry.state !== 'queued' ||
                   entries[index + 1]?.state !== 'queued' ||
@@ -122,7 +146,7 @@ export function AgentMessageQueue({
               </button>
               <button
                 aria-label={i18n.t('Remove queued message {value1}', { value1: index + 1 })}
-                disabled={entry.state === 'sending'}
+                disabled={interrupting || entry.state === 'sending'}
                 onClick={() => onRemove(entry.request_id)}
                 className={button}
               >

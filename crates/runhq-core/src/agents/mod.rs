@@ -605,7 +605,8 @@ impl AgentManager {
         self.validate_workflow_turn(&previous, &input)?;
         self.tool(&previous.backend)?;
         let cwd = PathBuf::from(&previous.cwd).canonicalize()?;
-        // Serialize writers by actual checkout root, including monorepo service subdirectories.
+        // Track actual checkout roots, including monorepo service subdirectories. Ordinary
+        // tasks share one only after an explicit Start now choice; workflows stay exclusive.
         let lease_path = git_toplevel(&cwd).await.unwrap_or_else(|_| cwd.clone());
         let mut cmd = self.bridge_command().await?;
         if let Some(path) = agent_command_path(Path::new(&previous.executable)) {
@@ -663,12 +664,34 @@ impl AgentManager {
             if provider_active >= provider_limit {
                 return Err(invalid(format!("All {provider_limit} slots for this provider are in use. Queue this message or change capacity settings.")));
             }
-            if state
+            let checkout_owners: Vec<_> = state
                 .running
-                .values()
-                .any(|r| r.cwd.starts_with(&lease_path) || lease_path.starts_with(&r.cwd))
-            {
-                return Err(invalid("Another agent owns this checkout. Wait for it to finish or create an isolated worktree session."));
+                .iter()
+                .filter(|(_, running)| {
+                    running.cwd.starts_with(&lease_path) || lease_path.starts_with(&running.cwd)
+                })
+                .map(|(id, _)| id)
+                .collect();
+            if !checkout_owners.is_empty() {
+                let can_share = input.allow_parallel_checkout
+                    && !session.workflow_read_only
+                    && checkout_owners.iter().all(|id| {
+                        state
+                            .sessions
+                            .get(*id)
+                            .is_some_and(|owner| !owner.workflow_read_only)
+                    })
+                    // Read membership under the admission lock so a workflow cannot gain a
+                    // shared writer between this check and recording the new running turn.
+                    && Self::workflow_rows_in_state(&state)?.iter().all(|workflow| {
+                        !workflow.contains_session(&session.id)
+                            && checkout_owners
+                                .iter()
+                                .all(|id| !workflow.contains_session(id))
+                    });
+                if !can_share {
+                    return Err(invalid("Another agent owns this checkout. Wait for it to finish or create an isolated worktree session."));
+                }
             }
             if state
                 .workflow_leases

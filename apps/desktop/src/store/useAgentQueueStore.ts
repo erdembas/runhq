@@ -37,6 +37,24 @@ export const useAgentQueueStore = create<{
 
 export const agentTurnQueue = createAgentTurnQueue({
   initial,
+  isActive: (id) => {
+    const session = useAgentStore.getState().sessions[id];
+    return !!session && agentIsActive(session.status);
+  },
+  interrupt: async (id) => {
+    const session = useAgentStore.getState().sessions[id];
+    if (!session || !agentIsActive(session.status) || session.status === 'cancelling') return;
+    try {
+      await ipc.agentInterrupt(id);
+    } catch (error) {
+      // The turn may finish naturally between the click and the interrupt command.
+      const snapshot = await ipc.agentSnapshot(id);
+      useAgentStore.getState().merge(snapshot.session);
+      if (agentIsActive(snapshot.session.status)) throw error;
+      return;
+    }
+    useAgentStore.getState().merge((await ipc.agentSnapshot(id)).session);
+  },
   dependencyState: (turn) => {
     if (!turn.startAfter) return 'ready';
     const { sessions, deletedIds } = useAgentStore.getState();

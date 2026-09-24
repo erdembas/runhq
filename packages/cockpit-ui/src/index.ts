@@ -43,6 +43,8 @@ export { HelloCockpit } from './HelloCockpit';
 // number outside of the components above (e.g. status bar totals on
 // the marketing site).
 export { cn } from './lib/cn';
+export { matchesMessageSendShortcut } from './lib/messageSendShortcut';
+export type { MessageSendShortcut } from './lib/messageSendShortcut';
 export { formatBytes, formatPercent } from './lib/format';
 export { cpuToneClass, memoryToneClass } from './lib/resourceTone';
 export { AgentStatusBadge } from './components/AgentStatusBadge';

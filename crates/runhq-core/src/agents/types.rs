@@ -196,6 +196,10 @@ pub struct AgentTurnInput {
     pub agent: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AgentAttachment>,
+    /// An explicit Start now choice may share an ordinary task's checkout. Workflow
+    /// sessions and operations always retain exclusive access.
+    #[serde(default)]
+    pub allow_parallel_checkout: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

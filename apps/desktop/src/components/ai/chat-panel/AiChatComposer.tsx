@@ -1,4 +1,5 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
+import { matchesMessageSendShortcut } from '@runhq/cockpit-ui';
 import type { AiChatProvider } from './aiChatProviders';
 import type { Ref, RefObject } from 'react';
 import {
@@ -10,6 +11,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useMessageSendShortcut } from '@/lib/useMessageSendShortcut';
 import type { ServiceDef } from '@/types';
 import { ModelPicker } from '../ModelPicker';
 import { TokenMeter } from '../TokenMeter';
@@ -42,6 +44,7 @@ interface Props {
 
 export function AiChatComposer(props: Props) {
   i18n.useLocale();
+  const { sendShortcut, title, hint } = useMessageSendShortcut();
   return (
     <>
       {props.contextChips.length > 0 && <ContextChips chips={props.contextChips} />}
@@ -62,9 +65,17 @@ export function AiChatComposer(props: Props) {
             value={props.input}
             onChange={(e) => props.onInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (matchesMessageSendShortcut(e.nativeEvent, sendShortcut)) {
                 e.preventDefault();
-                if (!props.isStreaming) props.onSend();
+                if (
+                  !e.repeat &&
+                  !props.isStreaming &&
+                  !props.awaitingAutoSend &&
+                  props.provider &&
+                  props.input.trim()
+                ) {
+                  props.onSend();
+                }
               }
             }}
             placeholder={
@@ -109,8 +120,8 @@ export function AiChatComposer(props: Props) {
               <button
                 type="button"
                 onClick={props.onSend}
-                disabled={!props.input.trim() || !props.provider}
-                title={i18n.t('Send · Enter')}
+                disabled={props.awaitingAutoSend || !props.input.trim() || !props.provider}
+                title={title}
                 aria-label={i18n.t('Send message')}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded-md transition-all',
@@ -126,11 +137,8 @@ export function AiChatComposer(props: Props) {
         {props.input.length === 0 && props.turnsLength === 0 && !props.isStreaming && (
           <div className="text-fg-dim/60 mt-1.5 flex items-center gap-1.5 px-1 text-[10px]">
             <CornerDownLeft className="h-2.5 w-2.5" />
-            <span>
-              {i18n.rich('Enter to send · Shift+Enter for newline{value1}', {
-                value1: !props.isInline ? i18n.t(' · Esc to close') : '',
-              })}
-            </span>
+            <span>{hint}</span>
+            {!props.isInline && <span>{i18n.t(' · Esc to close')}</span>}
           </div>
         )}
       </div>

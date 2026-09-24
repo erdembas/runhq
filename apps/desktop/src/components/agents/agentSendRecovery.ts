@@ -33,6 +33,8 @@ export function isInitialAgentTaskRecoveryRecord(
         ['creating', 'ready', 'sending', 'accepted'].includes(String(record.phase)) &&
         (record.sourceSessionId === undefined || typeof record.sourceSessionId === 'string') &&
         (record.startAfter === undefined || isAgentTaskStartDependency(record.startAfter)) &&
+        (record.allowParallelCheckout === undefined ||
+          typeof record.allowParallelCheckout === 'boolean') &&
         isTurn({
           session_id: 'pending-creation',
           request_id: record.requestId,

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Shortcuts {
+    #[serde(default = "default_send_message")]
+    pub send_message: String,
     #[serde(default = "default_quick_action")]
     pub quick_action: String,
     #[serde(default = "default_focus_main")]
@@ -25,6 +27,7 @@ pub struct Shortcuts {
 impl Default for Shortcuts {
     fn default() -> Self {
         Self {
+            send_message: default_send_message(),
             quick_action: default_quick_action(),
             focus_main: default_focus_main(),
             toggle_left_sidebar: default_toggle_left_sidebar(),
@@ -36,6 +39,10 @@ impl Default for Shortcuts {
             close_main_tab: default_close_main_tab(),
         }
     }
+}
+
+fn default_send_message() -> String {
+    "Enter".into()
 }
 
 fn default_quick_action() -> String {
@@ -72,4 +79,32 @@ fn default_prev_main_tab() -> String {
 
 fn default_close_main_tab() -> String {
     "CmdOrCtrl+W".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Shortcuts;
+
+    #[test]
+    fn older_preferences_default_message_sending_to_enter() {
+        let shortcuts: Shortcuts =
+            serde_json::from_str(r#"{"quick_action":"CmdOrCtrl+Shift+J"}"#).unwrap();
+
+        assert_eq!(shortcuts.send_message, "Enter");
+        assert_eq!(shortcuts.quick_action, "CmdOrCtrl+Shift+J");
+        assert_eq!(Shortcuts::default().send_message, "Enter");
+    }
+
+    #[test]
+    fn message_sending_preference_survives_serialization() {
+        let shortcuts = Shortcuts {
+            send_message: "CmdOrCtrl+Enter".into(),
+            ..Shortcuts::default()
+        };
+        let saved = serde_json::to_string(&shortcuts).unwrap();
+        let reloaded: Shortcuts = serde_json::from_str(&saved).unwrap();
+
+        assert_eq!(reloaded.send_message, "CmdOrCtrl+Enter");
+        assert_eq!(reloaded.close_main_tab, shortcuts.close_main_tab);
+    }
 }

@@ -2,6 +2,7 @@
 
 import * as i18n from '../i18n';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { matchesMessageSendShortcut, type MessageSendShortcut } from '../lib/messageSendShortcut';
 
 export function AgentComposer({
   value,
@@ -11,6 +12,7 @@ export function AgentComposer({
   disabled,
   busy,
   compact = false,
+  sendShortcut = 'Enter',
   controls,
   action,
   children,
@@ -22,6 +24,7 @@ export function AgentComposer({
   disabled?: boolean;
   busy?: boolean;
   compact?: boolean;
+  sendShortcut?: MessageSendShortcut;
   controls: ReactNode;
   action: ReactNode;
   children?: ReactNode;
@@ -72,15 +75,9 @@ export function AgentComposer({
           placeholder={placeholder}
           disabled={disabled || busy}
           onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              event.key === 'Enter' &&
-              !event.nativeEvent.isComposing &&
-              !disabled &&
-              !busy
-            ) {
+            if (matchesMessageSendShortcut(event.nativeEvent, sendShortcut) && !disabled && !busy) {
               event.preventDefault();
-              onSend();
+              if (!event.repeat) onSend();
             }
           }}
         />

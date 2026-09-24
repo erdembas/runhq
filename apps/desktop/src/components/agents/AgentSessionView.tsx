@@ -1,5 +1,6 @@
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
+import { useMessageSendShortcut } from '@/lib/useMessageSendShortcut';
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Archive,
@@ -172,6 +173,7 @@ export function AgentSessionView({
   onOpenSession?: (sessionId: string) => void;
 }) {
   i18n.useLocale();
+  const messageShortcut = useMessageSendShortcut();
   const viewId = useId();
   const { snapshot, error: snapshotError, loadOlder } = useAgentSnapshot(session.id, visible);
   const toolEnabled = useVisibleStore(
@@ -945,10 +947,14 @@ export function AgentSessionView({
                 (!active && !['completed', 'idle'].includes(session.status))
               }
               disabled={active || busy || readOnly || !toolEnabled}
+              sendNowDisabled={
+                busy || readOnly || !toolEnabled || !!recoveredSend || !!recoveryState.error
+              }
               onRemove={(id) => agentTurnQueue.remove(session.id, id)}
               onMove={(id, direction) => agentTurnQueue.move(session.id, id, direction)}
               onResume={() => agentTurnQueue.resume(session.id)}
               onStartNow={() => agentTurnQueue.startNow(session.id)}
+              onSendNow={(id) => void agentTurnQueue.sendNow(session.id, id)}
               onOpenDependency={onOpenSession ?? ((id) => useAgentStore.getState().select(id))}
             />
             {!toolEnabled && (
@@ -960,6 +966,7 @@ export function AgentSessionView({
               </button>
             )}
             <AgentComposer
+              sendShortcut={messageShortcut.sendShortcut}
               value={input}
               onChange={setInput}
               onSend={() => {
@@ -1090,7 +1097,7 @@ export function AgentSessionView({
                 ) : (
                   <button
                     aria-label={i18n.t('Send message')}
-                    title={i18n.t('Send · ⌘ / Ctrl + Enter')}
+                    title={messageShortcut.title}
                     className="bg-fg text-surface hover:bg-fg/85 disabled:bg-fg/8 disabled:text-fg-dim flex h-8 w-8 items-center justify-center rounded-xl shadow-sm transition-colors disabled:shadow-none"
                     disabled={!hasContent || busy || readOnly || !toolEnabled}
                     onClick={() => void send()}
@@ -1144,7 +1151,7 @@ export function AgentSessionView({
             <p className="text-fg-dim px-1 text-[11px]">
               {active
                 ? i18n.t('You can switch projects while this task runs.')
-                : i18n.t('⌘ / Ctrl + Enter to send')}
+                : messageShortcut.hint}
             </p>
             {session.usage != null && (
               <details className="text-fg-dim text-[11px]">
