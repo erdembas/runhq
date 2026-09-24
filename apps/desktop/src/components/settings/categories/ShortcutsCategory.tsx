@@ -19,6 +19,7 @@ import {
   type ShortcutMeta,
 } from '@/lib/shortcuts';
 import type { Prefs, Shortcuts } from '@/types';
+import { useShellUiStore } from '@/store/useShellUiStore';
 import { SettingsPageShell, SettingsSection } from '../SettingsView';
 
 /**
@@ -125,6 +126,7 @@ export function ShortcutsCategory({ description }: { description?: string }) {
         shortcuts,
       });
       setPrefs(updated);
+      useShellUiStore.getState().setViewShortcuts(updated.shortcuts ?? null);
     } catch (err) {
       console.error('failed to save shortcuts', err);
     } finally {
@@ -133,7 +135,24 @@ export function ShortcutsCategory({ description }: { description?: string }) {
   };
 
   const groupOrder: ShortcutGroup[] = ['global', 'panels', 'service', 'tabs'];
-  const totalShown = groupOrder.reduce((sum, g) => sum + grouped[g].length, 0);
+  const messageSendingTitle = i18n.t('Message sending');
+  const messageSendingLabel = i18n.t('Send message with');
+  const messageSendingDescription = i18n.t(
+    'Choose how to send messages in agent tasks and AI chat. Shift+Enter always inserts a new line.',
+  );
+  const showMessageSending = [
+    messageSendingTitle,
+    messageSendingLabel,
+    messageSendingDescription,
+    i18n.t('Enter'),
+    i18n.t('⌘ / Ctrl + Enter'),
+    'send_message',
+  ]
+    .join(' ')
+    .toLowerCase()
+    .includes(query.trim().toLowerCase());
+  const totalShown =
+    groupOrder.reduce((sum, g) => sum + grouped[g].length, 0) + Number(showMessageSending);
 
   // Search input + Reset All — rendered as the page toolbar by
   // `SettingsPageShell`. Lifting these out of the scrollable body
@@ -197,6 +216,27 @@ export function ShortcutsCategory({ description }: { description?: string }) {
 
   return (
     <SettingsPageShell description={description} toolbar={toolbar} footer={footer}>
+      {showMessageSending && (
+        <SettingsSection title={messageSendingTitle} description={messageSendingDescription}>
+          <label className="flex flex-wrap items-center gap-3">
+            <span className="text-fg text-[12px] font-medium">{messageSendingLabel}</span>
+            <select
+              value={shortcuts.send_message}
+              onChange={(event) =>
+                setShortcuts((prev) => ({
+                  ...prev,
+                  send_message:
+                    event.target.value === 'CmdOrCtrl+Enter' ? 'CmdOrCtrl+Enter' : 'Enter',
+                }))
+              }
+              className="border-border bg-surface-raised text-fg rounded-app-sm border px-3 py-2 text-sm"
+            >
+              <option value="Enter">{i18n.t('Enter')}</option>
+              <option value="CmdOrCtrl+Enter">{i18n.t('⌘ / Ctrl + Enter')}</option>
+            </select>
+          </label>
+        </SettingsSection>
+      )}
       {totalShown === 0 && (
         <div className="text-fg-dim flex flex-col items-center gap-1 py-12 text-center text-[12px]">
           <span>{i18n.t('No shortcuts match your search.')}</span>

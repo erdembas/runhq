@@ -27,7 +27,14 @@ import {
 import type { AgentTaskTemplate } from '@runhq/cockpit-ui';
 import type { AgentBackendId, AgentProject, AgentSession } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
+import { useMessageSendShortcut } from '@/lib/useMessageSendShortcut';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useAppStore } from '@/store/useAppStore';
+import {
+  agentChatDefaults,
+  agentChatDefaultsKey,
+  type AgentChatDefaults,
+} from './agentChatDefaults';
 
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { useAgentCatalog } from './useAgentCatalog';
@@ -56,15 +63,7 @@ import { AgentWorkflowLaunchDialog } from './AgentWorkflowLaunchDialog';
 import { workflowLaunchCandidates } from './agentWorkflowLaunch';
 import type { AgentTaskStartDependency } from './agentTaskStart';
 
-export function AgentNewSession({
-  onClose,
-  onCreated,
-  project,
-  visible = true,
-  initialTemplate,
-  initialRecipe,
-  initialRouting,
-}: {
+interface AgentNewSessionProps {
   onClose: () => void;
   onCreated?: (session: AgentSession) => void;
   project?: AgentProject;
@@ -73,8 +72,53 @@ export function AgentNewSession({
   initialRecipe?: AgentRecipe;
   /** Why the opening account was chosen, when RunHQ rather than the user chose it. */
   initialRouting?: { poolName?: string; reason: string };
-}) {
+}
+
+export function AgentNewSession(props: AgentNewSessionProps) {
   i18n.useLocale();
+  const ready = useAgentLibraryStore((state) => state.ready);
+  const error = useAgentLibraryStore((state) => state.error);
+  const records = useAgentLibraryStore((state) => state.records);
+  const refresh = useAgentLibraryStore((state) => state.refresh);
+  useEffect(() => {
+    if (!ready && props.visible !== false) void refresh();
+  }, [ready, props.visible, refresh]);
+  // Hydrate before mounting the composer: late defaults must never overwrite an edited draft.
+  if (!ready)
+    return (
+      <div role={error ? 'alert' : 'status'} className="text-fg-muted p-6 text-[12px]">
+        <p>
+          {error ? i18n.t('Chat defaults could not be loaded.') : i18n.t('Loading chat defaults…')}
+        </p>
+        {error && (
+          <button type="button" className="mt-2 underline" onClick={() => void refresh()}>
+            {i18n.t('Retry')}
+          </button>
+        )}
+      </div>
+    );
+  return (
+    <AgentNewSessionComposer
+      {...props}
+      defaults={agentChatDefaults(
+        props.initialRecipe ? undefined : records[agentChatDefaultsKey]?.value,
+      )}
+    />
+  );
+}
+
+function AgentNewSessionComposer({
+  onClose,
+  onCreated,
+  project,
+  visible = true,
+  initialTemplate,
+  initialRecipe,
+  initialRouting,
+  defaults,
+}: AgentNewSessionProps & { defaults: AgentChatDefaults }) {
+  i18n.useLocale();
+  const messageShortcut = useMessageSendShortcut();
   const storedProjects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
   const libraryRecords = useVisibleStore(useAgentLibraryStore, (s) => s.records, visible);
   const projects = project ? [project] : storedProjects;
@@ -88,25 +132,24 @@ export function AgentNewSession({
   const context = useAgentContext(draftKey, projectId);
   const input = useVisibleStore(useAgentStore, (s) => s.drafts[draftKey] ?? '', visible);
   const setInput = (text: string) => useAgentStore.getState().setDraft(draftKey, text);
-  const [backend, setBackend] = useState<AgentBackendId>('');
+  const [backend, setBackend] = useState<AgentBackendId>(defaults.backend);
   // Set when RunHQ picked this account out of a pool, so the task can record why it ran where it
   // did. Cleared whenever the user names a connection themselves — that choice needs no reason.
   const [routedFrom, setRoutedFrom] = useState<{ poolName: string; reason: string } | null>(null);
-  const userSelectedBackend = useRef(false);
+  const userSelectedBackend = useRef(!!defaults.backend);
   const backends = useVisibleStore(useAgentStore, (s) => s.tools, visible);
   const discovery = useAgentDiscovery(visible);
-  const [executable, setExecutable] = useState('');
-  const [model, setModel] = useState('');
-  const [effort, setEffort] = useState('');
-  const [mode, setMode] = useState<'default' | 'plan'>('default');
-  const [agent, setAgent] = useState('');
+  const [executable, setExecutable] = useState(defaults.executable);
+  const [model, setModel] = useState(defaults.model);
+  const [effort, setEffort] = useState(defaults.effort);
+  const [mode, setMode] = useState<'default' | 'plan'>(defaults.mode);
+  const [agent, setAgent] = useState(defaults.agent);
   const [title, setTitle] = useState('');
-  const [isolated, setIsolated] = useState(false);
+  const [isolated, setIsolated] = useState(defaults.isolated);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [choosingStart, setChoosingStart] = useState(false);
   const sessions = useVisibleStore(useAgentStore, (s) => s.sessions, visible);
-  const launchTasks = workflowLaunchCandidates(sessions, projectId);
   const [error, setError] = useState<string | null>(null);
   const [forgetLaunch, setForgetLaunch] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTaskTemplate['id']>();
@@ -153,6 +196,11 @@ export function AgentNewSession({
     restorationError = String(error);
   }
   const recovered = launcher.current.recovery;
+  const launchTasks = workflowLaunchCandidates(
+    sessions,
+    projectId,
+    launcher.current.session ? [launcher.current.session.id] : [],
+  );
   const locked = busy || !!launcher.current.session || !!recovered || !!restorationError;
   const found = backends.find((entry) => entry.id === backend);
   const canDiscover =
@@ -351,7 +399,7 @@ export function AgentNewSession({
     else useAgentStore.getState().select(session.id);
     onClose();
   };
-  const send = async (startAfter?: AgentTaskStartDependency) => {
+  const send = async (startAfter?: AgentTaskStartDependency, allowParallelCheckout?: boolean) => {
     if (!canSend) return;
     setBusy(true);
     setError(null);
@@ -375,7 +423,7 @@ export function AgentNewSession({
         },
         prompt,
         images,
-        { sourceSessionId, draftText, startAfter },
+        { sourceSessionId, draftText, startAfter, allowParallelCheckout },
       );
       useAgentStore.getState().merge(session);
       const routing = routedFrom ?? initialRouting;
@@ -422,10 +470,16 @@ export function AgentNewSession({
   };
   const requestSend = () => {
     if (!canSend || choosingStart) return;
+    const saved = launcher.current.recovery;
     if (
-      !launcher.current.recovery &&
-      !launcher.current.session &&
-      workflowLaunchCandidates(useAgentStore.getState().sessions, projectId).length
+      saved?.phase !== 'accepted' &&
+      !saved?.startAfter &&
+      !saved?.allowParallelCheckout &&
+      workflowLaunchCandidates(
+        useAgentStore.getState().sessions,
+        projectId,
+        launcher.current.session ? [launcher.current.session.id] : [],
+      ).length
     )
       setChoosingStart(true);
     else void send();
@@ -438,6 +492,7 @@ export function AgentNewSession({
       {choosingStart && (
         <AgentWorkflowLaunchDialog
           kind="task"
+          taskIsolated={isolated}
           tasks={launchTasks}
           busy={busy}
           canSaveDraft={false}
@@ -449,7 +504,10 @@ export function AgentNewSession({
                 ? launchTasks.find((task) => task.id === choice.sessionId)
                 : undefined;
             if (choice.mode === 'after' && !preceding) return;
-            void send(preceding ? { sessionId: preceding.id, title: preceding.title } : undefined);
+            void send(
+              preceding ? { sessionId: preceding.id, title: preceding.title } : undefined,
+              choice.mode === 'now',
+            );
           }}
         />
       )}
@@ -626,6 +684,7 @@ export function AgentNewSession({
           </button>
         </div>
         <AgentComposer
+          sendShortcut={messageShortcut.sendShortcut}
           value={recovered?.draftText ?? input}
           onChange={setInput}
           onSend={requestSend}
@@ -695,7 +754,7 @@ export function AgentNewSession({
               }
               title={
                 canSend
-                  ? i18n.t('Send · ⌘ / Ctrl + Enter')
+                  ? messageShortcut.title
                   : !connection.canStart && !launcher.current.session
                     ? connection.title
                     : i18n.t('Write a message to start')
@@ -754,7 +813,14 @@ export function AgentNewSession({
           )}
         </AgentComposer>
         <div className="text-fg-dim mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-          <span>{i18n.t('⌘ / Ctrl + Enter to send')}</span>
+          <span>{messageShortcut.hint}</span>
+          <button
+            type="button"
+            onClick={() => useAppStore.getState().openSettings('general')}
+            className="hover:text-fg underline"
+          >
+            {i18n.t('New agent chat defaults')}
+          </button>
           <span>
             {busy
               ? i18n.t('Starting your task…')

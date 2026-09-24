@@ -40,7 +40,7 @@ const CATEGORIES: ReadonlyArray<CategoryDef> = [
       return i18n.t('General');
     },
     get description() {
-      return i18n.t('Language and agent permission preferences.');
+      return i18n.t('Language, new agent chat defaults and permission preferences.');
     },
     icon: SettingsIcon,
     group: 'workspace',

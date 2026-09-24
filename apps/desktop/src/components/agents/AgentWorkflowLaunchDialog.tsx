@@ -19,11 +19,13 @@ export function AgentWorkflowLaunchDialog({
   onClose,
   error,
   kind = 'workflow',
+  taskIsolated = false,
 }: {
   tasks: AgentSession[];
   busy: boolean;
   error?: string | null;
   kind?: 'workflow' | 'task';
+  taskIsolated?: boolean;
   canSaveDraft: boolean;
   onChoose: (choice: WorkflowLaunchChoice) => void;
   onClose: () => void;
@@ -175,7 +177,13 @@ export function AgentWorkflowLaunchDialog({
               </span>
               <span className="text-fg-muted block">
                 {kind === 'task'
-                  ? i18n.t('Start this task now and run alongside the other tasks in this project.')
+                  ? taskIsolated
+                    ? i18n.t(
+                        'Start this task now and run alongside the other tasks in this project.',
+                      )
+                    : i18n.t(
+                        'Start this task now in the selected local workspace. Tasks can edit the same files. Account capacity limits still apply.',
+                      )
                   : i18n.t(
                       'Run independently in a separate working copy. Account capacity limits still apply.',
                     )}

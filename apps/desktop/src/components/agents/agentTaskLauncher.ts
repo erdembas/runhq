@@ -17,6 +17,7 @@ export interface AgentInitialTaskRecovery {
   attachments?: AgentAttachment[];
   sourceSessionId?: string;
   startAfter?: AgentTaskStartDependency;
+  allowParallelCheckout?: boolean;
   phase: 'creating' | 'ready' | 'sending' | 'accepted';
   session: AgentSession | null;
   turn: AgentTurnInput | null;
@@ -77,6 +78,7 @@ export function createAgentTaskLauncher(deps: {
         sourceSessionId?: string;
         draftText?: string;
         startAfter?: AgentTaskStartDependency;
+        allowParallelCheckout?: boolean;
       },
     ): Promise<AgentSession> {
       if (pending) return pending;
@@ -99,9 +101,27 @@ export function createAgentTaskLauncher(deps: {
             attachments,
             sourceSessionId: metadata?.sourceSessionId,
             startAfter: metadata?.startAfter,
+            allowParallelCheckout: metadata?.allowParallelCheckout,
             phase: 'creating',
             session: null,
             turn: null,
+          };
+        }
+        // Older failed launches did not retain the explicit "start now" choice. Let the
+        // user choose timing again without replacing the saved task, prompt or request ID.
+        if (
+          recovery &&
+          recovery.phase !== 'accepted' &&
+          !recovery.startAfter &&
+          !recovery.allowParallelCheckout &&
+          metadata?.allowParallelCheckout !== undefined
+        ) {
+          if (turn) turn = { ...turn, allow_parallel_checkout: metadata.allowParallelCheckout };
+          recovery = {
+            ...recovery,
+            startAfter: metadata.startAfter,
+            allowParallelCheckout: metadata.allowParallelCheckout,
+            turn,
           };
         }
         // Record creation intent BEFORE IPC. The backend uses the same creation id
@@ -125,6 +145,8 @@ export function createAgentTaskLauncher(deps: {
             mode: session.mode,
             agent: session.agent,
             attachments: recovery?.attachments ?? attachments,
+            allow_parallel_checkout:
+              recovery?.allowParallelCheckout ?? metadata?.allowParallelCheckout,
           };
           if (recovery) recovery = { ...recovery, phase: 'ready', session, turn };
           persist();

@@ -5,7 +5,7 @@ import { isAgentTaskStartDependency, type AgentTaskStartDependency } from './age
 
 export interface QueuedAgentTurn extends AgentTurnInput {
   startAfter?: AgentTaskStartDependency;
-  state: 'queued' | 'sending' | 'failed';
+  state: 'queued' | 'interrupting' | 'sending' | 'failed';
   error?: string;
 }
 
@@ -27,9 +27,11 @@ export function isAgentQueueRecord(value: unknown): value is Record<string, Queu
             typeof turn.prompt === 'string' &&
             typeof turn.model === 'string' &&
             typeof turn.effort === 'string' &&
+            (turn.allow_parallel_checkout === undefined ||
+              typeof turn.allow_parallel_checkout === 'boolean') &&
             (turn.startAfter === undefined ||
               (isAgentTaskStartDependency(turn.startAfter) && turn.startAfter.sessionId !== id)) &&
-            ['queued', 'sending', 'failed'].includes(turn.state ?? '') &&
+            ['queued', 'interrupting', 'sending', 'failed'].includes(turn.state ?? '') &&
             (turn.mode === undefined || turn.mode === 'default' || turn.mode === 'plan') &&
             (turn.agent === undefined || typeof turn.agent === 'string') &&
             (turn.attachments === undefined ||
@@ -56,7 +58,7 @@ export function recoverAgentQueues(queues: Record<string, QueuedAgentTurn[]>) {
     Object.entries(queues).map(([id, entries]) => [
       id,
       entries.map((turn, index): QueuedAgentTurn =>
-        index === 0 || turn.state === 'sending'
+        index === 0 || turn.state === 'sending' || turn.state === 'interrupting'
           ? {
               ...turn,
               state: 'failed',
@@ -77,6 +79,8 @@ export function recoverAgentQueues(queues: Record<string, QueuedAgentTurn[]>) {
 /** One dispatcher per app, independent of the currently mounted conversation. */
 export function createAgentTurnQueue(deps: {
   canStart: (sessionId: string, manual: boolean) => boolean;
+  isActive?: (sessionId: string) => boolean;
+  interrupt?: (sessionId: string) => Promise<void>;
   dependencyState?: (turn: QueuedAgentTurn) => 'ready' | 'waiting' | 'blocked';
   start: (turn: AgentTurnInput) => Promise<unknown>;
   changed: (queues: Record<string, QueuedAgentTurn[]>) => boolean | void;
@@ -84,13 +88,30 @@ export function createAgentTurnQueue(deps: {
 }) {
   let queues: Record<string, QueuedAgentTurn[]> = deps.initial ?? {};
   const sending = new Set<string>();
+  const interrupting = new Set<string>();
   const resumed = new Map<string, string>();
   const update = (id: string, turns: QueuedAgentTurn[]) => {
     queues = { ...queues, [id]: turns };
     return deps.changed(queues) !== false;
   };
   const pump = async (id: string, manual = false) => {
-    const turn = queues[id]?.[0];
+    let turn = queues[id]?.[0];
+    if (interrupting.has(id)) return;
+    if (turn?.state === 'interrupting' && deps.isActive?.(id) === false) {
+      turn = { ...turn, state: 'queued' };
+      if (!update(id, [turn, ...(queues[id] ?? []).slice(1)])) {
+        resumed.delete(id);
+        update(id, [
+          {
+            ...turn,
+            state: 'failed',
+            error: i18n.t('Could not save the queued task. Retry saving before continuing.'),
+          },
+          ...(queues[id] ?? []).slice(1),
+        ]);
+        return;
+      }
+    }
     manual = manual || (!!turn && resumed.get(id) === turn.request_id);
     if (
       !turn ||
@@ -172,15 +193,81 @@ export function createAgentTurnQueue(deps: {
     }
   };
   return {
+    /** Interrupt the current turn, then dispatch the chosen message in this same session. */
+    sendNow: async (id: string, requestId: string) => {
+      const entries = queues[id] ?? [];
+      const turn = entries.find((entry) => entry.request_id === requestId);
+      if (
+        !turn ||
+        !deps.interrupt ||
+        entries[0]?.startAfter ||
+        sending.has(id) ||
+        interrupting.has(id) ||
+        entries.some((entry) => entry.state === 'sending' || entry.state === 'interrupting')
+      )
+        return;
+      // Persist the chosen message before stopping work. Keep the request ID, attachments,
+      // model and session, and preserve the relative order of every other queued message.
+      interrupting.add(id);
+      const saved = update(id, [
+        { ...turn, allow_parallel_checkout: true, state: 'interrupting', error: undefined },
+        ...entries.filter((entry) => entry !== turn),
+      ]);
+      if (!saved) {
+        interrupting.delete(id);
+        resumed.delete(id);
+        update(
+          id,
+          (queues[id] ?? []).map((entry) =>
+            entry.request_id === requestId
+              ? {
+                  ...entry,
+                  state: 'failed',
+                  error: i18n.t('Could not save the queued task. Retry saving before continuing.'),
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+      resumed.set(id, requestId);
+      let stopped = false;
+      try {
+        await deps.interrupt(id);
+        stopped = true;
+      } catch (error) {
+        resumed.delete(id);
+        if (queues[id]?.some((entry) => entry.request_id === requestId))
+          update(
+            id,
+            queues[id].map((entry) =>
+              entry.request_id === requestId
+                ? { ...entry, state: 'failed', error: String(error) }
+                : entry,
+            ),
+          );
+      } finally {
+        interrupting.delete(id);
+      }
+      // An interrupt acknowledgement may precede shutdown. canStart still waits for
+      // the inactive session snapshot and capacity before admitting the next turn.
+      if (stopped && queues[id]?.[0]?.request_id === requestId) await pump(id, true);
+    },
     startNow: (id: string) => {
       const turn = queues[id]?.[0];
-      if (!turn?.startAfter || sending.has(id)) return;
+      if (!turn?.startAfter || sending.has(id) || interrupting.has(id)) return;
       resumed.set(id, turn.request_id);
       const saved = update(
         id,
         (queues[id] ?? []).map((entry) =>
           entry === turn
-            ? { ...entry, startAfter: undefined, state: 'queued', error: undefined }
+            ? {
+                ...entry,
+                startAfter: undefined,
+                allow_parallel_checkout: true,
+                state: 'queued',
+                error: undefined,
+              }
             : entry,
         ),
       );
@@ -191,7 +278,7 @@ export function createAgentTurnQueue(deps: {
     },
     resume: (id: string) => {
       const turn = queues[id]?.[0];
-      if (!turn || turn.state === 'sending') return;
+      if (!turn || turn.state === 'sending' || turn.state === 'interrupting') return;
       resumed.set(id, turn.request_id);
       update(
         id,
@@ -216,7 +303,10 @@ export function createAgentTurnQueue(deps: {
       update(
         id,
         (queues[id] ?? []).filter(
-          (entry) => entry.request_id !== requestId || entry.state === 'sending',
+          (entry) =>
+            entry.request_id !== requestId ||
+            entry.state === 'sending' ||
+            entry.state === 'interrupting',
         ),
       );
       void pump(id);

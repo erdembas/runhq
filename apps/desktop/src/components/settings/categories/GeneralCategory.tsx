@@ -1,11 +1,14 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { SettingsPageShell, SettingsSection } from '../SettingsView';
 import { AgentPermissionSettings } from '../AgentPermissionSettings';
+import { AgentChatDefaultSettings } from '../AgentChatDefaultSettings';
 
 export function GeneralCategory() {
   const locale = i18n.useLocale();
   return (
-    <SettingsPageShell description={i18n.t('Language and agent permission preferences.')}>
+    <SettingsPageShell
+      description={i18n.t('Language, new agent chat defaults and permission preferences.')}
+    >
       <SettingsSection
         title={i18n.t('Display language')}
         description={i18n.t(
@@ -26,6 +29,7 @@ export function GeneralCategory() {
           </option>
         </select>
       </SettingsSection>
+      <AgentChatDefaultSettings />
       <AgentPermissionSettings />
     </SettingsPageShell>
   );

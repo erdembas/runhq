@@ -16,7 +16,8 @@ import type { Shortcuts } from '@/types';
  * `Ctrl` on Windows / Linux.
  */
 
-export type ShortcutId = keyof Shortcuts;
+// Message sending is handled by the focused composer, outside global/window dispatch.
+export type ShortcutId = Exclude<keyof Shortcuts, 'send_message'>;
 
 /**
  * Where the shortcut fires.
@@ -53,6 +54,7 @@ export interface ShortcutMeta {
 }
 
 export const DEFAULT_SHORTCUTS: Shortcuts = {
+  send_message: 'Enter',
   quick_action: 'CmdOrCtrl+Shift+K',
   focus_main: 'CmdOrCtrl+Shift+L',
   toggle_left_sidebar: 'CmdOrCtrl+B',

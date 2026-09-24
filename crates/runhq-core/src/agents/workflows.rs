@@ -590,6 +590,15 @@ pub(super) struct WorkflowLease<'a> {
     key: String,
 }
 impl AgentWorkflow {
+    pub(super) fn contains_session(&self, session_id: &str) -> bool {
+        self.implementation_session_id == session_id
+            || self.review_session_id.as_deref() == Some(session_id)
+            || self
+                .steps
+                .iter()
+                .any(|step| step.session_id.as_deref() == Some(session_id))
+    }
+
     /// The two roles a pre-step workflow always had, written out as steps.
     ///
     /// The implementation's connection lived only on its session, never on the workflow, so the
@@ -797,7 +806,9 @@ impl Drop for WorkflowLease<'_> {
 
 impl AgentManager {
     fn workflow_rows(&self) -> AppResult<Vec<AgentWorkflow>> {
-        let state = self.state.lock();
+        Self::workflow_rows_in_state(&self.state.lock())
+    }
+    pub(super) fn workflow_rows_in_state(state: &State) -> AppResult<Vec<AgentWorkflow>> {
         let mut query = state
             .db
             .conn
@@ -905,11 +916,7 @@ impl AgentManager {
             {
                 return Err(invalid("Independent workflow reviews stay in read-only plan mode. Continue implementation in its original task."));
             }
-            let belongs = w.implementation_session_id == session.id
-                || w.review_session_id.as_deref() == Some(&session.id)
-                || w.steps
-                    .iter()
-                    .any(|step| step.session_id.as_deref() == Some(&session.id));
+            let belongs = w.contains_session(&session.id);
             if belongs
                 && (w.editing
                     || w.awaiting_review()
@@ -1630,6 +1637,7 @@ impl AgentManager {
                 mode: Some(workflow_step_mode(&step.role, &session.adapter).to_string()),
                 agent: Some(String::new()),
                 attachments: vec![],
+                allow_parallel_checkout: false,
             })
             .await
         {
@@ -1751,6 +1759,7 @@ impl AgentManager {
                 mode: Some("plan".into()),
                 agent: Some(String::new()),
                 attachments: vec![],
+                allow_parallel_checkout: false,
             })
             .await
         {
@@ -3329,6 +3338,67 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
         })
         .await
         .unwrap_or_else(|_| panic!("Expected {stage}, got {:?}", manager.workflow(id)))
+    }
+
+    #[tokio::test]
+    async fn explicit_parallel_checkout_cannot_share_workflow_sessions_in_either_direction() {
+        if executable("node").is_none() {
+            return;
+        }
+        let (_temp, manager, workflow, _preceding) = launch_fixture(false).await;
+        let mut owned = manager
+            .session(&workflow.implementation_session_id)
+            .unwrap();
+        owned.id = "workflow-owned".into();
+        let mut ordinary = owned.clone();
+        ordinary.id = "ordinary".into();
+        {
+            let mut state = manager.state.lock();
+            for session in [&owned, &ordinary] {
+                state.db.save(session).unwrap();
+                state.sessions.insert(session.id.clone(), session.clone());
+            }
+        }
+        for membership in ["implementation", "review", "step"] {
+            let mut current = workflow.clone();
+            match membership {
+                "implementation" => current.implementation_session_id = owned.id.clone(),
+                "review" => current.review_session_id = Some(owned.id.clone()),
+                "step" => current.steps[0].session_id = Some(owned.id.clone()),
+                _ => unreachable!(),
+            }
+            manager.save_workflow(&mut current).unwrap();
+            for (occupant, target) in [(&ordinary, &owned), (&owned, &ordinary)] {
+                let (sender, _receiver) = mpsc::channel(1);
+                manager.state.lock().running.insert(
+                    occupant.id.clone(),
+                    Running {
+                        run_id: "occupied".into(),
+                        cwd: PathBuf::from(&occupant.cwd).canonicalize().unwrap(),
+                        sender,
+                    },
+                );
+                let error = manager
+                    .start(AgentTurnInput {
+                        session_id: target.id.clone(),
+                        request_id: uuid::Uuid::new_v4().to_string(),
+                        prompt: "Start now in the selected workspace".into(),
+                        model: String::new(),
+                        effort: String::new(),
+                        mode: Some("plan".into()),
+                        agent: Some(String::new()),
+                        attachments: vec![],
+                        allow_parallel_checkout: true,
+                    })
+                    .await
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("owns this checkout"),
+                    "{membership}: {error}"
+                );
+                manager.state.lock().running.clear();
+            }
+        }
     }
 
     #[tokio::test]
@@ -5560,6 +5630,7 @@ mod handoff_tests {
                 mode: None,
                 agent: None,
                 attachments: vec![],
+                allow_parallel_checkout: false,
             })
             .await
             .unwrap_err();

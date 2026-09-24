@@ -480,6 +480,7 @@ setTimeout(()=>{emit({type:'finished',status:'completed'});process.exit(0);},30)
         mode: None,
         agent: None,
         attachments: vec![],
+        allow_parallel_checkout: false,
     };
     manager.start(input()).await.unwrap();
     manager.start(input()).await.unwrap(); // idempotent retry, not another process
@@ -526,6 +527,7 @@ fn turn_input(session: &AgentSession) -> AgentTurnInput {
         mode: None,
         agent: None,
         attachments: vec![],
+        allow_parallel_checkout: false,
     }
 }
 
@@ -814,6 +816,270 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const c=JSON.pa
     wait_inactive(&manager, &second.id).await;
     assert!(manager.state.lock().running.is_empty());
 }
+
+#[tokio::test]
+async fn interrupted_turn_releases_before_resuming_the_same_native_context() {
+    if executable("node").is_none() {
+        return;
+    }
+    let (dir, manager, session) = setup();
+    std::fs::write(dir.path().join("bridge.cjs"), r#"
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline');
+const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const command = JSON.parse(line);
+ if (command.type === 'start') {
+   const config = command.config;
+   if (!config.native_id) {
+     assert.equal(config.prompt, 'Original task');
+     emit({type:'native',id:'native-context'});
+     emit({type:'item',item:{id:'partial',kind:'assistant',title:'Agent',text:'Partial original response',status:'running'}});
+     emit({type:'status',status:'running'});
+   } else {
+     assert.equal(config.native_id, 'native-context');
+     assert.deepEqual(config.runtime_state, {checkpoint:'after-interrupt'});
+     assert.equal(config.prompt, 'Send this queued follow-up now');
+     assert.ok(fs.existsSync(path.join(__dirname, 'allow-stop')));
+     emit({type:'item',item:{id:'resumed',kind:'assistant',title:'Agent',text:'Resumed existing context',status:'completed'}});
+     emit({type:'finished',status:'completed'});
+   }
+ } else if (command.type === 'interrupt') {
+   emit({type:'ack',command_id:command.command_id});
+   // An interrupt acknowledgement is not turn completion. Hold this turn open
+   // until the test verifies that a queued send cannot overlap its cleanup.
+   const timer = setInterval(() => {
+     if (!fs.existsSync(path.join(__dirname, 'allow-stop'))) return;
+     clearInterval(timer);
+     emit({type:'state',state:{checkpoint:'after-interrupt'}});
+     emit({type:'finished',status:'cancelled'});
+   }, 10);
+ }
+});
+"#).unwrap();
+    let mut original = turn_input(&session);
+    original.prompt = "Original task".into();
+    manager.start(original).await.unwrap();
+    wait_for_session(
+        &manager,
+        &session.id,
+        "the original turn to run",
+        |session| {
+            session.status == "running" && session.native_id.as_deref() == Some("native-context")
+        },
+    )
+    .await
+    .unwrap();
+
+    manager.interrupt(&session.id).await.unwrap();
+    assert_eq!(manager.session(&session.id).unwrap().status, "cancelling");
+    assert!(manager.state.lock().running.contains_key(&session.id));
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let follow_up = || {
+        let mut input = turn_input(&session);
+        input.request_id = request_id.clone();
+        input.prompt = "Send this queued follow-up now".into();
+        input
+    };
+    assert!(manager
+        .start(follow_up())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("active turn"));
+    assert!(manager
+        .state
+        .lock()
+        .db
+        .request_owner(&request_id)
+        .unwrap()
+        .is_none());
+
+    std::fs::write(dir.path().join("allow-stop"), "").unwrap();
+    wait_inactive(&manager, &session.id).await;
+    let interrupted = manager.session(&session.id).unwrap();
+    assert_eq!(interrupted.status, "cancelled");
+    assert_eq!(interrupted.native_id.as_deref(), Some("native-context"));
+    assert_eq!(
+        interrupted.runtime_state,
+        json!({"checkpoint":"after-interrupt"})
+    );
+    assert!(!manager.state.lock().running.contains_key(&session.id));
+
+    manager.start(follow_up()).await.unwrap();
+    manager.start(follow_up()).await.unwrap(); // The selected queue entry stays idempotent.
+    wait_inactive(&manager, &session.id).await;
+    let snapshot = manager.snapshot(&session.id, None).unwrap();
+    assert_eq!(snapshot.session.id, session.id);
+    assert_eq!(snapshot.session.status, "completed");
+    assert!(snapshot.session.last_error.is_none());
+    assert_eq!(
+        snapshot.session.native_id.as_deref(),
+        Some("native-context")
+    );
+    assert_eq!(
+        snapshot
+            .items
+            .iter()
+            .filter(|item| item.kind == "user")
+            .count(),
+        2
+    );
+    assert!(snapshot
+        .items
+        .iter()
+        .any(|item| item.text == "Partial original response" && item.status == "ended"));
+    assert!(snapshot
+        .items
+        .iter()
+        .any(|item| item.text == "Resumed existing context"));
+    assert!(manager.state.lock().running.is_empty());
+}
+
+#[tokio::test]
+async fn explicit_parallel_checkout_retries_the_same_turn_and_releases_each_writer() {
+    if executable("node").is_none() {
+        return;
+    }
+    let (dir, manager, first) = setup();
+    std::fs::write(dir.path().join("bridge.cjs"), r#"
+const readline=require('node:readline');const emit=x=>process.stdout.write(JSON.stringify(x)+'\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{const c=JSON.parse(line);if(c.type==='start')emit({type:'status',status:'running'});if(c.type==='interrupt'){emit({type:'ack',command_id:c.command_id});emit({type:'finished',status:'cancelled'});}});
+"#).unwrap();
+    let mut second = first.clone();
+    second.id = "second".into();
+    let mut third = first.clone();
+    third.id = "third".into();
+    {
+        let mut state = manager.state.lock();
+        for session in [&second, &third] {
+            state.db.save(session).unwrap();
+            state.sessions.insert(session.id.clone(), session.clone());
+        }
+    }
+    manager.start(turn_input(&first)).await.unwrap();
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let input = |allow_parallel_checkout| {
+        let mut input = turn_input(&second);
+        input.request_id = request_id.clone();
+        input.allow_parallel_checkout = allow_parallel_checkout;
+        input
+    };
+    // This is the first-send recovery path: the rejected request can be retried
+    // with explicit consent without creating another session or user message.
+    assert!(manager
+        .start(input(false))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("owns this checkout"));
+    manager.start(input(true)).await.unwrap();
+    manager.start(input(true)).await.unwrap();
+    assert_eq!(manager.state.lock().running.len(), 2);
+    assert_eq!(
+        manager
+            .snapshot(&second.id, None)
+            .unwrap()
+            .items
+            .iter()
+            .filter(|item| item.kind == "user")
+            .count(),
+        1
+    );
+    assert!(manager
+        .start(turn_input(&second))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("active turn"));
+
+    manager.interrupt(&first.id).await.unwrap();
+    wait_inactive(&manager, &first.id).await;
+    assert!(manager.state.lock().running.contains_key(&second.id));
+    assert!(manager
+        .start(turn_input(&third))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("owns this checkout"));
+    let mut third_input = turn_input(&third);
+    third_input.allow_parallel_checkout = true;
+    manager.start(third_input).await.unwrap();
+    manager.interrupt(&second.id).await.unwrap();
+    wait_inactive(&manager, &second.id).await;
+    assert!(manager.state.lock().running.contains_key(&third.id));
+    manager.interrupt(&third.id).await.unwrap();
+    wait_inactive(&manager, &third.id).await;
+    assert!(manager.state.lock().running.is_empty());
+}
+
+#[tokio::test]
+async fn explicit_parallel_checkout_keeps_capacity_and_workflow_operation_limits() {
+    if executable("node").is_none() {
+        return;
+    }
+    let (dir, manager, first) = setup();
+    std::fs::write(dir.path().join("bridge.cjs"), "").unwrap();
+    let mut second = first.clone();
+    second.id = "second".into();
+    {
+        let mut state = manager.state.lock();
+        state.db.save(&second).unwrap();
+        state.sessions.insert(second.id.clone(), second.clone());
+    }
+    let input = || {
+        let mut input = turn_input(&second);
+        input.allow_parallel_checkout = true;
+        input
+    };
+    let lease = manager.workflow_lease(dir.path()).unwrap();
+    assert!(manager
+        .start(input())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("A workflow is setting up"));
+    drop(lease);
+    let (sender, _receiver) = mpsc::channel(1);
+    manager.state.lock().running.insert(
+        first.id.clone(),
+        Running {
+            run_id: "occupied".into(),
+            cwd: dir.path().canonicalize().unwrap(),
+            sender,
+        },
+    );
+    for (capacity, expected) in [
+        (json!({"global": 1}), "All 1 agent slots"),
+        (
+            json!({"global": 8, "providers": {"codex": 1}}),
+            "All 1 slots for this provider",
+        ),
+    ] {
+        manager
+            .workspace_save("preferences:capacity".into(), Some(capacity))
+            .unwrap();
+        assert!(manager
+            .start(input())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains(expected));
+    }
+    manager.state.lock().running.clear();
+}
+
+#[test]
+fn turns_default_to_exclusive_checkout_access() {
+    let input: AgentTurnInput = serde_json::from_value(json!({
+        "session_id": "session", "request_id": "request", "prompt": "Run"
+    }))
+    .unwrap();
+    assert!(!input.allow_parallel_checkout);
+}
+
 #[tokio::test]
 async fn abnormal_bridge_exit_marks_failure_and_releases_checkout() {
     if executable("node").is_none() {
@@ -1131,6 +1397,7 @@ async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
             mode: None,
             agent: None,
             attachments: vec![],
+            allow_parallel_checkout: false,
         })
         .await
         .unwrap_err();
@@ -1608,6 +1875,7 @@ async fn imported_history_is_archived_and_cannot_execute() {
             mode: None,
             agent: None,
             attachments: vec![],
+            allow_parallel_checkout: false,
         })
         .await
         .unwrap_err();
