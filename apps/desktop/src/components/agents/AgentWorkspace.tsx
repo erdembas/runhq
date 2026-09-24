@@ -744,6 +744,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               visible={visible}
               focusItemId={focusItemId}
               onHandoff={(items) => handoff(selected, items)}
+              onOpenSession={openConversation}
             />
           </div>
         ) : (

@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Clock3, Play } from 'lucide-react';
 import type { AgentSession } from '@runhq/cockpit-types';
-import { AGENT_STATUS_LABELS } from '@runhq/cockpit-ui';
+import { AGENT_STATUS_LABELS, SearchableSelect } from '@runhq/cockpit-ui';
 import { Dialog } from '@/components/ui/Dialog';
+import { Radio } from '@/components/ui/Choice';
 import type { WorkflowLaunchChoice } from './agentWorkflowLaunch';
 
 const button =
@@ -17,10 +18,12 @@ export function AgentWorkflowLaunchDialog({
   onChoose,
   onClose,
   error,
+  kind = 'workflow',
 }: {
   tasks: AgentSession[];
   busy: boolean;
   error?: string | null;
+  kind?: 'workflow' | 'task';
   canSaveDraft: boolean;
   onChoose: (choice: WorkflowLaunchChoice) => void;
   onClose: () => void;
@@ -59,7 +62,11 @@ export function AgentWorkflowLaunchDialog({
   return createPortal(
     <div ref={root}>
       <Dialog
-        title={i18n.t('When should this workflow start?')}
+        title={
+          kind === 'task'
+            ? i18n.t('When should this task start?')
+            : i18n.t('When should this workflow start?')
+        }
         onClose={() => {
           if (!busy) onClose();
         }}
@@ -87,7 +94,9 @@ export function AgentWorkflowLaunchDialog({
               {busy
                 ? i18n.t('Saving…')
                 : mode === 'after'
-                  ? i18n.t('Wait & start separately')
+                  ? kind === 'task'
+                    ? i18n.t('Queue task')
+                    : i18n.t('Wait & start separately')
                   : i18n.t('Start now')}
             </button>
           </>
@@ -105,8 +114,7 @@ export function AgentWorkflowLaunchDialog({
           <label
             className={`flex gap-3 rounded-xl border p-3 ${mode === 'after' ? 'border-accent bg-accent/5' : 'border-border'}`}
           >
-            <input
-              type="radio"
+            <Radio
               name="workflow-launch"
               value="after"
               checked={mode === 'after'}
@@ -120,28 +128,31 @@ export function AgentWorkflowLaunchDialog({
                 })}
               </span>
               <span className="text-fg-muted block">
-                {i18n.t(
-                  'Wait for a successful finish, then start independently in a separate working copy. The other task’s conversation and changes are not carried over.',
-                )}
+                {kind === 'task'
+                  ? i18n.t(
+                      'Wait for the selected task to finish successfully, then start this task automatically.',
+                    )
+                  : i18n.t(
+                      'Wait for a successful finish, then start independently in a separate working copy. The other task’s conversation and changes are not carried over.',
+                    )}
               </span>
             </span>
           </label>
           <label className="text-fg-muted block space-y-1.5 text-xs">
             <span>{i18n.t('Wait for task')}</span>
-            <select
-              className="border-border bg-surface text-fg w-full rounded-lg border p-2"
+            <SearchableSelect
+              label={i18n.t('Wait for task')}
+              placeholder={i18n.t('Choose an active task')}
+              className="w-full"
               value={selected?.id ?? ''}
-              disabled={busy || mode !== 'after'}
-              onChange={(event) => setSessionId(event.target.value)}
-            >
-              {!selected && <option value="">{i18n.t('Choose an active task')}</option>}
-              {tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.title} · {task.backend_name || task.backend} ·{' '}
-                  {AGENT_STATUS_LABELS[task.status]}
-                </option>
-              ))}
-            </select>
+              disabled={busy || mode !== 'after' || !tasks.length}
+              onChange={setSessionId}
+              options={tasks.map((task) => ({
+                value: task.id,
+                label: task.title,
+                description: `${task.backend_name || task.backend} · ${AGENT_STATUS_LABELS[task.status]}`,
+              }))}
+            />
           </label>
           {!tasks.length && (
             <p role="status" className="text-fg-dim text-xs">
@@ -151,8 +162,7 @@ export function AgentWorkflowLaunchDialog({
           <label
             className={`flex gap-3 rounded-xl border p-3 ${mode === 'now' ? 'border-accent bg-accent/5' : 'border-border'}`}
           >
-            <input
-              type="radio"
+            <Radio
               name="workflow-launch"
               value="now"
               checked={mode === 'now'}
@@ -164,16 +174,22 @@ export function AgentWorkflowLaunchDialog({
                 {i18n.rich('{value1}Start now', { value1: <Play className="size-4" /> })}
               </span>
               <span className="text-fg-muted block">
-                {i18n.t(
-                  'Run independently in a separate working copy. Account capacity limits still apply.',
-                )}
+                {kind === 'task'
+                  ? i18n.t('Start this task now and run alongside the other tasks in this project.')
+                  : i18n.t(
+                      'Run independently in a separate working copy. Account capacity limits still apply.',
+                    )}
               </span>
             </span>
           </label>
           <p className="text-fg-dim text-[11px]">
-            {i18n.t(
-              'Both options use this workflow’s prompts, models and reviews. Waiting controls start time; it does not copy the other task’s conversation or uncommitted changes.',
-            )}
+            {kind === 'task'
+              ? i18n.t(
+                  'Both options use the workspace and settings selected for this task. Waiting does not copy the other task’s conversation.',
+                )
+              : i18n.t(
+                  'Both options use this workflow’s prompts, models and reviews. Waiting controls start time; it does not copy the other task’s conversation or uncommitted changes.',
+                )}
           </p>
         </div>
       </Dialog>

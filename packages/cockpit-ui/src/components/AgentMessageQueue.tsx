@@ -10,17 +10,28 @@ export function AgentMessageQueue({
   onRemove,
   onMove,
   onResume,
+  onStartNow,
+  onOpenDependency,
 }: {
-  entries: { request_id: string; prompt: string; state: string; error?: string }[];
+  entries: {
+    request_id: string;
+    prompt: string;
+    state: string;
+    error?: string;
+    startAfter?: { sessionId: string; title: string };
+  }[];
   paused: boolean;
   disabled?: boolean;
   onRemove: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
   onResume: () => void;
+  onStartNow?: () => void;
+  onOpenDependency?: (sessionId: string) => void;
 }) {
   i18n.useLocale();
   if (!entries.length) return null;
   const button = 'text-fg-dim hover:text-fg rounded p-1 disabled:opacity-25';
+  const preceding = entries[0]?.startAfter;
   return (
     <section
       aria-label={i18n.t('Queued messages')}
@@ -32,8 +43,22 @@ export function AgentMessageQueue({
           {i18n.rich('Up next · {value1}', { value1: entries.length })}
         </span>
         <span className="text-fg-dim min-w-0 flex-1">
-          {paused ? i18n.t('Paused') : i18n.t('Runs after this task completes')}
+          {paused
+            ? i18n.t('Paused')
+            : preceding
+              ? i18n.t('Waiting for: {value1}', { value1: preceding.title })
+              : i18n.t('Runs after this task completes')}
         </span>
+        {preceding && onStartNow && (
+          <button
+            type="button"
+            disabled={disabled || entries[0]?.state === 'sending'}
+            onClick={onStartNow}
+            className="text-accent disabled:opacity-40"
+          >
+            {i18n.t('Start now')}
+          </button>
+        )}
         {paused && (
           <button
             disabled={disabled}
@@ -44,6 +69,15 @@ export function AgentMessageQueue({
           </button>
         )}
       </div>
+      {preceding && onOpenDependency && (
+        <button
+          type="button"
+          onClick={() => onOpenDependency(preceding.sessionId)}
+          className="text-accent mt-1 text-[11px] underline"
+        >
+          {i18n.t('Waiting for: {value1}', { value1: preceding.title })}
+        </button>
+      )}
       <ol className="mt-1 max-h-36 overflow-auto">
         {entries.map((entry, index) => (
           <li key={entry.request_id} className="border-border/50 border-t py-1.5 first:border-0">
@@ -61,7 +95,11 @@ export function AgentMessageQueue({
               <button
                 aria-label={i18n.t('Move queued message {value1} up', { value1: index + 1 })}
                 disabled={
-                  index === 0 || entry.state !== 'queued' || entries[index - 1]?.state !== 'queued'
+                  index === 0 ||
+                  entry.state !== 'queued' ||
+                  entries[index - 1]?.state !== 'queued' ||
+                  !!entry.startAfter ||
+                  !!entries[index - 1]?.startAfter
                 }
                 onClick={() => onMove(entry.request_id, -1)}
                 className={button}
@@ -73,7 +111,9 @@ export function AgentMessageQueue({
                 disabled={
                   index === entries.length - 1 ||
                   entry.state !== 'queued' ||
-                  entries[index + 1]?.state !== 'queued'
+                  entries[index + 1]?.state !== 'queued' ||
+                  !!entry.startAfter ||
+                  !!entries[index + 1]?.startAfter
                 }
                 onClick={() => onMove(entry.request_id, 1)}
                 className={button}
@@ -98,7 +138,9 @@ export function AgentMessageQueue({
         ))}
       </ol>
       <p className="text-fg-dim mt-1 text-[10px]">
-        {i18n.t('Queue stays active across tabs while RunHQ is open. Closing the app clears it.')}
+        {i18n.t(
+          'Queue stays active while RunHQ is open. After restarting the app, review and resume saved messages.',
+        )}
       </p>
     </section>
   );

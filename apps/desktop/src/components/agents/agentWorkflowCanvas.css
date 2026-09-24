@@ -17,10 +17,23 @@
   width: 240px;
 }
 .workflow-canvas .react-flow__handle {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background: rgb(var(--surface));
   border: 2px solid rgb(var(--accent));
+  transition: box-shadow 150ms;
+}
+.workflow-canvas .react-flow__handle.connectable:hover {
+  box-shadow: 0 0 0 5px rgb(var(--accent) / 0.15);
+}
+.workflow-canvas .react-flow__node.draggable {
+  cursor: grab;
+}
+.workflow-canvas .react-flow__node.dragging {
+  cursor: grabbing;
+}
+.workflow-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2.5;
 }
 .workflow-canvas .react-flow__node:focus-visible {
   outline: 2px solid rgb(var(--accent));

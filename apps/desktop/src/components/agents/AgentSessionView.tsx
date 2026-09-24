@@ -163,11 +163,13 @@ export function AgentSessionView({
   visible,
   focusItemId,
   onHandoff,
+  onOpenSession,
 }: {
   session: AgentSession;
   visible: boolean;
   focusItemId?: string;
   onHandoff?: (items: AgentItem[]) => void;
+  onOpenSession?: (sessionId: string) => void;
 }) {
   i18n.useLocale();
   const viewId = useId();
@@ -946,6 +948,8 @@ export function AgentSessionView({
               onRemove={(id) => agentTurnQueue.remove(session.id, id)}
               onMove={(id, direction) => agentTurnQueue.move(session.id, id, direction)}
               onResume={() => agentTurnQueue.resume(session.id)}
+              onStartNow={() => agentTurnQueue.startNow(session.id)}
+              onOpenDependency={onOpenSession ?? ((id) => useAgentStore.getState().select(id))}
             />
             {!toolEnabled && (
               <button

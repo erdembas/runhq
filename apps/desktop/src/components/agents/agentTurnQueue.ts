@@ -1,8 +1,10 @@
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import type { AgentTurnInput } from '@runhq/cockpit-types';
 import { validateAgentAttachments } from '@runhq/cockpit-ui';
+import { isAgentTaskStartDependency, type AgentTaskStartDependency } from './agentTaskStart';
 
 export interface QueuedAgentTurn extends AgentTurnInput {
+  startAfter?: AgentTaskStartDependency;
   state: 'queued' | 'sending' | 'failed';
   error?: string;
 }
@@ -25,6 +27,8 @@ export function isAgentQueueRecord(value: unknown): value is Record<string, Queu
             typeof turn.prompt === 'string' &&
             typeof turn.model === 'string' &&
             typeof turn.effort === 'string' &&
+            (turn.startAfter === undefined ||
+              (isAgentTaskStartDependency(turn.startAfter) && turn.startAfter.sessionId !== id)) &&
             ['queued', 'sending', 'failed'].includes(turn.state ?? '') &&
             (turn.mode === undefined || turn.mode === 'default' || turn.mode === 'plan') &&
             (turn.agent === undefined || typeof turn.agent === 'string') &&
@@ -73,6 +77,7 @@ export function recoverAgentQueues(queues: Record<string, QueuedAgentTurn[]>) {
 /** One dispatcher per app, independent of the currently mounted conversation. */
 export function createAgentTurnQueue(deps: {
   canStart: (sessionId: string, manual: boolean) => boolean;
+  dependencyState?: (turn: QueuedAgentTurn) => 'ready' | 'waiting' | 'blocked';
   start: (turn: AgentTurnInput) => Promise<unknown>;
   changed: (queues: Record<string, QueuedAgentTurn[]>) => boolean | void;
   initial?: Record<string, QueuedAgentTurn[]>;
@@ -94,6 +99,28 @@ export function createAgentTurnQueue(deps: {
       !deps.canStart(id, manual)
     )
       return;
+    if (turn.startAfter) {
+      const state = deps.dependencyState?.(turn) ?? 'waiting';
+      if (state === 'waiting') return;
+      if (state === 'blocked') {
+        resumed.delete(id);
+        update(
+          id,
+          (queues[id] ?? []).map((entry) =>
+            entry === turn
+              ? {
+                  ...entry,
+                  state: 'failed',
+                  error: i18n.t(
+                    'The preceding task did not complete successfully or is no longer available. Review it, then start now or remove this queued message.',
+                  ),
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+    }
     resumed.delete(id);
     sending.add(id);
     const saved = update(
@@ -122,7 +149,7 @@ export function createAgentTurnQueue(deps: {
     }
     let accepted = false;
     try {
-      const { state: _state, error: _error, ...input } = turn;
+      const { state: _state, error: _error, startAfter: _startAfter, ...input } = turn;
       await deps.start(input);
       accepted = true;
       update(
@@ -145,6 +172,20 @@ export function createAgentTurnQueue(deps: {
     }
   };
   return {
+    startNow: (id: string) => {
+      const turn = queues[id]?.[0];
+      if (!turn?.startAfter || sending.has(id)) return;
+      resumed.set(id, turn.request_id);
+      const saved = update(
+        id,
+        (queues[id] ?? []).map((entry) =>
+          entry === turn
+            ? { ...entry, startAfter: undefined, state: 'queued', error: undefined }
+            : entry,
+        ),
+      );
+      if (saved) void pump(id, true);
+    },
     notify: (id: string) => {
       void pump(id);
     },
@@ -160,7 +201,7 @@ export function createAgentTurnQueue(deps: {
       );
       void pump(id, true);
     },
-    enqueue: (input: AgentTurnInput) => {
+    enqueue: (input: AgentTurnInput & { startAfter?: AgentTaskStartDependency }) => {
       if (!input.prompt.trim()) return false;
       if ((queues[input.session_id] ?? []).some((entry) => entry.request_id === input.request_id))
         return false;
@@ -186,7 +227,14 @@ export function createAgentTurnQueue(deps: {
       const target = index + direction;
       const current = entries[index];
       const neighbor = entries[target];
-      if (!current || !neighbor || current.state !== 'queued' || neighbor.state !== 'queued')
+      if (
+        !current ||
+        !neighbor ||
+        current.state !== 'queued' ||
+        neighbor.state !== 'queued' ||
+        current.startAfter ||
+        neighbor.startAfter
+      )
         return;
       [entries[index], entries[target]] = [neighbor, current];
       update(id, entries);

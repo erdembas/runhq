@@ -5,6 +5,7 @@ import type {
   AgentTurnInput,
   CreateAgentSession,
 } from '@runhq/cockpit-types';
+import type { AgentTaskStartDependency } from './agentTaskStart';
 
 export interface AgentInitialTaskRecovery {
   projectId: string;
@@ -15,6 +16,7 @@ export interface AgentInitialTaskRecovery {
   draftText: string;
   attachments?: AgentAttachment[];
   sourceSessionId?: string;
+  startAfter?: AgentTaskStartDependency;
   phase: 'creating' | 'ready' | 'sending' | 'accepted';
   session: AgentSession | null;
   turn: AgentTurnInput | null;
@@ -29,6 +31,7 @@ export interface AgentInitialTaskPersistence {
 export function createAgentTaskLauncher(deps: {
   create: (input: CreateAgentSession, sourceSessionId?: string) => Promise<AgentSession>;
   start: (input: AgentTurnInput) => Promise<AgentSession>;
+  queue?: (input: AgentTurnInput, startAfter: AgentTaskStartDependency) => Promise<AgentSession>;
   created: (session: AgentSession, text: string) => void;
   recovery?: AgentInitialTaskPersistence;
 }) {
@@ -70,7 +73,11 @@ export function createAgentTaskLauncher(deps: {
       input: CreateAgentSession,
       text: string,
       attachments?: AgentAttachment[],
-      metadata?: { sourceSessionId?: string; draftText?: string },
+      metadata?: {
+        sourceSessionId?: string;
+        draftText?: string;
+        startAfter?: AgentTaskStartDependency;
+      },
     ): Promise<AgentSession> {
       if (pending) return pending;
       try {
@@ -91,6 +98,7 @@ export function createAgentTaskLauncher(deps: {
             draftText: metadata?.draftText ?? text,
             attachments,
             sourceSessionId: metadata?.sourceSessionId,
+            startAfter: metadata?.startAfter,
             phase: 'creating',
             session: null,
             turn: null,
@@ -124,7 +132,12 @@ export function createAgentTaskLauncher(deps: {
         }
         if (recovery) recovery = { ...recovery, phase: 'sending' };
         persist();
-        const result = await deps.start(turn!);
+        const startAfter = recovery ? recovery.startAfter : metadata?.startAfter;
+        if (startAfter && !deps.queue)
+          throw new Error(
+            i18n.t('Could not save the queued task. Retry saving before continuing.'),
+          );
+        const result = startAfter ? await deps.queue!(turn!, startAfter) : await deps.start(turn!);
         session = result;
         if (recovery) recovery = { ...recovery, phase: 'accepted', session: result };
         persist();

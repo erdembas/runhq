@@ -3,6 +3,7 @@ import type { AgentSession, AgentTurnInput } from '@runhq/cockpit-types';
 import { ipc } from '@/lib/ipc';
 import { createAgentRecoveryPersistence } from '@/lib/agentRecoveryPersistence';
 import { isAgentQueueRecord } from './agentTurnQueue';
+import { isAgentTaskStartDependency } from './agentTaskStart';
 import type { AgentInitialTaskPersistence, AgentInitialTaskRecovery } from './agentTaskLauncher';
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -31,6 +32,7 @@ export function isInitialAgentTaskRecoveryRecord(
         record.input.project_id === projectId &&
         ['creating', 'ready', 'sending', 'accepted'].includes(String(record.phase)) &&
         (record.sourceSessionId === undefined || typeof record.sourceSessionId === 'string') &&
+        (record.startAfter === undefined || isAgentTaskStartDependency(record.startAfter)) &&
         isTurn({
           session_id: 'pending-creation',
           request_id: record.requestId,

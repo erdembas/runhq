@@ -2,6 +2,7 @@ import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
 import { CircleCheck, CircleHelp, GitBranch, Inbox, Loader2, Lock } from 'lucide-react';
 import type { AgentSession } from '@runhq/cockpit-types';
+import { SearchableSelect } from '@runhq/cockpit-ui';
 import type { AgentWorkflow, WorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
 import {
   groupWorkflowTasks,
@@ -13,6 +14,7 @@ import {
 } from './agentWorkflowGraph';
 import { WORKFLOW_ROLE_OPTIONS } from './agentWorkflowStepPolicy';
 import { AgentWorkflowCanvas } from './AgentWorkflowCanvas';
+import { AgentWorkflowViewToggle } from './AgentWorkflowViewToggle';
 import { workflowStepTitle } from './agentWorkflowEditor';
 
 /** Status labels are shared by the workflow map and its alternative list view. */
@@ -104,7 +106,7 @@ export function AgentWorkflowBoard({
   const grouped = groupWorkflowTasks(steps, sessions);
   const progress = workflowProgress(steps, sessions);
   const dependents = workflowDependents(steps);
-  const [view, setView] = useState<'map' | 'list'>('list');
+  const [view, setView] = useState<'map' | 'list'>('map');
   const [selected, setSelected] = useState<string | null>(null);
   const focused =
     steps.find((step) => step.id === selected) ??
@@ -245,54 +247,39 @@ export function AgentWorkflowBoard({
             })}
           </button>
         )}
-        <div
-          className="border-border ml-auto flex rounded-lg border p-0.5"
-          aria-label={i18n.t('Workflow view')}
-        >
-          {(['list', 'map'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={view === option}
-              className={`rounded-md px-2.5 py-1 text-[11px] ${view === option ? 'bg-accent/10 text-accent' : 'text-fg-dim hover:text-fg'}`}
-              onClick={() => setView(option)}
-            >
-              {option === 'map' ? i18n.t('Map · advanced') : i18n.t('Prompt list')}
-            </button>
-          ))}
+        <div className="ml-auto">
+          <AgentWorkflowViewToggle value={view} onChange={setView} />
         </div>
       </div>
-      {view === 'map' ? (
-        <div className="border-border overflow-hidden rounded-xl border">
-          <AgentWorkflowCanvas
-            steps={steps}
-            selected={focused?.id}
-            onSelect={setSelected}
-            providerName={providerName}
-            lanes={taskLanes}
-          />
-          <div className="border-border border-t p-3">
-            <label className="text-fg-muted mb-2 flex items-center gap-2 text-[11px]">
-              {i18n.rich('Step details{value1}', {
-                value1: (
-                  <select
-                    className="border-border bg-surface text-fg min-w-0 flex-1 rounded-lg border px-2 py-1.5"
-                    value={focused?.id ?? ''}
-                    onChange={(event) => setSelected(event.target.value)}
-                  >
-                    {steps.map((step, index) => (
-                      <option key={step.id} value={step.id}>
-                        {index + 1}. {workflowStepTitle(step)}
-                      </option>
-                    ))}
-                  </select>
-                ),
-              })}
-            </label>
-            {focused && <ul>{card(focused, taskLanes[focused.id]!)}</ul>}
-          </div>
+      <div hidden={view !== 'map'} className="border-border overflow-hidden rounded-xl border">
+        <AgentWorkflowCanvas
+          steps={steps}
+          selected={focused?.id}
+          onSelect={setSelected}
+          providerName={providerName}
+          lanes={taskLanes}
+        />
+        <div className="border-border border-t p-3">
+          <label className="text-fg-muted mb-2 flex items-center gap-2 text-[11px]">
+            {i18n.rich('Step details{value1}', {
+              value1: (
+                <SearchableSelect
+                  label={i18n.t('Step details')}
+                  className="min-w-0 flex-1"
+                  value={focused?.id ?? ''}
+                  onChange={setSelected}
+                  options={steps.map((step, index) => ({
+                    value: step.id,
+                    label: `${i18n.number(index + 1)}. ${workflowStepTitle(step)}`,
+                  }))}
+                />
+              ),
+            })}
+          </label>
+          {focused && <ul>{card(focused, taskLanes[focused.id]!)}</ul>}
         </div>
-      ) : (
+      </div>
+      {view === 'list' && (
         <ol className="space-y-2" aria-label={i18n.t('Workflow queue')}>
           {steps.map((step) => card(step, taskLanes[step.id]!))}
         </ol>
