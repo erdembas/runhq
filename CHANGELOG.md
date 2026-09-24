@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.2.0](https://github.com/erdembas/runhq/compare/v3.1.0...v3.2.0) (2026-09-24)
 
+### Visual workflows
 
-### Features
+- Open workflows directly on the React Flow map; drag steps, edit connections, zoom and arrange the graph.
+- Keep dragged positions when changing views, connections or interface language.
+- Use themed dropdowns, checkboxes, radio buttons and forms with English/Turkish support.
 
-* **desktop:** make workflows visual and schedule new agent tasks ([#168](https://github.com/erdembas/runhq/issues/168)) ([7b43544](https://github.com/erdembas/runhq/commit/7b435447b7c65e9a62fc2838f82dc40722f28973))
+### Task start timing
+
+- Start a new agent task immediately or wait for a selected task in the same project to finish successfully.
+- Preserve workspace, model and context choices while waiting; inspect the preceding task or start now from the queue.
+- Pause dependent starts after failure or deletion and retain saved queues for explicit review and resume after restarting RunHQ.
+
+[Implementation: #168](https://github.com/erdembas/runhq/pull/168).
 
 ## [3.1.0](https://github.com/erdembas/runhq/compare/v3.0.1...v3.1.0) (2026-09-24)
 
