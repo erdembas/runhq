@@ -3167,8 +3167,12 @@ pub(super) async fn run_workflow_command_with_env(
     };
     #[cfg(windows)]
     let mut command = {
+        use std::os::windows::process::CommandExt;
         let mut c = Command::new("cmd.exe");
-        c.args(["/D", "/S", "/C", &format!("({text}) 2>&1")]);
+        // cmd.exe parses a shell program, not an MSVCRT-escaped argument.
+        // The user-supplied command is intentionally executable shell text.
+        c.args(["/D", "/S", "/C"]);
+        c.as_std_mut().raw_arg(format!("\"({text}) 2>&1\""));
         c
     };
     command.current_dir(cwd).envs(env);

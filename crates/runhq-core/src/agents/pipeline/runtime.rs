@@ -496,17 +496,23 @@ impl AgentManager {
                     snapshot.join(relative)
                 };
                 std::fs::create_dir_all(target.parent().unwrap())?;
+                let target_arg = target
+                    .to_str()
+                    .ok_or_else(|| invalid("pipeline.invalid_path"))?
+                    .to_owned();
+                // Git for Windows rejects Rust's verbatim path prefix for new worktrees.
+                #[cfg(windows)]
+                let target_arg = if let Some(unc) = target_arg.strip_prefix(r"\\?\UNC\") {
+                    format!(r"\\{unc}")
+                } else {
+                    target_arg
+                        .strip_prefix(r"\\?\")
+                        .unwrap_or(&target_arg)
+                        .to_owned()
+                };
                 git_output(
                     Path::new(&repo.path),
-                    &[
-                        "worktree",
-                        "add",
-                        "--detach",
-                        target
-                            .to_str()
-                            .ok_or_else(|| invalid("pipeline.invalid_path"))?,
-                        commit,
-                    ],
+                    &["worktree", "add", "--detach", &target_arg, commit],
                 )
                 .await?;
                 prompt = prompt.replace(&repo.path, &target.to_string_lossy());

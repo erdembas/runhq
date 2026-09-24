@@ -375,7 +375,7 @@ fn zip_round_trip_resolves_prompt_and_import_only_creates_draft() {
         ("prompts/impl.md", b"Implement from file".to_vec()),
     ] {
         zip.start_file(
-            name,
+            format!("bundle/{name}"),
             zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated),
         )
@@ -600,14 +600,19 @@ fn minimal_package_metadata_and_variable_paths_import_without_false_blockers() {
     let root = repo(temp.path(), "project");
     let manager = manager(&temp);
     let mut definition = serde_json::to_value(manifest(&root)).unwrap();
-    definition["package"] = json!({"contents":["pipeline.json","README.md"]});
+    definition["package"] = json!({"contents":["pipeline.json","README.md","scripts/"]});
     definition["steps"][1]["prompt"]=json!("Read `$RUNHQ_PACKAGE_ROOT/README.md`, ${RUNHQ_PACKAGE_ROOT}/scripts/verify.sh and ./scripts/verify.sh.");
     std::fs::write(temp.path().join("README.md"), "Package instructions").unwrap();
+    std::fs::create_dir(temp.path().join("scripts")).unwrap();
+    std::fs::write(temp.path().join("scripts/verify.sh"), "exit 0\n").unwrap();
     let file = temp.path().join("pipeline.json");
     std::fs::write(&file, serde_json::to_vec(&definition).unwrap()).unwrap();
     let run = manager.pipeline_import(file.clone()).unwrap();
     assert!(run.issues.iter().all(|i| !i.blocking), "{:?}", run.issues);
     assert!(Path::new(&run.package_root).join("README.md").is_file());
+    assert!(Path::new(&run.package_root)
+        .join("scripts/verify.sh")
+        .is_file());
     assert!(run.manifest.package.unwrap().install.is_empty());
     definition["steps"][1]["prompt"]=json!("Read `/Users/example/old-copy/README.md`. Also run bash /Users/example/old-copy/verify.sh.");
     std::fs::write(&file, serde_json::to_vec(&definition).unwrap()).unwrap();

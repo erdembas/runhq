@@ -3,6 +3,13 @@ use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 const LIMIT: usize = 16 * 1024 * 1024;
+// Archive keys stay portable even when host PathBufs use backslashes.
+fn portable_name(path: &Path) -> String {
+    path.iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
 fn relative(s: &str) -> AppResult<PathBuf> {
     let p = Path::new(s);
     if s.is_empty()
@@ -56,7 +63,7 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
             if f.is_dir() {
                 continue;
             }
-            let name = relative(f.name())?.to_string_lossy().into_owned();
+            let name = portable_name(&relative(f.name())?);
             if !aliases.insert(name.to_lowercase()) {
                 return Err(invalid("pipeline.invalid_archive"));
             }
@@ -96,13 +103,11 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
                         if e.file_type()?.is_symlink() {
                             return Err(invalid("pipeline.invalid_path"));
                         }
-                        pending.push(
+                        pending.push(portable_name(
                             e.path()
                                 .strip_prefix(&root)
-                                .map_err(|_| invalid("pipeline.invalid_path"))?
-                                .to_string_lossy()
-                                .into(),
-                        );
+                                .map_err(|_| invalid("pipeline.invalid_path"))?,
+                        ));
                     }
                 } else {
                     names.push(name);
@@ -125,7 +130,7 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
             .map(String::from),
         );
         for name in names {
-            let name = relative(&name)?.to_string_lossy().into_owned();
+            let name = portable_name(&relative(&name)?);
             if files.contains_key(&name) {
                 continue;
             }
@@ -401,7 +406,7 @@ impl AgentManager {
             if !s.prompt_file.is_empty() {
                 s.prompt = String::from_utf8(
                     files
-                        .get(&relative(&s.prompt_file)?.to_string_lossy().into_owned())
+                        .get(&portable_name(&relative(&s.prompt_file)?))
                         .ok_or_else(|| invalid("pipeline.missing_file"))?
                         .clone(),
                 )
