@@ -7,10 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.1.0](https://github.com/erdembas/runhq/compare/v3.0.1...v3.1.0) (2026-09-24)
 
+### AI providers for every task
 
-### Features
+- Choose installed Claude, Codex, Cursor and OpenCode agents alongside custom OpenAI-compatible providers.
+- Set separate providers and models for chat, commit messages, diff and log explanations, summaries and project analysis.
+- Pick models from the selected agent's live catalog and configure supported reasoning effort, modes and agent profiles using the same controls as new conversations.
+- Preserve conversation choices and request-specific generation settings when other AI tasks use different defaults.
 
-* **desktop:** configure AI providers and restore diff highlighting ([#165](https://github.com/erdembas/runhq/issues/165)) ([1a49bfc](https://github.com/erdembas/runhq/commit/1a49bfc26b0bef474e3adeb5e1c863e2b797893d))
+### Source control and agent improvements
+
+- Restore red/green diff highlighting, changed-token emphasis and line alignment in the packaged desktop app by correctly loading Monaco workers.
+- Generate commit messages through CLI agents, with cancellation and interactive permission handling.
+- Explicitly grant tool permissions for a workspace and manage or revoke saved grants in Settings.
+- Copy user messages and navigate long agent conversations with message markers and previews.
+- Start the native local macOS app with the installed app's data and UI profile through `pnpm dev`; use `pnpm dev:hot` for hot reload.
+
+All new desktop controls support English and Turkish. Changes: [#165](https://github.com/erdembas/runhq/pull/165).
 
 ## [3.0.1](https://github.com/erdembas/runhq/compare/v3.0.0...v3.0.1) (2026-09-23)
 
