@@ -10,10 +10,35 @@ import {
 import { claudeImageInput, validateAttachments } from './attachments.mjs';
 import { claudeApproval } from './permissions.mjs';
 
+// The batch barrier is verified against the native 2.1.119 CLI. Older/custom builds
+// can still advertise support by actually invoking it, without guessing capabilities.
+export function claudeSupportsPause(version) {
+  const match = /^2\.(\d+)\.(\d+)$/.exec(version ?? '');
+  return !!match && (Number(match[1]) > 1 || (Number(match[1]) === 1 && Number(match[2]) >= 119));
+}
+
 export async function runClaude(ctx, catalog = false, queryProvider = query) {
   const cfg = ctx.config;
   const attachments = catalog ? [] : validateAttachments(cfg.attachments, 'claude');
   const controller = new AbortController();
+  // PostToolBatch is the SDK's barrier after ALL tools settle and before the next model
+  // request. Per-tool hooks can run concurrently and must not acknowledge a global pause.
+  // Let an already-running subagent finish with its parent tool; pausing it here could
+  // deadlock the parent batch. This pauses the main loop, not detached background jobs.
+  const checkpoint = async (input, _toolId, { signal }) => {
+    if (input.agent_id) return {};
+    // Older/custom executables may lack version metadata. An observed callback
+    // confirms their support without assuming all installed CLIs match this SDK.
+    if (input.hook_event_name === 'PostToolBatch') ctx.pause.enable();
+    try {
+      await ctx.pause.checkpoint(signal);
+      return {};
+    } catch (error) {
+      // A hook timeout/disconnect must never silently release a paused model loop.
+      controller.abort();
+      throw error;
+    }
+  };
   // SDK integrations use supported API authentication; do not copy CLI OAuth tokens.
   const env = { ...process.env };
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -33,6 +58,14 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     resume: cfg.native_id || undefined,
     agent: cfg.agent || undefined,
     env,
+    ...(!catalog
+      ? {
+          hooks: {
+            UserPromptSubmit: [{ hooks: [checkpoint], timeout: 86400 }],
+            PostToolBatch: [{ hooks: [checkpoint], timeout: 86400 }],
+          },
+        }
+      : {}),
     onElicitation: (request, { signal, requestId }) =>
       new Promise((resolve, reject) => {
         const id = `elicitation-${requestId}`;
@@ -144,6 +177,7 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
   });
   ctx.interrupt = async () => {
     ctx.cancelled = true;
+    ctx.pause.close();
     controller.abort();
   };
   try {
@@ -171,6 +205,13 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     let blockIndex = 0;
     let result;
     for await (const message of q) {
+      if (
+        message.type === 'system' &&
+        message.subtype === 'init' &&
+        !message.parent_tool_use_id &&
+        claudeSupportsPause(message.claude_code_version)
+      )
+        ctx.pause.enable();
       if (message.session_id && !message.parent_tool_use_id)
         ctx.emit({ type: 'native', id: message.session_id });
       if (message.type === 'stream_event') {

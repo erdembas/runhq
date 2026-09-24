@@ -1,3 +1,6 @@
+import { open as openRecipeFile } from '@tauri-apps/plugin-dialog';
+import { agentWorkflowIpc } from '@/lib/ipc/agentWorkflowIpc';
+import { workflowExecutionError } from './workflowExecutionMessages';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState, type ElementRef } from 'react';
@@ -108,7 +111,9 @@ function LibraryDialog({
   onClose,
   children,
   visible,
+  fullScreen = false,
 }: {
+  fullScreen?: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
@@ -130,7 +135,11 @@ function LibraryDialog({
         event.preventDefault();
         onClose();
       }}
-      className="m-auto max-h-[94vh] w-[min(95vw,44rem)] max-w-none bg-transparent p-0 backdrop:bg-black/60"
+      className={
+        fullScreen
+          ? 'bg-surface-raised fixed inset-3 m-0 h-auto max-h-none w-auto max-w-none p-0 backdrop:bg-black/60'
+          : 'm-auto max-h-[94vh] w-[min(95vw,44rem)] max-w-none bg-transparent p-0 backdrop:bg-black/60'
+      }
     >
       {children}
     </dialog>
@@ -212,12 +221,13 @@ export function AgentLibrary({
       return null;
     }
   };
+  const [editorTab, setEditorTab] = useState<'overview' | 'steps'>('steps');
   const [launch, setLaunch] = useState<{ recipe: AgentRecipe; workflow: boolean } | null>(null);
   const [parameters, setParameters] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const importRecipes = useRef<HTMLInputElement>(null);
+
   const importHistory = useRef<HTMLInputElement>(null);
   const searchGeneration = useRef(0);
   useEffect(() => {
@@ -363,14 +373,48 @@ export function AgentLibrary({
           <div className="mb-4 flex flex-wrap gap-2">
             <button
               className={button}
-              onClick={() => setEditor({ ...newRecipe(), projectId: scope || undefined })}
+              onClick={() => {
+                setEditorTab('overview');
+                setEditor({ ...newRecipe(), projectId: scope || undefined });
+              }}
             >
               {i18n.rich('{value1}New recipe', { value1: <Plus className="h-3.5 w-3.5" /> })}
             </button>
             <button
               className={button}
               disabled={busy}
-              onClick={() => importRecipes.current?.click()}
+              onClick={() =>
+                void action(async () => {
+                  const path = await openRecipeFile({
+                    multiple: false,
+                    filters: [{ name: i18n.t('Workflow recipes'), extensions: ['json'] }],
+                  });
+                  if (typeof path !== 'string') return;
+                  let raw: unknown;
+                  try {
+                    raw = await agentWorkflowIpc.importRecipes(path);
+                  } catch (error) {
+                    throw new Error(workflowExecutionError(String(error)));
+                  }
+                  const data = raw as { version?: number; recipes?: unknown[] };
+                  if (data.version !== 1 || !Array.isArray(data.recipes))
+                    throw new Error(i18n.t('Unsupported recipe file'));
+                  const imported = data.recipes.map((value) =>
+                    portableAgentRecipe(parseRecipe(value)),
+                  );
+                  for (const recipe of imported) {
+                    const id = crypto.randomUUID();
+                    await useAgentLibraryStore
+                      .getState()
+                      .save(`recipe:${id}`, { ...recipe, id, projectId: scope || undefined });
+                  }
+                  setNotice(
+                    i18n.t('Imported {value1} recipes. Review settings before launching.', {
+                      value1: imported.length,
+                    }),
+                  );
+                })
+              }
             >
               {i18n.rich('{value1}Import', { value1: <Upload className="h-3.5 w-3.5" /> })}
             </button>
@@ -388,40 +432,6 @@ export function AgentLibrary({
               })}
             </button>
           </div>
-          <input
-            type="file"
-            accept="application/json,.json"
-            ref={importRecipes}
-            className="hidden"
-            aria-label={i18n.t('Import agent recipes')}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file)
-                void action(async () => {
-                  if (file.size > 1024 * 1024) throw new Error(i18n.t('Recipe file exceeds 1 MiB'));
-                  const data = JSON.parse(await file.text());
-                  if (
-                    data.version !== 1 ||
-                    !Array.isArray(data.recipes) ||
-                    data.recipes.length > 100
-                  )
-                    throw new Error(i18n.t('Unsupported recipe file'));
-                  const imported = data.recipes.map(portableAgentRecipe);
-                  for (const recipe of imported) {
-                    const id = crypto.randomUUID();
-                    await useAgentLibraryStore
-                      .getState()
-                      .save(`recipe:${id}`, { ...recipe, id, projectId: scope || undefined });
-                  }
-                  setNotice(
-                    i18n.t('Imported {value1} recipes. Review settings before launching.', {
-                      value1: imported.length,
-                    }),
-                  );
-                });
-            }}
-          />
           <div className="grid gap-3 lg:grid-cols-2">
             {recipes.map((recipe) => (
               <article key={recipe.id} className="border-border rounded-xl border p-4">
@@ -465,7 +475,13 @@ export function AgentLibrary({
                   <button className={button} onClick={() => start(recipe, true)}>
                     {i18n.t('Create workflow')}
                   </button>
-                  <button className={button} onClick={() => setEditor({ ...recipe })}>
+                  <button
+                    className={button}
+                    onClick={() => {
+                      setEditorTab(recipe.workflowSteps?.length ? 'steps' : 'overview');
+                      setEditor({ ...recipe });
+                    }}
+                  >
                     {i18n.t('Edit')}
                   </button>
                   <button
@@ -763,14 +779,22 @@ export function AgentLibrary({
         <LibraryDialog
           visible={visible}
           title={i18n.t('Edit task recipe')}
+          fullScreen
           onClose={() => setEditor(null)}
         >
           <form
             aria-label={i18n.t('Edit task recipe')}
-            className="border-border bg-surface-raised overlay-scroll max-h-[90vh] w-full max-w-2xl space-y-3 overflow-auto rounded-xl border p-5"
+            noValidate
+            className="border-border bg-surface-raised flex h-full w-full flex-col overflow-hidden rounded-xl border"
             onSubmit={(e) => {
               e.preventDefault();
               if (queueEditing) return;
+              const form = e.currentTarget;
+              if (!form.checkValidity()) {
+                setEditorTab('overview');
+                requestAnimationFrame(() => form.reportValidity());
+                return;
+              }
               void action(async () => {
                 const recipe = parseRecipe({
                   ...editor,
@@ -790,181 +814,230 @@ export function AgentLibrary({
               });
             }}
           >
-            <h3 className="text-fg font-medium">{i18n.t('Task recipe')}</h3>
-            {(['name', 'prompt', 'acceptance', 'setupCommands', 'checkCommands'] as const).map(
-              (key) => (
-                <label key={key} className="text-fg-muted block space-y-1 text-[12px]">
-                  <span>
-                    {
-                      {
-                        name: i18n.t('Name'),
-                        prompt: i18n.t('Prompt · supports {{parameters}}'),
-                        acceptance: i18n.t('Acceptance criteria'),
-                        setupCommands: i18n.t('Setup commands · one per line, used by workflows'),
-                        checkCommands: i18n.t('Check commands · one per line, used by workflows'),
-                      }[key]
-                    }
-                  </span>
-                  {key === 'name' ? (
-                    <input
-                      required
-                      className={field}
-                      value={editor[key]}
-                      onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
-                    />
-                  ) : (
-                    <textarea
-                      required={key === 'prompt'}
-                      rows={key === 'prompt' ? 4 : 2}
-                      className={field}
-                      value={editor[key]}
-                      onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
-                    />
+            <header className="border-border bg-surface flex shrink-0 items-center justify-between gap-4 border-b px-6 py-4">
+              <div className="min-w-0">
+                <p className="text-fg-dim text-xs">{i18n.t('Reusable recipe')}</p>
+                <h3 className="text-fg truncate text-lg font-semibold">
+                  {editor.name || i18n.t('Task recipe')}
+                </h3>
+                <p className="text-fg-muted mt-1 text-xs">
+                  {i18n.t(
+                    'Save reusable instructions here. For a one-time job, import directly in Workflows.',
                   )}
-                </label>
-              ),
-            )}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-fg-muted text-[12px]">
-                {i18n.rich('Project scope{value1}', {
-                  value1: (
-                    <SearchableSelect
-                      label={i18n.t('Recipe project scope')}
-                      indentGrouped
-                      className="mt-1"
-                      value={editor.projectId || ''}
-                      options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
-                      onChange={(value) => setEditor({ ...editor, projectId: value || undefined })}
-                      searchPlaceholder={i18n.t('Find a project or group…')}
-                    />
+                </p>
+              </div>
+              <button type="button" className={button} onClick={() => setEditor(null)}>
+                {i18n.t('Close')}
+              </button>
+            </header>
+            <nav
+              aria-label={i18n.t('Recipe sections')}
+              className="border-border flex shrink-0 gap-2 border-b px-6 py-2"
+            >
+              <button
+                type="button"
+                aria-pressed={editorTab === 'overview'}
+                className={`${button} ${editorTab === 'overview' ? 'bg-accent/10 text-accent' : ''}`}
+                onClick={() => setEditorTab('overview')}
+              >
+                {i18n.t('General settings')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={editorTab === 'steps'}
+                className={`${button} ${editorTab === 'steps' ? 'bg-accent/10 text-accent' : ''}`}
+                onClick={() => setEditorTab('steps')}
+              >
+                {i18n.t('Workflow steps')}
+              </button>
+            </nav>
+            <div className="min-h-0 flex-1 overflow-auto p-5">
+              <div hidden={editorTab !== 'overview'} className="mx-auto max-w-4xl space-y-4">
+                {(['name', 'prompt', 'acceptance', 'setupCommands', 'checkCommands'] as const).map(
+                  (key) => (
+                    <label key={key} className="text-fg-muted block space-y-1 text-[12px]">
+                      <span>
+                        {
+                          {
+                            name: i18n.t('Name'),
+                            prompt: i18n.t('Prompt · supports {{parameters}}'),
+                            acceptance: i18n.t('Acceptance criteria'),
+                            setupCommands: i18n.t(
+                              'Setup commands · one per line, used by workflows',
+                            ),
+                            checkCommands: i18n.t(
+                              'Check commands · one per line, used by workflows',
+                            ),
+                          }[key]
+                        }
+                      </span>
+                      {key === 'name' ? (
+                        <input
+                          required
+                          className={field}
+                          value={editor[key]}
+                          onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
+                        />
+                      ) : (
+                        <textarea
+                          required={key === 'prompt'}
+                          rows={key === 'prompt' ? 4 : 2}
+                          className={field}
+                          value={editor[key]}
+                          onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
+                        />
+                      )}
+                    </label>
                   ),
-                })}
-              </label>
-              <label className="text-fg-muted text-[12px]">
-                {i18n.rich('Provider{value1}', {
-                  value1: (
-                    <SearchableSelect
-                      label={i18n.t('Recipe provider')}
-                      searchable={false}
-                      className="mt-1"
-                      value={editor.backend}
-                      options={[
-                        { value: '', label: i18n.t('Choose at launch') },
-                        ...tools.map((t) => ({ value: t.id, label: t.name })),
-                        // A pool lets a scheduled run pick a free account instead of waiting on one.
-                        ...accountPools.map((pool) => ({
-                          value: poolTarget(pool.id),
-                          label: i18n.t('{value1} (pool)', { value1: pool.name }),
-                        })),
-                      ]}
-                      onChange={(value) => setEditor({ ...editor, backend: value })}
-                    />
-                  ),
-                })}
-              </label>
-              {(['model', 'effort', 'agent'] as const).map((key) => (
-                <label key={key} className="text-fg-muted text-[12px]">
-                  {key}
-                  <input
-                    className={field}
-                    placeholder={i18n.t('Agent default')}
-                    value={editor[key]}
-                    onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
-                  />
-                </label>
-              ))}
-              <label className="text-fg-muted text-[12px]">
-                {i18n.rich('Mode{value1}', {
-                  value1: (
-                    <SearchableSelect
-                      label={i18n.t('Recipe mode')}
-                      searchable={false}
-                      className="mt-1"
-                      menuWidth={200}
-                      value={editor.mode}
-                      options={[
-                        { value: 'default', label: i18n.t('Agent') },
-                        { value: 'plan', label: i18n.t('Plan') },
-                      ]}
-                      onChange={(value) =>
-                        setEditor({ ...editor, mode: value as 'default' | 'plan' })
-                      }
-                    />
-                  ),
-                })}
-              </label>
-              <label className="text-fg-muted flex items-center gap-2 text-[12px]">
-                {i18n.rich('{value1}Isolated worktree', {
-                  value1: (
-                    <input
-                      type="checkbox"
-                      checked={editor.isolated}
-                      onChange={(e) => setEditor({ ...editor, isolated: e.target.checked })}
-                    />
-                  ),
-                })}
-              </label>
-            </div>
-            <details className="border-border rounded-xl border p-3">
-              <summary className="text-fg-muted cursor-pointer text-[12px]">
-                {i18n.rich('Workflow steps &middot; {value1}', {
-                  value1: editor.workflowSteps?.length
-                    ? i18n.t('{value1} saved', { value1: editor.workflowSteps.length })
-                    : i18n.t('this recipe implements and reviews'),
-                })}
-              </summary>
-              <p className="text-fg-dim mt-2 text-[11px] leading-relaxed">
-                {i18n.t(
-                  'Used only when this recipe creates a workflow. Leave it empty to keep the agent above implementing and reviewing; add steps to save a division of labour that repeats across projects.',
                 )}
-              </p>
-              {editor.workflowSteps?.length ? (
-                <div className="mt-3">
-                  <AgentWorkflowTasks
-                    projectId={editor.projectId || scope || projects[0]?.id || ''}
-                    steps={recipeStepsToCreateSteps(editor.workflowSteps)}
-                    onQueueEditingChange={setQueueEditing}
-                    onChange={(steps) =>
-                      setEditor({ ...editor, workflowSteps: createStepsToRecipeSteps(steps) })
-                    }
-                    producers={producers}
-                    reviewers={reviewTools}
-                    poolOptions={workflowPoolOptions}
-                    // A recipe is stored, not run, so a pool stays a pool here: the account is
-                    // chosen when a step actually starts.
-                    resolveTarget={(target) => target}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-fg-muted text-[12px]">
+                    {i18n.rich('Project scope{value1}', {
+                      value1: (
+                        <SearchableSelect
+                          label={i18n.t('Recipe project scope')}
+                          indentGrouped
+                          className="mt-1"
+                          value={editor.projectId || ''}
+                          options={[
+                            { value: '', label: i18n.t('All projects') },
+                            ...projectOptions,
+                          ]}
+                          onChange={(value) =>
+                            setEditor({ ...editor, projectId: value || undefined })
+                          }
+                          searchPlaceholder={i18n.t('Find a project or group…')}
+                        />
+                      ),
+                    })}
+                  </label>
+                  <label className="text-fg-muted text-[12px]">
+                    {i18n.rich('Provider{value1}', {
+                      value1: (
+                        <SearchableSelect
+                          label={i18n.t('Recipe provider')}
+                          searchable={false}
+                          className="mt-1"
+                          value={editor.backend}
+                          options={[
+                            { value: '', label: i18n.t('Choose at launch') },
+                            ...tools.map((t) => ({ value: t.id, label: t.name })),
+                            // A pool lets a scheduled run pick a free account instead of waiting on one.
+                            ...accountPools.map((pool) => ({
+                              value: poolTarget(pool.id),
+                              label: i18n.t('{value1} (pool)', { value1: pool.name }),
+                            })),
+                          ]}
+                          onChange={(value) => setEditor({ ...editor, backend: value })}
+                        />
+                      ),
+                    })}
+                  </label>
+                  {(['model', 'effort', 'agent'] as const).map((key) => (
+                    <label key={key} className="text-fg-muted text-[12px]">
+                      {key}
+                      <input
+                        className={field}
+                        placeholder={i18n.t('Agent default')}
+                        value={editor[key]}
+                        onChange={(e) => setEditor({ ...editor, [key]: e.target.value })}
+                      />
+                    </label>
+                  ))}
+                  <label className="text-fg-muted text-[12px]">
+                    {i18n.rich('Mode{value1}', {
+                      value1: (
+                        <SearchableSelect
+                          label={i18n.t('Recipe mode')}
+                          searchable={false}
+                          className="mt-1"
+                          menuWidth={200}
+                          value={editor.mode}
+                          options={[
+                            { value: 'default', label: i18n.t('Agent') },
+                            { value: 'plan', label: i18n.t('Plan') },
+                          ]}
+                          onChange={(value) =>
+                            setEditor({ ...editor, mode: value as 'default' | 'plan' })
+                          }
+                        />
+                      ),
+                    })}
+                  </label>
+                  <label className="text-fg-muted flex items-center gap-2 text-[12px]">
+                    {i18n.rich('{value1}Isolated worktree', {
+                      value1: (
+                        <input
+                          type="checkbox"
+                          checked={editor.isolated}
+                          onChange={(e) => setEditor({ ...editor, isolated: e.target.checked })}
+                        />
+                      ),
+                    })}
+                  </label>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  className={`${button} mt-3`}
-                  onClick={() =>
-                    setEditor({
-                      ...editor,
-                      workflowSteps: createStepsToRecipeSteps([
-                        newWorkflowStep(
-                          'implement',
-                          editor.backend || producers[0]?.id || '',
-                          'implement',
-                        ),
-                        newWorkflowStep('review', reviewTools[0]?.id ?? '', 'review', [
-                          'implement',
+              </div>
+              <section hidden={editorTab !== 'steps'}>
+                <h4 className="sr-only">
+                  {i18n.rich('Workflow steps &middot; {value1}', {
+                    value1: editor.workflowSteps?.length
+                      ? i18n.t('{value1} saved', { value1: editor.workflowSteps.length })
+                      : i18n.t('this recipe implements and reviews'),
+                  })}
+                </h4>
+                <p className="sr-only">
+                  {i18n.t(
+                    'Used only when this recipe creates a workflow. Leave it empty to keep the agent above implementing and reviewing; add steps to save a division of labour that repeats across projects.',
+                  )}
+                </p>
+                {editor.workflowSteps?.length ? (
+                  <div>
+                    <AgentWorkflowTasks
+                      projectId={editor.projectId || scope || projects[0]?.id || ''}
+                      steps={recipeStepsToCreateSteps(editor.workflowSteps)}
+                      onQueueEditingChange={setQueueEditing}
+                      onChange={(steps) =>
+                        setEditor({ ...editor, workflowSteps: createStepsToRecipeSteps(steps) })
+                      }
+                      producers={producers}
+                      reviewers={reviewTools}
+                      poolOptions={workflowPoolOptions}
+                      // A recipe is stored, not run, so a pool stays a pool here: the account is
+                      // chosen when a step actually starts.
+                      resolveTarget={(target) => target}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`${button} mt-3`}
+                    onClick={() =>
+                      setEditor({
+                        ...editor,
+                        workflowSteps: createStepsToRecipeSteps([
+                          newWorkflowStep(
+                            'implement',
+                            editor.backend || producers[0]?.id || '',
+                            'implement',
+                          ),
+                          newWorkflowStep('review', reviewTools[0]?.id ?? '', 'review', [
+                            'implement',
+                          ]),
                         ]),
-                      ]),
-                    })
-                  }
-                >
-                  {i18n.t('Add workflow steps')}
-                </button>
-              )}
-            </details>
+                      })
+                    }
+                  >
+                    {i18n.t('Add workflow steps')}
+                  </button>
+                )}
+              </section>
+            </div>
             {error && (
               <p role="alert" className="text-status-error text-[12px]">
                 {error}
               </p>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="border-border bg-surface flex shrink-0 justify-end gap-2 border-t px-6 py-3">
               <button type="button" className={button} onClick={() => setEditor(null)}>
                 {i18n.t('Cancel')}
               </button>

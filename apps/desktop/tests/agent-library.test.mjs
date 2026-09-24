@@ -118,8 +118,8 @@ test('a recipe can save a division of labour, and refuses one it cannot run', ()
   assert.throws(() => parseRecipeSteps([{ role: 'deploy', target: 'codex' }]), /step role/);
   assert.throws(() => parseRecipeSteps('two steps'), /Invalid recipe steps/);
   assert.throws(
-    () => parseRecipeSteps(Array.from({ length: 65 }, () => ({ role: 'review', target: 'a' }))),
-    /up to 64 tasks/,
+    () => parseRecipeSteps(Array.from({ length: 513 }, () => ({ role: 'review', target: 'a' }))),
+    /up to 512 tasks/,
   );
   assert.throws(() => parseRecipeSteps([{ role: 'review', target: 7 }]), /step target/);
 });

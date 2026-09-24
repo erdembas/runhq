@@ -1,7 +1,7 @@
 'use client';
 
 import * as i18n from '../i18n';
-import { Bot, CheckCheck, CircleAlert, Square } from 'lucide-react';
+import { Bot, CheckCheck, CircleAlert, Pause, Square } from 'lucide-react';
 import { agentActivityLabel, type AgentActivitySummary } from '../lib/agentActivity';
 import { cn } from '../lib/cn';
 
@@ -26,14 +26,17 @@ export function AgentActivityBadge({
   const attention = activity.waiting + activity.issues;
   const label = agentActivityLabel(activity);
   if (!label) return null;
-  const compactCount = active || attention || activity.unread || activity.stopping;
+  const compactCount =
+    active || attention || activity.unread || activity.paused || activity.stopping;
   const PrimaryIcon = active
     ? Bot
     : attention
       ? CircleAlert
       : activity.unread
         ? CheckCheck
-        : Square;
+        : activity.paused
+          ? Pause
+          : Square;
   const primaryTone = active
     ? 'text-status-running'
     : attention

@@ -44,6 +44,7 @@ impl AgentDb {
             CREATE TABLE IF NOT EXISTS agent_tools (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_workspace_records (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_workflows (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS agent_pipelines (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             PRAGMA user_version=3;").map_err(db_error)?;
         Ok(Self {
             conn,

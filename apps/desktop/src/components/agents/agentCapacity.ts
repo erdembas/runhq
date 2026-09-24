@@ -59,6 +59,8 @@ export function agentExecutionState(
   capacityReason: string | null,
 ) {
   if (session.status === 'cancelling') return i18n.t('Stopping');
+  if (session.pause_state === 'paused') return i18n.t('Paused');
+  if (session.pause_state === 'pausing') return i18n.t('Pausing…');
   if (session.pending.some((request) => request.kind === 'approval'))
     return i18n.t('Waiting for permission');
   if (session.pending.length || session.status === 'waiting_input')

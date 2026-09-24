@@ -24,6 +24,8 @@ export function agentCanSteer(
   return (
     (session.adapter || session.backend) === 'codex' &&
     session.status === 'running' &&
+    session.pause_state !== 'pausing' &&
+    session.pause_state !== 'paused' &&
     !session.archived &&
     !agentSessionIsHistoryOnly(session) &&
     contextReady &&

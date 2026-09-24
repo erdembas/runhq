@@ -34,6 +34,7 @@ interface Props {
   turnsLength: number;
   projectControl?: ReactNode;
   providerControls?: ReactNode;
+  runControls?: ReactNode;
   onCancel: () => void;
   onInput: (value: string) => void;
   onManageModels: () => void;
@@ -107,15 +108,18 @@ export function AiChatComposer(props: Props) {
               />
             )}
             {props.isStreaming ? (
-              <button
-                type="button"
-                onClick={props.onCancel}
-                title={i18n.t('Stop (Esc)')}
-                aria-label={i18n.t('Stop generating')}
-                className="bg-fg/10 hover:bg-fg/20 text-fg/90 flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-              >
-                <Square className="h-3 w-3" fill="currentColor" />
-              </button>
+              <>
+                {props.runControls}
+                <button
+                  type="button"
+                  onClick={props.onCancel}
+                  title={i18n.t('Stop (Esc)')}
+                  aria-label={i18n.t('Stop generating')}
+                  className="bg-fg/10 hover:bg-fg/20 text-fg/90 flex h-7 w-7 items-center justify-center rounded-md transition-colors"
+                >
+                  <Square className="h-3 w-3" fill="currentColor" />
+                </button>
+              </>
             ) : (
               <button
                 type="button"

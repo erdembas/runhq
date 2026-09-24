@@ -108,6 +108,8 @@ export interface AgentSession {
   branch: string | null;
   usage: unknown;
   runtime_state?: unknown;
+  /** Live provider checkpoint support/state. Paused sessions retain their execution lease. */
+  pause_state?: 'running' | 'pausing' | 'paused' | null;
   pending: AgentRequest[];
 }
 export interface AgentSnapshot {

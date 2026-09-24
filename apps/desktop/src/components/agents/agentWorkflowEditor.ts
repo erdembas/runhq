@@ -236,6 +236,7 @@ export const workflowStepDeclaration = (step: WorkflowStep): CreateWorkflowStep 
   workspace: step.workspace,
   continue_from: step.continue_from,
   review_policy: step.review_policy ?? '',
+  ...(step.execution ? { execution: globalThis.structuredClone(step.execution) } : {}),
 });
 
 export const workflowStepLocked = (step: WorkflowStep) =>
@@ -383,6 +384,7 @@ export const workflowStepTitle = (step: { role: string; prompt: string }) =>
     review: i18n.t('Review the result'),
     revise: i18n.t('Address feedback'),
     validate: i18n.t('Validate the result'),
+    shell: i18n.t('Terminal command'),
   }[step.role] ??
     'New step');
 

@@ -126,7 +126,7 @@ function TaskCard({ session, onSelect }: { session: AgentSession; onSelect: () =
         </p>
       ) : null}
       <div className="border-border/60 mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-2.5">
-        <AgentStatusBadge status={session.status} />
+        <AgentStatusBadge status={session.status} pauseState={session.pause_state} />
         <span className="text-fg-dim flex items-center gap-1.5 text-[10px]">
           {session.mode === 'plan' && (
             <span title={i18n.t('Plan mode')}>

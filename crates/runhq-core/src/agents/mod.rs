@@ -15,7 +15,11 @@ mod workspace_data;
 pub use workspace_data::*;
 mod workflow_scheduler;
 pub use workflow_scheduler::*;
+mod pipeline;
 mod workflows;
+pub use pipeline::{PipelineIssue, PipelineRun, PipelineSummary};
+mod workflow_import;
+pub use workflow_import::import_workflow_recipes;
 pub use workflows::*;
 
 use crate::{AppError, AppResult};
@@ -62,6 +66,7 @@ pub struct AgentManager {
     home: PathBuf,
     bridge: PathBuf,
     sink: ChangeSink,
+    pipeline_schedulers: Mutex<std::collections::HashSet<String>>,
     workflow_gate: tokio::sync::Mutex<()>,
     workflow_cancellations: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
     /// Raised when a turn finishes, so a workflow's scheduler looks at its graph immediately
@@ -100,6 +105,7 @@ impl AgentManager {
         }
         let mut sessions = HashMap::new();
         for mut session in db.sessions()? {
+            session.pause_state = None;
             if titles::repair_legacy_title(&mut session, &db)? {
                 db.save(&session)?;
             }
@@ -126,12 +132,14 @@ impl AgentManager {
             home: home.into(),
             bridge,
             sink,
+            pipeline_schedulers: Mutex::new(std::collections::HashSet::new()),
             workflow_gate: tokio::sync::Mutex::new(()),
             workflow_cancellations: Mutex::new(HashMap::new()),
             workflow_wake: workflow_scheduler::workflow_wake(),
             workflow_schedulers: Mutex::new(std::collections::HashSet::new()),
         };
         manager.recover_workflows()?;
+        manager.recover_pipelines()?;
         Ok(manager)
     }
     pub fn add_project(&self, name: String, path: PathBuf) -> AppResult<AgentProject> {
@@ -582,6 +590,7 @@ impl AgentManager {
             last_turn_ms: None,
             total_run_ms: 0,
             runtime_state: Value::Null,
+            pause_state: None,
             workflow_read_only: false,
             pending: vec![],
         };
@@ -640,6 +649,7 @@ impl AgentManager {
             },
         )?;
         self.validate_workflow_turn(&previous, &input)?;
+        self.validate_pipeline_turn(&previous, &input.request_id)?;
         self.tool(&previous.backend)?;
         if let Some(scope) = &previous.workspace {
             validate_workspace_scope(Path::new(&previous.cwd), scope)?;
@@ -719,7 +729,7 @@ impl AgentManager {
                         state
                             .sessions
                             .get(*id)
-                            .is_some_and(|owner| !owner.workflow_read_only)
+                            .is_some_and(|owner| !owner.workflow_read_only && owner.runtime_state.get("pipeline_id").is_none())
                     })
                     // Read membership under the admission lock so a workflow cannot gain a
                     // shared writer between this check and recording the new running turn.
@@ -754,6 +764,7 @@ impl AgentManager {
                     titles::fallback_title(original.as_deref().unwrap_or(&input.prompt));
             }
             session.status = "starting".into();
+            session.pause_state = None;
             session.turn_started_at = Some(now());
             session.last_error = None;
             session.pending.clear();
@@ -815,6 +826,7 @@ impl AgentManager {
                     s.total_run_ms = s.total_run_ms.saturating_add(elapsed);
                 }
                 s.status = status;
+                s.pause_state = None;
                 s.last_error = error;
                 s.pending.clear();
                 s.unread = true;
@@ -929,6 +941,13 @@ impl AgentManager {
                     }
                 }
                 "native" => s.native_id = event["id"].as_str().map(str::to_string),
+                "pause" if s.active() && s.status != "cancelling" => {
+                    if let Some(value @ ("running" | "pausing" | "paused")) =
+                        event["state"].as_str()
+                    {
+                        s.pause_state = Some(value.into());
+                    }
+                }
                 "status" if s.status != "cancelling" && s.pending.is_empty() => {
                     s.status = "running".into()
                 }
@@ -974,7 +993,21 @@ impl AgentManager {
                         s.status = waiting_status(&s.pending);
                     }
                 }
-                "state" => s.runtime_state = event["state"].clone(),
+                "state" => {
+                    let pipeline = ["pipeline_id", "pipeline_step", "pipeline_attempt"]
+                        .into_iter()
+                        .filter_map(|key| s.runtime_state.get(key).cloned().map(|v| (key, v)))
+                        .collect::<Vec<_>>();
+                    s.runtime_state = event["state"].clone();
+                    if !pipeline.is_empty() {
+                        if !s.runtime_state.is_object() {
+                            s.runtime_state = json!({});
+                        }
+                        for (key, value) in pipeline {
+                            s.runtime_state[key] = value;
+                        }
+                    }
+                }
                 "usage" => s.usage = event["usage"].clone(),
                 _ => {}
             }
@@ -1095,9 +1128,20 @@ impl AgentManager {
                 return Err(invalid("This turn is no longer active"));
             }
             s.status = "cancelling".into();
+            s.pause_state = None;
             Ok(())
         })?;
         self.control(id, json!({"type":"interrupt"})).await
+    }
+    pub async fn pause(&self, id: &str, resume: bool) -> AppResult<()> {
+        let session = self.session(id)?;
+        if !session.active() || session.status == "cancelling" || session.pause_state.is_none() {
+            return Err(invalid("Pause is unavailable for this turn"));
+        }
+        // The runtime owns the state: acknowledging the command is not the same as
+        // reaching the checkpoint. Its pause event is the only source of UI state.
+        self.control(id, json!({"type": if resume { "resume" } else { "pause" }}))
+            .await
     }
     pub async fn steer(&self, id: &str, text: String) -> AppResult<()> {
         if text.trim().is_empty() || text.len() > 256 * 1024 {
@@ -1110,6 +1154,7 @@ impl AgentManager {
             &s.adapter
         }) != "codex"
             || s.status != "running"
+            || matches!(s.pause_state.as_deref(), Some("pausing" | "paused"))
         {
             return Err(invalid(
                 "Steering is available while a Codex turn is running",

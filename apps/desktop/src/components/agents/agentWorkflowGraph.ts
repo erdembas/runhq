@@ -159,7 +159,7 @@ export function workflowWouldCycle<T extends { id: string; depends_on: string[] 
 
 /** Tasks that produce changes; the rest read the checkout and report. */
 export const workflowRoleProduces = (role: string) =>
-  role === 'plan' || role === 'implement' || role === 'revise';
+  role === 'plan' || role === 'implement' || role === 'revise' || role === 'shell';
 
 /** The dependencies of a task that have not finished, in the words the card shows. */
 export function workflowBlockedBy(steps: WorkflowStep[], id: string): string[] {
@@ -177,6 +177,7 @@ export function workflowBlockedBy(steps: WorkflowStep[], id: string): string[] {
 /** Whether a task's result is finished but has not yet been applied to the shared checkout. */
 export function workflowAwaitingJoin(step: WorkflowStep): boolean {
   return (
+    step.result?.outcome !== 'skipped' &&
     workflowRoleProduces(step.role) &&
     step.workspace === 'own' &&
     step.status === 'completed' &&
@@ -287,11 +288,12 @@ export function workflowConcurrentProducerPairs<
 >(tasks: T[]): [string, string][] {
   const producers = tasks.filter((task) => workflowRoleProduces(task.role));
   const pairs: [string, string][] = [];
+  const ancestors = new Map(producers.map((task) => [task.id, workflowAncestors(tasks, task.id)]));
   for (let left = 0; left < producers.length; left += 1)
     for (let right = left + 1; right < producers.length; right += 1) {
       const a = producers[left]!;
       const b = producers[right]!;
-      if (!workflowAncestors(tasks, a.id).has(b.id) && !workflowAncestors(tasks, b.id).has(a.id))
+      if (!ancestors.get(a.id)!.has(b.id) && !ancestors.get(b.id)!.has(a.id))
         pairs.push([a.id, b.id]);
     }
   return pairs;

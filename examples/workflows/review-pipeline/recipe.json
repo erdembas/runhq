@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "review-pipeline",
+      "name": "Implementation, checks, review",
+      "prompt": "Implement the requested change, pass verification and obtain an independent review.",
+      "backend": "codex",
+      "model": "",
+      "effort": "",
+      "mode": "default",
+      "agent": "",
+      "isolated": true,
+      "acceptance": "All requirements and tests pass.",
+      "setupCommands": "",
+      "checkCommands": "",
+      "version": 1,
+      "workflowSteps": [
+        {
+          "id": "implement",
+          "role": "implement",
+          "target": "codex",
+          "promptFile": "implement.md",
+          "dependsOn": [],
+          "workspace": "shared",
+          "execution": {
+            "working_directory": "",
+            "lock": "main",
+            "timeout_minutes": 240,
+            "idle_timeout_minutes": 30,
+            "max_retries": 0,
+            "result_format": "pipeline",
+            "on_failure": "cancel"
+          }
+        },
+        {
+          "id": "verify",
+          "role": "shell",
+          "target": "codex",
+          "prompt": "Run the project verification script.",
+          "dependsOn": ["implement"],
+          "workspace": "shared",
+          "execution": {
+            "command": "bash verify.sh",
+            "lock": "main",
+            "timeout_minutes": 240,
+            "on_failure": "cancel"
+          }
+        },
+        {
+          "id": "review",
+          "role": "review",
+          "target": "codex",
+          "promptFile": "review.md",
+          "fixPromptFile": "fix.md",
+          "dependsOn": ["verify"],
+          "workspace": "shared",
+          "reviewPolicy": "auto_fix",
+          "execution": {
+            "timeout_minutes": 240,
+            "idle_timeout_minutes": 30,
+            "max_fix_attempts": 3,
+            "result_format": "review",
+            "on_failure": "cancel"
+          }
+        }
+      ]
+    }
+  ]
+}

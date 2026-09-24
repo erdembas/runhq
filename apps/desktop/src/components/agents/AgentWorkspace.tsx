@@ -872,7 +872,7 @@ export function AgentWorkspace({
                       </p>
                     )}
                     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                      <AgentStatusBadge status={s.status} />
+                      <AgentStatusBadge status={s.status} pauseState={s.pause_state} />
                       <span className="text-fg-dim min-w-0 truncate text-[10px]">
                         {s.backend_name || agentProviderNames[s.backend] || s.backend}
                         {s.isolated ? i18n.t(' · worktree') : ''}

@@ -165,7 +165,7 @@ export function WorkspaceOverview({
                 className="border-border/60 hover:bg-fg/3 flex w-full items-center gap-3 border-t px-5 py-3 text-left"
               >
                 <span className="text-fg min-w-0 flex-1 truncate text-[12px]">{session.title}</span>
-                <AgentStatusBadge status={session.status} />
+                <AgentStatusBadge status={session.status} pauseState={session.pause_state} />
                 <span className="text-fg-dim text-[10px]">
                   {i18n.date(session.updated_at, {
                     month: 'short',

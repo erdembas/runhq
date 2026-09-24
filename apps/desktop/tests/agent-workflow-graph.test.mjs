@@ -370,8 +370,8 @@ test('sixty-four tasks pass and sixty-five do not', () => {
       ),
     ];
   };
-  assert.equal(policy.workflowStepsProblem(many(64)), null);
-  assert.match(policy.workflowStepsProblem(many(65)), /up to 64 tasks/);
+  assert.equal(policy.workflowStepsProblem(many(512)), null);
+  assert.match(policy.workflowStepsProblem(many(513)), /up to 512 tasks/);
 });
 
 test('a key is made from the task, and falls back when it is taken', () => {
@@ -712,4 +712,63 @@ test('parallel mode isolates every prompt, drops shared conversations and review
   const sequential = editor.setWorkflowExecution(parallel, 'sequence');
   assert.equal(editor.workflowIsQueue(sequential), true);
   assert.equal(policy.workflowStepsProblem(sequential), null);
+});
+
+test('execution settings survive recipe import, export and live editing', () => {
+  const execution = {
+    max_fix_attempts: 3,
+    timeout_minutes: 240,
+    lock: 'main',
+    working_directory: 'backend',
+    run_if: { step_id: 'a', outcomes: ['findings'] },
+    result_format: 'pipeline',
+    on_failure: 'cancel',
+  };
+  const tasks = [
+    task('a', 'implement'),
+    task('b', 'implement', ['a'], { execution }),
+    task('review', 'review', ['b']),
+  ];
+  const saved = bridge.createStepsToRecipeSteps(tasks);
+  const parsed = library.parseRecipeSteps(saved);
+  assert.deepEqual(bridge.recipeStepsToCreateSteps(parsed)[1].execution, execution);
+  assert.deepEqual(editor.workflowStepDeclaration(tasks[1]).execution, execution);
+  assert.throws(
+    () => library.parseWorkflowExecution({ timeout_minutes: -1 }),
+    /Invalid workflow execution/,
+  );
+  assert.throws(
+    () => library.parseWorkflowExecution({ max_fix_attempts: 11 }),
+    /Invalid workflow execution/,
+  );
+  assert.throws(
+    () => library.parseWorkflowExecution({ unsupportedRule: true }),
+    /Invalid workflow execution/,
+  );
+});
+
+test('terminal steps require a command and same-lock shared steps are admitted', () => {
+  const gate = task('gate', 'shell', ['a'], {
+    execution: { command: 'bash verify.sh', lock: 'main' },
+  });
+  assert.equal(graph.workflowRoleProduces('shell'), true);
+  assert.equal(
+    policy.workflowStepsProblem([task('a', 'implement'), gate, task('review', 'review', ['gate'])]),
+    null,
+  );
+  assert.match(
+    policy.workflowStepsProblem([
+      task('a', 'implement'),
+      { ...gate, execution: {} },
+      task('review', 'review', ['gate']),
+    ]),
+    /terminal step needs a command/,
+  );
+  const locked = ['a', 'b'].map((id) =>
+    task(id, 'implement', [], { execution: { lock: 'database' } }),
+  );
+  assert.equal(
+    policy.workflowStepsProblem([...locked, task('review', 'review', ['a', 'b'])]),
+    null,
+  );
 });

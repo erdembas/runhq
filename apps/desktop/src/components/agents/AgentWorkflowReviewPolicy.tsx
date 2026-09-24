@@ -25,7 +25,7 @@ export function AgentWorkflowReviewPolicy({
         options={[
           { value: 'on_findings', label: i18n.t('Pause if issues are found') },
           { value: 'approval', label: i18n.t('Always wait for my approval') },
-          { value: 'auto_fix', label: i18n.t('Fix issues once, then review again') },
+          { value: 'auto_fix', label: i18n.t('Fix issues, then review again') },
           { value: 'continue', label: i18n.t('Continue and pass findings to the next prompt') },
         ]}
       />
@@ -33,7 +33,9 @@ export function AgentWorkflowReviewPolicy({
         {value === 'continue' || !value
           ? i18n.t('The next step starts even if the reviewer finds issues.')
           : value === 'auto_fix'
-            ? i18n.t('One correction attempt. Remaining issues or an unclear verdict wait for you.')
+            ? i18n.t(
+                'Correction attempts are limited by the step settings. Remaining issues wait for you.',
+              )
             : i18n.t(
                 'An unclear verdict waits for your decision. Applying changes always needs your approval.',
               )}

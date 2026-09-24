@@ -1,3 +1,4 @@
+import { AgentWorkflowExecutionSettings } from './AgentWorkflowExecutionSettings';
 import { Textarea } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Choice';
 import * as i18n from '@runhq/cockpit-ui/i18n';
@@ -84,7 +85,7 @@ export function AgentWorkflowTasks({
   const [executionChoice, setExecutionChoice] = useState<ReturnType<
     typeof workflowExecutionMode
   > | null>(null);
-  const [view, setView] = useState<'list' | 'map'>('map');
+  const [view, setView] = useState<'list' | 'map'>('list');
   const [selected, setSelected] = useState<string | null>(null);
   const [previous, setPrevious] = useState<CreateWorkflowStep[] | null>(null);
   const [queuing, setQueuing] = useState(false);
@@ -167,29 +168,32 @@ export function AgentWorkflowTasks({
 
   return (
     <fieldset disabled={disabled} className="min-w-0 space-y-3">
-      <legend className="text-fg mb-2 text-sm font-medium">
-        {i18n.t('Choose how the work gets done')}
-      </legend>
+      <legend className="sr-only">{i18n.t('Choose how the work gets done')}</legend>
       {!live && (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          {WORKFLOW_TEMPLATES.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => applyTemplate(template.id)}
-              className="border-border bg-surface hover:border-accent/50 hover:bg-accent/5 rounded-xl border p-3 text-left disabled:opacity-40"
-            >
-              <span className="text-fg flex items-center justify-between gap-2 text-xs font-medium">
-                {template.name}
-                <ArrowRight className="text-fg-dim size-3.5" />
-              </span>
-              <span className="text-fg-dim mt-1 block text-[11px] leading-relaxed">
-                {template.description}
-              </span>
-            </button>
-          ))}
-        </div>
+        <details className="group/templates">
+          <summary className="text-fg-muted cursor-pointer text-xs">
+            {i18n.t('Start from a template')}
+          </summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {WORKFLOW_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => applyTemplate(template.id)}
+                className="border-border bg-surface hover:border-accent/50 hover:bg-accent/5 rounded-xl border p-3 text-left disabled:opacity-40"
+              >
+                <span className="text-fg flex items-center justify-between gap-2 text-xs font-medium">
+                  {template.name}
+                  <ArrowRight className="text-fg-dim size-3.5" />
+                </span>
+                <span className="text-fg-dim mt-1 block text-[11px] leading-relaxed">
+                  {template.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </details>
       )}
       {queuing ? (
         <AgentWorkflowPromptQueue
@@ -277,7 +281,9 @@ export function AgentWorkflowTasks({
                 }}
               />
             </div>
-            <div className="workflow-studio-content grid min-w-0 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div
+              className={`workflow-studio-content grid min-w-0 ${view === 'list' ? 'lg:grid-cols-[300px_minmax(0,1fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(360px,38%)]'}`}
+            >
               <div className="min-h-0 min-w-0 overflow-auto">
                 {view === 'list' && (
                   <ol aria-label={i18n.t('Steps in execution order')} className="space-y-2 p-3">
@@ -293,14 +299,19 @@ export function AgentWorkflowTasks({
                           className="min-w-0 flex-1 text-left"
                         >
                           <span className="text-fg-dim text-[10px]">
-                            {index + 1} · {i18n.enumLabel('stepRole', step.role)}
+                            {index + 1} ·{' '}
+                            {step.role === 'shell'
+                              ? i18n.t('Terminal command')
+                              : i18n.enumLabel('stepRole', step.role)}
                             {locked.has(step.id) ? ` · ${i18n.t('Already started')}` : ''}
                           </span>
                           <span className="text-fg block truncate text-xs">
                             {workflowStepTitle(step)}
                           </span>
                           <span className="text-fg-dim block text-[10px]">
-                            {providerName(step.target)}
+                            {step.role === 'shell'
+                              ? i18n.t('Terminal command')
+                              : providerName(step.target)}
                             {step.continue_from
                               ? ` · ${i18n.t('Continues an earlier conversation')}`
                               : ''}
@@ -401,61 +412,7 @@ export function AgentWorkflowTasks({
                       <Trash2 className="size-3.5" />
                     </button>
                   </div>
-                  {workflowRoleProduces(current.role) && (
-                    <div className="space-y-2">
-                      <SearchableSelect
-                        label={i18n.t('Run after prompts')}
-                        searchable={false}
-                        disabled={disabled || currentLocked}
-                        value={
-                          current.depends_on.length === 0
-                            ? ''
-                            : current.depends_on.length === 1 &&
-                                steps.some(
-                                  (step) =>
-                                    step.id === current.depends_on[0] &&
-                                    workflowRoleProduces(step.role),
-                                )
-                              ? current.depends_on[0]!
-                              : '__custom'
-                        }
-                        options={[
-                          { value: '', label: i18n.t('Starts immediately') },
-                          { value: '__custom', label: i18n.t('Custom dependencies') },
-                          ...steps
-                            .filter(
-                              (step) =>
-                                workflowRoleProduces(step.role) &&
-                                (current.depends_on.includes(step.id) ||
-                                  canConnectWorkflowTasks(steps, step.id, current.id)),
-                            )
-                            .map((step) => ({
-                              value: step.id,
-                              label: i18n.t('Prompt {number} · {title}', {
-                                number: i18n.number(steps.indexOf(step) + 1),
-                                title: workflowStepTitle(step),
-                              }),
-                            })),
-                        ]}
-                        onChange={(id) => {
-                          if (id === '__custom') return;
-                          const next = steps.map((step) =>
-                            step.id === current.id
-                              ? { ...step, depends_on: id ? [id] : [], continue_from: undefined }
-                              : step,
-                          );
-                          change(isolateConcurrentProducers(next));
-                        }}
-                      />
-                      <p className="text-fg-dim text-[11px]">
-                        {i18n.t(
-                          'Only the selected prompts must finish; their reviews do not delay this step.',
-                        )}
-                      </p>
-                    </div>
-                  )}
                   <details
-                    open
                     key={current.id}
                     className="group/dependencies border-border/70 rounded-lg border p-2.5 text-xs"
                   >
@@ -528,10 +485,18 @@ export function AgentWorkflowTasks({
                                 : current.review_policy || 'on_findings',
                               target,
                               ...(target !== current.target ? { model: '', effort: '' } : {}),
-                              workspace: workflowRoleProduces(next) ? current.workspace : 'shared',
-                              continue_from: workflowRoleProduces(next)
-                                ? current.continue_from
-                                : undefined,
+                              workspace:
+                                workflowRoleProduces(next) && next !== 'shell'
+                                  ? current.workspace
+                                  : 'shared',
+                              execution: {
+                                ...current.execution,
+                                command: next === 'shell' ? (current.execution?.command ?? '') : '',
+                              },
+                              continue_from:
+                                workflowRoleProduces(next) && next !== 'shell'
+                                  ? current.continue_from
+                                  : undefined,
                             });
                           }}
                         />
@@ -583,7 +548,7 @@ export function AgentWorkflowTasks({
                     {i18n.rich('What should happen?{value1}', {
                       value1: (
                         <Textarea
-                          rows={4}
+                          rows={10}
                           className={field}
                           value={current.prompt}
                           placeholder={i18n.t('Describe what this step should do…')}
@@ -592,40 +557,44 @@ export function AgentWorkflowTasks({
                       ),
                     })}
                   </label>
-                  <label className={label}>
-                    {i18n.rich('Agent{value1}', {
-                      value1: (
-                        <SearchableSelect
-                          label={i18n.t('Step agent')}
-                          searchable={false}
-                          disabled={disabled || currentLocked}
-                          value={current.target}
-                          options={[
-                            ...candidates(current.role).map((tool) => ({
-                              value: tool.id,
-                              label: tool.name,
-                            })),
-                            ...poolOptions,
-                          ]}
-                          onChange={(value) => {
-                            const target = resolveTarget(value, candidates(current.role));
-                            update(current.id, {
-                              target,
-                              ...(target !== current.target ? { model: '', effort: '' } : {}),
-                            });
-                          }}
-                        />
-                      ),
-                    })}
-                  </label>
-                  <AgentWorkflowModelControls
-                    projectId={projectId}
-                    target={current.target}
-                    model={current.model}
-                    effort={current.effort}
-                    disabled={disabled || currentLocked}
-                    onChange={(settings) => update(current.id, settings)}
-                  />
+                  {current.role !== 'shell' && (
+                    <>
+                      <label className={label}>
+                        {i18n.rich('Agent{value1}', {
+                          value1: (
+                            <SearchableSelect
+                              label={i18n.t('Step agent')}
+                              searchable={false}
+                              disabled={disabled || currentLocked}
+                              value={current.target}
+                              options={[
+                                ...candidates(current.role).map((tool) => ({
+                                  value: tool.id,
+                                  label: tool.name,
+                                })),
+                                ...poolOptions,
+                              ]}
+                              onChange={(value) => {
+                                const target = resolveTarget(value, candidates(current.role));
+                                update(current.id, {
+                                  target,
+                                  ...(target !== current.target ? { model: '', effort: '' } : {}),
+                                });
+                              }}
+                            />
+                          ),
+                        })}
+                      </label>
+                      <AgentWorkflowModelControls
+                        projectId={projectId}
+                        target={current.target}
+                        model={current.model}
+                        effort={current.effort}
+                        disabled={disabled || currentLocked}
+                        onChange={(settings) => update(current.id, settings)}
+                      />
+                    </>
+                  )}
                   {!workflowRoleProduces(current.role) && (
                     <AgentWorkflowReviewPolicy
                       value={current.review_policy}
@@ -639,13 +608,22 @@ export function AgentWorkflowTasks({
                       <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/settings:rotate-180" />
                     </summary>
                     <div className="mt-3 space-y-3">
+                      <AgentWorkflowExecutionSettings
+                        step={current}
+                        disabled={disabled || currentLocked}
+                        onChange={(execution) => update(current.id, { execution })}
+                      />
+
                       <label className="text-fg-muted flex items-start gap-2 text-[11px]">
                         {i18n.rich('{value1}Give this step a separate working copy', {
                           value1: (
                             <Checkbox
                               checked={current.workspace === 'own'}
                               disabled={
-                                disabled || currentLocked || !workflowRoleProduces(current.role)
+                                disabled ||
+                                currentLocked ||
+                                !workflowRoleProduces(current.role) ||
+                                current.role === 'shell'
                               }
                               onChange={(event) =>
                                 update(current.id, {

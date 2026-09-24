@@ -12,6 +12,9 @@ const PATCH_LIMIT: usize = 8 * 1024 * 1024;
 #[path = "workflow_controls.rs"]
 mod controls;
 pub use controls::UpdateWorkflowSteps;
+#[path = "workflow_execution.rs"]
+mod execution;
+pub use execution::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowCheck {
@@ -117,6 +120,10 @@ pub struct WorkflowStep {
     /// Automatic corrections are bounded to one attempt before asking the person.
     #[serde(default)]
     pub review_fix_attempts: u32,
+    #[serde(default)]
+    pub execution: WorkflowExecution,
+    #[serde(default)]
+    pub result: WorkflowStepResult,
 }
 
 impl WorkflowStep {
@@ -152,6 +159,8 @@ impl WorkflowStep {
             review_summary: None,
             review_decision: None,
             review_fix_attempts: 0,
+            execution: WorkflowExecution::default(),
+            result: WorkflowStepResult::default(),
         }
     }
     /// Whether this step runs in a checkout of its own rather than the workflow's.
@@ -235,7 +244,12 @@ fn workflow_declared_graph(
             // The session the workflow was created with owns its shared checkout, so the first
             // step is that session — unless it asked to work somewhere of its own, in which case
             // the shared checkout stays what the results are applied to.
-            session_id: if index == 0 && !owns && !step.target.starts_with("pool:") {
+            session_id: if index == 0
+                && !owns
+                && step.role != "shell"
+                && step.execution.working_directory.is_empty()
+                && !step.target.starts_with("pool:")
+            {
                 Some(implementation_session_id.to_string())
             } else {
                 None
@@ -268,6 +282,8 @@ fn workflow_declared_graph(
             review_summary: None,
             review_decision: None,
             review_fix_attempts: 0,
+            execution: step.execution.clone(),
+            result: WorkflowStepResult::default(),
         });
     }
     steps
@@ -388,7 +404,7 @@ pub(super) fn workflow_step_stage(stage: &str) -> bool {
 
 /// Roles that change the checkout. The rest read it and report, and run read-only.
 pub fn workflow_role_produces(role: &str) -> bool {
-    matches!(role, "plan" | "implement" | "revise")
+    matches!(role, "plan" | "implement" | "revise" | "shell")
 }
 
 /// The provider mode a producing step runs in.
@@ -405,7 +421,8 @@ fn workflow_step_mode(role: &str, adapter: &str) -> &'static str {
     }
 }
 
-pub const WORKFLOW_ROLES: [&str; 5] = ["plan", "implement", "review", "revise", "validate"];
+pub const WORKFLOW_ROLES: [&str; 6] =
+    ["plan", "implement", "review", "revise", "validate", "shell"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowPreview {
@@ -548,8 +565,10 @@ pub struct CreateWorkflowStep {
     pub continue_from: Option<String>,
     #[serde(default)]
     pub review_policy: String,
+    #[serde(default)]
+    pub execution: WorkflowExecution,
 }
-pub const MAX_WORKFLOW_STEPS: usize = 64;
+pub const MAX_WORKFLOW_STEPS: usize = 512;
 /// A step's own instruction is bounded like the workflow objective it stands in for.
 pub const MAX_STEP_PROMPT: usize = 128 * 1024;
 
@@ -682,7 +701,11 @@ impl AgentWorkflow {
     pub fn runnable_steps(&self) -> Vec<&WorkflowStep> {
         self.steps
             .iter()
-            .filter(|step| step.status == "pending" && self.dependencies_ready(step))
+            .filter(|step| {
+                step.status == "pending"
+                    && step.result.retry_at.unwrap_or(0) <= now()
+                    && self.dependencies_ready(step)
+            })
             .collect()
     }
     fn dependencies_ready(&self, step: &WorkflowStep) -> bool {
@@ -704,6 +727,7 @@ impl AgentWorkflow {
     fn awaiting_join(&self, step: &WorkflowStep) -> bool {
         workflow_role_produces(&step.role)
             && step.owns_workspace()
+            && step.result.outcome.as_deref() != Some("skipped")
             && step.status == "completed"
             && !matches!(
                 step.merge.as_ref().map(|merge| merge.status.as_str()),
@@ -869,9 +893,9 @@ impl AgentManager {
                 for step in w.steps.iter_mut().filter(|step| step.status == "running") {
                     step.status = "failed".into();
                     step.finished_at = Some(now());
-                    step.error = Some(
-                        "RunHQ exited while this step was running; nothing was replayed.".into(),
-                    );
+                    step.error = Some("workflow.recovered".into());
+                    step.result.forced_error = Some("workflow.recovered".into());
+                    self.workflow_finish_execution(step, false, None);
                 }
                 w.generation += 1;
                 if workflow_step_stage(&w.stage) {
@@ -993,11 +1017,22 @@ impl AgentManager {
                     step.status = if completed { "completed" } else { "failed" }.into();
                     step.finished_at = Some(now());
                     step.error = if completed { None } else { failure.clone() };
-                    if completed && !workflow_role_produces(&step.role) {
+                    if step.result.forced_error.is_none()
+                        && matches!(session.status.as_str(), "cancelled" | "interrupted")
+                    {
+                        step.result.forced_error = Some("workflow.cancelled".into());
+                    }
+                    self.workflow_finish_execution(step, completed, None);
+                    if completed
+                        && step.status == "completed"
+                        && !workflow_role_produces(&step.role)
+                    {
                         self.workflow_set_review_result(step);
                     }
                 }
             }
+            self.workflow_retry_failures(w);
+            self.workflow_halt_siblings(w).await;
             if shared_result {
                 // Changes produced by a declared shared step are expected. Record them before
                 // joining a sibling's result, whose staleness guard rejects outside edits.
@@ -1036,7 +1071,7 @@ impl AgentManager {
                     .find(|step| {
                         step.review_needs_decision()
                             && step.review_policy == "auto_fix"
-                            && step.review_fix_attempts == 0
+                            && step.review_fix_attempts < step.execution.max_fix_attempts
                             && step.review_outcome.as_deref() == Some("findings")
                     })
                     .map(|step| step.id.clone());
@@ -1046,7 +1081,7 @@ impl AgentManager {
                         Ok(()) => *w = corrected,
                         Err(error) => {
                             let step = w.steps.iter_mut().find(|step| step.id == id).unwrap();
-                            step.review_fix_attempts = 1;
+                            step.review_fix_attempts = step.execution.max_fix_attempts;
                             step.review_summary =
                                 Some(format!("Automatic correction could not be added: {error}"));
                         }
@@ -1343,7 +1378,9 @@ impl AgentManager {
                 // Retry is an explicit action. Scheduling still considers pending steps only,
                 // so failures never replay themselves in the background.
                 if let Some(step) = w.steps.iter_mut().find(|step| step.id == step_id) {
-                    if step.status == "failed" {
+                    if matches!(step.status.as_str(), "failed" | "blocked") {
+                        step.result.retries = 0;
+                        step.result.retry_at = None;
                         step.status = "pending".into();
                     }
                 }
@@ -1353,6 +1390,7 @@ impl AgentManager {
                     .ok_or_else(|| invalid("Unknown workflow step"))?;
                 match self.workflow_step_wait(&w, &step, &[]) {
                     StepWait::Ready => {}
+                    StepWait::Resource => return Err(invalid("workflow.resource_busy")),
                     StepWait::Dependencies => {
                         return Err(invalid(
                             "This task is waiting for the tasks it depends on to finish",
@@ -1372,11 +1410,7 @@ impl AgentManager {
                         ))
                     }
                 }
-                if workflow_role_produces(&step.role) {
-                    self.workflow_start_producing(&mut w, step).await
-                } else {
-                    self.workflow_start_reviewing(&mut w, step).await
-                }
+                self.workflow_start_execution(&mut w, step).await
             };
         let w = outcome?;
         if w.auto_progress {
@@ -1404,11 +1438,7 @@ impl AgentManager {
         let Some(step) = w.current_step().cloned() else {
             return Err(invalid("Every step in this workflow has completed"));
         };
-        if workflow_role_produces(&step.role) {
-            self.workflow_start_producing(&mut w, step).await
-        } else {
-            self.workflow_start_reviewing(&mut w, step).await
-        }
+        self.workflow_start_execution(&mut w, step).await
     }
 
     /// Kept so an explicit "implement" action cannot silently start a review, and the other way
@@ -1484,7 +1514,7 @@ impl AgentManager {
                 let session = self.session(id)?;
                 if session.workflow_read_only
                     || Path::new(&session.cwd).canonicalize()?
-                        != Path::new(step.step_cwd(w)).canonicalize()?
+                        != execution_directory(step.step_cwd(w), &step.execution.working_directory)?
                 {
                     return Err(invalid(
                         "The conversation no longer belongs to this workflow's working copy",
@@ -1559,6 +1589,12 @@ impl AgentManager {
                 })?
             }
         };
+        let base_cwd = w.step(&step.id).unwrap_or(&step).step_cwd(w).to_string();
+        let directory = execution_directory(&base_cwd, &step.execution.working_directory)?;
+        let session = self.mutate(&session.id, |s, _| {
+            s.cwd = directory.to_string_lossy().into_owned();
+            Ok(())
+        })?;
         // A step reloads the shape it may have just been given a checkout in.
         let step = w.step(&step.id).cloned().unwrap_or(step);
         let review_context = self.workflow_review_findings(w);
@@ -1590,6 +1626,9 @@ impl AgentManager {
         w.stage = "implementing".into();
         let generation = w.generation;
         if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
+            current.result.forced_error = None;
+            current.result.retry_at = None;
+            current.result.outcome = None;
             current.status = "running".into();
             current.session_id = Some(session.id.clone());
             current.input_revision = Some(input_revision.clone());
@@ -1613,7 +1652,7 @@ impl AgentManager {
             w.implementation_session_id = session.id.clone();
         }
         self.save_workflow(w)?;
-        let prompt = format!(
+        let mut prompt = format!(
             "{}\n\nAcceptance criteria:\n{}\n\nWorkflow: {} in this isolated checkout. Do not merge, push, or apply changes to the original project. An independent agent will review your changes against base {} and RunHQ will execute these checks: {}.\nSummarize the result and remaining risks.\n\nPrevious independent review (when revising, address its findings or explain why they do not apply):\n{}\n\nRecorded failed checks from the previous attempt:\n{}",
             workflow_step_task(w, &step),
             w.acceptance,
@@ -1623,6 +1662,7 @@ impl AgentManager {
             review_context,
             failed_checks
         );
+        prompt.push_str(&execution_instruction(&step.execution));
         if let Err(error) = self
             .start(AgentTurnInput {
                 session_id: session.id,
@@ -1660,6 +1700,7 @@ impl AgentManager {
             w.stage = w.steps_stage();
             self.save_workflow(w)?;
         }
+        self.workflow_monitor(w, &step.id);
         Ok(w.clone())
     }
 
@@ -1758,6 +1799,11 @@ impl AgentManager {
                 current.root = Some(root.to_string_lossy().into_owned());
             }
         }
+        let directory = execution_directory(&reviewer.cwd, &step.execution.working_directory)?;
+        let reviewer = self.mutate(&reviewer.id, |s, _| {
+            s.cwd = directory.to_string_lossy().into_owned();
+            Ok(())
+        })?;
         w.review_session_id = Some(reviewer.id.clone());
         if !snapshot {
             w.review_fingerprint = Some(fingerprint.clone());
@@ -1769,6 +1815,9 @@ impl AgentManager {
         w.error = None;
         let generation = w.generation;
         if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
+            current.result.forced_error = None;
+            current.result.retry_at = None;
+            current.result.outcome = None;
             current.status = "running".into();
             current.session_id = Some(reviewer.id.clone());
             current.input_revision = Some(fingerprint.clone());
@@ -1785,9 +1834,12 @@ impl AgentManager {
         }
         self.save_workflow(w)?;
         let mut prompt = format!("Independently review this implementation. Read-only review: do not edit files, commit, switch branches, install dependencies, or request write permissions.\n\nObjective:\n{}\n\nAcceptance criteria:\n{}\n\nCompare the current checkout (including new files) against base commit {}. The captured complete workspace tree is {}. Inspect git diff {} and untracked files. Report concrete findings with severity and locations; state explicitly when you find no issues. Review findings will be shown to the user before they choose whether to apply changes.\n\nRequested validation commands:\n{}", workflow_step_task(w, &step), w.acceptance, w.base_revision, fingerprint, w.base_revision, w.check_commands.join("\n"));
-        if !matches!(step.review_policy.as_str(), "" | "continue") {
+        if !matches!(step.review_policy.as_str(), "" | "continue")
+            && step.execution.result_format == "none"
+        {
             prompt.push_str("\n\nEnd your final response with exactly one line in this format (not a code block):\nRUNHQ_REVIEW_RESULT: {\"verdict\":\"pass\",\"summary\":\"Brief reason\"}\nUse verdict \"findings\" when any actionable issue remains. Use \"pass\" only when no actionable issues remain. Keep detailed findings above this line. This verdict describes the review; it is not approval to apply changes.");
         }
+        prompt.push_str(&execution_instruction(&step.execution));
         if let Err(error) = self
             .start(AgentTurnInput {
                 session_id: reviewer.id,
@@ -1812,6 +1864,7 @@ impl AgentManager {
             w.stage = w.steps_stage();
             self.save_workflow(w)?;
         }
+        self.workflow_monitor(w, &step.id);
         Ok(w.clone())
     }
 
@@ -2594,6 +2647,12 @@ fn validate_declared_graph(declared: &[CreateWorkflowStep]) -> AppResult<()> {
     let dependencies = declared_dependencies(declared, &ids);
     let mut seen: Vec<&str> = Vec::new();
     for (index, step) in declared.iter().enumerate() {
+        validate_execution(step)?;
+        if let Some(condition) = &step.execution.run_if {
+            if !dependencies[index].contains(&condition.step_id) {
+                return Err(invalid("workflow.condition_dependency"));
+            }
+        }
         if !WORKFLOW_ROLES.contains(&step.role.as_str()) {
             return Err(invalid(format!("Unsupported workflow role: {}", step.role)));
         }
@@ -3021,6 +3080,11 @@ impl AgentManager {
         Ok(w)
     }
     pub async fn workflow_cancel(&self, id: &str) -> AppResult<AgentWorkflow> {
+        for (key, token) in self.workflow_cancellations.lock().iter() {
+            if key.starts_with(&format!("{id}:")) {
+                token.cancel();
+            }
+        }
         if let Some(token) = self.workflow_cancellations.lock().get(id).cloned() {
             token.cancel();
             return self.workflow(id);
@@ -3066,6 +3130,35 @@ async fn run_workflow_command(
     text: &str,
     cancellation: CancellationToken,
 ) -> AppResult<(Option<i32>, String, String)> {
+    run_workflow_command_controlled(cwd, text, cancellation, 10, 0).await
+}
+async fn run_workflow_command_controlled(
+    cwd: &str,
+    text: &str,
+    cancellation: CancellationToken,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+) -> AppResult<(Option<i32>, String, String)> {
+    run_workflow_command_with_env(
+        cwd,
+        text,
+        cancellation,
+        timeout_minutes,
+        idle_timeout_minutes,
+        &std::collections::BTreeMap::new(),
+    )
+    .await
+}
+pub(super) async fn run_workflow_command_with_env(
+    cwd: &str,
+    text: &str,
+    cancellation: CancellationToken,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+    env: &std::collections::BTreeMap<String, String>,
+) -> AppResult<(Option<i32>, String, String)> {
+    let activity = Arc::new(std::sync::atomic::AtomicI64::new(now()));
+    let reader_activity = Arc::clone(&activity);
     #[cfg(unix)]
     let mut command = {
         let mut c = Command::new("/bin/sh");
@@ -3078,7 +3171,7 @@ async fn run_workflow_command(
         c.args(["/D", "/S", "/C", &format!("({text}) 2>&1")]);
         c
     };
-    command.current_dir(cwd);
+    command.current_dir(cwd).envs(env);
     let mut process = OwnedProcess::spawn(command)?;
     drop(process.child.stdin.take());
     let mut stdout = process
@@ -3095,6 +3188,7 @@ async fn run_workflow_command(
             if count == 0 {
                 break;
             }
+            reader_activity.store(now(), std::sync::atomic::Ordering::Relaxed);
             let keep = count.min(OUTPUT_LIMIT.saturating_sub(bytes.len()));
             bytes.extend_from_slice(&buffer[..keep]);
             truncated |= keep < count;
@@ -3105,10 +3199,25 @@ async fn run_workflow_command(
         }
         Ok::<_, std::io::Error>(output)
     });
+    let deadline = async {
+        let started = now();
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if timeout_minutes > 0 && now() - started >= i64::from(timeout_minutes) * 60000 {
+                break "timed_out";
+            }
+            if idle_timeout_minutes > 0
+                && now() - activity.load(std::sync::atomic::Ordering::Relaxed)
+                    >= i64::from(idle_timeout_minutes) * 60000
+            {
+                break "stalled";
+            }
+        }
+    };
     let (exit, status) = tokio::select! {
         result = process.child.wait() => { let exit = result?; (exit.code(), if exit.success() { "passed" } else { "failed" }) }
         _ = cancellation.cancelled() => { process.stop(); let exit = process.child.wait().await?; (exit.code(), "cancelled") }
-        _ = tokio::time::sleep(Duration::from_secs(600)) => { process.stop(); let exit = process.child.wait().await?; (exit.code(), "timed_out") }
+        status = deadline => { process.stop(); let exit = process.child.wait().await?; (exit.code(), status) }
     };
     // A check is a bounded process, not a background service; kill surviving descendants.
     process.stop();

@@ -62,6 +62,7 @@ const roleIcons = {
   review: ScanEye,
   revise: ListChecks,
   validate: FileCheck2,
+  shell: Code2,
 };
 const laneLabels = {
   get attention() {

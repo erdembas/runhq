@@ -1,5 +1,40 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export interface WorkflowExecution {
+  command?: string;
+  working_directory?: string;
+  lock?: string;
+  timeout_minutes?: number;
+  idle_timeout_minutes?: number;
+  max_retries?: number;
+  retry_delay_seconds?: number;
+  max_fix_attempts?: number;
+  fix_commands?: string[];
+  fix_prompt?: string;
+  result_format?: 'none' | 'json' | 'pipeline' | 'review';
+  success_regex?: string;
+  failure_regex?: string;
+  on_failure?: 'pause' | 'cancel';
+  run_if?: { step_id: string; outcomes: ('pass' | 'findings' | 'skipped')[] } | null;
+}
+export interface WorkflowAttempt {
+  started_at: number;
+  finished_at: number;
+  outcome: string;
+  exit_code: number | null;
+  output: string;
+  error: string | null;
+}
+export interface WorkflowStepResult {
+  outcome: string | null;
+  output: string;
+  exit_code: number | null;
+  attempts: WorkflowAttempt[];
+  retries: number;
+  retry_at: number | null;
+  forced_error: string | null;
+}
+
 export interface WorkflowCheck {
   command: string;
   cwd: string;
@@ -63,13 +98,15 @@ export interface WorkflowStep {
   finished_at: number | null;
   error: string | null;
   review_policy?: WorkflowReviewPolicy | '';
+  execution?: WorkflowExecution;
   review_outcome?: 'passed' | 'findings' | 'unknown' | null;
   review_summary?: string | null;
   review_decision?: 'approved' | 'fix_requested' | null;
   review_fix_attempts?: number;
+  result?: WorkflowStepResult;
 }
 export type WorkflowReviewPolicy = 'continue' | 'on_findings' | 'approval' | 'auto_fix';
-export type WorkflowRole = 'plan' | 'implement' | 'review' | 'revise' | 'validate';
+export type WorkflowRole = 'plan' | 'implement' | 'review' | 'revise' | 'validate' | 'shell';
 export type WorkflowWorkspace = 'shared' | 'own';
 export type WorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked';
 export interface AgentWorkflow {
@@ -171,8 +208,10 @@ export interface CreateWorkflowStep {
   workspace: WorkflowWorkspace;
   continue_from?: string | null;
   review_policy?: WorkflowReviewPolicy | '';
+  execution?: WorkflowExecution;
 }
 export const agentWorkflowIpc = {
+  importRecipes: (path: string) => invoke<unknown>('agent_workflow_import_recipes', { path }),
   edit: (id: string, editing: boolean) =>
     invoke<AgentWorkflow>('agent_workflow_edit', { id, editing }),
   updateSteps: (id: string, revision: number, steps: CreateWorkflowStep[]) =>

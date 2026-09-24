@@ -246,7 +246,7 @@ export function ProjectOverview({ service, visible }: { service: ServiceDef; vis
                   className="border-border/50 hover:bg-surface-raised flex w-full items-center justify-between gap-3 border-b px-4 py-3.5 text-left last:border-0"
                 >
                   <span className="text-fg min-w-0 truncate text-[13px]">{task.title}</span>
-                  <AgentStatusBadge status={task.status} />
+                  <AgentStatusBadge status={task.status} pauseState={task.pause_state} />
                 </button>
               ))
             )}

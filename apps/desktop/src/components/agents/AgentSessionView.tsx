@@ -79,6 +79,7 @@ import { AgentUsageGuardNotice } from './AgentUsageNotifications';
 import { AgentSessionProject } from './AgentSessionProject';
 import { AgentUserMessage } from './AgentUserMessage';
 import { AgentMessageNavigator } from './AgentMessageNavigator';
+import { AgentPauseControl } from './AgentPauseControl';
 
 const emptyQueue: never[] = [];
 const emptyItems: AgentItem[] = [];
@@ -535,7 +536,7 @@ export function AgentSessionView({
           >
             {session.title}
           </h2>
-          <AgentStatusBadge status={session.status} />
+          <AgentStatusBadge status={session.status} pauseState={session.pause_state} />
           {onToggleFocus && (
             <button
               type="button"
@@ -1074,6 +1075,7 @@ export function AgentSessionView({
                             {i18n.t('Send while working')}
                           </button>
                         )}
+                      <AgentPauseControl key={session.id} session={session} onError={setError} />
                       <button
                         aria-label={i18n.t('Stop agent')}
                         title={i18n.t('Stop agent')}

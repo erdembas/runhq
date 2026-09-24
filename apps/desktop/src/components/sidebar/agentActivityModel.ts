@@ -21,6 +21,7 @@ export function createAgentActivitySelector() {
           before &&
           before.project_id === after.project_id &&
           before.status === after.status &&
+          before.pause_state === after.pause_state &&
           before.archived === after.archived &&
           before.unread === after.unread &&
           before.pending.length === after.pending.length

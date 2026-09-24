@@ -267,7 +267,9 @@ impl AgentManager {
             {
                 return Err(invalid("Unknown agent permission policy"));
             }
-            let limit = if key.starts_with("context:") {
+            let limit = if key.starts_with("recipe:") {
+                16 * 1024 * 1024
+            } else if key.starts_with("context:") {
                 4 * 1024 * 1024
             } else {
                 1024 * 1024
