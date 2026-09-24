@@ -525,6 +525,15 @@ Check the workflow logs in **Actions → Release**. Common issues:
 - Missing `TAURI_SIGNING_PRIVATE_KEY` secret.
 - Linux dependency installation failure (transient apt issues — just re-run the job).
 - Frontend build errors (run `pnpm typecheck && pnpm build` locally first).
+- `JavaScript heap out of memory` around 2 GB on macOS: CI and Release set `NODE_OPTIONS=--max-old-space-size=4096` for the frontend bundle and Tauri's nested frontend build. Keep this job-wide so both invocations inherit it.
+
+To repair an existing release with the latest workflow fixes, dispatch from `main` and select the original tag and affected platform family:
+
+```bash
+gh workflow run release.yml --ref main -f tag=v3.1.0 -f family=macos
+```
+
+The workflow validates the tag and version files, then builds the exact tagged commit. It never retags the release or builds the current `main` application under an older version. Selecting `macos` preserves the existing Windows and Linux installers. The complete release and updater are verified before Homebrew is updated. Use `family=all` to rebuild all six targets. A normal rerun of an old Actions run uses the old workflow, so use this dispatch when the workflow itself was fixed.
 
 ### Users see "RunHQ is damaged and can't be opened" on first launch
 
