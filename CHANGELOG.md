@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0](https://github.com/erdembas/runhq/compare/v3.1.0...v3.2.0) (2026-09-24)
+
+### Visual workflows
+
+- Open workflows directly on the React Flow map; drag steps, edit connections, zoom and arrange the graph.
+- Keep dragged positions when changing views, connections or interface language.
+- Use themed dropdowns, checkboxes, radio buttons and forms with English/Turkish support.
+
+### Task start timing
+
+- Start a new agent task immediately or wait for a selected task in the same project to finish successfully.
+- Preserve workspace, model and context choices while waiting; inspect the preceding task or start now from the queue.
+- Pause dependent starts after failure or deletion and retain saved queues for explicit review and resume after restarting RunHQ.
+
+[Implementation: #168](https://github.com/erdembas/runhq/pull/168).
+
 ## [3.1.0](https://github.com/erdembas/runhq/compare/v3.0.1...v3.1.0) (2026-09-24)
 
 ### AI providers for every task
