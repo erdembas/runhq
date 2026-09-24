@@ -80,18 +80,21 @@ export function AgentPlanPanel({
   sessionId,
   items,
   planMode,
+  selectedId,
+  onSelect,
   disabled,
   onBuild,
 }: {
   sessionId: string;
   items: AgentItem[];
   planMode: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
   disabled: boolean;
   onBuild: (body: string) => void;
 }) {
   i18n.useLocale();
   const plans = useMemo(() => collectAgentPlans(items, planMode), [items, planMode]);
-  const [selectedId, setSelectedId] = useState('');
   const plan = plans.find((entry) => entry.id === selectedId) ?? plans.at(-1);
   if (!plan)
     return (
@@ -120,7 +123,7 @@ export function AgentPlanPanel({
               label: entry.title,
               description: i18n.t('Document {value1}', { value1: index + 1 }),
             }))}
-            onChange={setSelectedId}
+            onChange={onSelect}
           />
         </div>
       )}

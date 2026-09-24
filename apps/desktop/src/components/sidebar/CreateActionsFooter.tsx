@@ -1,6 +1,5 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { Layers, Plus } from 'lucide-react';
-import { AddSectionButton } from '../SectionMenus';
 import { modChord } from '@/lib/platform';
 
 export function CreateActionsFooter({
@@ -29,10 +28,6 @@ export function CreateActionsFooter({
           <Layers className="h-3 w-3 shrink-0" />
           <span className="truncate">{i18n.t('Stack')}</span>
         </button>
-        <AddSectionButton className={cta}>
-          <Plus className="h-3 w-3 shrink-0" />
-          <span className="truncate">{i18n.t('Section')}</span>
-        </AddSectionButton>
       </div>
     </div>
   );

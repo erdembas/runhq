@@ -35,10 +35,16 @@ function loadEdit(key: string, original: string) {
   }
 }
 
-function CanvasSession({ sessionId, items }: { sessionId: string; items: AgentItem[] }) {
+interface CanvasSessionProps {
+  sessionId: string;
+  items: AgentItem[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}
+
+function CanvasSession({ sessionId, items, selectedId, onSelect }: CanvasSessionProps) {
   i18n.useLocale();
   const artifacts = useMemo(() => extractAgentCanvasArtifacts(items), [items]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = artifacts.find((artifact) => artifact.id === selectedId) ?? artifacts.at(-1);
   return (
     <CanvasEditor
@@ -46,7 +52,7 @@ function CanvasSession({ sessionId, items }: { sessionId: string; items: AgentIt
       sessionId={sessionId}
       artifacts={artifacts}
       selected={selected}
-      onSelect={setSelectedId}
+      onSelect={onSelect}
     />
   );
 }
@@ -219,7 +225,7 @@ function CanvasEditor({
   );
 }
 
-export function AgentCanvasPanel({ sessionId, items }: { sessionId: string; items: AgentItem[] }) {
+export function AgentCanvasPanel(props: CanvasSessionProps) {
   i18n.useLocale();
-  return <CanvasSession key={sessionId} sessionId={sessionId} items={items} />;
+  return <CanvasSession key={props.sessionId} {...props} />;
 }

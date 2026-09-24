@@ -29,13 +29,14 @@ impl AgentDb {
         let schema: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(db_error)?;
-        if schema > 2 {
+        if schema > 3 {
             return Err(AppError::other(
                 "Agent database was created by a newer RunHQ version",
             ));
         }
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS agent_projects (id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS agent_multi_workspaces (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_items (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES agent_sessions(id), item_id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(session_id,item_id));
             CREATE INDEX IF NOT EXISTS agent_items_session ON agent_items(session_id,seq);
@@ -43,7 +44,7 @@ impl AgentDb {
             CREATE TABLE IF NOT EXISTS agent_tools (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_workspace_records (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_workflows (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-            PRAGMA user_version=2;").map_err(db_error)?;
+            PRAGMA user_version=3;").map_err(db_error)?;
         Ok(Self {
             conn,
             _owner_lock: owner_lock,
@@ -52,7 +53,7 @@ impl AgentDb {
     pub fn projects(&self) -> AppResult<Vec<AgentProject>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT data FROM agent_projects ORDER BY path")
+            .prepare("SELECT data FROM (SELECT id,path,data FROM agent_projects UNION ALL SELECT id,json_extract(data,'$.path') AS path,data FROM agent_multi_workspaces) ORDER BY path,id")
             .map_err(db_error)?;
         let rows = stmt
             .query_map([], |r| r.get::<_, String>(0))
@@ -63,7 +64,7 @@ impl AgentDb {
     pub fn project(&self, id: &str) -> AppResult<AgentProject> {
         let data: Option<String> = self
             .conn
-            .query_row("SELECT data FROM agent_projects WHERE id=?1", [id], |r| {
+            .query_row("SELECT data FROM agent_projects WHERE id=?1 UNION ALL SELECT data FROM agent_multi_workspaces WHERE id=?1", [id], |r| {
                 r.get(0)
             })
             .optional()

@@ -7,6 +7,28 @@ pub struct AgentProject {
     pub id: String,
     pub name: String,
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<AgentWorkspaceScope>,
+}
+
+/// Selected folders, captured again on each new task so edits never retarget an existing chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentWorkspaceScope {
+    #[serde(default)]
+    pub instructions: String,
+    pub section_id: String,
+    pub members: Vec<AgentWorkspaceMember>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentWorkspaceMember {
+    pub service_id: String,
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub base_revision: Option<String>,
+    #[serde(default)]
+    pub pre_existing_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +69,8 @@ pub struct AgentSession {
     pub project_id: String,
     pub project_name: String,
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<AgentWorkspaceScope>,
     pub backend: String,
     pub executable: String,
     #[serde(default)]
@@ -158,6 +182,8 @@ pub enum AgentDetectionSource {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAgentSession {
+    #[serde(default)]
+    pub workspace_service_ids: Option<Vec<String>>,
     #[serde(default)]
     pub creation_request_id: Option<String>,
     pub project_id: String,

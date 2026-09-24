@@ -2,6 +2,7 @@
 mod attachments;
 mod db;
 mod discovery;
+mod multi_workspace;
 mod permissions;
 mod process;
 mod registry;
@@ -9,6 +10,7 @@ mod registry;
 mod tests;
 mod titles;
 mod types;
+use multi_workspace::{validate_workspace_scope, workspace_prompt};
 mod workspace_data;
 pub use workspace_data::*;
 mod workflow_scheduler;
@@ -150,6 +152,7 @@ impl AgentManager {
                 name.chars().take(200).collect()
             },
             path: path.to_string_lossy().to_string(),
+            workspace: None,
         })
     }
     pub fn projects(&self) -> AppResult<Vec<AgentProject>> {
@@ -404,7 +407,17 @@ impl AgentManager {
             return Err(invalid("Unknown permission mode"));
         }
         let executable = resolve_executable(&tool.executable, &input.executable)?;
-        let project = self.state.lock().db.project(&input.project_id)?;
+        let mut project = self.state.lock().db.project(&input.project_id)?;
+        multi_workspace::select_task_members(
+            &mut project.workspace,
+            input.workspace_service_ids.as_deref(),
+        )?;
+        if let Some(scope) = &project.workspace {
+            validate_workspace_scope(Path::new(&project.path), scope)?;
+            if input.isolated {
+                return Err(invalid("Multi-project workspaces use the selected local folders; isolated worktrees are not supported"));
+            }
+        }
         let original = PathBuf::from(&project.path).canonicalize()?;
         let mut cwd = original.clone();
         let mut branch = None;
@@ -502,11 +515,35 @@ impl AgentManager {
                 })
                 .unwrap_or_default(),
         };
+        if let Some(scope) = &mut project.workspace {
+            for member in &mut scope.members {
+                member.base_revision = git_output(Path::new(&member.path), &["rev-parse", "HEAD"])
+                    .await
+                    .ok()
+                    .map(|revision| revision.trim().to_string())
+                    .filter(|revision| !revision.is_empty());
+                member.pre_existing_paths = git_output(
+                    Path::new(&member.path),
+                    &["status", "--porcelain", "--untracked-files=no"],
+                )
+                .await
+                .map(|status| {
+                    status
+                        .lines()
+                        .filter_map(|line| line.get(3..).map(str::trim))
+                        .filter(|path| !path.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            }
+        }
         let session = AgentSession {
             id: id.clone(),
             project_id: project.id,
             project_name: project.name,
             cwd: cwd.to_string_lossy().into(),
+            workspace: project.workspace,
             backend: input.backend,
             adapter: tool.adapter,
             backend_name: tool.name,
@@ -604,6 +641,9 @@ impl AgentManager {
         )?;
         self.validate_workflow_turn(&previous, &input)?;
         self.tool(&previous.backend)?;
+        if let Some(scope) = &previous.workspace {
+            validate_workspace_scope(Path::new(&previous.cwd), scope)?;
+        }
         let cwd = PathBuf::from(&previous.cwd).canonicalize()?;
         // Track actual checkout roots, including monorepo service subdirectories. Ordinary
         // tasks share one only after an explicit Start now choice; workflows stay exclusive.
@@ -819,6 +859,7 @@ impl AgentManager {
         } else {
             None
         };
+        let prompt = workspace_prompt(session.workspace.as_ref(), prompt)?;
         let permission_policy = self.permission_policy_for(&session.cwd)?;
         let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"title_prompt":title_prompt,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"read_only_review":session.workflow_read_only,"permission_policy":permission_policy});
         stdin

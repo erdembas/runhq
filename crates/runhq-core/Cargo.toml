@@ -39,6 +39,7 @@ portable-pty = "0.8"
 # Lightweight, has no transitive deps, and the 0.22 line is the
 # current stable major.
 base64 = "0.22"
+tempfile = "3"
 
 # `rustls-tls` keeps us off OpenSSL on every platform — no system-library
 # coupling, no `pkg-config` build hassle on Windows, identical bundled
@@ -78,5 +79,4 @@ windows = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
-tempfile = "3"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }

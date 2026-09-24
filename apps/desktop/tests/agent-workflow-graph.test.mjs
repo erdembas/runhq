@@ -659,3 +659,57 @@ test('review policy survives queue creation and recipe round trips', () => {
     /review policy/i,
   );
 });
+
+test('prompt-only sequencing releases the next prompt independently of an intermediate review', () => {
+  const tasks = editor.createWorkflowPromptQueue(
+    [{ prompt: 'First', review: true }, { prompt: 'Second', review: true }, { prompt: 'Third' }],
+    'codex',
+    'claude',
+    'same',
+    {},
+    'prompts',
+  );
+  assert.deepEqual(tasks.find((s) => s.id === 'prompt-2').depends_on, ['prompt-1']);
+  assert.equal(tasks.find((s) => s.id === 'prompt-2').continue_from, 'prompt-1');
+  assert.equal(policy.workflowStepsProblem(tasks), null);
+  const running = tasks.map((s) => ({
+    ...s,
+    status: s.id === 'prompt-1' ? 'completed' : s.id === 'review-1' ? 'running' : 'pending',
+  }));
+  assert.deepEqual(
+    graph.workflowRunnableTasks(running).map((s) => s.id),
+    ['prompt-2'],
+  );
+  assert.equal(editor.workflowExecutionMode(tasks), 'prompts');
+});
+
+test('parallel mode isolates every prompt, drops shared conversations and reviews all results', () => {
+  const queue = editor.createWorkflowPromptQueue(
+    [
+      { prompt: 'First', review: true, model: 'model-a' },
+      { prompt: 'Second', model: 'model-b' },
+    ],
+    'codex',
+    'claude',
+    'same',
+    { review_policy: 'approval' },
+  );
+  const parallel = editor.setWorkflowExecution(queue, 'parallel');
+  for (const prompt of parallel.filter((s) => s.role === 'implement')) {
+    assert.deepEqual(prompt.depends_on, []);
+    assert.equal(prompt.workspace, 'own');
+    assert.equal(prompt.continue_from, undefined);
+  }
+  assert.equal(parallel[0].model, 'model-a');
+  assert.equal(parallel[1].review_policy, 'approval');
+  assert.deepEqual(
+    new Set(parallel.at(-1).depends_on),
+    new Set(['prompt-1', 'prompt-2', 'review-1']),
+  );
+  assert.equal(policy.workflowStepsProblem(parallel), null);
+  assert.equal(editor.workflowExecutionMode(parallel), 'parallel');
+  assert.equal(queue[2].continue_from, 'prompt-1');
+  const sequential = editor.setWorkflowExecution(parallel, 'sequence');
+  assert.equal(editor.workflowIsQueue(sequential), true);
+  assert.equal(policy.workflowStepsProblem(sequential), null);
+});

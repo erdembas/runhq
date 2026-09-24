@@ -35,7 +35,7 @@ export const GROUP_OPTIONS: Array<{ key: SidebarGroupBy; label: string }> = [
   {
     key: 'none',
     get label() {
-      return i18n.t('None');
+      return i18n.t('Sections');
     },
   },
   {

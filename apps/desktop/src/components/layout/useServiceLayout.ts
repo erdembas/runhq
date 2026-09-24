@@ -15,6 +15,7 @@ import {
   defaultLayoutState,
   layoutReducer,
   preferredTerminalGroup,
+  findGroupByTab,
   type LayoutAction,
   type LayoutState,
   type SplitEdge,
@@ -161,7 +162,7 @@ export function useServiceLayout(
     for (const tab of Object.values(cur.tabs)) {
       if (tab.kind === 'terminal') {
         // Activate it so the user lands on the live one.
-        const group = preferredTerminalGroup(cur);
+        const group = findGroupByTab(cur.root, tab.id);
         if (group) send({ type: 'activate-tab', groupId: group.id, tabId: tab.id });
         return tab.id;
       }

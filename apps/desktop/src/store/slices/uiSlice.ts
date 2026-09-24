@@ -19,6 +19,7 @@ import {
   saveSidebarPinned,
 } from '@/store/appStoreRuntime';
 import type { AppStoreSlice } from '@/store/slices/appStoreSlice';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 
 export const createUiSlice: AppStoreSlice = (set, get) => ({
   timelineOpen: false,
@@ -65,12 +66,13 @@ export const createUiSlice: AppStoreSlice = (set, get) => ({
   diffViewerOpen: false,
   diffViewerServiceId: null,
   diffViewerInitialTab: undefined,
-  openDiffViewer: (serviceId, initialTab) =>
-    set({
-      diffViewerOpen: true,
-      diffViewerServiceId: serviceId,
-      diffViewerInitialTab: initialTab,
-    }),
+  openDiffViewer: (serviceId, initialTab) => {
+    // Git is a persistent project area. Keep requests scoped to the repo so
+    // opening History in one project cannot reset another hidden Git host.
+    useWorkbenchStore.getState().requestProjectGitView(serviceId, initialTab);
+    get().setSelected(serviceId);
+    set({ diffViewerOpen: false, diffViewerServiceId: null, diffViewerInitialTab: undefined });
+  },
   closeDiffViewer: () =>
     set({
       diffViewerOpen: false,

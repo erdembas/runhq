@@ -15,6 +15,21 @@ export const agentIpc = {
   agentProjects: () => invoke<AgentProject[]>('agent_projects'),
   agentAddProject: (name: string, path: string) =>
     invoke<AgentProject>('agent_add_project', { name, path }),
+  agentSaveMultiWorkspace: (input: {
+    id?: string;
+    name: string;
+    root?: string;
+    sectionId: string;
+    instructions?: string;
+    serviceIds: string[];
+  }) =>
+    invoke<AgentProject>('agent_save_multi_workspace', {
+      ...input,
+      id: input.id ?? null,
+      root: input.root || null,
+      instructions: input.instructions ?? null,
+    }),
+  agentDeleteMultiWorkspace: (id: string) => invoke<void>('agent_delete_multi_workspace', { id }),
   agentSessions: () => invoke<AgentSession[]>('agent_sessions'),
   agentSnapshot: (id: string, before: number | null = null) =>
     invoke<AgentSnapshot>('agent_snapshot', { id, before }),
@@ -47,5 +62,6 @@ export const agentIpc = {
       archived: updates.archived ?? null,
       read: updates.read ?? false,
     }),
-  agentWorkspaceDiff: (id: string) => invoke<string>('agent_workspace_diff', { id }),
+  agentWorkspaceDiff: (id: string, memberId?: string) =>
+    invoke<string>('agent_workspace_diff', { id, memberId: memberId ?? null }),
 };

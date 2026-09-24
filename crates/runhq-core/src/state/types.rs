@@ -64,6 +64,9 @@ fn default_grace_ms() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackDef {
+    /// Absent entries retain the legacy behavior: run every command in that service.
+    #[serde(default)]
+    pub command_names: std::collections::BTreeMap<String, Vec<String>>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -104,5 +107,56 @@ impl Default for Config {
             prefs: Prefs::default(),
             ai_providers: Vec::new(),
         }
+    }
+}
+
+impl StackDef {
+    pub fn selected_commands(&self, service: &ServiceDef) -> crate::AppResult<Vec<String>> {
+        let names = self
+            .command_names
+            .get(&service.id)
+            .cloned()
+            .unwrap_or_else(|| service.cmds.iter().map(|c| c.name.clone()).collect());
+        let mut unique = Vec::new();
+        for name in names {
+            if !service.cmds.iter().any(|command| command.name == name) {
+                return Err(crate::AppError::Invalid(format!(
+                    "Unknown command in stack: {} / {}",
+                    service.name, name
+                )));
+            }
+            if !unique.contains(&name) {
+                unique.push(name);
+            }
+        }
+        Ok(unique)
+    }
+}
+
+#[cfg(test)]
+mod stack_command_tests {
+    use super::*;
+    #[test]
+    fn selected_commands_are_validated_deduplicated_and_legacy_stacks_keep_all_commands() {
+        let service: ServiceDef = serde_json::from_value(serde_json::json!({"id":"api","name":"API","cwd":"/tmp","cmds":[{"name":"dev","cmd":"serve"},{"name":"test","cmd":"test"}]})).unwrap();
+        let mut stack: StackDef = serde_json::from_value(
+            serde_json::json!({"id":"group","name":"Group","service_ids":["api"]}),
+        )
+        .unwrap();
+        assert_eq!(
+            stack.selected_commands(&service).unwrap(),
+            vec!["dev", "test"]
+        );
+        stack
+            .command_names
+            .insert("api".into(), vec!["dev".into(), "dev".into()]);
+        assert_eq!(stack.selected_commands(&service).unwrap(), vec!["dev"]);
+        let reloaded: StackDef =
+            serde_json::from_value(serde_json::to_value(&stack).unwrap()).unwrap();
+        assert_eq!(reloaded.selected_commands(&service).unwrap(), vec!["dev"]);
+        stack
+            .command_names
+            .insert("api".into(), vec!["removed".into()]);
+        assert!(stack.selected_commands(&service).is_err());
     }
 }

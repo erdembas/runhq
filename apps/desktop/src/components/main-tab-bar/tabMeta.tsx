@@ -3,6 +3,7 @@ import { Bot, LayoutDashboard, Layers, Settings as SettingsIcon, Sparkles } from
 import type { MainTab } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import type { Status } from '@/types';
+import type { AgentWorkspaceView } from '@/store/useWorkbenchStore';
 
 export interface TabMeta {
   label: string;
@@ -18,12 +19,34 @@ export function resolveTabMeta(
   services: AppState['services'],
   stacks: AppState['stacks'],
   statuses: AppState['statuses'],
+  agentView: AgentWorkspaceView = 'overview',
 ): TabMeta {
   if (tab.kind === 'agents')
-    return { label: i18n.t('Agents'), icon: <Bot className="h-3 w-3" />, closable: true };
+    return {
+      label:
+        agentView === 'workflows'
+          ? i18n.t('Workflows')
+          : agentView === 'library'
+            ? i18n.t('Library')
+            : agentView === 'inbox'
+              ? i18n.t('Attention center')
+              : agentView === 'usage'
+                ? i18n.t('Usage')
+                : i18n.t('Tasks'),
+      icon: <Bot className="h-3 w-3" />,
+      closable: true,
+    };
+  if (tab.kind === 'agent-task') {
+    return {
+      // Compatibility metadata only: legacy tabs are never rendered by the main strip.
+      label: i18n.t('Agents'),
+      icon: <Bot className="h-3 w-3" />,
+      closable: true,
+    };
+  }
   if (tab.kind === 'dashboard') {
     return {
-      label: i18n.t('Dashboard'),
+      label: i18n.t('Overview'),
       icon: <LayoutDashboard className="h-3 w-3" />,
       closable: false,
     };

@@ -4,6 +4,7 @@ import { useMessageSendShortcut } from '@/lib/useMessageSendShortcut';
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Archive,
+  ArrowLeft,
   ArrowDown,
   ArrowUp,
   Check,
@@ -16,14 +17,15 @@ import {
   ListChecks,
   ListPlus,
   PanelsTopLeft,
+  Maximize2,
+  Minimize2,
   CircleAlert,
   MessageSquare,
   Pencil,
-  RefreshCw,
   Square,
   SlidersHorizontal,
   ArrowRightLeft,
-  TerminalSquare,
+  X,
 } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ReactMarkdown from 'react-markdown';
@@ -48,7 +50,8 @@ import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { describeRoutingNote, parseRoutingNote } from './agentAccountRouting';
 import { useAgentStore } from '@/store/useAgentStore';
 import { EditorDropdown } from '@/components/EditorDropdown';
-import { TerminalPane } from '@/components/TerminalPane';
+import { AgentTaskTerminalDock } from './AgentTaskTerminalDock';
+import { AgentChangesPanel } from './AgentChangesPanel';
 import { ROOMY_MARKDOWN_COMPONENTS } from '@/components/ai/markdownComponents';
 import { useAgentSnapshot } from './useAgentSnapshot';
 import { useAgentCatalog } from './useAgentCatalog';
@@ -153,7 +156,7 @@ const TranscriptItem = memo(function TranscriptItem({
         />
       </summary>
       <pre className="border-border text-fg-muted mt-1 ml-3 max-h-96 overflow-auto border-l py-2 pr-3 pl-4 break-words whitespace-pre-wrap">
-        {item.text || 'Waiting for output…'}
+        {item.text || i18n.t('Waiting for output…')}
       </pre>
     </details>
   );
@@ -163,14 +166,22 @@ export function AgentSessionView({
   session,
   visible,
   focusItemId,
+  focusItemRevision = 0,
   onHandoff,
   onOpenSession,
+  onBackToWorkflow,
+  focusMode = false,
+  onToggleFocus,
 }: {
   session: AgentSession;
   visible: boolean;
   focusItemId?: string;
+  focusItemRevision?: number;
   onHandoff?: (items: AgentItem[]) => void;
   onOpenSession?: (sessionId: string) => void;
+  onBackToWorkflow?: () => void;
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
 }) {
   i18n.useLocale();
   const messageShortcut = useMessageSendShortcut();
@@ -200,17 +211,17 @@ export function AgentSessionView({
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'chat' | 'plan' | 'diff' | 'terminal'>('chat');
-  const [canvasOpen, setCanvasOpen] = useState(false);
-  const [terminalOpened, setTerminalOpened] = useState(false);
-  const [diff, setDiff] = useState('');
-  const preExisting = session.pre_existing_paths ?? [];
+  const [tab, setTab] = useState<'chat' | 'diff'>('chat');
+  const [contextPanel, setContextPanel] = useState<'plan' | 'canvas' | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [changesOpened, setChangesOpened] = useState(false);
   // Why this task started on the account it did. Absent when the user named the connection.
   const routingNote = parseRoutingNote(
     useVisibleStore(useAgentLibraryStore, (s) => s.records[`routing:${session.id}`], visible)
       ?.value,
   );
-  const [diffBusy, setDiffBusy] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [copied, setCopied] = useState(false);
@@ -294,20 +305,37 @@ export function AgentSessionView({
     [items],
   );
   const focused = useRef('');
+  const requestedFocus = useRef('');
   const loadingFocusPage = useRef<number | null>(null);
+  const focusKey = focusItemId ? JSON.stringify([focusItemId, focusItemRevision]) : '';
   useEffect(() => {
-    if (!visible || !focusItemId || focused.current === focusItemId) return;
-    setTab('chat');
+    if (!focusItemId) {
+      focused.current = '';
+      requestedFocus.current = '';
+      loadingFocusPage.current = null;
+      return;
+    }
+    if (!visible || focused.current === focusKey) return;
+    if (requestedFocus.current !== focusKey) {
+      requestedFocus.current = focusKey;
+      loadingFocusPage.current = null;
+    }
+    // Reveal the transcript first. Hidden elements cannot scroll until React commits the layout.
+    if (tab !== 'chat' || contextPanel !== null) {
+      setTab('chat');
+      setContextPanel(null);
+      return;
+    }
     follow.current = false;
     const element = scroll.current?.querySelector(`[data-agent-item="${CSS.escape(focusItemId)}"]`);
     if (element) {
       element.scrollIntoView({ block: 'center' });
-      focused.current = focusItemId;
+      focused.current = focusKey;
     } else if (!snapshotError && snapshot?.before && loadingFocusPage.current !== snapshot.before) {
       loadingFocusPage.current = snapshot.before;
       void loadOlder();
     }
-  }, [visible, focusItemId, snapshot, snapshotError, loadOlder]);
+  }, [visible, focusItemId, focusKey, snapshot, snapshotError, loadOlder, tab, contextPanel]);
   const planMode = session.mode === 'plan' || session.agent === 'plan';
   const plans = useMemo(() => collectAgentPlans(items, planMode), [items, planMode]);
   // Requests still awaiting an answer are shown as cards below the transcript, not twice.
@@ -323,10 +351,26 @@ export function AgentSessionView({
     [items, session.pending],
   );
   const artifacts = useMemo(() => extractAgentCanvasArtifacts(items), [items]);
+  const plansByItem = useMemo(
+    () =>
+      new Map(
+        plans.map((plan) => [plan.id.startsWith('reviewed-') ? plan.id.slice(9) : plan.id, plan]),
+      ),
+    [plans],
+  );
+  const artifactsByItem = useMemo(() => {
+    const byItem = new Map<string, typeof artifacts>();
+    for (const artifact of artifacts) {
+      const entries = byItem.get(artifact.itemId) ?? [];
+      entries.push(artifact);
+      byItem.set(artifact.itemId, entries);
+    }
+    return byItem;
+  }, [artifacts]);
   useEffect(() => {
-    if (visible && tab === 'chat' && follow.current && scroll.current)
+    if (visible && tab === 'chat' && !contextPanel && follow.current && scroll.current)
       scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [snapshot, visible, tab]);
+  }, [snapshot, visible, tab, contextPanel]);
   useEffect(() => {
     if (visible && session.unread)
       void ipc
@@ -392,6 +436,7 @@ export function AgentSessionView({
       requestRef.current = null;
       follow.current = true;
       setTab('chat');
+      setContextPanel(null);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -455,11 +500,6 @@ export function AgentSessionView({
       setBusy(false);
     }
   };
-  const refreshDiff = async () => {
-    setDiffBusy(true);
-    await action(async () => setDiff(await ipc.agentWorkspaceDiff(session.id)));
-    setDiffBusy(false);
-  };
   const copy = async () => {
     await action(async () => {
       await writeText(items.map((item) => `## ${item.title}\n\n${item.text}`).join('\n\n'));
@@ -476,16 +516,42 @@ export function AgentSessionView({
   };
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="border-border shrink-0 border-b px-4 pt-2.5 pb-2">
-        <AgentSessionProject session={session} />
-        <div className="flex items-center gap-2">
+      <header className="border-border shrink-0 border-b px-4 pt-3 pb-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {onBackToWorkflow && (
+            <button
+              type="button"
+              onClick={onBackToWorkflow}
+              className={quietButton}
+              aria-label={i18n.t('Back to workflow')}
+              title={i18n.t('Back to workflow')}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
           <h2
-            className="text-fg min-w-0 flex-1 truncate text-[13px] font-medium"
+            className="text-fg min-w-0 flex-1 truncate text-[15px] font-semibold"
             title={session.title}
           >
             {session.title}
           </h2>
           <AgentStatusBadge status={session.status} />
+          {onToggleFocus && (
+            <button
+              type="button"
+              onClick={onToggleFocus}
+              className={quietButton}
+              aria-pressed={focusMode}
+              aria-label={focusMode ? i18n.t('Exit focus') : i18n.t('Focus mode')}
+              title={focusMode ? i18n.t('Exit focus') : i18n.t('Focus mode')}
+            >
+              {focusMode ? (
+                <Minimize2 className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+              )}
+            </button>
+          )}
           {onHandoff && (
             <button
               type="button"
@@ -516,64 +582,34 @@ export function AgentSessionView({
             />
           </button>
         </div>
-        <nav
-          aria-label={i18n.t('Session views')}
-          className="overlay-scroll mt-1 flex min-w-0 items-center gap-0.5 overflow-x-auto"
-        >
-          <button
-            aria-pressed={tab === 'chat'}
-            className={quietButton}
-            onClick={() => {
-              setTab('chat');
-              setCanvasOpen(false);
-            }}
+        <div className="mt-1 flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <nav
+            aria-label={i18n.t('Session views')}
+            className="overlay-scroll flex min-w-0 items-center gap-0.5 overflow-x-auto"
           >
-            {i18n.rich('{value1}Chat', { value1: <MessageSquare className="h-3.5 w-3.5" /> })}
-          </button>
-          <button
-            aria-pressed={tab === 'plan'}
-            className={quietButton}
-            onClick={() => setTab('plan')}
-          >
-            {i18n.rich('{value1}Plan{value2}', {
-              value1: <ListChecks className="h-3.5 w-3.5" />,
-              value2: plans.length ? ` · ${plans.length}` : '',
-            })}
-          </button>
-          <button
-            aria-pressed={canvasOpen && tab === 'chat'}
-            className={quietButton}
-            onClick={() => {
-              setCanvasOpen(!canvasOpen || tab !== 'chat');
-              setTab('chat');
-            }}
-          >
-            {i18n.rich('{value1}Canvas{value2}', {
-              value1: <PanelsTopLeft className="h-3.5 w-3.5" />,
-              value2: artifacts.length ? ` · ${artifacts.length}` : '',
-            })}
-          </button>
-          <button
-            aria-pressed={tab === 'diff'}
-            className={quietButton}
-            onClick={() => {
-              setTab('diff');
-              void refreshDiff();
-            }}
-          >
-            {i18n.rich('{value1}Changes', { value1: <FileDiff className="h-3.5 w-3.5" /> })}
-          </button>
-          <button
-            aria-pressed={tab === 'terminal'}
-            className={quietButton}
-            onClick={() => {
-              setTerminalOpened(true);
-              setTab('terminal');
-            }}
-          >
-            {i18n.rich('{value1}Terminal', { value1: <TerminalSquare className="h-3.5 w-3.5" /> })}
-          </button>
-        </nav>
+            <button
+              aria-pressed={tab === 'chat'}
+              className={quietButton}
+              onClick={() => {
+                setTab('chat');
+                setContextPanel(null);
+              }}
+            >
+              {i18n.rich('{value1}Chat', { value1: <MessageSquare className="h-3.5 w-3.5" /> })}
+            </button>
+            <button
+              aria-pressed={tab === 'diff'}
+              className={quietButton}
+              onClick={() => {
+                setChangesOpened(true);
+                setTab('diff');
+              }}
+            >
+              {i18n.rich('{value1}Changes', { value1: <FileDiff className="h-3.5 w-3.5" /> })}
+            </button>
+          </nav>
+          <AgentSessionProject session={session} onOpenTerminal={() => setTerminalOpen(true)} />
+        </div>
         {routingNote && (
           // Only present when RunHQ picked the account, and then it is worth seeing without
           // expanding anything: it is the one thing about this task the user did not decide.
@@ -671,9 +707,13 @@ export function AgentSessionView({
           {error || snapshotError || session.last_error}
         </div>
       )}
-      {session.pending.length > 0 && tab !== 'chat' && (
+      {session.pending.length > 0 && (tab !== 'chat' || contextPanel !== null) && (
         <button
-          onClick={() => setTab('chat')}
+          onClick={() => {
+            follow.current = true;
+            setTab('chat');
+            setContextPanel(null);
+          }}
           className="bg-accent/10 text-accent px-5 py-2 text-left text-[12px]"
         >
           {i18n.rich('{value1} request(s) need your response →', {
@@ -681,380 +721,320 @@ export function AgentSessionView({
           })}
         </button>
       )}
-      <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
-        <div
-          className={`min-h-0 min-w-0 flex-1 flex-col ${canvasOpen && tab === 'chat' ? 'hidden xl:flex' : 'flex'}`}
-        >
-          <div className="flex min-h-0 flex-1">
-            <div
-              className={`relative min-h-0 min-w-0 flex-1 flex-col ${tab === 'chat' ? 'flex' : 'hidden'}`}
-            >
+      <AgentTaskTerminalDock
+        sessionId={session.id}
+        cwd={session.cwd}
+        terminalOpen={terminalOpen}
+        onHideTerminal={() => setTerminalOpen(false)}
+      >
+        <div className="flex h-full min-h-0 flex-1 flex-col xl:flex-row">
+          <div
+            className={`min-h-0 min-w-0 flex-1 flex-col ${contextPanel && tab === 'chat' ? 'hidden xl:flex' : 'flex'}`}
+          >
+            <div className="flex min-h-0 flex-1">
               <div
-                ref={scroll}
-                onScroll={() => {
-                  const el = scroll.current;
-                  if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-                }}
-                className={`overlay-scroll min-h-0 flex-1 space-y-5 overflow-auto py-6 pr-5 lg:pr-8 ${userMessages.length || snapshot?.before ? 'pl-10 lg:pl-12' : 'pl-5 lg:pl-8'}`}
+                className={`relative min-h-0 min-w-0 flex-1 flex-col ${tab === 'chat' ? 'flex' : 'hidden'}`}
               >
-                {snapshot?.before && (
-                  <button
-                    className={`${quietButton} mx-auto`}
-                    disabled={loadingEarlier}
-                    onClick={() => void loadEarlierMessages()}
-                  >
-                    {loadingEarlier
-                      ? i18n.t('Loading earlier messages…')
-                      : i18n.t('Load earlier activity')}
-                  </button>
-                )}
-                {!snapshot && !snapshotError && (
-                  <Loader2 className="text-fg-muted mx-auto h-5 w-5 animate-spin" />
-                )}
-                {snapshot && !items.length && (
-                  <div className="text-fg-muted mx-auto max-w-md py-10 text-center text-[13px]">
-                    <MessageSquare className="text-accent mx-auto mb-4 h-7 w-7" />
-                    <p className="text-fg mb-2 font-medium">{i18n.t('Your workspace is ready')}</p>
-                    <p>
-                      {i18n.t(
-                        'Describe a task. Tool activity and changes will appear here. When the agent asks a question or needs permission, you can respond in this conversation.',
-                      )}
-                    </p>
-                  </div>
-                )}
-                {groups.map((group) =>
-                  group.kind === 'item' ? (
-                    <div
-                      key={group.item.id}
-                      data-agent-item={group.item.id}
-                      tabIndex={group.item.kind === 'user' ? -1 : undefined}
-                      className={
-                        focusItemId === group.item.id || navigatedMessageId === group.item.id
-                          ? 'ring-accent/40 ring-offset-surface rounded-lg ring-1 ring-offset-4 outline-none'
-                          : 'outline-none'
-                      }
-                    >
-                      <TranscriptItem
-                        item={group.item}
-                        providerName={session.backend_name || session.backend}
-                        request={requests.get(group.item.id.replace(/^answer:/, 'request:'))}
-                      />
-                    </div>
-                  ) : (
-                    <AgentActivityBlock
-                      key={group.id}
-                      group={group}
-                      focusItemId={focusItemId}
-                      cwd={session.cwd}
-                    />
-                  ),
-                )}
-                {!!artifacts.length && !canvasOpen && (
-                  <button
-                    onClick={() => setCanvasOpen(true)}
-                    className="border-accent/20 bg-accent/5 text-accent flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[12px]"
-                  >
-                    <PanelsTopLeft className="h-5 w-5" />
-                    <span>
-                      <strong className="block font-medium">
-                        {i18n.rich('Open canvas · {value1} artifact{plural3}', {
-                          value1: artifacts.length,
-                          plural3: artifacts.length === 1 ? '' : 's',
-                        })}
-                      </strong>
-                      <span className="text-fg-muted text-[11px]">
-                        {i18n.t('Preview, edit and export alongside this conversation')}
-                      </span>
-                    </span>
-                  </button>
-                )}
-                {planMode && !!plans.length && !active && (
-                  <button
-                    onClick={() => setTab('plan')}
-                    className="flex items-center gap-2 rounded-lg bg-violet-400/10 px-4 py-2.5 text-[12px] text-violet-500"
-                  >
-                    {i18n.rich('{value1}Review your plan and build →', {
-                      value1: <ListChecks className="h-4 w-4" />,
-                    })}
-                  </button>
-                )}
-                {session.pending.map((request) => (
-                  <div key={request.id} data-agent-item={request.id}>
-                    <AgentRequestCard
-                      key={request.id}
-                      request={request}
-                      disabled={session.status === 'cancelling'}
-                      onOpenUrl={(url) => ipc.openUrl(url)}
-                      onAnswer={(value) => answerPendingAgentRequest(session.id, request.id, value)}
-                    />
-                  </div>
-                ))}
-                {active && !session.pending.length && (
-                  <div className="text-fg-muted flex items-center gap-2 text-[12px]">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {session.status === 'starting'
-                      ? i18n.t('Connecting to your agent…')
-                      : session.status === 'cancelling'
-                        ? i18n.t('Waiting for the agent to stop…')
-                        : i18n.t('The agent is working…')}
-                  </div>
-                )}
-              </div>
-              <AgentMessageNavigator
-                messages={userMessages}
-                scrollRef={scroll}
-                visible={visible && tab === 'chat'}
-                hasEarlier={!!snapshot?.before}
-                loadingEarlier={loadingEarlier}
-                onLoadEarlier={() => void loadEarlierMessages()}
-                onNavigate={navigateToMessage}
-              />
-              <button
-                aria-label={i18n.t('Follow latest activity')}
-                className="bg-surface-raised border-border text-fg-muted absolute right-4 bottom-3 rounded-full border p-1.5 shadow-sm"
-                onClick={() => {
-                  follow.current = true;
-                  scroll.current?.scrollTo({
-                    top: scroll.current.scrollHeight,
-                    behavior: 'smooth',
-                  });
-                }}
-              >
-                <ArrowDown className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {tab === 'plan' && (
-              <AgentPlanPanel
-                sessionId={session.id}
-                items={items}
-                planMode={planMode}
-                disabled={active || busy || readOnly || !toolEnabled || !!queued.length}
-                onBuild={(body) => void send(buildAgentPlanPrompt(body), 'default', '')}
-              />
-            )}
-            {tab === 'diff' && (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="border-border text-fg-muted flex items-start justify-between gap-3 border-b px-5 py-2 text-[11px]">
-                  <div className="min-w-0">
-                    <span>
-                      {i18n.rich('Current checkout diff{value1}', {
-                        value1: session.base_revision
-                          ? i18n.t(' · task started at {value1}', {
-                              value1: session.base_revision.slice(0, 7),
-                            })
-                          : i18n.t(' · no starting revision recorded for this directory'),
-                      })}
-                    </span>
-                    {preExisting.length > 0 && (
-                      <span className="text-fg-dim mt-0.5 block">
-                        {i18n.rich(
-                          '{value1} file{plural3} already had uncommitted changes when this task started, so edits there are not necessarily the agent’s: {value4}{value5}',
-                          {
-                            value1: preExisting.length,
-                            plural3: preExisting.length === 1 ? '' : 's',
-                            value4: preExisting.slice(0, 6).join(', '),
-                            value5:
-                              preExisting.length > 6
-                                ? i18n.t(' and {value1} more', { value1: preExisting.length - 6 })
-                                : '',
-                          },
-                        )}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    className={quietButton}
-                    disabled={diffBusy}
-                    onClick={() => void refreshDiff()}
-                  >
-                    {i18n.rich('{value1}Refresh', {
-                      value1: (
-                        <RefreshCw className={`h-3.5 w-3.5 ${diffBusy ? 'animate-spin' : ''}`} />
-                      ),
-                    })}
-                  </button>
-                </div>
-                <pre className="text-fg overlay-scroll flex-1 overflow-auto p-5 font-mono text-[12px] break-words whitespace-pre-wrap">
-                  {diff ||
-                    (diffBusy
-                      ? i18n.t('Loading changes…')
-                      : i18n.t('No tracked working-tree changes.'))}
-                </pre>
-              </div>
-            )}
-            {terminalOpened && (
-              <div className={`min-h-0 flex-1 flex-col ${tab === 'terminal' ? 'flex' : 'hidden'}`}>
-                <div className="text-fg-dim border-border border-b px-5 py-2 text-[11px]">
-                  {i18n.t('Workspace shell · independent of the agent turn')}
-                </div>
-                <TerminalPane id={`agent-shell-${session.id}-${viewId}`} cwd={session.cwd} />
-              </div>
-            )}
-          </div>
-          <footer className="bg-surface shrink-0 space-y-2 px-4 pt-2 pb-4">
-            <AgentUsageGuardNotice session={session} queued={queued.length > 0} />
-            {historyOnly && (
-              <p role="status" className="text-fg-muted bg-fg/5 rounded-lg px-3 py-2 text-[11px]">
-                {i18n.t(
-                  'Imported history · read-only even when restored from the archive. Add selected messages as context to a new task to continue the work.',
-                )}
-              </p>
-            )}
-            {recoveryState.error && (
-              <p role="alert" className="text-status-error text-[11px]">
-                {recoveryState.error}
-              </p>
-            )}
-            {recoveredSend && (
-              <div
-                role="status"
-                className="border-accent/20 bg-accent/5 text-fg-muted rounded-lg border px-3 py-2 text-[11px]"
-              >
-                {i18n.rich(
-                  'A previous send needs reconciliation. Inspect the conversation before retrying.{value1}',
-                  {
-                    value1: (
-                      <div className="mt-2 flex gap-3">
-                        <button
-                          disabled={active || busy || readOnly || !toolEnabled}
-                          className="text-accent"
-                          onClick={() => void reconcileSend()}
-                        >
-                          {i18n.t('Reconcile original message')}
-                        </button>
-                        <button
-                          disabled={active || busy}
-                          className="text-fg-dim"
-                          onClick={() =>
-                            void action(async () => {
-                              recoverableAgentSender.discard(session.id);
-                              refreshRecovery((value) => value + 1);
-                            })
-                          }
-                        >
-                          {i18n.t('I reviewed the result · dismiss recovery')}
-                        </button>
-                      </div>
-                    ),
-                  },
-                )}
-              </div>
-            )}
-            <AgentMessageQueue
-              entries={queued}
-              paused={
-                queued[0]?.state === 'failed' ||
-                (!active && !['completed', 'idle'].includes(session.status))
-              }
-              disabled={active || busy || readOnly || !toolEnabled}
-              sendNowDisabled={
-                busy || readOnly || !toolEnabled || !!recoveredSend || !!recoveryState.error
-              }
-              onRemove={(id) => agentTurnQueue.remove(session.id, id)}
-              onMove={(id, direction) => agentTurnQueue.move(session.id, id, direction)}
-              onResume={() => agentTurnQueue.resume(session.id)}
-              onStartNow={() => agentTurnQueue.startNow(session.id)}
-              onSendNow={(id) => void agentTurnQueue.sendNow(session.id, id)}
-              onOpenDependency={onOpenSession ?? ((id) => useAgentStore.getState().select(id))}
-            />
-            {!toolEnabled && (
-              <button
-                onClick={() => useAgentStore.setState({ toolsOpen: true })}
-                className="text-accent text-[11px]"
-              >
-                {i18n.t('This tool is disabled. Open Agent tools to enable it.')}
-              </button>
-            )}
-            <AgentComposer
-              sendShortcut={messageShortcut.sendShortcut}
-              value={input}
-              onChange={setInput}
-              onSend={() => {
-                if (active || queued.length) enqueue();
-                else void send();
-              }}
-              busy={busy}
-              compact
-              disabled={readOnly || !context.ready}
-              placeholder={
-                historyOnly
-                  ? i18n.t('Imported history is read-only')
-                  : session.archived
-                    ? i18n.t('Restore this session to continue')
-                    : active
-                      ? i18n.t('Add a follow-up to the queue…')
-                      : i18n.t('Describe a task, ask a question, or continue…')
-              }
-              controls={
-                <>
-                  <AgentProviderPicker value={session.backend} name={session.backend_name} />
-                  <AgentModelControls
-                    catalog={catalog}
-                    loading={catalogBusy}
-                    refresh={discover}
-                    model={model}
-                    effort={effort}
-                    agent={agent}
-                    onAgent={(value) => {
-                      setAgent(value);
-                      if ((session.adapter || session.backend) === 'opencode' && value)
-                        setMode(value === 'plan' ? 'plan' : 'default');
-                    }}
-                    mode={mode}
-                    disabled={active || busy || readOnly || !toolEnabled}
-                    onModel={(value) => {
-                      setModel(value);
-                      setEffort('');
-                    }}
-                    onEffort={setEffort}
-                    onMode={(value) => {
-                      setMode(value);
-                      setAgent('');
-                    }}
-                  />
-                  {!!catalog?.commands.length && (
+                <div
+                  ref={scroll}
+                  onScroll={() => {
+                    const el = scroll.current;
+                    if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+                  }}
+                  className={`overlay-scroll min-h-0 flex-1 space-y-5 overflow-auto py-6 pr-5 lg:pr-8 ${userMessages.length || snapshot?.before ? 'pl-10 lg:pl-12' : 'pl-5 lg:pl-8'}`}
+                >
+                  {snapshot?.before && (
                     <button
-                      type="button"
-                      aria-label={i18n.t('Available commands')}
-                      aria-expanded={advanced}
-                      onClick={() => setAdvanced(!advanced)}
-                      className={`hover:bg-fg/5 rounded-lg p-2 ${advanced ? 'bg-fg/5 text-fg' : 'text-fg-dim'}`}
+                      className={`${quietButton} mx-auto`}
+                      disabled={loadingEarlier}
+                      onClick={() => void loadEarlierMessages()}
                     >
-                      <SlidersHorizontal className="h-4 w-4" />
+                      {loadingEarlier
+                        ? i18n.t('Loading earlier messages…')
+                        : i18n.t('Load earlier activity')}
                     </button>
                   )}
-                </>
-              }
-              action={
-                active ? (
+                  {!snapshot && !snapshotError && (
+                    <Loader2 className="text-fg-muted mx-auto h-5 w-5 animate-spin" />
+                  )}
+                  {snapshot && !items.length && (
+                    <div className="text-fg-muted mx-auto max-w-md py-10 text-center text-[13px]">
+                      <MessageSquare className="text-accent mx-auto mb-4 h-7 w-7" />
+                      <p className="text-fg mb-2 font-medium">
+                        {i18n.t('Your workspace is ready')}
+                      </p>
+                      <p>
+                        {i18n.t(
+                          'Describe a task. Tool activity and changes will appear here. When the agent asks a question or needs permission, you can respond in this conversation.',
+                        )}
+                      </p>
+                    </div>
+                  )}
+                  {groups.map((group) =>
+                    group.kind === 'item' ? (
+                      <div
+                        key={group.item.id}
+                        data-agent-item={group.item.id}
+                        tabIndex={group.item.kind === 'user' ? -1 : undefined}
+                        className={
+                          focusItemId === group.item.id || navigatedMessageId === group.item.id
+                            ? 'ring-accent/40 ring-offset-surface rounded-lg ring-1 ring-offset-4 outline-none'
+                            : 'outline-none'
+                        }
+                      >
+                        <TranscriptItem
+                          item={group.item}
+                          providerName={session.backend_name || session.backend}
+                          request={requests.get(group.item.id.replace(/^answer:/, 'request:'))}
+                        />
+                        {plansByItem.get(group.item.id) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlanId(plansByItem.get(group.item.id)!.id);
+                              setContextPanel('plan');
+                            }}
+                            className={`${quietButton} mt-3 text-violet-500`}
+                          >
+                            <ListChecks className="h-4 w-4" aria-hidden />
+                            {i18n.t('Review plan')}
+                          </button>
+                        )}
+                        {artifactsByItem.get(group.item.id)?.map((artifact) => (
+                          <button
+                            key={artifact.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedArtifactId(artifact.id);
+                              setContextPanel('canvas');
+                            }}
+                            className={`${quietButton} text-accent mt-3 max-w-full`}
+                          >
+                            <PanelsTopLeft className="h-4 w-4 shrink-0" aria-hidden />
+                            <span className="truncate">
+                              {i18n.t('Open preview: {title}', { title: artifact.title })}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <AgentActivityBlock
+                        key={group.id}
+                        group={group}
+                        focusItemId={focusItemId}
+                        cwd={session.cwd}
+                      />
+                    ),
+                  )}
+                  {session.pending.map((request) => (
+                    <div key={request.id} data-agent-item={request.id}>
+                      <AgentRequestCard
+                        key={request.id}
+                        request={request}
+                        disabled={session.status === 'cancelling'}
+                        onOpenUrl={(url) => ipc.openUrl(url)}
+                        onAnswer={(value) =>
+                          answerPendingAgentRequest(session.id, request.id, value)
+                        }
+                      />
+                    </div>
+                  ))}
+                  {active && !session.pending.length && (
+                    <div className="text-fg-muted flex items-center gap-2 text-[12px]">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {session.status === 'starting'
+                        ? i18n.t('Connecting to your agent…')
+                        : session.status === 'cancelling'
+                          ? i18n.t('Waiting for the agent to stop…')
+                          : i18n.t('The agent is working…')}
+                    </div>
+                  )}
+                </div>
+                <AgentMessageNavigator
+                  messages={userMessages}
+                  scrollRef={scroll}
+                  visible={visible && tab === 'chat'}
+                  hasEarlier={!!snapshot?.before}
+                  loadingEarlier={loadingEarlier}
+                  onLoadEarlier={() => void loadEarlierMessages()}
+                  onNavigate={navigateToMessage}
+                />
+                <button
+                  aria-label={i18n.t('Follow latest activity')}
+                  className="bg-surface-raised border-border text-fg-muted absolute right-4 bottom-3 rounded-full border p-1.5 shadow-sm"
+                  onClick={() => {
+                    follow.current = true;
+                    scroll.current?.scrollTo({
+                      top: scroll.current.scrollHeight,
+                      behavior: 'smooth',
+                    });
+                  }}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {changesOpened && (
+                <div
+                  className={`min-h-0 min-w-0 flex-1 flex-col ${tab === 'diff' ? 'flex' : 'hidden'}`}
+                >
+                  <AgentChangesPanel
+                    session={session}
+                    items={items}
+                    visible={visible && tab === 'diff'}
+                  />
+                </div>
+              )}
+            </div>
+            <footer className="bg-surface shrink-0 space-y-2 px-4 pt-2 pb-4">
+              <AgentUsageGuardNotice session={session} queued={queued.length > 0} />
+              {historyOnly && (
+                <p role="status" className="text-fg-muted bg-fg/5 rounded-lg px-3 py-2 text-[11px]">
+                  {i18n.t(
+                    'Imported history · read-only even when restored from the archive. Add selected messages as context to a new task to continue the work.',
+                  )}
+                </p>
+              )}
+              {recoveryState.error && (
+                <p role="alert" className="text-status-error text-[11px]">
+                  {recoveryState.error}
+                </p>
+              )}
+              {recoveredSend && (
+                <div
+                  role="status"
+                  className="border-accent/20 bg-accent/5 text-fg-muted rounded-lg border px-3 py-2 text-[11px]"
+                >
+                  {i18n.rich(
+                    'A previous send needs reconciliation. Inspect the conversation before retrying.{value1}',
+                    {
+                      value1: (
+                        <div className="mt-2 flex gap-3">
+                          <button
+                            disabled={active || busy || readOnly || !toolEnabled}
+                            className="text-accent"
+                            onClick={() => void reconcileSend()}
+                          >
+                            {i18n.t('Reconcile original message')}
+                          </button>
+                          <button
+                            disabled={active || busy}
+                            className="text-fg-dim"
+                            onClick={() =>
+                              void action(async () => {
+                                recoverableAgentSender.discard(session.id);
+                                refreshRecovery((value) => value + 1);
+                              })
+                            }
+                          >
+                            {i18n.t('I reviewed the result · dismiss recovery')}
+                          </button>
+                        </div>
+                      ),
+                    },
+                  )}
+                </div>
+              )}
+              <AgentMessageQueue
+                entries={queued}
+                paused={
+                  queued[0]?.state === 'failed' ||
+                  (!active && !['completed', 'idle'].includes(session.status))
+                }
+                disabled={active || busy || readOnly || !toolEnabled}
+                sendNowDisabled={
+                  busy || readOnly || !toolEnabled || !!recoveredSend || !!recoveryState.error
+                }
+                onRemove={(id) => agentTurnQueue.remove(session.id, id)}
+                onMove={(id, direction) => agentTurnQueue.move(session.id, id, direction)}
+                onResume={() => agentTurnQueue.resume(session.id)}
+                onStartNow={() => agentTurnQueue.startNow(session.id)}
+                onSendNow={(id) => void agentTurnQueue.sendNow(session.id, id)}
+                onOpenDependency={onOpenSession ?? ((id) => useAgentStore.getState().select(id))}
+              />
+              {!toolEnabled && (
+                <button
+                  onClick={() => useAgentStore.setState({ toolsOpen: true })}
+                  className="text-accent text-[11px]"
+                >
+                  {i18n.t('This tool is disabled. Open Agent tools to enable it.')}
+                </button>
+              )}
+              <AgentComposer
+                sendShortcut={messageShortcut.sendShortcut}
+                value={input}
+                onChange={setInput}
+                onSend={() => {
+                  if (active || queued.length) enqueue();
+                  else void send();
+                }}
+                busy={busy}
+                compact
+                disabled={readOnly || !context.ready}
+                placeholder={
+                  historyOnly
+                    ? i18n.t('Imported history is read-only')
+                    : session.archived
+                      ? i18n.t('Restore this session to continue')
+                      : active
+                        ? i18n.t('Add a follow-up to the queue…')
+                        : i18n.t('Describe a task, ask a question, or continue…')
+                }
+                controls={
                   <>
-                    <button
-                      aria-label={i18n.t('Queue message')}
-                      title={i18n.t('Run after the current task completes')}
-                      disabled={!hasContent || busy || readOnly || !toolEnabled}
-                      onClick={enqueue}
-                      className={quietButton}
-                    >
-                      {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
-                    </button>
-                    {(session.adapter || session.backend) === 'codex' &&
-                      session.status === 'running' && (
-                        <button
-                          disabled={
-                            !agentCanSteer(session, input, context.entries.length, context.ready) ||
-                            busy ||
-                            !toolEnabled
-                          }
-                          title={
-                            context.entries.length
-                              ? i18n.t(
-                                  'Queue this message to include its attached context. Send while working supports plain text only.',
-                                )
-                              : i18n.t('Send a plain-text update to the running task')
-                          }
-                          className={quietButton}
-                          onClick={() => {
-                            if (
+                    <AgentProviderPicker value={session.backend} name={session.backend_name} />
+                    <AgentModelControls
+                      catalog={catalog}
+                      loading={catalogBusy}
+                      refresh={discover}
+                      model={model}
+                      effort={effort}
+                      agent={agent}
+                      onAgent={(value) => {
+                        setAgent(value);
+                        if ((session.adapter || session.backend) === 'opencode' && value)
+                          setMode(value === 'plan' ? 'plan' : 'default');
+                      }}
+                      mode={mode}
+                      disabled={active || busy || readOnly || !toolEnabled}
+                      onModel={(value) => {
+                        setModel(value);
+                        setEffort('');
+                      }}
+                      onEffort={setEffort}
+                      onMode={(value) => {
+                        setMode(value);
+                        setAgent('');
+                      }}
+                    />
+                    {!!catalog?.commands.length && (
+                      <button
+                        type="button"
+                        aria-label={i18n.t('Available commands')}
+                        aria-expanded={advanced}
+                        onClick={() => setAdvanced(!advanced)}
+                        className={`hover:bg-fg/5 rounded-lg p-2 ${advanced ? 'bg-fg/5 text-fg' : 'text-fg-dim'}`}
+                      >
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </button>
+                    )}
+                  </>
+                }
+                action={
+                  active ? (
+                    <>
+                      <button
+                        aria-label={i18n.t('Queue message')}
+                        title={i18n.t('Run after the current task completes')}
+                        disabled={!hasContent || busy || readOnly || !toolEnabled}
+                        onClick={enqueue}
+                        className={quietButton}
+                      >
+                        {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
+                      </button>
+                      {(session.adapter || session.backend) === 'codex' &&
+                        session.status === 'running' && (
+                          <button
+                            disabled={
                               !agentCanSteer(
                                 session,
                                 input,
@@ -1063,113 +1043,165 @@ export function AgentSessionView({
                               ) ||
                               busy ||
                               !toolEnabled
-                            )
-                              return;
-                            setBusy(true);
-                            void action(async () => {
-                              await ipc.agentSteer(session.id, input);
-                              setInput('');
-                            }).finally(() => setBusy(false));
-                          }}
-                        >
-                          {i18n.t('Send while working')}
-                        </button>
-                      )}
-                    <button
-                      aria-label={i18n.t('Stop agent')}
-                      title={i18n.t('Stop agent')}
-                      disabled={session.status === 'cancelling'}
-                      className="border-border text-fg flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
-                      onClick={() => void action(() => ipc.agentInterrupt(session.id))}
-                    >
-                      <Square className="h-3 w-3" />
-                    </button>
-                  </>
-                ) : queued.length ? (
-                  <button
-                    aria-label={i18n.t('Queue message')}
-                    disabled={!hasContent || busy || readOnly || !toolEnabled}
-                    onClick={enqueue}
-                    className={quietButton}
-                  >
-                    {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
-                  </button>
-                ) : (
-                  <button
-                    aria-label={i18n.t('Send message')}
-                    title={messageShortcut.title}
-                    className="bg-fg text-surface hover:bg-fg/85 disabled:bg-fg/8 disabled:text-fg-dim flex h-8 w-8 items-center justify-center rounded-xl shadow-sm transition-colors disabled:shadow-none"
-                    disabled={!hasContent || busy || readOnly || !toolEnabled}
-                    onClick={() => void send()}
-                  >
-                    {busy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ArrowUp className="h-4 w-4" />
-                    )}
-                  </button>
-                )
-              }
-            >
-              <AgentContextTray
-                draftKey={session.id}
-                projectId={session.project_id}
-                sessionId={session.id}
-                adapter={session.adapter || session.backend}
-                disabled={busy || readOnly}
-              />
-              {advanced && !!catalog?.commands.length && (
-                <fieldset
-                  disabled={active || busy || readOnly || !toolEnabled}
-                  className="border-border grid gap-3 border-t p-4 disabled:opacity-50 sm:grid-cols-2"
-                >
-                  {!!catalog?.commands.length && (
-                    <details className="text-fg-dim text-[11px] sm:col-span-2">
-                      <summary className="cursor-pointer">{i18n.t('Available commands')}</summary>
-                      <p className="mt-2 break-words">
-                        {catalog.commands.map((command) => `/${command}`).join(', ')}
-                      </p>
-                    </details>
-                  )}
-                </fieldset>
-              )}
-            </AgentComposer>
-            {catalogError && (
-              <p role="status" className="text-fg-muted text-[11px]">
-                {i18n.rich(
-                  'Models could not be loaded. Your current model is preserved. {value1}',
-                  {
-                    value1: (
-                      <button onClick={discover} className="text-accent">
-                        {i18n.t('Retry')}
+                            }
+                            title={
+                              context.entries.length
+                                ? i18n.t(
+                                    'Queue this message to include its attached context. Send while working supports plain text only.',
+                                  )
+                                : i18n.t('Send a plain-text update to the running task')
+                            }
+                            className={quietButton}
+                            onClick={() => {
+                              if (
+                                !agentCanSteer(
+                                  session,
+                                  input,
+                                  context.entries.length,
+                                  context.ready,
+                                ) ||
+                                busy ||
+                                !toolEnabled
+                              )
+                                return;
+                              setBusy(true);
+                              void action(async () => {
+                                await ipc.agentSteer(session.id, input);
+                                setInput('');
+                              }).finally(() => setBusy(false));
+                            }}
+                          >
+                            {i18n.t('Send while working')}
+                          </button>
+                        )}
+                      <button
+                        aria-label={i18n.t('Stop agent')}
+                        title={i18n.t('Stop agent')}
+                        disabled={session.status === 'cancelling'}
+                        className="border-border text-fg flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
+                        onClick={() => void action(() => ipc.agentInterrupt(session.id))}
+                      >
+                        <Square className="h-3 w-3" />
                       </button>
-                    ),
-                  },
+                    </>
+                  ) : queued.length ? (
+                    <button
+                      aria-label={i18n.t('Queue message')}
+                      disabled={!hasContent || busy || readOnly || !toolEnabled}
+                      onClick={enqueue}
+                      className={quietButton}
+                    >
+                      {i18n.rich('{value1}Queue', { value1: <ListPlus className="h-4 w-4" /> })}
+                    </button>
+                  ) : (
+                    <button
+                      aria-label={i18n.t('Send message')}
+                      title={messageShortcut.title}
+                      className="bg-fg text-surface hover:bg-fg/85 disabled:bg-fg/8 disabled:text-fg-dim flex h-8 w-8 items-center justify-center rounded-xl shadow-sm transition-colors disabled:shadow-none"
+                      disabled={!hasContent || busy || readOnly || !toolEnabled}
+                      onClick={() => void send()}
+                    >
+                      {busy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-4 w-4" />
+                      )}
+                    </button>
+                  )
+                }
+              >
+                <AgentContextTray
+                  draftKey={session.id}
+                  projectId={session.project_id}
+                  sessionId={session.id}
+                  adapter={session.adapter || session.backend}
+                  disabled={busy || readOnly}
+                />
+                {advanced && !!catalog?.commands.length && (
+                  <fieldset
+                    disabled={active || busy || readOnly || !toolEnabled}
+                    className="border-border grid gap-3 border-t p-4 disabled:opacity-50 sm:grid-cols-2"
+                  >
+                    {!!catalog?.commands.length && (
+                      <details className="text-fg-dim text-[11px] sm:col-span-2">
+                        <summary className="cursor-pointer">{i18n.t('Available commands')}</summary>
+                        <p className="mt-2 break-words">
+                          {catalog.commands.map((command) => `/${command}`).join(', ')}
+                        </p>
+                      </details>
+                    )}
+                  </fieldset>
                 )}
+              </AgentComposer>
+              {catalogError && (
+                <p role="status" className="text-fg-muted text-[11px]">
+                  {i18n.rich(
+                    'Models could not be loaded. Your current model is preserved. {value1}',
+                    {
+                      value1: (
+                        <button onClick={discover} className="text-accent">
+                          {i18n.t('Retry')}
+                        </button>
+                      ),
+                    },
+                  )}
+                </p>
+              )}
+              <p className="text-fg-dim px-1 text-[11px]">
+                {active
+                  ? i18n.t('You can switch projects while this task runs.')
+                  : messageShortcut.hint}
               </p>
-            )}
-            <p className="text-fg-dim px-1 text-[11px]">
-              {active
-                ? i18n.t('You can switch projects while this task runs.')
-                : messageShortcut.hint}
-            </p>
-            {session.usage != null && (
-              <details className="text-fg-dim text-[11px]">
-                <summary className="cursor-pointer">{i18n.t('Reported usage')}</summary>
-                <AgentUsageCard usage={session.usage} />
-              </details>
-            )}
-          </footer>
+              {session.usage != null && (
+                <details className="text-fg-dim text-[11px]">
+                  <summary className="cursor-pointer">{i18n.t('Reported usage')}</summary>
+                  <AgentUsageCard usage={session.usage} />
+                </details>
+              )}
+            </footer>
+          </div>
+          {contextPanel && tab === 'chat' && (
+            <aside
+              aria-label={contextPanel === 'plan' ? i18n.t('Plan') : i18n.t('Session canvas')}
+              className="border-border bg-surface-raised flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col xl:h-auto xl:w-[48%] xl:border-l"
+            >
+              <div className="border-border flex shrink-0 items-center justify-between border-b px-4 py-2">
+                <span className="text-fg-muted text-[12px]">
+                  {contextPanel === 'plan' ? i18n.t('Plan') : i18n.t('Preview')}
+                </span>
+                <button
+                  type="button"
+                  aria-label={
+                    contextPanel === 'plan' ? i18n.t('Close plan') : i18n.t('Close preview')
+                  }
+                  className={quietButton}
+                  onClick={() => setContextPanel(null)}
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+              {contextPanel === 'plan' ? (
+                <AgentPlanPanel
+                  sessionId={session.id}
+                  items={items}
+                  planMode={planMode}
+                  selectedId={selectedPlanId}
+                  onSelect={setSelectedPlanId}
+                  disabled={active || busy || readOnly || !toolEnabled || !!queued.length}
+                  onBuild={(body) => void send(buildAgentPlanPrompt(body), 'default', '')}
+                />
+              ) : (
+                <AgentCanvasPanel
+                  sessionId={session.id}
+                  items={items}
+                  selectedId={selectedArtifactId}
+                  onSelect={setSelectedArtifactId}
+                />
+              )}
+            </aside>
+          )}
         </div>
-        {tab === 'chat' && canvasOpen && (
-          <aside
-            aria-label={i18n.t('Session canvas')}
-            className="border-border bg-surface-raised flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col xl:h-auto xl:w-[48%] xl:border-l"
-          >
-            <AgentCanvasPanel sessionId={session.id} items={items} />
-          </aside>
-        )}
-      </div>
+      </AgentTaskTerminalDock>
     </section>
   );
 }

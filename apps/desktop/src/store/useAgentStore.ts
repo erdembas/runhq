@@ -190,7 +190,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                 return (
                   project.id === previous?.id &&
                   project.name === previous.name &&
-                  project.path === previous.path
+                  project.path === previous.path &&
+                  JSON.stringify(project.workspace) === JSON.stringify(previous.workspace)
                 );
               });
             if (sessions === state.sessions && sameProjects && state.ready && !state.error)

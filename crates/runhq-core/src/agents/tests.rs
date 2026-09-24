@@ -14,6 +14,7 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         project_id: project.id,
         project_name: project.name,
         cwd: project.path,
+        workspace: None,
         backend: "codex".into(),
         adapter: "codex".into(),
         backend_name: "Codex".into(),
@@ -1169,6 +1170,7 @@ async fn isolated_worktree_preserves_original_uncommitted_files() {
     std::fs::write(dir.path().join("tracked.txt"), "local edit").unwrap();
     let created = manager
         .create(CreateAgentSession {
+            workspace_service_ids: None,
             creation_request_id: None,
             project_id: session.project_id.clone(),
             backend: "codex".into(),
@@ -1199,6 +1201,7 @@ async fn isolated_worktree_preserves_original_uncommitted_files() {
     // than letting Changes present it as the agent's work.
     let local = manager
         .create(CreateAgentSession {
+            workspace_service_ids: None,
             creation_request_id: None,
             project_id: session.project_id,
             backend: "codex".into(),
@@ -1220,7 +1223,7 @@ fn newer_database_version_is_not_downgraded() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("agents.db");
     let conn = rusqlite::Connection::open(&path).unwrap();
-    conn.execute_batch("PRAGMA user_version=3;").unwrap();
+    conn.execute_batch("PRAGMA user_version=4;").unwrap();
     drop(conn);
     assert!(AgentDb::open(&path).is_err());
 }
@@ -1356,6 +1359,7 @@ async fn custom_sessions_snapshot_connection_and_disabled_tools_cannot_start() {
     manager.save_tool(tool.clone()).unwrap();
     let session = manager
         .create(CreateAgentSession {
+            workspace_service_ids: None,
             creation_request_id: None,
             project_id: project.id,
             backend: tool.id.clone(),
@@ -1620,6 +1624,7 @@ async fn explicit_cli_resolution_matches_detection_catalog_creation_and_terminal
     let terminal = manager.terminal_tool("codex").unwrap();
     let created = manager
         .create(CreateAgentSession {
+            workspace_service_ids: None,
             creation_request_id: None,
             project_id: project.id.clone(),
             backend: "codex".into(),
@@ -1911,6 +1916,7 @@ async fn creation_request_replays_after_restart_without_duplicate_sessions() {
     let (dir, manager, session) = setup();
     let id = uuid::Uuid::new_v4().to_string();
     let input = || CreateAgentSession {
+        workspace_service_ids: None,
         creation_request_id: Some(id.clone()),
         project_id: session.project_id.clone(),
         backend: "codex".into(),
@@ -1939,4 +1945,95 @@ async fn creation_request_replays_after_restart_without_duplicate_sessions() {
     assert_eq!(reopened.sessions().len(), 2);
     reopened.delete_session(&id).unwrap();
     assert!(reopened.create(input()).await.is_err());
+}
+
+#[tokio::test]
+async fn multi_workspace_turns_receive_selected_folders_and_preserve_plain_transcripts() {
+    let (dir, manager, _) = setup();
+    let root = dir.path().canonicalize().unwrap();
+    let mut members = vec![];
+    for name in ["frontend", "backend"] {
+        let path = root.join(name);
+        std::fs::create_dir(&path).unwrap();
+        members.push(AgentWorkspaceMember {
+            service_id: name.into(),
+            name: name.into(),
+            path: path.to_string_lossy().into(),
+            base_revision: None,
+            pre_existing_paths: vec![],
+        });
+    }
+    std::fs::write(dir.path().join("bridge.cjs"), r#"
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+  const {config} = JSON.parse(line);
+  const members = JSON.parse(config.prompt.split('Selected projects (JSON data):\n')[1].split('\n\nShared workspace instructions:')[0]);
+  assert.equal(members.length, 2);
+  for (const member of members) {
+    assert.equal(path.dirname(member.path), config.cwd);
+    fs.appendFileSync(path.join(member.path, 'fixture.txt'), 'turn\n');
+  }
+  process.stdout.write(JSON.stringify({type:'finished',status:'completed'})+'\n');
+});
+"#).unwrap();
+    let workspace = manager
+        .save_multi_workspace(
+            None,
+            "Full stack".into(),
+            root.clone(),
+            AgentWorkspaceScope {
+                instructions: String::new(),
+                section_id: "section".into(),
+                members,
+            },
+        )
+        .unwrap();
+    let session = manager.create(serde_json::from_value(json!({ "project_id": workspace.id, "backend":"codex", "executable": executable("node").unwrap(), "title":"Task" })).unwrap()).await.unwrap();
+    for prompt in ["Update both projects", "Continue both projects"] {
+        let mut input = turn_input(&session);
+        input.prompt = prompt.into();
+        manager.start(input).await.unwrap();
+        wait_inactive(&manager, &session.id).await;
+        let current = manager.session(&session.id).unwrap();
+        assert_eq!(current.status, "completed", "{:?}", current.last_error);
+    }
+    for name in ["frontend", "backend"] {
+        assert_eq!(
+            std::fs::read_to_string(root.join(name).join("fixture.txt")).unwrap(),
+            "turn\nturn\n"
+        );
+    }
+    let snapshot = manager.snapshot(&session.id, None).unwrap();
+    let prompts: Vec<_> = snapshot
+        .items
+        .iter()
+        .filter(|item| item.kind == "user")
+        .map(|item| item.text.as_str())
+        .collect();
+    assert_eq!(prompts, ["Update both projects", "Continue both projects"]);
+}
+
+#[test]
+fn multi_workspace_schema_upgrade_preserves_existing_project_and_chat() {
+    let (dir, manager, session) = setup();
+    drop(manager);
+    let db = rusqlite::Connection::open(dir.path().join("agents.db")).unwrap();
+    db.execute_batch("DROP TABLE agent_multi_workspaces; PRAGMA user_version=2;")
+        .unwrap();
+    drop(db);
+    let manager =
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
+    assert_eq!(manager.projects().unwrap()[0].id, session.project_id);
+    assert_eq!(manager.session(&session.id).unwrap().cwd, session.cwd);
+    assert!(manager.session(&session.id).unwrap().workspace.is_none());
+    let version: i64 = manager
+        .state
+        .lock()
+        .db
+        .conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 3);
 }

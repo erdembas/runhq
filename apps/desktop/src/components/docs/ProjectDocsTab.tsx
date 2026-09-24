@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { ipc } from '@/lib/ipc';
 import { useResizableWidth } from '@/lib/useResizableWidth';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import type { DocContent, ProjectDoc } from '@/types';
 import { DocBody } from './project-docs/DocBody';
 import { DocsEmptyState } from './project-docs/DocsEmptyState';
@@ -22,6 +23,8 @@ export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
   const [content, setContent] = useState<DocContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [readRevision, setReadRevision] = useState(0);
+  const requestedDoc = useWorkbenchStore((state) => state.projectDocRequests[serviceId]);
   const navWidth = useResizableWidth({
     storageKey: 'runhq.docs.sidebar.width',
     defaultWidth: 260,
@@ -42,10 +45,13 @@ export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
         if (!alive) return;
         const sorted = sortDocs(list);
         setDocs(sorted);
-        if (sorted.length === 0) {
+        // A document shortcut can arrive while discovery is still in flight.
+        const request = useWorkbenchStore.getState().projectDocRequests[serviceId];
+        const path = request?.cwd === cwd ? request.relativePath : sorted[0]?.relative_path;
+        if (!path) {
           setLoading(false);
         } else {
-          setActivePath(sorted[0]!.relative_path);
+          setActivePath(path);
         }
       })
       .catch((err) => {
@@ -57,7 +63,11 @@ export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
     return () => {
       alive = false;
     };
-  }, [serviceId]);
+  }, [serviceId, cwd]);
+
+  useEffect(() => {
+    if (requestedDoc?.cwd === cwd) setActivePath(requestedDoc.relativePath);
+  }, [requestedDoc, cwd]);
 
   useEffect(() => {
     if (!activePath) {
@@ -84,25 +94,15 @@ export function ProjectDocsTab({ serviceId, cwd, onRunCommand }: Props) {
     return () => {
       alive = false;
     };
-  }, [serviceId, activePath]);
+  }, [serviceId, cwd, activePath, readRevision]);
 
   const refresh = useCallback(() => {
-    if (!activePath) return;
-    setLoading(true);
-    ipc
-      .readProjectDoc(serviceId, activePath)
-      .then((doc) => {
-        setContent(doc);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('docs: refresh failed', err);
-        setError(String(err));
-        setLoading(false);
-      });
-  }, [serviceId, activePath]);
+    // Refresh shares the cancellable read effect so a late response cannot replace
+    // a subsequently selected document or a different project directory.
+    setReadRevision((revision) => revision + 1);
+  }, []);
 
-  if (!loading && !error && docs.length === 0) {
+  if (!loading && !error && docs.length === 0 && !activePath) {
     return <DocsEmptyState cwd={cwd} />;
   }
 

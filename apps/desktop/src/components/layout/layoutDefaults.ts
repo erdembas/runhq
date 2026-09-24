@@ -14,16 +14,17 @@ export function defaultLayoutState(commandNames: string[] = []): LayoutState {
 
   return {
     root: {
-      type: 'group',
-      id: 'root',
-      tabs: [...logTabIds, 'agents', 'docs', 'notes', firstTermId],
-      activeTab: logTabIds[0] ?? 'docs',
+      type: 'split',
+      id: 'project-run-split',
+      orientation: 'vertical',
+      sizes: [68, 32],
+      children: [
+        { type: 'group', id: 'root', tabs: logTabIds, activeTab: logTabIds[0] ?? null },
+        { type: 'group', id: 'project-terminals', tabs: [firstTermId], activeTab: firstTermId },
+      ],
     },
     tabs: {
       ...logTabsById,
-      agents: { id: 'agents', kind: 'agents', title: i18n.t('Agents') },
-      docs: { id: 'docs', kind: 'docs', title: i18n.t('Docs') },
-      notes: { id: 'notes', kind: 'notes', title: i18n.t('Notes') },
       [firstTermId]: { id: firstTermId, kind: 'terminal', title: i18n.t('Terminal 1') },
     },
     nextTermIdx: 2,

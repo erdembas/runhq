@@ -1,4 +1,7 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
+import { SectionWorkspaces } from '@/components/workspaces/SectionWorkspaces';
+import { useAppStore } from '@/store/useAppStore';
+import { useAgentStore } from '@/store/useAgentStore';
 import { SectionBlock } from './SectionBlock';
 import { FlatItems, SectionBody, type SidebarItem } from './SectionBody';
 import { UnassignedBlock } from './UnassignedBlock';
@@ -52,6 +55,17 @@ export function SidebarSectionLayout({
   onDeleteStack,
 }: SidebarSectionLayoutProps) {
   i18n.useLocale();
+  const projects = useAgentStore((s) => s.projects);
+  const search = useAppStore((s) => s.search)
+    .trim()
+    .toLocaleLowerCase();
+  const matchingWorkspaces = projects.filter(
+    (project) =>
+      project.workspace &&
+      (!search || `${project.name} ${project.path}`.toLocaleLowerCase().includes(search)),
+  );
+  const hasWorkspace = (id: string) =>
+    matchingWorkspaces.some((project) => project.workspace?.section_id === id);
   const commonProps = {
     statuses,
     selectedServiceId,
@@ -68,12 +82,15 @@ export function SidebarSectionLayout({
 
   if (!hasSections) {
     return (
-      <FlatItems
-        items={itemsBySection.get(UNASSIGNED) ?? []}
-        bucketId={searching ? null : UNASSIGNED}
-        emptyMessage={emptyMessage}
-        {...commonProps}
-      />
+      <>
+        <SectionWorkspaces sectionId="" />
+        <FlatItems
+          items={itemsBySection.get(UNASSIGNED) ?? []}
+          bucketId={searching ? null : UNASSIGNED}
+          emptyMessage={emptyMessage}
+          {...commonProps}
+        />
+      </>
     );
   }
 
@@ -81,7 +98,11 @@ export function SidebarSectionLayout({
   const stacksCount = unassignedItems.filter((item) => item.kind === 'stack').length;
   const servicesCount = unassignedItems.length - stacksCount;
 
-  if (searching && ![...itemsBySection.values()].some((items) => items.length))
+  if (
+    searching &&
+    !matchingWorkspaces.length &&
+    ![...itemsBySection.values()].some((items) => items.length)
+  )
     return (
       <p className="text-fg-dim px-4 py-6 text-center text-[12px]">
         {i18n.t('No matching projects or stacks.')}
@@ -91,7 +112,12 @@ export function SidebarSectionLayout({
   return (
     <>
       {sections
-        .filter((section) => !searching || (itemsBySection.get(section.id)?.length ?? 0) > 0)
+        .filter(
+          (section) =>
+            !searching ||
+            (itemsBySection.get(section.id)?.length ?? 0) > 0 ||
+            hasWorkspace(section.id),
+        )
         .map((section) => {
           const totals = totalsBySection.get(section.id) ?? { running: 0, total: 0 };
           return (
@@ -104,6 +130,7 @@ export function SidebarSectionLayout({
               total={totals.total}
               serviceIds={itemServiceIds(itemsBySection.get(section.id) ?? [])}
             >
+              <SectionWorkspaces sectionId={section.id} />
               <SectionBody
                 items={itemsBySection.get(section.id) ?? []}
                 bucketId={searching ? null : section.id}
@@ -113,6 +140,7 @@ export function SidebarSectionLayout({
           );
         })}
 
+      <SectionWorkspaces sectionId="" />
       {(!searching || unassignedItems.length > 0) && (
         <UnassignedBlock
           collapsed={!searching && !!collapsedSections[UNASSIGNED]}

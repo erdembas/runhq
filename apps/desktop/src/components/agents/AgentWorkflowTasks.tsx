@@ -16,6 +16,8 @@ import {
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import type { AgentBackend } from '@runhq/cockpit-types';
 import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
+import { AgentWorkflowStudio } from './AgentWorkflowStudio';
+import { AgentWorkflowExecution } from './AgentWorkflowExecution';
 import { AgentWorkflowCanvas } from './AgentWorkflowCanvas';
 import { AgentWorkflowViewToggle } from './AgentWorkflowViewToggle';
 import { AgentWorkflowPromptQueue } from './AgentWorkflowPromptQueue';
@@ -24,6 +26,8 @@ import { AgentWorkflowModelControls } from './AgentWorkflowModelControls';
 import { workflowAncestors } from './agentWorkflowGraph';
 import {
   WORKFLOW_TEMPLATES,
+  setWorkflowExecution,
+  workflowExecutionMode,
   moveWorkflowQueue,
   workflowIsQueue,
   insertWorkflowTask,
@@ -77,6 +81,9 @@ export function AgentWorkflowTasks({
 }) {
   i18n.useLocale();
   const locked = new Set(lockedIds);
+  const [executionChoice, setExecutionChoice] = useState<ReturnType<
+    typeof workflowExecutionMode
+  > | null>(null);
   const [view, setView] = useState<'list' | 'map'>('map');
   const [selected, setSelected] = useState<string | null>(null);
   const [previous, setPrevious] = useState<CreateWorkflowStep[] | null>(null);
@@ -111,6 +118,7 @@ export function AgentWorkflowTasks({
       return;
 
     setPrevious(steps);
+    setExecutionChoice(null);
     onChange(next);
   };
   const update = (id: string, patch: Partial<CreateWorkflowStep>) =>
@@ -138,7 +146,9 @@ export function AgentWorkflowTasks({
       steps.some((step) => step.continue_from) ? 'same' : conversation,
     );
     if (!next || next.steps.length > MAX_WORKFLOW_STEPS) return;
-    change(next.steps);
+    const mode = executionChoice ?? workflowExecutionMode(steps);
+    change(!live && mode !== 'custom' ? setWorkflowExecution(next.steps, mode) : next.steps);
+    setExecutionChoice(mode);
     setSelected(next.id);
   };
   const promptSlots =
@@ -199,62 +209,76 @@ export function AgentWorkflowTasks({
         />
       ) : (
         <>
-          <div className="border-border overflow-hidden rounded-xl border shadow-sm">
-            <div className="bg-surface border-border flex flex-wrap items-center gap-3 border-b px-4 py-3">
-              <span className="text-fg text-xs font-medium">{i18n.t('Your workflow')}</span>
-              <span className="text-fg-dim text-[11px]">
-                {i18n.plural('{count} step', '{count} steps', steps.length)}
-              </span>
-              <AgentWorkflowViewToggle value={view} onChange={setView} />
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                {previous && (
+          <AgentWorkflowStudio
+            toolbar={
+              <>
+                <span className="text-fg text-xs font-medium">{i18n.t('Your workflow')}</span>
+                <span className="text-fg-dim text-[11px]">
+                  {i18n.plural('{count} step', '{count} steps', steps.length)}
+                </span>
+                <AgentWorkflowViewToggle value={view} onChange={setView} />
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {previous && (
+                    <button
+                      type="button"
+                      className={button}
+                      onClick={() => {
+                        onChange(previous);
+                        setExecutionChoice(null);
+                        setPrevious(null);
+                      }}
+                    >
+                      {i18n.rich('{value1} Undo', { value1: <Undo2 className="size-3" /> })}
+                    </button>
+                  )}
+                  <span className="text-fg-dim text-[11px]">
+                    {i18n.rich('After step {value1}', {
+                      value1: current ? steps.indexOf(current) + 1 : '—',
+                    })}
+                  </span>
                   <button
                     type="button"
                     className={button}
-                    onClick={() => {
-                      onChange(previous);
-                      setPrevious(null);
-                    }}
+                    disabled={
+                      disabled ||
+                      insertBlocked ||
+                      !current ||
+                      steps.length + promptSlots > MAX_WORKFLOW_STEPS
+                    }
+                    onClick={() => insert('implement')}
                   >
-                    {i18n.rich('{value1} Undo', { value1: <Undo2 className="size-3" /> })}
+                    {i18n.rich('{value1} Add prompt', { value1: <Plus className="size-3.5" /> })}
                   </button>
-                )}
-                <span className="text-fg-dim text-[11px]">
-                  {i18n.rich('After step {value1}', {
-                    value1: current ? steps.indexOf(current) + 1 : '—',
-                  })}
-                </span>
-                <button
-                  type="button"
-                  className={button}
-                  disabled={
-                    disabled ||
-                    insertBlocked ||
-                    !current ||
-                    steps.length + promptSlots > MAX_WORKFLOW_STEPS
-                  }
-                  onClick={() => insert('implement')}
-                >
-                  {i18n.rich('{value1} Add prompt', { value1: <Plus className="size-3.5" /> })}
-                </button>
-                <button
-                  type="button"
-                  className={button}
-                  disabled={
-                    disabled ||
-                    insertBlocked ||
-                    !current ||
-                    !reviewers.length ||
-                    steps.length >= MAX_WORKFLOW_STEPS
-                  }
-                  onClick={() => insert('review')}
-                >
-                  {i18n.rich('{value1} Add review', { value1: <ScanEye className="size-3.5" /> })}
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    className={button}
+                    disabled={
+                      disabled ||
+                      insertBlocked ||
+                      !current ||
+                      !reviewers.length ||
+                      steps.length >= MAX_WORKFLOW_STEPS
+                    }
+                    onClick={() => insert('review')}
+                  >
+                    {i18n.rich('{value1} Add review', { value1: <ScanEye className="size-3.5" /> })}
+                  </button>
+                </div>
+              </>
+            }
+          >
+            <div className="p-3">
+              <AgentWorkflowExecution
+                value={executionChoice ?? workflowExecutionMode(steps)}
+                disabled={disabled || lockedIds.length > 0}
+                onChange={(mode) => {
+                  change(setWorkflowExecution(steps, mode));
+                  setExecutionChoice(mode);
+                }}
+              />
             </div>
-            <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_300px]">
-              <div className="min-w-0">
+            <div className="workflow-studio-content grid min-w-0 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-h-0 min-w-0 overflow-auto">
                 {view === 'list' && (
                   <ol aria-label={i18n.t('Steps in execution order')} className="space-y-2 p-3">
                     {steps.map((step, index) => (
@@ -320,7 +344,7 @@ export function AgentWorkflowTasks({
                     )}
                   </ol>
                 )}
-                <div hidden={view !== 'map'}>
+                <div hidden={view !== 'map'} className="h-full">
                   <AgentWorkflowCanvas
                     steps={steps}
                     selected={current?.id}
@@ -351,7 +375,7 @@ export function AgentWorkflowTasks({
               {current && (
                 <fieldset
                   disabled={disabled || currentLocked}
-                  className="border-border bg-surface min-w-0 space-y-4 border-t p-4 lg:max-h-[520px] lg:overflow-y-auto lg:border-t-0 lg:border-l"
+                  className="border-border bg-surface workflow-studio-inspector min-w-0 space-y-4 border-t p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l"
                 >
                   {currentLocked && (
                     <p className="text-fg-dim text-xs">
@@ -377,6 +401,110 @@ export function AgentWorkflowTasks({
                       <Trash2 className="size-3.5" />
                     </button>
                   </div>
+                  {workflowRoleProduces(current.role) && (
+                    <div className="space-y-2">
+                      <SearchableSelect
+                        label={i18n.t('Run after prompts')}
+                        searchable={false}
+                        disabled={disabled || currentLocked}
+                        value={
+                          current.depends_on.length === 0
+                            ? ''
+                            : current.depends_on.length === 1 &&
+                                steps.some(
+                                  (step) =>
+                                    step.id === current.depends_on[0] &&
+                                    workflowRoleProduces(step.role),
+                                )
+                              ? current.depends_on[0]!
+                              : '__custom'
+                        }
+                        options={[
+                          { value: '', label: i18n.t('Starts immediately') },
+                          { value: '__custom', label: i18n.t('Custom dependencies') },
+                          ...steps
+                            .filter(
+                              (step) =>
+                                workflowRoleProduces(step.role) &&
+                                (current.depends_on.includes(step.id) ||
+                                  canConnectWorkflowTasks(steps, step.id, current.id)),
+                            )
+                            .map((step) => ({
+                              value: step.id,
+                              label: i18n.t('Prompt {number} · {title}', {
+                                number: i18n.number(steps.indexOf(step) + 1),
+                                title: workflowStepTitle(step),
+                              }),
+                            })),
+                        ]}
+                        onChange={(id) => {
+                          if (id === '__custom') return;
+                          const next = steps.map((step) =>
+                            step.id === current.id
+                              ? { ...step, depends_on: id ? [id] : [], continue_from: undefined }
+                              : step,
+                          );
+                          change(isolateConcurrentProducers(next));
+                        }}
+                      />
+                      <p className="text-fg-dim text-[11px]">
+                        {i18n.t(
+                          'Only the selected prompts must finish; their reviews do not delay this step.',
+                        )}
+                      </p>
+                    </div>
+                  )}
+                  <details
+                    open
+                    key={current.id}
+                    className="group/dependencies border-border/70 rounded-lg border p-2.5 text-xs"
+                  >
+                    <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+                      {i18n.rich('Run after · {value1}', {
+                        value1: current.depends_on.length
+                          ? i18n.plural('{count} step', '{count} steps', current.depends_on.length)
+                          : i18n.t('Starts immediately'),
+                      })}
+                      <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/dependencies:rotate-180" />
+                    </summary>
+                    <p className="text-fg-dim mt-2 text-[11px]">
+                      {i18n.t('Wait for all selected steps to finish.')}
+                    </p>
+                    <div className="mt-2 max-h-36 space-y-2 overflow-auto">
+                      {steps
+                        .filter((step) => step.id !== current.id)
+                        .map((step) => {
+                          const checked = current.depends_on.includes(step.id);
+                          return (
+                            <label
+                              key={step.id}
+                              className="text-fg-muted flex items-start gap-2 text-[11px]"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                disabled={
+                                  disabled ||
+                                  currentLocked ||
+                                  (!checked && !canConnectWorkflowTasks(steps, step.id, current.id))
+                                }
+                                onChange={() =>
+                                  checked
+                                    ? update(current.id, {
+                                        depends_on: current.depends_on.filter(
+                                          (id) => id !== step.id,
+                                        ),
+                                      })
+                                    : connect(step.id, current.id)
+                                }
+                              />
+                              <span className="line-clamp-2">
+                                {steps.indexOf(step) + 1}. {workflowStepTitle(step)}
+                              </span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </details>
                   <label className={label}>
                     {i18n.rich('Action{value1}', {
                       value1: (
@@ -505,56 +633,6 @@ export function AgentWorkflowTasks({
                       onChange={(review_policy) => update(current.id, { review_policy })}
                     />
                   )}
-                  <details
-                    key={current.id}
-                    className="group/dependencies border-border/70 rounded-lg border p-2.5 text-xs"
-                  >
-                    <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-                      {i18n.rich('Run after · {value1}', {
-                        value1: current.depends_on.length
-                          ? i18n.plural('{count} step', '{count} steps', current.depends_on.length)
-                          : i18n.t('Starts immediately'),
-                      })}
-                      <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/dependencies:rotate-180" />
-                    </summary>
-                    <p className="text-fg-dim mt-2 text-[11px]">
-                      {i18n.t('Wait for all selected steps to finish.')}
-                    </p>
-                    <div className="mt-2 max-h-36 space-y-2 overflow-auto">
-                      {steps
-                        .filter((step) => step.id !== current.id)
-                        .map((step) => {
-                          const checked = current.depends_on.includes(step.id);
-                          return (
-                            <label
-                              key={step.id}
-                              className="text-fg-muted flex items-start gap-2 text-[11px]"
-                            >
-                              <Checkbox
-                                checked={checked}
-                                disabled={
-                                  disabled ||
-                                  currentLocked ||
-                                  (!checked && !canConnectWorkflowTasks(steps, step.id, current.id))
-                                }
-                                onChange={() =>
-                                  checked
-                                    ? update(current.id, {
-                                        depends_on: current.depends_on.filter(
-                                          (id) => id !== step.id,
-                                        ),
-                                      })
-                                    : connect(step.id, current.id)
-                                }
-                              />
-                              <span className="line-clamp-2">
-                                {steps.indexOf(step) + 1}. {workflowStepTitle(step)}
-                              </span>
-                            </label>
-                          );
-                        })}
-                    </div>
-                  </details>
                   <details className="group/settings border-border/70 rounded-lg border p-2.5 text-xs">
                     <summary className="text-fg-muted flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
                       {i18n.t('Advanced step settings')}
@@ -586,7 +664,7 @@ export function AgentWorkflowTasks({
                 </fieldset>
               )}
             </div>
-          </div>
+          </AgentWorkflowStudio>
           {blocking.length ? (
             <div
               className="border-tone-warning/25 bg-tone-warning/5 rounded-xl border p-3"

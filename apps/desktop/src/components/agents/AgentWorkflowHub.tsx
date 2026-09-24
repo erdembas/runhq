@@ -167,11 +167,19 @@ export function AgentWorkflowHub({
   onOpenSession,
   visible = true,
   initialRecipe,
+  requestedWorkflowId,
+  requestRevision = 0,
+  onWorkflowRequestHandled,
+  shell = false,
 }: {
   projectId?: string;
-  onOpenSession?: (id: string) => void;
+  onOpenSession?: (id: string, workflowId?: string) => void;
   visible?: boolean;
   initialRecipe?: AgentWorkflowRecipe;
+  requestedWorkflowId?: string | null;
+  requestRevision?: number;
+  onWorkflowRequestHandled?: () => void;
+  shell?: boolean;
 }) {
   i18n.useLocale();
   const projects = useVisibleStore(useAgentStore, (s) => s.projects, visible);
@@ -182,6 +190,20 @@ export function AgentWorkflowHub({
   const [workflows, setWorkflows] = useState<AgentWorkflow[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(!!initialRecipe);
+  const handledRequest = useRef<string>();
+  useEffect(() => {
+    if (!requestedWorkflowId) {
+      handledRequest.current = undefined;
+      return;
+    }
+    if (!visible) return;
+    const request = `${requestedWorkflowId}:${requestRevision}`;
+    if (handledRequest.current === request) return;
+    handledRequest.current = request;
+    setSelected(requestedWorkflowId);
+    setCreating(false);
+    onWorkflowRequestHandled?.();
+  }, [requestedWorkflowId, requestRevision, visible, onWorkflowRequestHandled]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const actionPending = useRef(false);
@@ -194,6 +216,7 @@ export function AgentWorkflowHub({
   const reviewModel = '';
   const effort = initialRecipe?.effort ?? '';
   const [autoProgress, setAutoProgress] = useState(true);
+  const [concurrency, setConcurrency] = useState(0);
   const [liveDraft, setLiveDraft] = useState<AgentWorkflow | null>(null);
   const [queueEditing, setQueueEditing] = useState(false);
   const [objective, setObjective] = useState(initialRecipe?.prompt ?? '');
@@ -398,7 +421,7 @@ export function AgentWorkflowHub({
     }
   };
   const open = (id: string) => {
-    if (onOpenSession) onOpenSession(id);
+    if (onOpenSession) onOpenSession(id, current?.id);
     else useAgentStore.getState().select(id);
   };
   const create = (choice: WorkflowLaunchChoice) =>
@@ -418,7 +441,7 @@ export function AgentWorkflowHub({
         check_commands: lines(checks),
         auto_progress: autoProgress,
         // 0 lets the account capacity settings decide how many tasks run at once.
-        concurrency: 0,
+        concurrency,
       });
       // Keep the saved workflow accessible if launching fails; submitting again must not duplicate it.
       setWorkflows((previous) => [
@@ -500,7 +523,7 @@ export function AgentWorkflowHub({
       aria-label={i18n.t('Agent workflows')}
       className="bg-bg text-fg flex h-full min-h-0 min-w-0 flex-1 flex-col"
     >
-      {launchChoice && (
+      {visible && launchChoice && (
         <AgentWorkflowLaunchDialog
           tasks={launchTasks}
           busy={busy}
@@ -511,18 +534,20 @@ export function AgentWorkflowHub({
         />
       )}
       <header className="border-fg/10 flex flex-wrap items-center justify-between gap-3 border-b p-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            {i18n.rich('{value1} Agent workflows', {
-              value1: <GitPullRequest className="text-accent h-4 w-4" />,
-            })}
-          </h2>
-          <p className="text-fg-dim mt-1 text-xs">
-            {i18n.t(
-              'Describe the goal. Let your agents work through the steps. Review the result.',
-            )}
-          </p>
-        </div>
+        {!shell && (
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              {i18n.rich('{value1} Agent workflows', {
+                value1: <GitPullRequest className="text-accent h-4 w-4" />,
+              })}
+            </h2>
+            <p className="text-fg-dim mt-1 text-xs">
+              {i18n.t(
+                'Describe the goal. Let your agents work through the steps. Review the result.',
+              )}
+            </p>
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
@@ -630,7 +655,7 @@ export function AgentWorkflowHub({
                 setLaunchChoice('create');
               else void create({ mode: autoProgress ? 'now' : 'draft' });
             }}
-            className="mx-auto max-w-6xl space-y-5"
+            className="w-full min-w-0 space-y-5"
           >
             <div>
               <h3 className="text-fg text-lg font-semibold">
@@ -677,6 +702,30 @@ export function AgentWorkflowHub({
                     ),
                   })}
                 </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="w-60">
+                  <p className="text-fg-dim mb-1.5 text-[11px]">{i18n.t('Concurrent steps')}</p>
+                  <SearchableSelect
+                    label={i18n.t('Concurrent steps')}
+                    value={String(concurrency)}
+                    searchable={false}
+                    disabled={busy}
+                    options={[
+                      { value: '0', label: i18n.t('All ready steps') },
+                      ...[1, 2, 3, 4, 8, 16].map((count) => ({
+                        value: String(count),
+                        label: i18n.plural('{count} step', '{count} steps', count),
+                      })),
+                    ]}
+                    onChange={(value) => setConcurrency(Number(value))}
+                  />
+                </div>
+                <p className="text-fg-dim min-w-48 flex-1 text-[11px]">
+                  {i18n.t(
+                    'Agent capacity still applies. Separate working copies keep simultaneous prompts independent.',
+                  )}
+                </p>
               </div>
               <AgentWorkflowTasks
                 projectId={chosenProject}

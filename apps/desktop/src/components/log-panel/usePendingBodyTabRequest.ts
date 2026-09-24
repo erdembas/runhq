@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { findGroupByTab } from '@/components/layout/layoutModel';
 import type { UseServiceLayoutResult } from '@/components/layout/useServiceLayout';
 import { useAppStore } from '@/store/useAppStore';
+import { openProjectSection } from '@/lib/workbenchNavigation';
 
 interface UsePendingBodyTabRequestArgs {
   activeCommandName: string | null;
@@ -32,20 +33,15 @@ export function usePendingBodyTabRequest({
   useEffect(() => {
     if (!pendingBodyTabRequest) return;
     if (pendingBodyTabRequest === 'agents') {
-      const group = findGroupByTab(layout.state.root, 'agents');
-      if (!group) {
-        layout.restoreTab('agents');
-        return; // Activate only after the restored tab is present in the next render.
-      }
-      layout.activate(group.id, 'agents');
+      openProjectSection(serviceId, 'agents');
     } else if (pendingBodyTabRequest === 'terminal') {
       layout.ensureTerminal();
-    } else if (
-      pendingBodyTabRequest === 'logs' ||
-      pendingBodyTabRequest === 'docs' ||
-      pendingBodyTabRequest === 'notes'
-    ) {
+      openProjectSection(serviceId, 'run');
+    } else if (pendingBodyTabRequest === 'docs' || pendingBodyTabRequest === 'notes') {
+      openProjectSection(serviceId, pendingBodyTabRequest);
+    } else if (pendingBodyTabRequest === 'logs') {
       activateSingleton(pendingBodyTabRequest);
+      openProjectSection(serviceId, 'run');
     }
     consumePendingBodyTab(serviceId);
   }, [pendingBodyTabRequest, consumePendingBodyTab, serviceId, layout, activateSingleton]);

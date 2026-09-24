@@ -23,10 +23,23 @@ export type AgentStatus =
   | 'failed'
   | 'cancelled'
   | 'interrupted';
+export interface AgentWorkspaceMember {
+  service_id: string;
+  name: string;
+  path: string;
+  base_revision?: string | null;
+  pre_existing_paths?: string[];
+}
+export interface AgentWorkspaceScope {
+  instructions?: string;
+  section_id: string;
+  members: AgentWorkspaceMember[];
+}
 export interface AgentProject {
   id: string;
   name: string;
   path: string;
+  workspace?: AgentWorkspaceScope | null;
 }
 export interface AgentQuestion {
   id: string;
@@ -61,6 +74,7 @@ export interface AgentSession {
   project_id: string;
   project_name: string;
   cwd: string;
+  workspace?: AgentWorkspaceScope | null;
   backend: AgentBackendId;
   executable: string;
   adapter?: AgentAdapter;
@@ -135,6 +149,7 @@ export interface AgentCatalog {
   connection?: string;
 }
 export interface CreateAgentSession {
+  workspace_service_ids?: string[] | null;
   creation_request_id?: string;
   project_id: string;
   backend: AgentBackendId;

@@ -1071,8 +1071,14 @@ impl AgentManager {
                         // Every review that read an older revision becomes a step to run again.
                         // Without this the workflow would have no current step and nothing could
                         // be started, leaving a changed workspace stuck short of validation.
+                        let gates: Vec<String> = w
+                            .steps
+                            .iter()
+                            .filter(|step| w.gates_integration(step))
+                            .map(|step| step.id.clone())
+                            .collect();
                         for step in w.steps.iter_mut().filter(|step| {
-                            !workflow_role_produces(&step.role)
+                            gates.contains(&step.id)
                                 && step.input_revision.as_ref() != Some(&current)
                         }) {
                             step.status = "pending".into();
@@ -1187,6 +1193,7 @@ impl AgentManager {
         let session = self
             .create_at_base(
                 CreateAgentSession {
+                    workspace_service_ids: None,
                     creation_request_id: None,
                     project_id: input.project_id.clone(),
                     backend: self.resolve_step_target(
@@ -1490,6 +1497,7 @@ impl AgentManager {
                 let created = self
                     .create_at_base(
                         CreateAgentSession {
+                            workspace_service_ids: None,
                             creation_request_id: None,
                             project_id: w.project_id.clone(),
                             backend: target.clone(),
@@ -1525,6 +1533,7 @@ impl AgentManager {
             None => {
                 let created = self
                     .create(CreateAgentSession {
+                        workspace_service_ids: None,
                         creation_request_id: None,
                         project_id: w.project_id.clone(),
                         backend: target.clone(),
@@ -1690,39 +1699,69 @@ impl AgentManager {
                 "There are no changes to review against this workflow's base",
             ));
         }
-        let reviewer = self
-            .create(CreateAgentSession {
-                creation_request_id: None,
-                project_id: w.project_id.clone(),
-                backend: if step.target.is_empty() {
-                    w.reviewer_backend.clone()
-                } else {
-                    self.resolve_step_target(&step.target, true)?
-                },
-                executable: String::new(),
-                title: workflow_step_title(w, &step),
-                model: if step.model.is_empty() {
-                    w.reviewer_model.clone()
-                } else {
-                    step.model.clone()
-                },
-                effort: step.effort.clone(),
-                mode: "plan".into(),
-                agent: String::new(),
-                isolated: false,
-            })
+        // Intermediate reviews read a captured tree in their own checkout. A following prompt
+        // can then write the shared checkout without changing the files being reviewed.
+        let ancestors = w.ancestors(&step.id);
+        let snapshot = !w.gates_integration(&step)
+            && w.steps.iter().any(|other| {
+                workflow_role_produces(&other.role)
+                    && !ancestors.contains(&other.id)
+                    && !w.ancestors(&other.id).contains(&step.id)
+            });
+        let input = CreateAgentSession {
+            workspace_service_ids: None,
+            creation_request_id: None,
+            project_id: w.project_id.clone(),
+            backend: if step.target.is_empty() {
+                w.reviewer_backend.clone()
+            } else {
+                self.resolve_step_target(&step.target, true)?
+            },
+            executable: String::new(),
+            title: workflow_step_title(w, &step),
+            model: if step.model.is_empty() {
+                w.reviewer_model.clone()
+            } else {
+                step.model.clone()
+            },
+            effort: step.effort.clone(),
+            mode: "plan".into(),
+            agent: String::new(),
+            isolated: snapshot,
+        };
+        let reviewer = if snapshot {
+            let revision = commit_tree(
+                Path::new(&w.root),
+                &fingerprint,
+                std::slice::from_ref(&w.base_revision),
+                &format!("runhq: {} · review snapshot", w.title),
+            )
             .await?;
-        // Separate provider session, same change baseline, no provider-native state transfer.
+            self.create_at_base(input, &revision).await?
+        } else {
+            self.create(input).await?
+        };
         let branch = self.session(&w.implementation_session_id)?.branch;
         let reviewer = self.mutate(&reviewer.id, |s, _| {
-            s.cwd = w.cwd.clone();
+            if !snapshot {
+                s.cwd = w.cwd.clone();
+                s.branch = branch.clone();
+            }
             s.isolated = true;
             s.workflow_read_only = true;
-            s.branch = branch.clone();
             Ok(())
         })?;
+        if snapshot {
+            let root = git_toplevel(Path::new(&reviewer.cwd)).await?;
+            if let Some(current) = w.steps.iter_mut().find(|current| current.id == step.id) {
+                current.cwd = Some(reviewer.cwd.clone());
+                current.root = Some(root.to_string_lossy().into_owned());
+            }
+        }
         w.review_session_id = Some(reviewer.id.clone());
-        w.review_fingerprint = Some(fingerprint.clone());
+        if !snapshot {
+            w.review_fingerprint = Some(fingerprint.clone());
+        }
         w.current_fingerprint = Some(fingerprint.clone());
         w.preview = None;
         w.checks.clear();
@@ -4803,6 +4842,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             .unwrap();
         let reviewer = manager
             .create(CreateAgentSession {
+                workspace_service_ids: None,
                 creation_request_id: None,
                 project_id: project.id,
                 backend: "codex".into(),
@@ -5553,6 +5593,7 @@ mod handoff_tests {
     use super::*;
     fn input(workflow: &AgentWorkflow, id: &str) -> CreateAgentSession {
         CreateAgentSession {
+            workspace_service_ids: None,
             creation_request_id: Some(id.into()),
             project_id: workflow.project_id.clone(),
             backend: "codex".into(),
