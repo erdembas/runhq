@@ -4,6 +4,7 @@ import { AgentActivityBadge, type AgentActivitySummary } from '@runhq/cockpit-ui
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
+import { openAgentTask, openAgentView } from '@/lib/workbenchNavigation';
 import {
   agentProjectPathKey,
   buildSidebarAgentActivity,
@@ -65,9 +66,8 @@ export function SidebarAgentActivityProvider({ children }: { children: ReactNode
 }
 
 function openAgentActivity(activity: AgentActivitySummary) {
-  const store = useAgentStore.getState();
-  store.open(activity.targetProjectId ?? '');
-  if (activity.targetSessionId) store.select(activity.targetSessionId);
+  if (activity.targetSessionId) openAgentTask(activity.targetSessionId);
+  else openAgentView('overview', activity.targetProjectId ?? '');
 }
 
 export function SidebarAgentActivity({

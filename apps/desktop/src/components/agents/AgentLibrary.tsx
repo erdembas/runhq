@@ -14,6 +14,7 @@ import {
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentStore } from '@/store/useAgentStore';
+import { useVisibleStore } from '@/lib/useVisibleStore';
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { AgentHistoryRetention } from './AgentHistoryRetention';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
@@ -106,16 +107,21 @@ function LibraryDialog({
   title,
   onClose,
   children,
+  visible,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  visible: boolean;
 }) {
   i18n.useLocale();
   const dialog = useRef<ElementRef<'dialog'>>(null);
   useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+    const element = dialog.current;
+    if (visible) element?.showModal();
+    else element?.close();
+    return () => element?.close();
+  }, [visible]);
   return (
     <dialog
       ref={dialog}
@@ -136,17 +142,23 @@ export function AgentLibrary({
   onOpenSession,
   onRecipe,
   onWorkflow,
+  visible = true,
+  shell = false,
 }: {
   projectId?: string;
   onOpenSession: (id: string, itemId?: string) => void;
   onRecipe: (recipe: AgentRecipe) => void;
   onWorkflow: (recipe: AgentRecipe) => void;
+  visible?: boolean;
+  shell?: boolean;
 }) {
   i18n.useLocale();
-  const { records, ready, error: storeError } = useAgentLibraryStore();
-  const projects = useAgentStore((s) => s.projects);
-  const projectOptions = useAgentProjectOptions(projects);
-  const tools = useAgentStore((s) => s.tools);
+  const records = useVisibleStore(useAgentLibraryStore, (state) => state.records, visible);
+  const ready = useVisibleStore(useAgentLibraryStore, (state) => state.ready, visible);
+  const storeError = useVisibleStore(useAgentLibraryStore, (state) => state.error, visible);
+  const projects = useVisibleStore(useAgentStore, (state) => state.projects, visible);
+  const projectOptions = useAgentProjectOptions(projects, visible);
+  const tools = useVisibleStore(useAgentStore, (state) => state.tools, visible);
   const [section, setSection] = useState<'recipes' | 'history' | 'memory'>('recipes');
   const [scope, setScope] = useState(projectId || '');
   const [query, setQuery] = useState('');
@@ -209,8 +221,8 @@ export function AgentLibrary({
   const importHistory = useRef<HTMLInputElement>(null);
   const searchGeneration = useRef(0);
   useEffect(() => {
-    if (!ready) void useAgentLibraryStore.getState().refresh();
-  }, [ready]);
+    if (visible && !ready) void useAgentLibraryStore.getState().refresh();
+  }, [ready, visible]);
   useEffect(() => {
     setScope(projectId || '');
   }, [projectId]);
@@ -290,25 +302,27 @@ export function AgentLibrary({
       className="overlay-scroll min-h-0 flex-1 overflow-auto p-5"
       aria-label={i18n.t('Agent library')}
     >
-      <header className="mb-5 flex flex-wrap items-center gap-3">
-        <BookOpen className="text-accent h-5 w-5" />
-        <div className="flex-1">
-          <h2 className="text-fg text-[16px] font-semibold">{i18n.t('Your agent library')}</h2>
-          <p className="text-fg-dim mt-1 text-[12px]">
-            {i18n.t('Repeat useful work. Find a decision. Keep its source.')}
-          </p>
-        </div>
-        <SearchableSelect
-          label={i18n.t('Library project')}
-          indentGrouped
-          className="w-60 max-w-full"
-          value={scope}
-          disabled={!!projectId}
-          options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
-          onChange={setScope}
-          searchPlaceholder={i18n.t('Find a project or group…')}
-        />
-      </header>
+      {!shell && (
+        <header className="mb-5 flex flex-wrap items-center gap-3">
+          <BookOpen className="text-accent h-5 w-5" />
+          <div className="flex-1">
+            <h2 className="text-fg text-[16px] font-semibold">{i18n.t('Your agent library')}</h2>
+            <p className="text-fg-dim mt-1 text-[12px]">
+              {i18n.t('Repeat useful work. Find a decision. Keep its source.')}
+            </p>
+          </div>
+          <SearchableSelect
+            label={i18n.t('Library project')}
+            indentGrouped
+            className="w-60 max-w-full"
+            value={scope}
+            disabled={!!projectId}
+            options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
+            onChange={setScope}
+            searchPlaceholder={i18n.t('Find a project or group…')}
+          />
+        </header>
+      )}
       <nav
         className="border-border mb-4 flex gap-2 border-b pb-3"
         aria-label={i18n.t('Library sections')}
@@ -746,7 +760,11 @@ export function AgentLibrary({
         </>
       )}
       {editor && (
-        <LibraryDialog title={i18n.t('Edit task recipe')} onClose={() => setEditor(null)}>
+        <LibraryDialog
+          visible={visible}
+          title={i18n.t('Edit task recipe')}
+          onClose={() => setEditor(null)}
+        >
           <form
             aria-label={i18n.t('Edit task recipe')}
             className="border-border bg-surface-raised overlay-scroll max-h-[90vh] w-full max-w-2xl space-y-3 overflow-auto rounded-xl border p-5"
@@ -958,7 +976,11 @@ export function AgentLibrary({
         </LibraryDialog>
       )}
       {memoryEditor && (
-        <LibraryDialog title={i18n.t('Project decision')} onClose={() => setMemoryEditor(null)}>
+        <LibraryDialog
+          visible={visible}
+          title={i18n.t('Project decision')}
+          onClose={() => setMemoryEditor(null)}
+        >
           <form
             aria-label={i18n.t('Project decision')}
             className="border-border bg-surface-raised w-full max-w-2xl space-y-3 rounded-xl border p-5"
@@ -1001,7 +1023,11 @@ export function AgentLibrary({
         </LibraryDialog>
       )}
       {scheduleEditor && (
-        <LibraryDialog title={i18n.t('Schedule')} onClose={() => setScheduleEditor(null)}>
+        <LibraryDialog
+          visible={visible}
+          title={i18n.t('Schedule')}
+          onClose={() => setScheduleEditor(null)}
+        >
           <form
             aria-label={i18n.t('Recipe schedule')}
             className="border-border bg-surface-raised w-full max-w-lg space-y-3 rounded-xl border p-5"
@@ -1167,7 +1193,11 @@ export function AgentLibrary({
         </LibraryDialog>
       )}
       {launch && (
-        <LibraryDialog title={i18n.t('Recipe parameters')} onClose={() => setLaunch(null)}>
+        <LibraryDialog
+          visible={visible}
+          title={i18n.t('Recipe parameters')}
+          onClose={() => setLaunch(null)}
+        >
           <form
             aria-label={i18n.t('Recipe parameters')}
             className="border-border bg-surface-raised w-full max-w-lg space-y-3 rounded-xl border p-5"

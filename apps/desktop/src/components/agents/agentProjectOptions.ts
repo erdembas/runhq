@@ -28,7 +28,10 @@ export function agentProjectOptions(
   const order = new Map(sections.map((section, index) => [section.id, index]));
   return projects
     .map((project) => {
-      const group = sections.find((section) => section.id === byPath.get(pathKey(project.path)));
+      const group = sections.find(
+        (section) =>
+          section.id === (project.workspace?.section_id ?? byPath.get(pathKey(project.path))),
+      );
       return {
         value: project.id,
         label: project.name,

@@ -7,6 +7,7 @@ import { SECTION_COLORS, sectionColor } from '@/lib/sectionColors';
 import { useAppStore } from '@/store/useAppStore';
 import { usePopoverPosition, useClickOutsideClose } from '@/lib/hooks';
 import type { SectionColor, SectionId } from '@/types';
+import { createVisibleSection } from '@/components/sidebar/sectionNavigation';
 
 /**
  * "Move to section" popover for a service or stack row. Shows every
@@ -28,7 +29,6 @@ export function MoveToSectionMenu({ kind, itemId, currentSectionId }: Props) {
   const sections = useAppStore((s) => s.sections);
   const assignService = useAppStore((s) => s.assignServiceToSection);
   const assignStack = useAppStore((s) => s.assignStackToSection);
-  const addSection = useAppStore((s) => s.addSection);
 
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -68,8 +68,8 @@ export function MoveToSectionMenu({ kind, itemId, currentSectionId }: Props) {
   const commitCreate = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const newId = addSection(trimmed, color);
-    assign(newId);
+    createVisibleSection(trimmed, color, { kind, id: itemId });
+    setOpen(false);
   };
 
   const popover = open && pos && (

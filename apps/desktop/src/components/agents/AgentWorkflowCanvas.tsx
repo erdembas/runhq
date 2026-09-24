@@ -91,6 +91,7 @@ const WorkflowStepNode = memo(function WorkflowStepNode({
   const role = WORKFLOW_ROLE_OPTIONS.find((option) => option.value === data.step.role)?.label;
   return (
     <div
+      data-lane={data.lane}
       className={`workflow-step bg-surface text-fg rounded-xl border p-3.5 shadow-md transition-[border-color,box-shadow] ${selected ? 'border-accent ring-accent/15 ring-4' : data.problem || data.lane === 'attention' ? 'border-tone-warning' : 'border-border hover:border-accent/50'}`}
     >
       <Handle
@@ -227,7 +228,7 @@ function Canvas({
   const connection = edges.find((edge) => edge.id === selectedEdge);
   return (
     <div className="workflow-canvas min-w-0" aria-label={i18n.t('Workflow map')}>
-      <div className="h-[480px]">
+      <div className="workflow-canvas-viewport">
         <ReactFlow<StepNode>
           nodes={nodes}
           edges={edges}

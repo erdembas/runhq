@@ -17,3 +17,4 @@ fn write_file(dir: &Path, name: &str, body: &str) {
 mod diff_history;
 mod status_branch;
 mod working_tree;
+mod workspace_diff;

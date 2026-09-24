@@ -16,7 +16,7 @@
  * worth the few extra bytes.
  */
 
-import { defaultLayoutState, layoutReducer, type LayoutState } from './layoutModel';
+import { defaultLayoutState, type LayoutState } from './layoutModel';
 
 const SCHEMA_VERSION = 1;
 const KEY_PREFIX = `runhq:layout:v${SCHEMA_VERSION}:`;
@@ -55,10 +55,9 @@ export function loadLayout(serviceId: string, commandNames: string[] = []): Layo
       knownLogCommands: Array.isArray(env.state.knownLogCommands) ? env.state.knownLogCommands : [],
       closedKinds: Array.isArray(env.state.closedKinds) ? env.state.closedKinds : [],
     };
-    // Add the new project tab without resetting existing split panes or user-closed tabs.
-    return !state.tabs.agents && !state.closedKinds.includes('agents')
-      ? layoutReducer(state, { type: 'restore-tab', kind: 'agents' })
-      : state;
+    // Preserve saved panes. Legacy resource tabs remain navigable, but new
+    // layouts keep project resources and agent work in their own workbench areas.
+    return state;
   } catch {
     return defaultLayoutState(commandNames);
   }

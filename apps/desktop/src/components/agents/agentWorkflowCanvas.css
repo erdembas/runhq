@@ -43,3 +43,59 @@
 .workflow-canvas .react-flow__attribution a {
   color: rgb(var(--fg-dim));
 }
+
+.workflow-studio {
+  --workflow-canvas-height: clamp(420px, 60vh, 860px);
+}
+.workflow-studio-expanded {
+  --workflow-canvas-height: calc(100dvh - 180px);
+}
+.workflow-canvas-viewport {
+  height: var(--workflow-canvas-height, 480px);
+}
+@media (min-width: 1024px) {
+  .workflow-studio-inspector {
+    max-height: calc(var(--workflow-canvas-height, 480px) + 38px);
+  }
+}
+.workflow-step[data-lane='working'] {
+  border-color: rgb(var(--accent));
+  box-shadow:
+    0 0 0 3px rgb(var(--accent) / 0.1),
+    0 6px 24px rgb(var(--accent) / 0.08);
+}
+.workflow-step[data-lane='completed'] {
+  border-color: rgb(var(--status-running) / 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflow-canvas .react-flow__edge-path {
+    animation: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .workflow-studio-expanded {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .workflow-studio-expanded .workflow-studio-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .workflow-studio-expanded .workflow-canvas {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .workflow-studio-expanded .workflow-canvas-viewport {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+  .workflow-studio-expanded .workflow-studio-inspector {
+    max-height: 100%;
+  }
+}

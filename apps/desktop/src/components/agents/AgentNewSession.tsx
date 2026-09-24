@@ -1,3 +1,4 @@
+import { useWorkspaceTaskMembers } from '@/components/workspaces/useWorkspaceTaskMembers';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
@@ -128,6 +129,8 @@ function AgentNewSessionComposer({
   const [projectId, setProjectId] = useState(
     project?.id || initialRecipe?.projectId || filter || projects[0]?.id || '',
   );
+  const currentProject = projects.find((entry) => entry.id === projectId);
+  const taskMembers = useWorkspaceTaskMembers(currentProject);
   const draftKey = `new-task:${projectId}`;
   const context = useAgentContext(draftKey, projectId);
   const input = useVisibleStore(useAgentStore, (s) => s.drafts[draftKey] ?? '', visible);
@@ -196,6 +199,7 @@ function AgentNewSessionComposer({
     restorationError = String(error);
   }
   const recovered = launcher.current.recovery;
+  const isHandoff = !!(recovered?.sourceSessionId ?? initialRecipe?.sourceSessionId);
   const launchTasks = workflowLaunchCandidates(
     sessions,
     projectId,
@@ -238,6 +242,9 @@ function AgentNewSessionComposer({
     !busy &&
     !restorationError &&
     !!projectId &&
+    (!currentProject?.workspace ||
+      isHandoff ||
+      (recovered?.input.workspace_service_ids ?? taskMembers.selected).length > 0) &&
     (!!recovered ||
       (context.ready && (!!input.trim() || context.entries.length > 0) && connection.canStart));
   const accountPools = useMemo(() => {
@@ -371,7 +378,9 @@ function AgentNewSessionComposer({
       setExecutable('');
     }
   }, [backends, backend, discovery.ready, executable, locked, visible]);
-  const currentProject = projects.find((entry) => entry.id === projectId);
+  useEffect(() => {
+    if (currentProject?.workspace) setIsolated(false);
+  }, [currentProject?.workspace]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -412,6 +421,8 @@ function AgentNewSessionComposer({
       const session = await launcher.current.send(
         saved?.input ?? {
           project_id: projectId,
+          workspace_service_ids:
+            currentProject?.workspace && !sourceSessionId ? taskMembers.selected : undefined,
           backend,
           executable,
           title: title.trim(),
@@ -419,7 +430,7 @@ function AgentNewSessionComposer({
           effort,
           mode,
           agent,
-          isolated,
+          isolated: currentProject?.workspace ? false : isolated,
         },
         prompt,
         images,
@@ -489,7 +500,7 @@ function AgentNewSessionComposer({
       aria-label={i18n.t('New agent task')}
       className="overlay-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 py-8 lg:px-8"
     >
-      {choosingStart && (
+      {visible && choosingStart && (
         <AgentWorkflowLaunchDialog
           kind="task"
           taskIsolated={isolated}
@@ -511,7 +522,7 @@ function AgentNewSessionComposer({
           }}
         />
       )}
-      {forgetLaunch && (
+      {visible && forgetLaunch && (
         <ConfirmDialog
           title={i18n.t('Forget this saved launch?')}
           message={i18n.t(
@@ -663,7 +674,7 @@ function AgentNewSessionComposer({
           <span className="bg-border mx-1 h-3 w-px" />
           <button
             type="button"
-            disabled={locked || !!initialRecipe?.sourceSessionId}
+            disabled={locked || !!initialRecipe?.sourceSessionId || !!currentProject?.workspace}
             onClick={() => setIsolated(!isolated)}
             aria-pressed={isolated}
             title={
@@ -683,6 +694,45 @@ function AgentNewSessionComposer({
                 : i18n.t('Local workspace')}
           </button>
         </div>
+        {currentProject?.workspace && !isHandoff && (
+          <fieldset
+            disabled={locked || !!recovered || !!initialRecipe?.sourceSessionId}
+            className="border-border text-fg-muted mx-1 mb-3 rounded-lg border px-3 py-2 text-[11px]"
+          >
+            <legend className="px-1">{i18n.t('Projects for this task')}</legend>
+            <div className="flex flex-wrap gap-3">
+              {currentProject.workspace.members.map((member) => (
+                <label key={member.service_id} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={(
+                      recovered?.input.workspace_service_ids ?? taskMembers.selected
+                    ).includes(member.service_id)}
+                    onChange={() => taskMembers.toggle(member.service_id)}
+                  />
+                  {member.name}
+                </label>
+              ))}
+            </div>
+            <p className="text-fg-dim mt-2">
+              {i18n.t('Select at least one project. This only changes the new task’s scope.')}
+            </p>
+            {currentProject.workspace.instructions && (
+              <details className="mt-2">
+                <summary className="cursor-pointer">{i18n.t('Shared instructions')}</summary>
+                <p className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap">
+                  {currentProject.workspace.instructions}
+                </p>
+              </details>
+            )}
+            {taskMembers.error && (
+              <p role="alert" className="text-status-error mt-2">
+                {taskMembers.error}
+              </p>
+            )}
+            <p className="text-fg-dim mt-1 break-all">{currentProject.path}</p>
+          </fieldset>
+        )}
         <AgentComposer
           sendShortcut={messageShortcut.sendShortcut}
           value={recovered?.draftText ?? input}

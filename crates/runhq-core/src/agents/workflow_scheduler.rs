@@ -76,7 +76,12 @@ impl AgentManager {
         let checkout = if step.owns_workspace() && step.cwd.is_none() {
             None
         } else {
-            Some(PathBuf::from(step.step_root(w)))
+            // Reviews capture the current shared checkout, including on a retry.
+            Some(PathBuf::from(if workflow_role_produces(&step.role) {
+                step.step_root(w)
+            } else {
+                &w.root
+            }))
         };
         let state = self.state.lock();
         if let Some(root) = &checkout {
@@ -301,12 +306,11 @@ impl AgentManager {
         while let Some(step) = w
             .runnable_steps()
             .into_iter()
-            .find(|step| self.workflow_step_wait(&w, step, &claimed) == StepWait::Ready)
+            .filter(|step| self.workflow_step_wait(&w, step, &claimed) == StepWait::Ready)
+            // Capture ready reviews before a sibling producer changes the shared checkout.
+            .min_by_key(|step| workflow_role_produces(&step.role))
             .cloned()
         {
-            if !step.owns_workspace() || step.cwd.is_some() {
-                claimed.push(PathBuf::from(step.step_root(&w)));
-            }
             let outcome = if workflow_role_produces(&step.role) {
                 self.workflow_start_producing(&mut w, step.clone()).await
             } else {
@@ -330,6 +334,9 @@ impl AgentManager {
             }
             // A step that owns its checkout records it while starting, so re-read before the next.
             w = self.workflow(id)?;
+            if let Some(started) = w.step(&step.id).filter(|step| step.status == "running") {
+                claimed.push(PathBuf::from(started.step_root(&w)));
+            }
             if !Self::workflow_accepts_steps(&w) {
                 break;
             }

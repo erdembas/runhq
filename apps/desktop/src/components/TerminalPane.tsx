@@ -20,16 +20,28 @@ import {
 interface Props {
   id: string;
   cwd: string;
+  minHeight?: number;
   toolId?: string;
+  onReady?: () => void;
+  onDispose?: () => void;
 }
 
-export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Props) {
+export const TerminalPane = memo(function TerminalPane({
+  id,
+  cwd,
+  minHeight = 200,
+  toolId,
+  onReady,
+  onDispose,
+}: Props) {
   i18n.useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const termRef = useRef<Terminal | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const lifecycleRef = useRef({ onReady, onDispose });
+  lifecycleRef.current = { onReady, onDispose };
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -209,7 +221,10 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
         )
         .then(() => {
           ready = true;
-          if (alive) scheduleResize();
+          if (alive) {
+            scheduleResize();
+            lifecycleRef.current.onReady?.();
+          }
         })
         .catch((err: unknown) => {
           if (!alive) return;
@@ -261,6 +276,7 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
 
     return () => {
       alive = false;
+      lifecycleRef.current.onDispose?.();
       termRef.current = null;
       searchRef.current = null;
       resultsDisposable.dispose();
@@ -317,7 +333,7 @@ export const TerminalPane = memo(function TerminalPane({ id, cwd, toolId }: Prop
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" style={{ minHeight: '200px' }} />
+      <div ref={containerRef} className="h-full w-full" style={{ minHeight }} />
       {/*
         Restart pill — top-right, opposite the search bar so they
         never collide when both are open. Sized to read as a "minor

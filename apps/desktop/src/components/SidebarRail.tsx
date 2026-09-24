@@ -5,8 +5,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
 import type { ServiceDef, StackDef } from '@/types';
-import { AgentNavigation } from './agents/AgentNavigation';
+import { AgentNavigation, WorkbenchUtilities } from './agents/AgentNavigation';
 import { SidebarAgentActivityProvider } from './sidebar/SidebarAgentActivity';
+import { SidebarSectionsHeader } from './sidebar/SidebarSectionsHeader';
 
 import {
   WorkspaceHeader,
@@ -213,6 +214,8 @@ function SidebarRailContent() {
           </div>
         )}
 
+        {expanded && <SidebarSectionsHeader />}
+
         {expanded && hiddenCount > 0 && (
           <div className="border-border/60 mx-3 mb-1 flex items-center gap-2 rounded-[6px] border border-dashed px-2 py-1">
             <span className="text-fg-dim text-[10.5px]">
@@ -293,6 +296,7 @@ function SidebarRailContent() {
         />
       )}
 
+      <WorkbenchUtilities expanded={expanded} />
       <div
         onPointerDown={onResizeStart}
         onPointerMove={onResizeMove}

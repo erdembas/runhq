@@ -38,7 +38,7 @@ export function SidebarHomeButton({
           <LayoutDashboard className="h-3 w-3" />
         </span>
         {expanded && (
-          <span className="text-[13px] font-semibold tracking-tight">{i18n.t('Dashboard')}</span>
+          <span className="text-[13px] font-semibold tracking-tight">{i18n.t('Overview')}</span>
         )}
       </button>
       {expanded && (

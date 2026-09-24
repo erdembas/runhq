@@ -17,6 +17,8 @@
   },
   "scripts": {
     "dev": "node scripts/dev-desktop.mjs",
+    "workbench": "node scripts/workbench-local.mjs",
+    "workbench:open": "node scripts/workbench-local.mjs open",
     "dev:hot": "pnpm tauri:dev",
     "dev:ui": "pnpm --filter @runhq/desktop dev",
     "build": "pnpm --filter @runhq/desktop build",

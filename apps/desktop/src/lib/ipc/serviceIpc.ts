@@ -67,10 +67,16 @@ export const serviceIpc = {
     invoke<void>('open_in_editor', { command, path }),
 
   listStacks: () => invoke<StackDef[]>('list_stacks'),
-  addStack: (input: { name: string; service_ids: string[]; auto_start?: boolean }) =>
-    invoke<StackDef>('add_stack', { input }),
+  addStack: (input: {
+    name: string;
+    service_ids: string[];
+    auto_start?: boolean;
+    command_names?: Record<string, string[]>;
+  }) => invoke<StackDef>('add_stack', { input }),
   updateStack: (stack: StackDef) => invoke<StackDef>('update_stack', { stack }),
   removeStack: (id: string) => invoke<boolean>('remove_stack', { id }),
+  agentRunMultiWorkspace: (id: string, stop: boolean) =>
+    invoke<StackStatus>('agent_run_multi_workspace', { id, stop }),
   startStack: (id: string) => invoke<StackStatus>('start_stack', { id }),
   stopStack: (id: string) => invoke<StackStatus>('stop_stack', { id }),
   restartStack: (id: string) => invoke<StackStatus>('restart_stack', { id }),

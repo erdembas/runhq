@@ -1,13 +1,11 @@
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
-import { useCallback, useEffect, useState } from 'react';
-import type { DetailTab } from '@/components/ProjectDetailDrawer';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { ServiceLayout } from '@/components/layout/ServiceLayout';
 import { activeCommandLogName, listGroups } from '@/components/layout/layoutModel';
 import { useServiceLayout } from '@/components/layout/useServiceLayout';
 import { LogPanelBodyHosts } from '@/components/log-panel/LogPanelBodyHosts';
-import { LogPanelHeader } from '@/components/log-panel/LogPanelHeader';
-import { LogPanelOverlays } from '@/components/log-panel/LogPanelOverlays';
+import { LogPanelToolbar } from '@/components/log-panel/LogPanelToolbar';
 import {
   useActiveServiceCommand,
   useLoadCommandLogs,
@@ -18,64 +16,44 @@ import { useDocTerminalRunner } from '@/components/log-panel/useDocTerminalRunne
 import { useLogAiContextMenu } from '@/components/log-panel/useLogAiContextMenu';
 import { useLogPanelSlots } from '@/components/log-panel/useLogPanelSlots';
 import { usePendingBodyTabRequest } from '@/components/log-panel/usePendingBodyTabRequest';
-import { useProjectDocsDiscovery } from '@/components/log-panel/useProjectDocsDiscovery';
 import { useRunningCommandFocus } from '@/components/log-panel/useRunningCommandFocus';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { registerServiceShortcuts } from '@/lib/serviceShortcutBus';
+import { openProjectSection } from '@/lib/workbenchNavigation';
 import { useAppStore } from '@/store/useAppStore';
 import { ipc } from '@/lib/ipc';
-import { localUrl } from '@/lib/url';
 
-type PopoverKey = 'ports';
+const ProjectDocsTab = lazy(() =>
+  import('@/components/docs/ProjectDocsTab').then((m) => ({ default: m.ProjectDocsTab })),
+);
+const ProjectNotesTab = lazy(() =>
+  import('@/components/ProjectNotesTab').then((m) => ({ default: m.ProjectNotesTab })),
+);
 
 interface LogPanelProps {
   serviceId: string;
   isActive: boolean;
+  workbenchSection?: 'run' | 'docs' | 'notes';
 }
 
-export function LogPanel({ serviceId, isActive }: LogPanelProps) {
+/** One persistent owner for the project's logs, document state, and PTYs. */
+export function LogPanel({ serviceId, isActive, workbenchSection = 'run' }: LogPanelProps) {
   i18n.useLocale();
-  const selectedId = serviceId;
   const service = useAppStore((s) => s.services.find((x) => x.id === serviceId) ?? null);
   const status = useAppStore((s) => s.statuses[serviceId]);
   const ports = useAppStore((s) => s.ports);
   const clearLogsLocal = useAppStore((s) => s.clearLogs);
-  const openEditor = useAppStore((s) => s.openEditor);
-  const removeServiceLocal = useAppStore((s) => s.removeService);
-  const upsertService = useAppStore((s) => s.upsertService);
-
-  const projectMeta = useAppStore(
-    (s) => s.overview?.projects.find((p) => p.service_id === serviceId) ?? null,
+  const requestedCommand = useAppStore((s) =>
+    s.selectedServiceId === serviceId ? s.selectedCmdName : null,
   );
-
-  const [detailTab, setDetailTab] = useState<DetailTab | null>(null);
-  const [licenseOpen, setLicenseOpen] = useState(false);
-  const overviewScanning = useAppStore((s) => s.overviewScanning);
-  const lastScanAt = useAppStore((s) => s.lastScanAt);
-  const setOverviewScanning = useAppStore((s) => s.setOverviewScanning);
-  const patchOverviewScan = useAppStore((s) => s.patchOverviewScan);
-  const editors = useAppStore((s) => s.editors);
-  const runWorkspaceScan = useCallback(async () => {
-    if (overviewScanning) return;
-    setOverviewScanning(true);
-    try {
-      const result = await ipc.scanProjectDependencies(true);
-      patchOverviewScan(result);
-    } catch (err) {
-      console.error('scan_project_dependencies failed', err);
-    } finally {
-      setOverviewScanning(false);
-    }
-  }, [overviewScanning, setOverviewScanning, patchOverviewScan]);
-
   const [filter, setFilter] = useState('');
   const [follow, setFollow] = useState(true);
   const [showTimestamp, setShowTimestamp] = useState(false);
-  const [openPopover, setOpenPopover] = useState<PopoverKey | null>(null);
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    message: string;
-    onConfirm: () => void;
-  } | null>(null);
-
+  const [portsOpen, setPortsOpen] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const visited = useRef(new Set<string>());
+  visited.current.add(workbenchSection);
+  const runActive = isActive && workbenchSection === 'run';
   const commandNames = useServiceCommandNames(service);
   const layout = useServiceLayout(serviceId, commandNames);
   const visibleTabIds = useMemo(
@@ -98,145 +76,101 @@ export function LogPanel({ serviceId, isActive }: LogPanelProps) {
   const isDark = useDocumentThemeFlag();
   const activeLogCmd = useMemo(() => activeCommandLogName(layout.state), [layout.state]);
   const activeCmd = useActiveServiceCommand(service, activeLogCmd);
-  useLoadCommandLogs(selectedId, commandNames);
+  useLoadCommandLogs(serviceId, commandNames);
   const handleLineContextMenu = useLogAiContextMenu({ service });
-  const runDocCommand = useDocTerminalRunner({ serviceId: selectedId, layout });
-
-  useProjectDocsDiscovery({ selectedId, activeCmd, layout });
+  const docRunner = useDocTerminalRunner({ serviceId, layout });
   usePendingBodyTabRequest({ serviceId, activeCommandName: activeCmd, layout });
-
+  useRunningCommandFocus({ commands: status?.commands ?? [], layout });
   useEffect(() => {
-    if (!serviceId) return;
-    return registerServiceShortcuts(serviceId, {
-      newTerminal: () => {
-        layout.ensureTerminal();
-      },
-    });
-  }, [serviceId, layout]);
+    if (!isActive || !requestedCommand) return;
+    layout.openCommandLog(requestedCommand);
+    useAppStore.getState().setSelectedCmd(null);
+  }, [isActive, requestedCommand, layout]);
 
-  useRunningCommandFocus({
-    commands: status?.commands ?? [],
-    layout,
-  });
+  useEffect(
+    () =>
+      registerServiceShortcuts(serviceId, {
+        newTerminal: () => {
+          layout.addTerminal();
+          openProjectSection(serviceId, 'run');
+        },
+      }),
+    [serviceId, layout],
+  );
 
   const currentStatus = status?.status ?? 'stopped';
   const isServiceRunning = currentStatus === 'running' || currentStatus === 'starting';
-  const cmdStatuses = status?.commands ?? [];
-
   useEffect(() => {
-    if (!isActive || !isServiceRunning || !service || !selectedId) return;
-    const handler = (e: KeyboardEvent) => {
+    if (!runActive || !isServiceRunning) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
       if (
-        e.ctrlKey &&
-        e.key === 'c' &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
+        event.ctrlKey &&
+        event.key === 'c' &&
+        !target?.closest('input, textarea, [contenteditable="true"], .xterm')
       ) {
-        e.preventDefault();
-        const msg = activeCmd
-          ? i18n.t('Stop "{activeCmd}" command on {value2}?', {
-              activeCmd: activeCmd,
-              value2: service.name,
-            })
-          : i18n.t('Stop {value1}?', { value1: service.name });
-        setPendingConfirm({
-          message: msg,
-          onConfirm: () => {
-            setPendingConfirm(null);
-            if (activeCmd) void ipc.stopServiceCmd(selectedId, activeCmd);
-            else void ipc.stopService(selectedId);
-          },
-        });
+        event.preventDefault();
+        setConfirmStop(true);
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isActive, isServiceRunning, selectedId, activeCmd, service]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [runActive, isServiceRunning]);
 
-  if (!service || !selectedId) {
-    return (
-      <div className="text-fg-dim flex flex-1 items-center justify-center text-[13px]">
-        {!selectedId ? i18n.t('Select a service to view its logs.') : i18n.t('Loading service…')}
-      </div>
-    );
-  }
-
-  const supervisedPids = new Set<number>();
-  if (status?.pid != null) supervisedPids.add(status.pid);
-  for (const c of status?.commands ?? []) {
-    if (c.pid != null) supervisedPids.add(c.pid);
-  }
-
-  const servicePorts = ports.filter((p) => {
-    if (supervisedPids.has(p.pid)) return true;
-    for (const anc of p.ancestor_pids ?? []) {
-      if (supervisedPids.has(anc)) return true;
-    }
-    return service.port != null && p.port === service.port;
-  });
-
+  if (!service) return <div className="text-fg-dim p-5">{i18n.t('Loading service…')}</div>;
+  const pids = new Set(
+    [status?.pid, ...(status?.commands ?? []).map((c) => c.pid)].filter(
+      (pid): pid is number => pid != null,
+    ),
+  );
+  const servicePorts = ports.filter(
+    (p) =>
+      pids.has(p.pid) ||
+      (p.ancestor_pids ?? []).some((pid) => pids.has(pid)) ||
+      service.port === p.port,
+  );
   return (
     <div className="bg-surface relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <LogPanelHeader
-        activeCmd={activeLogCmd}
-        cmdStatuses={cmdStatuses}
-        currentStatus={currentStatus}
-        filter={filter}
-        isServiceRunning={isServiceRunning}
-        openPortsPopover={openPopover === 'ports'}
-        ports={servicePorts}
-        projectMeta={projectMeta}
-        service={service}
-        servicePid={status?.pid ?? null}
-        onOpenDetail={setDetailTab}
-        onLicenseOpen={() => setLicenseOpen(true)}
-        onEdit={() => openEditor(service)}
-        onDelete={() => {
-          setPendingConfirm({
-            message: i18n.t('Delete "{value1}"?', { value1: service.name }),
-            onConfirm: async () => {
-              setPendingConfirm(null);
-              await ipc.stopService(service.id).catch(() => undefined);
-              await ipc.removeService(service.id);
-              removeServiceLocal(service.id);
-            },
-          });
-        }}
-        onOpenFolder={() => void ipc.openPath(service.cwd)}
-        onOpenPort={(port) => void ipc.openUrl(localUrl(port))}
-        onHideToggle={() => {
-          const next = { ...service, hide_dashboard: !service.hide_dashboard };
-          upsertService(next);
-          void ipc
-            .updateService(next)
-            .then((saved) => upsertService(saved))
-            .catch((err) => {
-              console.warn('updateService(hide_dashboard) failed', err);
-              upsertService(service);
-            });
-        }}
-        onOpenPopoverChange={(open) => setOpenPopover(open ? 'ports' : null)}
-        onSetFilter={setFilter}
-        onStart={() => void ipc.startService(service.id)}
-        onRestart={() => void ipc.restartService(service.id)}
-        onStop={() => void ipc.stopService(service.id)}
-        onSelectCommand={layout.openCommandLog}
-      />
-
-      <ServiceLayout
-        layout={layout}
-        onSlotRef={onSlotRef}
-        onAddTerminalToEmpty={(groupId) => layout.addTerminal(groupId)}
-      />
-
+      {docRunner.error && (
+        <p role="alert" className="text-status-error border-border border-b px-4 py-2 text-xs">
+          {i18n.t('Could not run documentation command: {message}', { message: docRunner.error })}
+        </p>
+      )}
+      <div
+        className={workbenchSection === 'run' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+        aria-hidden={workbenchSection !== 'run'}
+      >
+        <div className="border-border/70 shrink-0 border-b px-4 py-2">
+          <LogPanelToolbar
+            activeCmd={activeLogCmd}
+            cmdStatuses={status?.commands ?? []}
+            filter={filter}
+            isServiceRunning={isServiceRunning}
+            openPortsPopover={portsOpen}
+            ports={servicePorts}
+            service={service}
+            servicePid={status?.pid ?? null}
+            onOpenPopoverChange={setPortsOpen}
+            onSetFilter={setFilter}
+            onStart={() => void ipc.startService(service.id)}
+            onRestart={() => void ipc.restartService(service.id)}
+            onStop={() => void ipc.stopService(service.id)}
+            onSelectCommand={layout.openCommandLog}
+          />
+        </div>
+        <ServiceLayout
+          layout={layout}
+          onSlotRef={onSlotRef}
+          onAddTerminalToEmpty={(groupId) => layout.addTerminal(groupId)}
+        />
+      </div>
       <LogPanelBodyHosts
         tabs={layout.state.tabs}
-        isActive={isActive}
+        isActive={runActive}
         visibleTabIds={visibleTabIds}
         bodySlots={bodySlots}
-        selectedId={selectedId}
+        selectedId={serviceId}
         cwd={service.cwd}
-        serviceName={service.name}
         commands={service.cmds}
         filter={filter}
         showTimestamp={showTimestamp}
@@ -246,22 +180,51 @@ export function LogPanel({ serviceId, isActive }: LogPanelProps) {
         isDark={isDark}
         handleLineContextMenu={handleLineContextMenu}
         clearLogsLocal={clearLogsLocal}
-        onRunCommand={runDocCommand}
+        onTerminalReady={docRunner.terminalReady}
+        onTerminalClosed={docRunner.terminalClosed}
       />
-      <LogPanelOverlays
-        detailTab={detailTab}
-        editors={editors}
-        lastScanAt={lastScanAt}
-        licenseOpen={licenseOpen}
-        overviewScanning={overviewScanning}
-        pendingConfirm={pendingConfirm}
-        projectMeta={projectMeta}
-        service={service}
-        onCloseDetail={() => setDetailTab(null)}
-        onCloseLicense={() => setLicenseOpen(false)}
-        onCancelConfirm={() => setPendingConfirm(null)}
-        onRescan={() => void runWorkspaceScan()}
-      />
+      {visited.current.has('docs') && (
+        <div
+          className={workbenchSection === 'docs' ? 'flex min-h-0 flex-1' : 'hidden'}
+          aria-hidden={workbenchSection !== 'docs'}
+        >
+          <Suspense fallback={<div className="text-fg-dim p-5">{i18n.t('Loading docs…')}</div>}>
+            <ProjectDocsTab
+              serviceId={serviceId}
+              cwd={service.cwd}
+              onRunCommand={docRunner.runCommand}
+            />
+          </Suspense>
+        </div>
+      )}
+      {visited.current.has('notes') && (
+        <div
+          className={workbenchSection === 'notes' ? 'flex min-h-0 flex-1' : 'hidden'}
+          aria-hidden={workbenchSection !== 'notes'}
+        >
+          <Suspense fallback={<div className="text-fg-dim p-5">{i18n.t('Loading notes…')}</div>}>
+            <ProjectNotesTab serviceId={serviceId} serviceName={service.name} />
+          </Suspense>
+        </div>
+      )}
+      {runActive && confirmStop && (
+        <ConfirmDialog
+          message={
+            activeCmd
+              ? i18n.t('Stop "{activeCmd}" command on {value2}?', {
+                  activeCmd,
+                  value2: service.name,
+                })
+              : i18n.t('Stop {value1}?', { value1: service.name })
+          }
+          onCancel={() => setConfirmStop(false)}
+          onConfirm={() => {
+            setConfirmStop(false);
+            if (activeCmd) void ipc.stopServiceCmd(serviceId, activeCmd);
+            else void ipc.stopService(serviceId);
+          }}
+        />
+      )}
     </div>
   );
 }

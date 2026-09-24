@@ -8,6 +8,8 @@ import { SECTION_COLORS, sectionColor } from '@/lib/sectionColors';
 import { usePopoverPosition, useClickOutsideClose } from '@/lib/hooks';
 import { useAppStore } from '@/store/useAppStore';
 import type { Section, SectionColor } from '@/types';
+import { WorkspaceEditor } from '@/components/workspaces/WorkspaceEditor';
+import { createVisibleSection } from '@/components/sidebar/sectionNavigation';
 
 const POPOVER_W = 260;
 
@@ -63,7 +65,6 @@ export function AddSectionButton({
   className?: string;
 }) {
   i18n.useLocale();
-  const addSection = useAppStore((s) => s.addSection);
   const sections = useAppStore((s) => s.sections);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -90,7 +91,7 @@ export function AddSectionButton({
   const commit = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    addSection(trimmed, color);
+    createVisibleSection(trimmed, color);
     setOpen(false);
   };
 
@@ -190,6 +191,7 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
 
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [nameDraft, setNameDraft] = useState(section.name);
   const [pendingConfirm, setPendingConfirm] = useState<{
     message: string;
@@ -295,6 +297,17 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
           <div className="border-border/60 border-t py-1">
             <button
               type="button"
+              onClick={() => {
+                setOpen(false);
+                setCreatingWorkspace(true);
+              }}
+              className="text-fg hover:bg-surface-overlay flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] transition"
+            >
+              <FolderPlus className="h-3 w-3" />
+              {i18n.t('New workspace')}
+            </button>
+            <button
+              type="button"
               onClick={() => setRenaming(true)}
               className="text-fg hover:bg-surface-overlay flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] transition"
             >
@@ -344,6 +357,9 @@ export function SectionOverflowMenu({ section }: { section: Section }) {
         </span>
       </button>
       {popover && createPortal(popover, document.body)}
+      {creatingWorkspace && (
+        <WorkspaceEditor sectionId={section.id} onClose={() => setCreatingWorkspace(false)} />
+      )}
       {pendingConfirm && (
         <ConfirmDialog
           message={pendingConfirm.message}

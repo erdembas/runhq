@@ -19,10 +19,12 @@ import {
 import { DashboardTab } from '@/components/main-tab-bar/DashboardTab';
 import { SortableTab } from '@/components/main-tab-bar/SortableTab';
 import { resolveTabMeta } from '@/components/main-tab-bar/tabMeta';
+import { visibleMainTabs } from '@/components/main-tab-bar/legacyAgentTaskTabs';
 import { useMainTabContextMenu } from '@/components/main-tab-bar/useMainTabContextMenu';
 import { FileContextMenu } from '@/components/ui/FileContextMenu';
 import { DASHBOARD_TAB_KEY, mainTabKey, useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/cn';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 
 const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
   ...transform,
@@ -31,7 +33,10 @@ const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
 
 export function MainTabBar() {
   i18n.useLocale();
-  const tabs = useAppStore((s) => s.mainTabs);
+  const storedTabs = useAppStore((s) => s.mainTabs);
+  const tabs = useMemo(() => visibleMainTabs(storedTabs), [storedTabs]);
+  const showStrip = tabs.length > 1;
+  const agentView = useWorkbenchStore((s) => s.agentView);
   const activeKey = useAppStore((s) => s.activeMainTabKey);
   const services = useAppStore((s) => s.services);
   const stacks = useAppStore((s) => s.stacks);
@@ -98,7 +103,7 @@ export function MainTabBar() {
       element.removeEventListener('scroll', onScroll);
       resizeObserver.disconnect();
     };
-  }, [recomputeOverflow]);
+  }, [recomputeOverflow, showStrip]);
 
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({
@@ -120,10 +125,10 @@ export function MainTabBar() {
           tab,
           key,
           pinned: key !== DASHBOARD_TAB_KEY && pinnedSet.has(key),
-          ...resolveTabMeta(tab, services, stacks, statuses),
+          ...resolveTabMeta(tab, services, stacks, statuses, agentView),
         };
       }),
-    [pinnedSet, services, stacks, statuses, tabs],
+    [pinnedSet, services, stacks, statuses, tabs, agentView],
   );
 
   const sortableIds = useMemo(
@@ -146,7 +151,7 @@ export function MainTabBar() {
     [reorderMainTabs],
   );
 
-  if (tabs.length <= 1) return null;
+  if (!showStrip) return null;
 
   const dashboardItem = items.find((item) => item.key === DASHBOARD_TAB_KEY) ?? null;
   const sortableItems = items.filter((item) => item.key !== DASHBOARD_TAB_KEY);
@@ -179,7 +184,7 @@ export function MainTabBar() {
         <div
           ref={stripRef}
           role="tablist"
-          aria-label={i18n.t('Open tabs')}
+          aria-label={i18n.t('Open work')}
           onWheel={onWheel}
           className="main-tabbar-scroll flex flex-1 items-stretch overflow-x-auto overflow-y-hidden"
         >

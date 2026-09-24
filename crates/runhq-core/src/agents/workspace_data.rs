@@ -199,6 +199,7 @@ impl AgentManager {
                 return Err(invalid("The recovered target already started. Its workspace was left untouched; inspect it before creating another handoff."));
             }
             session.cwd = cwd.to_string_lossy().into();
+            session.workspace = source.workspace.clone();
             session.branch = snapshot["branch"].as_str().map(str::to_string);
             session.isolated = snapshot["isolated"].as_bool().unwrap_or(false);
             // Session binding and provenance commit atomically, before the session
@@ -491,6 +492,7 @@ impl AgentManager {
             session.project_id = project.id.clone();
             session.project_name = project.name.clone();
             session.cwd = project.path.clone();
+            session.workspace = project.workspace.clone();
             session.native_id = None;
             session.executable.clear();
             session.args.clear();

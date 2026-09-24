@@ -162,6 +162,10 @@ function harness(initial = preferred) {
       {
         exports,
         require: (name) => {
+          if (name === '@/components/workspaces/useWorkspaceTaskMembers')
+            return load('../src/components/workspaces/useWorkspaceTaskMembers.ts');
+          if (name === '@/lib/agentRecoveryPersistence')
+            return load('../src/lib/agentRecoveryPersistence.ts');
           if (name === 'react') return react;
           if (name === 'react/jsx-runtime')
             return {

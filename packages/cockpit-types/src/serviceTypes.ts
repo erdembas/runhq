@@ -188,6 +188,7 @@ export interface DetectedEditor {
 }
 
 export interface StackDef {
+  command_names?: Record<string, string[]>;
   id: string;
   name: string;
   service_ids: string[];
@@ -195,6 +196,7 @@ export interface StackDef {
 }
 
 export interface StackStatus {
+  errors?: string[];
   id: string;
   running: number;
   total: number;

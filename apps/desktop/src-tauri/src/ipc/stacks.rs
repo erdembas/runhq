@@ -9,6 +9,8 @@ use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct StackInput {
+    #[serde(default)]
+    pub command_names: std::collections::BTreeMap<String, Vec<String>>,
     pub name: String,
     #[serde(default)]
     pub service_ids: Vec<String>,
@@ -18,6 +20,7 @@ pub struct StackInput {
 
 #[derive(Debug, Serialize)]
 pub struct StackStatus {
+    pub errors: Vec<String>,
     pub id: String,
     pub running: u32,
     pub total: u32,
@@ -37,6 +40,7 @@ pub fn add_stack(input: StackInput, state: State<'_, AppState>) -> AppResult<Sta
         return Err(AppError::Invalid("at least one service is required".into()));
     }
     let stack = StackDef {
+        command_names: input.command_names,
         id: uuid::Uuid::new_v4().to_string(),
         name: input.name,
         service_ids: input.service_ids,
@@ -63,32 +67,72 @@ pub fn remove_stack(id: String, state: State<'_, AppState>) -> AppResult<bool> {
     state.store.remove_stack(&id).map_err(AppError::from)
 }
 
+pub(super) async fn start_group(stack: StackDef, state: &AppState) -> AppResult<StackStatus> {
+    // Validate the complete plan before starting anything. Runtime failures are reported per group.
+    let mut plan = Vec::new();
+    for id in &stack.service_ids {
+        let service = state
+            .store
+            .service(id)
+            .ok_or_else(|| AppError::NotFound(id.clone()))?;
+        let commands = stack.selected_commands(&service)?;
+        plan.push((service, commands));
+    }
+    let mut errors = Vec::new();
+    for (service, commands) in plan {
+        if stack.command_names.contains_key(&service.id) {
+            for name in commands {
+                match state.supervisor.start_cmd(service.clone(), &name).await {
+                    Ok(_) | Err(AppError::AlreadyRunning(_)) => {}
+                    Err(error) => errors.push(format!("{} / {}: {}", service.name, name, error)),
+                }
+            }
+        } else if let Err(error) = state.supervisor.start_all(service.clone()).await {
+            if !matches!(error, AppError::AlreadyRunning(_)) {
+                errors.push(format!("{}: {}", service.name, error));
+            }
+        }
+        if !stack.command_names.contains_key(&service.id) {
+            if let Some(port) = service.port {
+                runhq_core::ports::wait_for_port(port, std::time::Duration::from_secs(30)).await;
+            }
+        }
+    }
+    Ok(StackStatus {
+        id: stack.id,
+        total: stack.service_ids.len() as u32,
+        running: stack
+            .service_ids
+            .iter()
+            .filter(|id| state.supervisor.is_running(id))
+            .count() as u32,
+        errors,
+    })
+}
+
+fn stop_group(stack: &StackDef, state: &AppState) -> Vec<String> {
+    let mut errors = Vec::new();
+    for id in &stack.service_ids {
+        if let Some(commands) = stack.command_names.get(id) {
+            for name in commands {
+                if let Err(error) = state.supervisor.stop_cmd(id, name) {
+                    errors.push(format!("{id} / {name}: {error}"));
+                }
+            }
+        } else if let Err(error) = state.supervisor.stop_all(id) {
+            errors.push(format!("{id}: {error}"));
+        }
+    }
+    errors
+}
+
 #[tauri::command]
 pub async fn start_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStatus> {
     let stack = state
         .store
         .stack(&id)
         .ok_or_else(|| AppError::NotFound(id.clone()))?;
-    let total = stack.service_ids.len() as u32;
-    let mut running: u32 = 0;
-    for sid in &stack.service_ids {
-        if let Some(svc) = state.store.service(sid) {
-            let _ = state.supervisor.start_all(svc.clone()).await;
-            if let Some(port) = svc.port {
-                runhq_core::ports::wait_for_port(port, std::time::Duration::from_secs(30)).await;
-            }
-        }
-    }
-    for sid in &stack.service_ids {
-        if state.supervisor.is_running(sid) {
-            running += 1;
-        }
-    }
-    Ok(StackStatus {
-        id: stack.id,
-        running,
-        total,
-    })
+    start_group(stack, &state).await
 }
 
 #[tauri::command]
@@ -97,14 +141,12 @@ pub fn stop_stack(id: String, state: State<'_, AppState>) -> AppResult<StackStat
         .store
         .stack(&id)
         .ok_or_else(|| AppError::NotFound(id.clone()))?;
-    let total = stack.service_ids.len() as u32;
-    for sid in &stack.service_ids {
-        let _ = state.supervisor.stop_all(sid);
-    }
+    let errors = stop_group(&stack, &state);
     Ok(StackStatus {
         id: stack.id,
         running: 0,
-        total,
+        total: stack.service_ids.len() as u32,
+        errors,
     })
 }
 
@@ -114,28 +156,38 @@ pub async fn restart_stack(id: String, state: State<'_, AppState>) -> AppResult<
         .store
         .stack(&id)
         .ok_or_else(|| AppError::NotFound(id.clone()))?;
-    let total = stack.service_ids.len() as u32;
-    for sid in &stack.service_ids {
-        let _ = state.supervisor.stop_all(sid);
+    let errors = stop_group(&stack, &state);
+    if !errors.is_empty() {
+        return Err(AppError::Other(errors.join("\n")));
     }
     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    let mut running: u32 = 0;
-    for sid in &stack.service_ids {
-        if let Some(svc) = state.store.service(sid) {
-            let _ = state.supervisor.start_all(svc.clone()).await;
-            if let Some(port) = svc.port {
-                runhq_core::ports::wait_for_port(port, std::time::Duration::from_secs(30)).await;
-            }
-        }
+    start_group(stack, &state).await
+}
+
+#[tauri::command]
+pub async fn agent_run_multi_workspace(
+    id: String,
+    stop: bool,
+    state: State<'_, AppState>,
+) -> AppResult<StackStatus> {
+    let stack_id = format!("workspace:{id}");
+    let stack = state
+        .store
+        .stack(&stack_id)
+        .ok_or_else(|| AppError::NotFound(stack_id.clone()))?;
+    if stop {
+        return stop_stack(stack_id, state);
     }
-    for sid in &stack.service_ids {
-        if state.supervisor.is_running(sid) {
-            running += 1;
-        }
-    }
-    Ok(StackStatus {
-        id: stack.id,
-        running,
-        total,
-    })
+    let services = stack
+        .service_ids
+        .iter()
+        .map(|id| {
+            state
+                .store
+                .service(id)
+                .ok_or_else(|| AppError::NotFound(id.clone()))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    state.agents.validate_workspace_run(&id, &services)?;
+    start_group(stack, &state).await
 }

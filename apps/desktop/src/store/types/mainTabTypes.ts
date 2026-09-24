@@ -3,19 +3,24 @@ import type { ServiceId } from '@/types';
 /**
  * A tab in the main content area.
  *
- * Three kinds:
+ * Main destinations:
  *   - `dashboard` — the workspace overview. Always present, never closable;
  *     acts as the "home" tab the user can fall back to when every other
  *     tab has been closed.
- *   - `service`  — an individual service's log/terminal view. `refId` is
+ *   - `service`  — a project's workbench, including its agent conversations. `refId` is
  *     the service id.
  *   - `stack`    — a stack detail view. `refId` is the stack id.
+ *   - `agents`   — shared agent tools and conversations without a matching service.
+ *   - `settings` / `release-notes` — application destinations.
+ *
+ * `agent-task` is retained only to migrate tabs from the earlier workbench;
+ * conversations now open inside their project and never appear in the main strip.
  *
  * Tabs are addressed by a stable composite key `${kind}:${refId}` so the
  * tab strip can dedup and React can use it as a list key.
  */
 export type MainTabKind =
-  'dashboard' | 'service' | 'stack' | 'settings' | 'release-notes' | 'agents';
+  'dashboard' | 'service' | 'stack' | 'settings' | 'release-notes' | 'agents' | 'agent-task';
 export interface MainTab {
   kind: MainTabKind;
   refId: string;

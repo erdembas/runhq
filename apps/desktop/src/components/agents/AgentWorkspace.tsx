@@ -1,3 +1,4 @@
+import { WorkspaceOverview } from '@/components/workspaces/WorkspaceOverview';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -38,6 +39,8 @@ import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
+import { openAgentTask, openWorkflow } from '@/lib/workbenchNavigation';
 import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
 import {
   composerAccountForTarget,
@@ -50,13 +53,14 @@ import {
 import { useAgentProjectOptions } from './useAgentProjectOptions';
 import { AgentNewSession } from './AgentNewSession';
 import { AgentSessionView } from './AgentSessionView';
+import { AgentTaskPane } from '@/components/workbench/AgentTaskPane';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
 import { useResizableWidth } from '@/lib/useResizableWidth';
 import { AgentDecisionInbox } from './AgentDecisionInbox';
 import { AgentRecoveryNotice } from './AgentRecoveryNotice';
 import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
-import { AgentWorkflowHub } from './AgentWorkflowHub';
+import { AgentWorkflowHub, type AgentWorkflowRecipe } from './AgentWorkflowHub';
 import { AgentLibrary } from './AgentLibrary';
 import { AgentUsagePanel } from './AgentUsagePanel';
 import { AgentUsageNotifications } from './AgentUsageNotifications';
@@ -102,17 +106,33 @@ const AGENT_TASK_FILTERS = [
   },
 ];
 
-export function AgentWorkspace({ visible, project }: { visible: boolean; project?: AgentProject }) {
+type AgentWorkspaceView =
+  'overview' | 'conversations' | 'inbox' | 'workflows' | 'library' | 'usage';
+type WorkflowHost = { scope: string; recipe?: AgentWorkflowRecipe; recipeId?: string };
+
+export function AgentWorkspace({
+  visible,
+  project,
+  shell = false,
+}: {
+  visible: boolean;
+  project?: AgentProject;
+  shell?: boolean;
+}) {
   i18n.useLocale();
+  const globalShell = shell && !project;
+  const projectShell = shell && !!project;
   const sessionsId = useId();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [workspaceWidth, setWorkspaceWidth] = useState(0);
   const maxSessionsWidth = workspaceWidth ? Math.min(480, Math.floor(workspaceWidth * 0.45)) : 480;
   const minSessionsWidth = Math.min(200, maxSessionsWidth);
-  const [sessionsCollapsed, setSessionsCollapsed] = usePersistentBoolean(
+  const [storedSessionsCollapsed, setSessionsCollapsed] = usePersistentBoolean(
     'runhq.agent-session-list-collapsed',
     false,
   );
+  // Project conversations always expose their history when the Agents tab opens.
+  const sessionsCollapsed = !projectShell && storedSessionsCollapsed;
   const sessionsWidth = useResizableWidth({
     storageKey: 'runhq.agent-session-list.width',
     defaultWidth: 260,
@@ -131,22 +151,79 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
   const projects = project ? [project] : storedProjects;
   const projectOptions = useAgentProjectOptions(storedProjects, visible);
   const sessions = useVisibleStore(useAgentStore, (s) => s.sessions, visible);
-  const globalSelectedId = useVisibleStore(useAgentStore, (s) => s.selectedId, visible);
-  const navigationRevision = useVisibleStore(useAgentStore, (s) => s.navigationRevision, visible);
-  const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
-  const selectedId = project ? localSelectedId : globalSelectedId;
+  // Only the global host observes navigation while hidden. A project host owns its selection and
+  // must neither subscribe to nor replay navigation from another project or the global workspace.
+  const globalSelectedId = useVisibleStore(useAgentStore, (s) => s.selectedId, !project);
+  const navigationRevision = useVisibleStore(useAgentStore, (s) => s.navigationRevision, !project);
+  const projectSelectedId = useVisibleStore(
+    useWorkbenchStore,
+    (state) => (project ? (state.projectSelectedSessions[project.id] ?? null) : null),
+    visible && !!project,
+  );
+  const projectSelectionRevision = useVisibleStore(
+    useWorkbenchStore,
+    (state) => (project ? (state.projectSelectionRevisions[project.id] ?? 0) : 0),
+    visible && !!project,
+  );
+  const selectedId = project ? projectSelectedId : globalSelectedId;
   const select = (id: string | null) => {
-    if (project) setLocalSelectedId(id);
+    if (project) useWorkbenchStore.getState().setProjectSelectedSession(project.id, id);
     else useAgentStore.getState().select(id);
   };
-  const globalProjectFilter = useVisibleStore(useAgentStore, (s) => s.projectFilter, visible);
+  const globalProjectFilter = useVisibleStore(
+    useAgentStore,
+    (s) => s.projectFilter,
+    visible && !project,
+  );
   const projectFilter = project?.id ?? globalProjectFilter;
+  const scopedWorkspace = projects.find((entry) => entry.id === projectFilter && entry.workspace);
   const ready = useVisibleStore(useAgentStore, (s) => s.ready, visible);
   const storeError = useVisibleStore(useAgentStore, (s) => s.error, visible);
   const [creating, setCreating] = useState(false);
-  const [view, setView] = useState<
-    'overview' | 'conversations' | 'inbox' | 'workflows' | 'library' | 'usage'
-  >(selectedId ? 'conversations' : 'overview');
+  const [legacyView, setLegacyView] = useState<AgentWorkspaceView>(
+    projectShell || selectedId ? 'conversations' : 'overview',
+  );
+  const shellView = useVisibleStore(
+    useWorkbenchStore,
+    (state) => state.agentView,
+    globalShell && visible,
+  );
+  const shellViewRevision = useVisibleStore(
+    useWorkbenchStore,
+    (state) => state.agentViewRevision,
+    globalShell && visible,
+  );
+  const requestedWorkflowId = useVisibleStore(
+    useWorkbenchStore,
+    (state) => state.requestedWorkflowId,
+    globalShell && visible,
+  );
+  const pendingHandoff = useVisibleStore(
+    useWorkbenchStore,
+    (state) => state.agentHandoff,
+    globalShell && visible,
+  );
+  const view = projectShell ? 'conversations' : globalShell ? shellView : legacyView;
+  const setView = (next: AgentWorkspaceView) => {
+    if (globalShell) useWorkbenchStore.getState().requestAgentView(next);
+    else setLegacyView(next);
+  };
+  // Each visited scope owns its draft and selection. Hiding a section must not recreate its editor.
+  const [workflowHosts, setWorkflowHosts] = useState<WorkflowHost[]>([]);
+  const [libraryScopes, setLibraryScopes] = useState<string[]>([]);
+  const [localWorkflowRequest, setLocalWorkflowRequest] = useState<string | null>(null);
+  useEffect(() => {
+    if (view === 'workflows')
+      setWorkflowHosts((hosts) =>
+        hosts.some((host) => host.scope === projectFilter)
+          ? hosts
+          : [...hosts, { scope: projectFilter }],
+      );
+    if (view === 'library')
+      setLibraryScopes((scopes) =>
+        scopes.includes(projectFilter) ? scopes : [...scopes, projectFilter],
+      );
+  }, [view, projectFilter]);
   useEffect(() => {
     if (!visible || view !== 'conversations') return;
     const element = workspaceRef.current;
@@ -162,16 +239,25 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
   }, [visible, view]);
   const [template, setTemplate] = useState<AgentTaskTemplate | undefined>();
   const [recipe, setRecipe] = useState<AgentRecipe | undefined>();
-  const [workflowRecipe, setWorkflowRecipe] = useState<AgentRecipe | undefined>();
   // Why the composer opens on the account it does, when RunHQ chose it rather than the user.
   const [routing, setRouting] = useState<{ poolName?: string; reason: string } | undefined>();
   const [focusItemId, setFocusItemId] = useState<string>();
+  const observedNavigation = useRef(navigationRevision);
   useEffect(() => {
-    if (!project && globalSelectedId) {
-      setView('conversations');
+    const changed = observedNavigation.current !== navigationRevision;
+    observedNavigation.current = navigationRevision;
+    if (project || !globalSelectedId) return;
+    if (globalShell) {
+      // Hidden workflow hosts must not consume session navigation meant for a project.
+      if (visible && changed) {
+        useWorkbenchStore.getState().requestAgentView('conversations');
+        setCreating(false);
+      }
+    } else {
+      setLegacyView('conversations');
       setCreating(false);
     }
-  }, [globalSelectedId, navigationRevision, project]);
+  }, [globalSelectedId, navigationRevision, project, globalShell, visible]);
   const [deleteTarget, setDeleteTarget] = useState<AgentSession | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -202,14 +288,34 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
         )
         .sort(
           (a, b) =>
-            Number(b.pending.length > 0) - Number(a.pending.length > 0) ||
+            (!projectShell && Number(b.pending.length > 0) - Number(a.pending.length > 0)) ||
             b.updated_at - a.updated_at,
         ),
-    [sessions, projectFilter, filter, search],
+    [sessions, projectFilter, projectShell, filter, search],
   );
   const candidate = selectedId ? sessions[selectedId] : null;
   const selected =
-    candidate && (!project || candidate.project_id === project.id) ? candidate : null;
+    candidate && (!projectFilter || candidate.project_id === projectFilter) ? candidate : null;
+  useEffect(() => {
+    if (!projectShell || !visible || creating || selected || !ready || !project) return;
+    const latest = Object.values(sessions)
+      .filter((session) => session.project_id === project.id && !session.archived)
+      .sort((a, b) => b.updated_at - a.updated_at)[0];
+    if (latest) useWorkbenchStore.getState().setProjectSelectedSession(project.id, latest.id);
+  }, [projectShell, visible, creating, selected, ready, project, sessions]);
+  const [conversationHosts, setConversationHosts] = useState<string[]>([]);
+  useEffect(() => {
+    if (!shell || !visible || view !== 'conversations' || !selected) return;
+    setConversationHosts((hosts) =>
+      hosts.includes(selected.id) ? hosts : [...hosts, selected.id],
+    );
+  }, [shell, visible, view, selected]);
+  const observedProjectSelection = useRef(projectSelectionRevision);
+  useEffect(() => {
+    if (!visible || !project) return;
+    if (observedProjectSelection.current !== projectSelectionRevision) setCreating(false);
+    observedProjectSelection.current = projectSelectionRevision;
+  }, [projectSelectionRevision, visible, project]);
   const startTask = (nextTemplate?: AgentTaskTemplate) => {
     setRecipe(undefined);
     // A blank task is the user's own choice of agent, so no routing reason applies to it.
@@ -219,10 +325,19 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     setView('conversations');
   };
   const openConversation = (id: string, itemId?: string) => {
+    if (shell) {
+      setCreating(false);
+      openAgentTask(id, { focusItemId: itemId });
+      return;
+    }
     setFocusItemId(itemId);
     select(id);
     setCreating(false);
     setView('conversations');
+  };
+  const openWorkflowSession = (id: string, workflowId?: string) => {
+    if (shell) openAgentTask(id, { workflowId });
+    else openConversation(id);
   };
   const startRecipe = (next: AgentRecipe) => {
     // The composer works in connections and discovers one account's models and modes, so a recipe
@@ -331,13 +446,67 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
     });
     if (taken) setRouting(taken);
   };
+  const handoffRef = useRef(handoff);
+  handoffRef.current = handoff;
+  useEffect(() => {
+    if (!globalShell || !visible || !pendingHandoff) return;
+    const source = useAgentStore.getState().sessions[pendingHandoff.sessionId];
+    if (!source) return;
+    handoffRef.current(source, pendingHandoff.items);
+    useWorkbenchStore.setState({ agentHandoff: null });
+  }, [globalShell, visible, pendingHandoff]);
+  const startWorkflowRecipe = (next: AgentRecipe) => {
+    const scope = project?.id || next.projectId || projectFilter;
+    if (!project && scope !== projectFilter) useAgentStore.setState({ projectFilter: scope });
+    const recipe: AgentWorkflowRecipe = {
+      title: next.name,
+      prompt: next.prompt,
+      backend: composerAccount(next),
+      model: next.model,
+      effort: next.effort,
+      setupCommands: next.setupCommands.split('\n').filter(Boolean),
+      checkCommands: next.checkCommands.split('\n').filter(Boolean),
+      acceptance: next.acceptance,
+      steps: next.workflowSteps
+        ? recipeStepsToCreateSteps(next.workflowSteps, (target) =>
+            composerAccountForTarget({
+              target,
+              pool: routingPool,
+              accounts: routingAccounts(),
+              cooldowns: routingCooldowns(),
+              capacity: agentCapacityPreferences(
+                useAgentLibraryStore.getState().records['preferences:capacity']?.value,
+              ),
+              occupied: routingOccupancy(),
+              now: Date.now(),
+            }),
+          )
+        : undefined,
+    };
+    // Choosing a new recipe intentionally starts a new editor in this scope. Visiting another
+    // section or project, in contrast, keeps every existing editor mounted.
+    setWorkflowHosts((hosts) => [
+      ...hosts.filter((host) => host.scope !== scope),
+      { scope, recipe, recipeId: crypto.randomUUID() },
+    ]);
+    if (globalShell) useWorkbenchStore.setState({ requestedWorkflowId: null });
+    else setLocalWorkflowRequest(null);
+    setView('workflows');
+  };
+  const showWorkflow = (id: string, projectId: string) => {
+    if (globalShell) openWorkflow(id, projectId);
+    else {
+      setLocalWorkflowRequest(id);
+      setView('workflows');
+    }
+  };
   const deleteConversation = async (id: string) => {
     setDeleteTarget(null);
     setDeletingId(id);
     setError(null);
     try {
       await useAgentStore.getState().deleteSession(id);
-      setLocalSelectedId((current) => (current === id ? null : current));
+      if (selectedId === id) select(null);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -361,9 +530,29 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
       setError(String(e));
     }
   };
+  const shellTaskList = globalShell && view === 'conversations' && !creating && !selected;
+  const showComposer =
+    view === 'conversations' &&
+    (creating || ((!shell || projectShell) && !selected && projects.length > 0 && ready));
+  const composerVisited = useRef(false);
+  if (showComposer) composerVisited.current = true;
+  const sectionTitle = {
+    overview: scopedWorkspace
+      ? i18n.t('Workspace overview')
+      : projectShell
+        ? i18n.t('Agents')
+        : shell
+          ? i18n.t('Tasks')
+          : i18n.t('Overview'),
+    conversations: projectShell ? i18n.t('Agents') : i18n.t('Tasks'),
+    inbox: i18n.t('Needs attention'),
+    workflows: i18n.t('Workflows'),
+    library: i18n.t('Library'),
+    usage: i18n.t('Capacity & usage'),
+  }[view];
   return (
     <div className="bg-surface flex min-h-0 min-w-0 flex-1 flex-col">
-      {deleteTarget && (
+      {deleteTarget && visible && (
         <ConfirmDialog
           title={i18n.t('Delete conversation?')}
           message={i18n.t(
@@ -375,111 +564,170 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-      <header className="border-border/70 flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-1.5">
-        {!project && <h1 className="text-fg mr-2 text-[13px] font-semibold">{i18n.t('Agents')}</h1>}
-        {view === 'conversations' && (
-          <button
-            type="button"
-            aria-label={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
-            title={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
-            aria-expanded={!sessionsCollapsed}
-            aria-controls={sessionsId}
-            onClick={() => setSessionsCollapsed((value) => !value)}
-            className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
-          >
-            <PanelLeft className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <div
-          className="flex items-center gap-0.5"
-          role="group"
-          aria-label={i18n.t('Agent workspace view')}
+      {!projectShell && (
+        <header
+          className={`border-border/70 flex shrink-0 flex-wrap items-center gap-1.5 border-b ${shell ? 'px-5 py-3' : 'px-3 py-1.5'}`}
         >
-          {(
-            [
-              { value: 'overview', label: i18n.t('Overview'), icon: LayoutDashboard },
-              { value: 'conversations', label: i18n.t('Conversations'), icon: MessagesSquare },
-              { value: 'inbox', label: i18n.t('Inbox'), icon: Inbox },
-              { value: 'workflows', label: i18n.t('Workflows'), icon: GitPullRequest },
-              { value: 'library', label: i18n.t('Library'), icon: BookOpen },
-              { value: 'usage', label: i18n.t('Usage'), icon: ChartNoAxesCombined },
-            ] as const
-          ).map(({ value, label, icon: Icon }) => (
+          {shell ? (
+            <>
+              <h1 className="text-fg mr-3 text-[16px] font-semibold">{sectionTitle}</h1>
+              {!project && (
+                <SearchableSelect
+                  label={i18n.t('Filter by project')}
+                  indentGrouped
+                  compact
+                  value={projectFilter}
+                  options={[{ value: '', label: i18n.t('All projects') }, ...projectOptions]}
+                  onChange={(value) =>
+                    useAgentStore.setState({ projectFilter: value, selectedId: null })
+                  }
+                  searchPlaceholder={i18n.t('Find a project or group…')}
+                  className="w-56 max-w-full"
+                />
+              )}
+            </>
+          ) : !project ? (
+            <h1 className="text-fg mr-2 text-[13px] font-semibold">{i18n.t('Agents')}</h1>
+          ) : null}
+          {view === 'conversations' && !shellTaskList && (
             <button
-              key={value}
               type="button"
-              aria-pressed={view === value}
-              onClick={() => setView(value)}
-              className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] transition-colors ${view === value ? 'bg-fg/7 text-fg font-medium' : 'text-fg-dim hover:text-fg hover:bg-fg/3'}`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
-        </div>
-        {working > 0 && (
-          <span className="text-fg-dim ml-2 text-[11px]">
-            {i18n.rich('{working} working', { working: working })}
-          </span>
-        )}
-        {needsAttention > 0 && (
-          <button
-            onClick={() => {
-              setFilter('attention');
-              select(null);
-              setCreating(false);
-              setView('inbox');
-            }}
-            className="text-accent flex items-center gap-1 text-[12px]"
-          >
-            {i18n.rich('{value1}{needsAttention} need you', {
-              value1: <CircleHelp className="h-3.5 w-3.5" />,
-              needsAttention: needsAttention,
-            })}
-          </button>
-        )}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <button
-            title={i18n.t('Agent tools')}
-            aria-label={i18n.t('Agent tools')}
-            onClick={() => useAgentStore.setState({ toolsOpen: true })}
-            className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
-          >
-            <Wrench className="h-3.5 w-3.5" />
-          </button>
-          {!project && (
-            <button
-              aria-label={i18n.t('Add project')}
-              title={i18n.t('Add project')}
-              onClick={() => void addProject()}
+              aria-label={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
+              title={sessionsCollapsed ? i18n.t('Show task list') : i18n.t('Hide task list')}
+              aria-expanded={!sessionsCollapsed}
+              aria-controls={sessionsId}
+              onClick={() => setSessionsCollapsed((value) => !value)}
               className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
             >
-              <FolderPlus className="h-3.5 w-3.5" />
+              <PanelLeft className="h-3.5 w-3.5" />
             </button>
           )}
-          <button
-            disabled={!projects.length}
-            onClick={() => startTask()}
-            className="border-border text-fg hover:bg-fg/5 flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium disabled:opacity-40"
-          >
-            {i18n.rich('{value1}New task', { value1: <Plus className="h-3.5 w-3.5" /> })}
-          </button>
-          {view === 'conversations' && selected && !creating && (
-            <button
-              type="button"
-              aria-label={i18n.t('Close conversation view')}
-              title={i18n.t('Close conversation view')}
-              onClick={() => {
-                select(null);
-                setView('overview');
-              }}
-              className="text-fg-dim hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
+          {!shell && (
+            <div
+              className="flex items-center gap-0.5"
+              role="group"
+              aria-label={i18n.t('Agent workspace view')}
             >
-              <X className="h-3.5 w-3.5" />
+              {(
+                [
+                  { value: 'overview', label: i18n.t('Overview'), icon: LayoutDashboard },
+                  { value: 'conversations', label: i18n.t('Conversations'), icon: MessagesSquare },
+                  { value: 'inbox', label: i18n.t('Inbox'), icon: Inbox },
+                  { value: 'workflows', label: i18n.t('Workflows'), icon: GitPullRequest },
+                  { value: 'library', label: i18n.t('Library'), icon: BookOpen },
+                  { value: 'usage', label: i18n.t('Usage'), icon: ChartNoAxesCombined },
+                ] as const
+              ).map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={view === value}
+                  onClick={() => setView(value)}
+                  className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] transition-colors ${view === value ? 'bg-fg/7 text-fg font-medium' : 'text-fg-dim hover:text-fg hover:bg-fg/3'}`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {working > 0 && (
+            <span className="text-fg-dim ml-2 text-[11px]">
+              {i18n.rich('{working} working', { working: working })}
+            </span>
+          )}
+          {needsAttention > 0 && (
+            <button
+              onClick={() => {
+                setFilter('attention');
+                select(null);
+                setCreating(false);
+                setView(projectShell ? 'conversations' : 'inbox');
+              }}
+              className="text-accent flex items-center gap-1 text-[12px]"
+            >
+              {i18n.rich('{value1}{needsAttention} need you', {
+                value1: <CircleHelp className="h-3.5 w-3.5" />,
+                needsAttention: needsAttention,
+              })}
             </button>
           )}
-        </div>
-      </header>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {shell && ['overview', 'conversations'].includes(view) && !creating && (
+              <div
+                role="group"
+                aria-label={i18n.t('Task view')}
+                className="border-border mr-2 flex rounded-lg border p-0.5"
+              >
+                {(
+                  [
+                    {
+                      value: 'overview',
+                      label: scopedWorkspace ? i18n.t('Overview') : i18n.t('Board'),
+                      icon: LayoutDashboard,
+                    },
+                    { value: 'conversations', label: i18n.t('List'), icon: MessagesSquare },
+                  ] as const
+                ).map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={view === value}
+                    onClick={() => setView(value)}
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] ${view === value ? 'bg-fg/7 text-fg' : 'text-fg-muted hover:text-fg'}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!shell && (
+              <button
+                title={i18n.t('Agent tools')}
+                aria-label={i18n.t('Agent tools')}
+                onClick={() => useAgentStore.setState({ toolsOpen: true })}
+                className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!project && (!shell || ['overview', 'conversations'].includes(view)) && (
+              <button
+                aria-label={i18n.t('Add project')}
+                title={i18n.t('Add project')}
+                onClick={() => void addProject()}
+                className="text-fg-muted hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {(!shell || ['overview', 'conversations'].includes(view)) && (
+              <button
+                disabled={!projects.length}
+                onClick={() => startTask()}
+                className="border-border text-fg hover:bg-fg/5 flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium disabled:opacity-40"
+              >
+                {i18n.rich('{value1}New task', { value1: <Plus className="h-3.5 w-3.5" /> })}
+              </button>
+            )}
+            {!shell && view === 'conversations' && selected && !creating && (
+              <button
+                type="button"
+                aria-label={i18n.t('Close conversation view')}
+                title={i18n.t('Close conversation view')}
+                onClick={() => {
+                  select(null);
+                  setView('overview');
+                }}
+                className="text-fg-dim hover:bg-fg/5 hover:text-fg rounded-md p-1.5"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </header>
+      )}
       {(error || storeError) && (
         <div
           role="alert"
@@ -496,28 +744,45 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
           </button>
         </div>
       )}
-      <AgentRecoveryNotice onOpenSession={openConversation} />
-      <AgentUsageNotifications visible={visible} onOpenSession={openConversation} />
+      {!project && visible && <AgentRecoveryNotice onOpenSession={openConversation} />}
+      {!project && <AgentUsageNotifications visible={visible} onOpenSession={openConversation} />}
       <div
         ref={workspaceRef}
         className={`flex min-h-0 min-w-0 flex-1 ${view === 'overview' ? 'flex-col' : ''}`}
       >
         <aside
           id={sessionsId}
-          className={`border-border bg-surface relative min-w-0 shrink-0 flex-col ${!['overview', 'conversations'].includes(view) || (view === 'conversations' && sessionsCollapsed) ? 'hidden' : 'flex'} ${view === 'overview' ? 'border-b' : 'border-r'}`}
+          className={`border-border bg-surface relative min-w-0 shrink-0 flex-col ${(scopedWorkspace && view === 'overview') || !['overview', 'conversations'].includes(view) || (view === 'conversations' && sessionsCollapsed && !shellTaskList) ? 'hidden' : 'flex'} ${view === 'overview' ? 'border-b' : shellTaskList ? 'flex-1' : 'border-r'}`}
           style={
-            view === 'conversations' ? { width: sessionsWidth.width, maxWidth: '45%' } : undefined
+            view === 'conversations'
+              ? shellTaskList
+                ? { width: '100%' }
+                : { width: sessionsWidth.width, maxWidth: '45%' }
+              : undefined
           }
-          aria-label={i18n.t('Project agent sessions')}
+          aria-label={projectShell ? i18n.t('Chat history') : i18n.t('Project agent sessions')}
         >
+          {projectShell && (
+            <div className="border-border/60 flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
+              <h2 className="text-fg-muted text-[12px] font-medium">{i18n.t('Chat history')}</h2>
+              <button
+                type="button"
+                onClick={() => startTask()}
+                className="border-border text-fg hover:bg-fg/5 flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]"
+              >
+                <Plus className="h-3 w-3" aria-hidden />
+                {i18n.t('New task')}
+              </button>
+            </div>
+          )}
           <div
             className={
-              view === 'overview'
+              view === 'overview' || shellTaskList
                 ? 'flex flex-wrap items-center gap-3 px-5 py-3'
                 : 'border-border/60 space-y-3 border-b p-3'
             }
           >
-            {!project && (
+            {!project && !shell && (
               <SearchableSelect
                 label={i18n.t('Filter by project')}
                 indentGrouped
@@ -532,13 +797,15 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                   },
                   ...projectOptions,
                 ]}
-                onChange={(value) => useAgentStore.setState({ projectFilter: value })}
+                onChange={(value) =>
+                  useAgentStore.setState({ projectFilter: value, selectedId: null })
+                }
                 searchPlaceholder={i18n.t('Find a project or group…')}
                 className={view === 'overview' ? 'w-56 max-w-full' : 'w-full'}
               />
             )}
             <div
-              className={`bg-surface border-border flex min-w-0 items-center gap-2 rounded-lg border px-2.5 ${view === 'overview' ? 'w-60 max-w-full' : ''}`}
+              className={`bg-surface border-border flex min-w-0 items-center gap-2 rounded-lg border px-2.5 ${view === 'overview' || shellTaskList ? 'w-72 max-w-full' : ''}`}
             >
               <Search className="text-fg-dim h-3.5 w-3.5" />
               <input
@@ -557,20 +824,25 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               value={filter}
               options={AGENT_TASK_FILTERS}
               onChange={(value) => setFilter(value as typeof filter)}
-              className={view === 'overview' ? 'w-36' : 'w-full'}
+              className={view === 'overview' || shellTaskList ? 'w-36' : 'w-full'}
             />
           </div>
           {view === 'conversations' && (
-            <div className="overlay-scroll flex-1 overflow-auto p-2">
+            <div
+              className={`overlay-scroll flex-1 overflow-auto ${shellTaskList ? 'space-y-2 p-5' : 'p-2'}`}
+            >
               {filtered.map((s) => (
-                <div key={s.id} className="group relative mb-1.5">
+                <div
+                  key={s.id}
+                  className={`group relative ${shellTaskList ? 'border-border rounded-xl border' : 'mb-1.5'}`}
+                >
                   <button
                     type="button"
                     onClick={() => {
                       openConversation(s.id);
                     }}
                     aria-current={selectedId === s.id && !creating ? 'true' : undefined}
-                    className={`w-full space-y-1.5 rounded-md p-2.5 text-left transition-colors ${selectedId === s.id && !creating ? 'bg-fg/7' : 'hover:bg-fg/4'}`}
+                    className={`w-full rounded-md text-left transition-colors ${shellTaskList ? `grid items-center gap-3 p-3 pr-10 ${projectShell ? 'md:grid-cols-[minmax(0,1fr)_12rem]' : 'md:grid-cols-[minmax(0,1fr)_10rem_12rem]'}` : 'space-y-1.5 p-2.5'} ${selectedId === s.id && !creating ? 'bg-fg/7' : 'hover:bg-fg/4'}`}
                   >
                     <div className="flex items-center gap-2 pr-6">
                       <AgentProviderLogo
@@ -590,13 +862,15 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                         />
                       )}
                     </div>
-                    <p
-                      className="text-fg-muted flex min-w-0 items-center gap-1.5 text-[11px] font-medium"
-                      title={s.project_name}
-                    >
-                      <FolderGit2 className="text-accent/80 h-3 w-3 shrink-0" aria-hidden />
-                      <span className="truncate">{s.project_name}</span>
-                    </p>
+                    {!projectShell && (
+                      <p
+                        className="text-fg-muted flex min-w-0 items-center gap-1.5 text-[11px] font-medium"
+                        title={s.project_name}
+                      >
+                        <FolderGit2 className="text-accent/80 h-3 w-3 shrink-0" aria-hidden />
+                        <span className="truncate">{s.project_name}</span>
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <AgentStatusBadge status={s.status} />
                       <span className="text-fg-dim min-w-0 truncate text-[10px]">
@@ -642,7 +916,7 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
               })}
             </div>
           )}
-          {view === 'conversations' && !sessionsCollapsed && (
+          {view === 'conversations' && !sessionsCollapsed && !shellTaskList && (
             <ResizeHandle
               handleProps={sessionResizeProps}
               dragging={sessionsWidth.dragging}
@@ -651,65 +925,109 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
             />
           )}
         </aside>
-        {view === 'inbox' ? (
+        {composerVisited.current && (
+          <div
+            hidden={!showComposer}
+            className={showComposer ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+          >
+            <AgentNewSession
+              key={`${projectFilter}:${recipe?.id ?? template?.id ?? 'blank'}`}
+              visible={visible && showComposer}
+              project={project}
+              initialTemplate={template}
+              initialRecipe={recipe}
+              initialRouting={routing}
+              onCreated={(s) => openConversation(s.id)}
+              onClose={() => setCreating(false)}
+            />
+          </div>
+        )}
+        {shell &&
+          conversationHosts.map((id) => {
+            const session = sessions[id];
+            if (!session || (project && session.project_id !== project.id)) return null;
+            const active = view === 'conversations' && selected?.id === id && !creating;
+            return (
+              <div
+                key={id}
+                hidden={!active}
+                className={active ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+              >
+                <AgentTaskPane
+                  sessionId={id}
+                  visible={visible && active}
+                  onHandoff={(items) => handoff(session, items)}
+                />
+              </div>
+            );
+          })}
+        {workflowHosts.map((host) => {
+          const active = view === 'workflows' && host.scope === projectFilter;
+          return (
+            <div
+              key={`${host.scope}:${host.recipeId || 'workflow'}`}
+              hidden={!active}
+              className={active ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+            >
+              <AgentWorkflowHub
+                shell={shell}
+                visible={visible && active}
+                projectId={host.scope || undefined}
+                onOpenSession={openWorkflowSession}
+                initialRecipe={host.recipe}
+                requestedWorkflowId={
+                  active ? (globalShell ? requestedWorkflowId : localWorkflowRequest) : null
+                }
+                requestRevision={globalShell ? shellViewRevision : 0}
+                onWorkflowRequestHandled={() => {
+                  if (globalShell) useWorkbenchStore.setState({ requestedWorkflowId: null });
+                  else setLocalWorkflowRequest(null);
+                }}
+              />
+            </div>
+          );
+        })}
+        {libraryScopes.map((scope) => {
+          const active = view === 'library' && scope === projectFilter;
+          return (
+            <div
+              key={scope}
+              hidden={!active}
+              className={active ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+            >
+              <AgentLibrary
+                shell={shell}
+                visible={visible && active}
+                projectId={scope || undefined}
+                onOpenSession={openConversation}
+                onRecipe={startRecipe}
+                onWorkflow={startWorkflowRecipe}
+              />
+            </div>
+          );
+        })}
+        {showComposer ||
+        view === 'workflows' ||
+        view === 'library' ||
+        shellTaskList ||
+        (shell && view === 'conversations' && selected && !creating) ? null : view === 'inbox' ? (
           <AgentDecisionInbox
             visible={visible}
             projectId={projectFilter || undefined}
             onOpenSession={openConversation}
-          />
-        ) : view === 'workflows' ? (
-          <AgentWorkflowHub
-            key={`${projectFilter || 'all'}:${workflowRecipe?.id || 'workflow'}`}
-            visible={visible}
-            projectId={projectFilter || undefined}
-            onOpenSession={openConversation}
-            initialRecipe={
-              workflowRecipe
-                ? {
-                    title: workflowRecipe.name,
-                    prompt: workflowRecipe.prompt,
-                    backend: workflowRecipe.backend,
-                    model: workflowRecipe.model,
-                    effort: workflowRecipe.effort,
-                    setupCommands: workflowRecipe.setupCommands.split('\n').filter(Boolean),
-                    checkCommands: workflowRecipe.checkCommands.split('\n').filter(Boolean),
-                    acceptance: workflowRecipe.acceptance,
-                    steps: workflowRecipe.workflowSteps
-                      ? recipeStepsToCreateSteps(workflowRecipe.workflowSteps, (target) =>
-                          // A recipe may name a pool; the form resolves it to an account on open.
-                          composerAccountForTarget({
-                            target,
-                            pool: routingPool,
-                            accounts: routingAccounts(),
-                            cooldowns: routingCooldowns(),
-                            capacity: agentCapacityPreferences(
-                              useAgentLibraryStore.getState().records['preferences:capacity']
-                                ?.value,
-                            ),
-                            occupied: routingOccupancy(),
-                            now: Date.now(),
-                          }),
-                        )
-                      : undefined,
-                  }
-                : undefined
-            }
-          />
-        ) : view === 'library' ? (
-          <AgentLibrary
-            projectId={projectFilter || undefined}
-            onOpenSession={openConversation}
-            onRecipe={startRecipe}
-            onWorkflow={(next) => {
-              if (!project && next.projectId)
-                useAgentStore.setState({ projectFilter: next.projectId });
-              // A workflow step also runs as one connection, so a pool target resolves here too.
-              setWorkflowRecipe({ ...next, backend: composerAccount(next) });
-              setView('workflows');
-            }}
+            onOpenWorkflow={showWorkflow}
+            shell={shell}
           />
         ) : view === 'usage' ? (
           <AgentUsagePanel visible={visible} projectId={projectFilter || undefined} />
+        ) : view === 'overview' && scopedWorkspace ? (
+          <WorkspaceOverview
+            key={scopedWorkspace.id}
+            project={scopedWorkspace}
+            sessions={scoped}
+            visible={visible}
+            onNewTask={() => startTask()}
+          />
         ) : view === 'overview' && projects.length > 0 ? (
           <AgentMissionControl
             sessions={filtered}
@@ -725,18 +1043,12 @@ export function AgentWorkspace({ visible, project }: { visible: boolean; project
                 : (lane) => setFilter(lane === 'working' ? 'active' : lane)
             }
           />
-        ) : view === 'conversations' && (creating || (!selected && projects.length > 0)) ? (
-          <AgentNewSession
-            key={recipe?.id ?? template?.id ?? 'blank'}
-            visible={visible}
-            project={project}
-            initialTemplate={template}
-            initialRecipe={recipe}
-            initialRouting={routing}
-            onCreated={(s) => openConversation(s.id)}
-            onClose={() => setCreating(false)}
-          />
-        ) : view === 'conversations' && selected ? (
+        ) : projectShell && !ready && !creating ? (
+          <div className="text-fg-muted flex min-h-0 min-w-0 flex-1 items-center justify-center gap-2 text-[13px]">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            {i18n.t('Loading your workspace…')}
+          </div>
+        ) : view === 'conversations' && selected && !shell ? (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <AgentSessionView
               key={selected.id}

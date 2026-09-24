@@ -323,8 +323,14 @@ impl AgentManager {
                 ));
             }
             let _lease = self.workflow_lease(Path::new(&w.root))?;
+            let reviewed_root =
+                if decision == "approve" && step.root.is_some() && !w.gates_integration(step) {
+                    step.step_root(&w)
+                } else {
+                    &w.root
+                };
             if decision != "retry"
-                && self.workflow_fingerprint(Path::new(&w.root)).await?
+                && self.workflow_fingerprint(Path::new(reviewed_root)).await?
                     != step.input_revision.clone().unwrap_or_default()
             {
                 return Err(invalid(
@@ -486,6 +492,78 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
             "RUNHQ_REVIEW_RESULT: {}\nRUNHQ_REVIEW_RESULT: {}",
         ] {
             assert_eq!(review_verdict(text).0, "unknown");
+        }
+    }
+
+    #[tokio::test]
+    async fn prompt_dependency_runs_while_its_review_reads_an_unchanged_snapshot() {
+        for policy in ["on_findings", "approval"] {
+            let (temp, manager, mut w) = fixture("on_findings", "pass").await;
+            w.steps[1].review_policy = policy.into();
+            manager
+                .workspace_save(
+                    "preferences:capacity".into(),
+                    Some(json!({
+                        "global": 4, "providers": { "codex": 4 }
+                    })),
+                )
+                .unwrap();
+            w.steps[2].depends_on = vec!["first".into()];
+            w.steps[2].input_step_id = Some("first".into());
+            w.steps[3].depends_on = vec!["second".into(), "review".into()];
+            manager.save_workflow(&mut w).unwrap();
+            std::fs::write(temp.path().join("bridge.cjs"), r#"
+const fs = require('node:fs'), path = require('node:path');
+const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+  const msg = JSON.parse(line); if(msg.type !== 'start') return;
+  const cfg = msg.config;
+  const intermediate = cfg.read_only_review && cfg.prompt.includes('Review the first change');
+  const finish = () => {
+    if(!cfg.read_only_review) fs.appendFileSync(path.join(cfg.cwd,'README.md'), cfg.prompt.includes('SECOND_PROMPT') ? 'SECOND_OUTPUT\n' : 'FIRST_OUTPUT\n');
+    const text = cfg.read_only_review ? 'RUNHQ_REVIEW_RESULT: {"verdict":"pass","summary":"No issues"}' : 'Done';
+    emit({type:'item',item:{id:'answer',kind:'assistant',title:'Result',text,status:'completed',created_at:Date.now()}});
+    emit({type:'finished',status:'completed'}); process.exit(0);
+  };
+  if(intermediate) {
+    const timer = setInterval(() => { if(fs.existsSync(path.join(__dirname,'release-review'))) { clearInterval(timer); finish(); } },20);
+  } else finish();
+});
+"#).unwrap();
+            manager.workflow_launch(&w.id, None).await.unwrap();
+            let overlap = wait(&manager, &w.id, |w| {
+                w.steps[2].status == "completed" && w.steps[1].status == "running"
+            })
+            .await;
+            let review_root = overlap.steps[1].root.as_ref().unwrap();
+            assert_ne!(review_root, &overlap.root);
+            let captured =
+                std::fs::read_to_string(Path::new(review_root).join("README.md")).unwrap();
+            assert!(captured.contains("FIRST_OUTPUT"));
+            assert!(!captured.contains("SECOND_OUTPUT"));
+            assert!(
+                std::fs::read_to_string(Path::new(&overlap.root).join("README.md"))
+                    .unwrap()
+                    .contains("SECOND_OUTPUT")
+            );
+            assert_eq!(overlap.steps[3].status, "pending");
+            std::fs::write(temp.path().join("release-review"), "ok").unwrap();
+            if policy == "approval" {
+                let paused = wait(&manager, &w.id, |w| w.stage == "awaiting_review").await;
+                manager
+                    .workflow_review_decision(
+                        &w.id,
+                        "review",
+                        paused.steps[1].finished_at.unwrap(),
+                        "approve",
+                    )
+                    .await
+                    .unwrap();
+            }
+            let done = wait(&manager, &w.id, |w| w.stage == "ready").await;
+            assert!(done.steps.iter().all(|step| step.status == "completed"));
+            assert_eq!(done.review_fingerprint, done.current_fingerprint);
+            assert_ne!(done.steps[1].input_revision, done.review_fingerprint);
         }
     }
 

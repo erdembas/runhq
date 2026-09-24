@@ -1,10 +1,12 @@
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import {} from 'react';
-import { Search, Zap } from 'lucide-react';
+import { Search, Zap, Minimize2 } from 'lucide-react';
 import { ipc } from '@/lib/ipc';
 import { useAppStore } from '@/store/useAppStore';
 import type { Status } from '@/types';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
+import { useAgentFocusMode } from '@/lib/useAgentFocusMode';
 
 /** macOS gets native overlay traffic-lights; other platforms keep full native chrome. */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -13,6 +15,7 @@ export function TitleBar() {
   i18n.useLocale();
   const services = useAppStore((s) => s.services);
   const statuses = useAppStore((s) => s.statuses);
+  const focused = useAgentFocusMode();
 
   const runningCount = useMemo(
     () =>
@@ -71,6 +74,16 @@ export function TitleBar() {
 
       {/* Right: live running count */}
       <div data-tauri-drag-region className="ml-auto flex items-center gap-2">
+        {focused && (
+          <button
+            type="button"
+            onClick={() => useWorkbenchStore.getState().setFocusMode(false)}
+            className="text-accent hover:bg-accent/10 flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            {i18n.t('Exit focus')}
+          </button>
+        )}
         {runningCount > 0 && (
           <span className="bg-status-running/15 text-status-running rounded-app-sm flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-semibold">
             {i18n.rich('{value1}{runningCount} running', {

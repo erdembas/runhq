@@ -1,19 +1,12 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
-import { lazy, memo, Suspense, type ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TerminalPane } from '@/components/TerminalPane';
 import type { Tab as LayoutTab } from '@/components/layout/layoutModel';
 import type { CommandEntry, LogLine } from '@/types';
-import { ProjectAgentsTab } from '@/components/agents/ProjectAgentsTab';
 import { CommandLogBody } from './CommandLogBody';
-
-const ProjectDocsTab = lazy(() =>
-  import('@/components/docs/ProjectDocsTab').then((module) => ({ default: module.ProjectDocsTab })),
-);
-
-const ProjectNotesTab = lazy(() =>
-  import('@/components/ProjectNotesTab').then((module) => ({ default: module.ProjectNotesTab })),
-);
+import { LegacyProjectResource } from '@/components/workbench/LegacyProjectResource';
+import { projectTerminalId } from '@/components/workbench/projectTerminalModel';
 
 interface TabBodyHostProps {
   clearLogsLocal: (key: string) => void;
@@ -23,9 +16,9 @@ interface TabBodyHostProps {
   follow: boolean;
   handleLineContextMenu: (lines: LogLine[], index: number) => void;
   isDark: boolean;
-  onRunCommand: (command: string) => void;
+  onTerminalReady: (id: string) => void;
+  onTerminalClosed: (id: string) => void;
   selectedId: string;
-  serviceName: string;
   setFollow: (value: boolean) => void;
   setShowTimestamp: (value: boolean) => void;
   showTimestamp: boolean;
@@ -42,9 +35,9 @@ export const TabBodyHost = memo(function TabBodyHost({
   follow,
   handleLineContextMenu,
   isDark,
-  onRunCommand,
+  onTerminalReady,
+  onTerminalClosed,
   selectedId,
-  serviceName,
   setFollow,
   setShowTimestamp,
   showTimestamp,
@@ -56,7 +49,9 @@ export const TabBodyHost = memo(function TabBodyHost({
   let body: ReactNode = null;
   switch (tab.kind) {
     case 'agents':
-      body = <ProjectAgentsTab key={cwd} cwd={cwd} name={serviceName} visible={visible} />;
+    case 'docs':
+    case 'notes':
+      body = <LegacyProjectResource serviceId={selectedId} kind={tab.kind} />;
       break;
     case 'logs': {
       body = (
@@ -77,36 +72,15 @@ export const TabBodyHost = memo(function TabBodyHost({
       );
       break;
     }
-    case 'docs':
-      body = (
-        <Suspense
-          fallback={
-            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              {i18n.t('Loading docs…')}
-            </div>
-          }
-        >
-          <ProjectDocsTab serviceId={selectedId} cwd={cwd} onRunCommand={onRunCommand} />
-        </Suspense>
-      );
-      break;
-    case 'notes':
-      body = (
-        <Suspense
-          fallback={
-            <div className="text-fg-dim flex flex-1 items-center justify-center text-[12.5px]">
-              {i18n.t('Loading notes…')}
-            </div>
-          }
-        >
-          <ProjectNotesTab serviceId={selectedId} serviceName={serviceName} />
-        </Suspense>
-      );
-      break;
     case 'terminal':
       body = (
         <div className="bg-surface-muted relative flex min-h-0 flex-1 flex-col">
-          <TerminalPane id={tab.id} cwd={cwd} />
+          <TerminalPane
+            id={projectTerminalId(selectedId, tab.id)}
+            cwd={cwd}
+            onReady={() => onTerminalReady(projectTerminalId(selectedId, tab.id))}
+            onDispose={() => onTerminalClosed(projectTerminalId(selectedId, tab.id))}
+          />
         </div>
       );
       break;

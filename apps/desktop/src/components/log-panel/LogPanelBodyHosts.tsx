@@ -11,9 +11,9 @@ interface LogPanelBodyHostsProps {
   filter: string;
   follow: boolean;
   handleLineContextMenu: (lines: LogLine[], index: number) => void;
-  onRunCommand: (command: string) => void;
+  onTerminalReady: (id: string) => void;
+  onTerminalClosed: (id: string) => void;
   selectedId: string;
-  serviceName: string;
   setFollow: (value: boolean) => void;
   setShowTimestamp: (value: boolean) => void;
   showTimestamp: boolean;
@@ -32,9 +32,9 @@ export function LogPanelBodyHosts({
   follow,
   handleLineContextMenu,
   isDark,
-  onRunCommand,
+  onTerminalReady,
+  onTerminalClosed,
   selectedId,
-  serviceName,
   setFollow,
   setShowTimestamp,
   showTimestamp,
@@ -56,7 +56,6 @@ export function LogPanelBodyHosts({
             visible={isActive && visibleTabIds.has(tab.id)}
             selectedId={selectedId}
             cwd={cwd}
-            serviceName={serviceName}
             commands={commands}
             filter={filter}
             showTimestamp={showTimestamp}
@@ -66,7 +65,8 @@ export function LogPanelBodyHosts({
             isDark={isDark}
             handleLineContextMenu={handleLineContextMenu}
             clearLogsLocal={clearLogsLocal}
-            onRunCommand={onRunCommand}
+            onTerminalReady={onTerminalReady}
+            onTerminalClosed={onTerminalClosed}
           />
         );
       })}

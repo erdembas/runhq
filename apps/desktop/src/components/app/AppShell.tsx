@@ -3,10 +3,10 @@ import type { ReactNode } from 'react';
 import { memo, useEffect } from 'react';
 import { AgentToolsHub } from '@/components/agents/AgentToolsHub';
 import { AgentWorkspace } from '@/components/agents/AgentWorkspace';
-import { connectAgents } from '@/store/useAgentStore';
+import { connectAgents, useAgentStore } from '@/store/useAgentStore';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { SidebarRail } from '@/components/SidebarRail';
-import { LogPanel } from '@/components/LogPanel';
+import { ProjectWorkbench } from '@/components/workbench/ProjectWorkbench';
 import { PortManager } from '@/components/PortManager';
 import { Dashboard } from '@/components/dashboard';
 import { ServiceEditor } from '@/components/ServiceEditor';
@@ -29,6 +29,12 @@ import { GlobalTooltip } from '@/components/ui/GlobalTooltip';
 import { ipc } from '@/lib/ipc';
 import { useAppStore, mainTabKey, type MainTab } from '@/store/useAppStore';
 import { useShellUiStore } from '@/store/useShellUiStore';
+import { useAgentFocusMode } from '@/lib/useAgentFocusMode';
+import { openAgentTask } from '@/lib/workbenchNavigation';
+import {
+  migrateLegacyAgentTaskTabs,
+  visibleMainTabs,
+} from '@/components/main-tab-bar/legacyAgentTaskTabs';
 
 interface AppShellProps {
   contextMenu: ReactNode;
@@ -59,22 +65,27 @@ const WorkspaceChrome = memo(function WorkspaceChrome({
 }: Pick<AppShellProps, 'startScan'>) {
   i18n.useLocale();
   const openPortManager = useShellUiStore((s) => s.openPortManager);
+  const focused = useAgentFocusMode();
   return (
     <>
       <TitleBar />
       <div className="flex min-h-0 flex-1">
-        <SidebarRail />
+        <div className={focused ? 'hidden' : 'flex shrink-0'}>
+          <SidebarRail />
+        </div>
         <main className="flex min-w-0 flex-1 flex-col">
           <MainTabBar />
           <MainTabPanels startScan={startScan} />
         </main>
-        <RightSidePanel />
-        <RightActivityBar />
+        <div className={focused ? 'hidden' : 'contents'}>
+          <RightSidePanel />
+          <RightActivityBar />
+        </div>
       </div>
       <UpdateBanner />
       <StatusBar
         onOpenPortManager={openPortManager}
-        onOpenSettings={() => useAppStore.getState().openSettings('shortcuts')}
+        onOpenSettings={() => useAppStore.getState().openSettings('general')}
         onOpenAiSettings={() => useAppStore.getState().openSettings('ai')}
         onToggleAiChat={() => useAppStore.getState().toggleRightPanel('ai')}
       />
@@ -85,9 +96,25 @@ const WorkspaceChrome = memo(function WorkspaceChrome({
 function MainTabPanels({ startScan }: Pick<AppShellProps, 'startScan'>) {
   i18n.useLocale();
   const mainTabs = useAppStore((s) => s.mainTabs);
+  const activeKey = useAppStore((s) => s.activeMainTabKey);
+  const agentsReady = useAgentStore((s) => s.ready);
+  useEffect(() => {
+    if (!agentsReady) return;
+    // Read the current snapshot so a repeated effect cannot replay a completed migration.
+    const state = useAppStore.getState();
+    migrateLegacyAgentTaskTabs(
+      state.mainTabs,
+      state.activeMainTabKey,
+      openAgentTask,
+      state.closeMainTab,
+    );
+  }, [mainTabs, activeKey, agentsReady]);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      {mainTabs.map((tab) => (
+      {activeKey.startsWith('agent-task:') && !agentsReady && (
+        <p className="text-fg-muted p-5 text-[12px]">{i18n.t('Loading task…')}</p>
+      )}
+      {visibleMainTabs(mainTabs).map((tab) => (
         <MainTabPanel key={mainTabKey(tab)} tab={tab} startScan={startScan} />
       ))}
     </div>
@@ -110,8 +137,8 @@ const MainTabPanel = memo(function MainTabPanel({
       className={isActive ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}
     >
       {tab.kind === 'dashboard' && <Dashboard onScan={startScan} visible={isActive} />}
-      {tab.kind === 'agents' && <AgentWorkspace visible={isActive} />}
-      {tab.kind === 'service' && <LogPanel serviceId={tab.refId} isActive={isActive} />}
+      {tab.kind === 'agents' && <AgentWorkspace shell visible={isActive} />}
+      {tab.kind === 'service' && <ProjectWorkbench serviceId={tab.refId} isActive={isActive} />}
       {tab.kind === 'stack' && <StackDetail stackId={tab.refId} visible={isActive} />}
       {tab.kind === 'settings' && <SettingsView onReplayTour={replayTour} />}
       {tab.kind === 'release-notes' && <ReleaseNotes />}

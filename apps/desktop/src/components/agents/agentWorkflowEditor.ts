@@ -5,6 +5,7 @@ import {
   workflowDescendants,
   workflowRoleProduces,
   workflowTaskLevels,
+  workflowTasksInExecutionOrder,
   workflowWouldCycle,
 } from './agentWorkflowGraph';
 import { newWorkflowStep, workflowTaskId } from './agentWorkflowStepPolicy';
@@ -124,6 +125,64 @@ export interface WorkflowQueuedPrompt {
   effort?: string;
 }
 export type WorkflowConversationMode = 'separate' | 'same';
+export type WorkflowExecutionMode = 'sequence' | 'prompts' | 'parallel';
+
+/** Change prompt scheduling without discarding instructions, models or review policies. */
+export function setWorkflowExecution(
+  steps: CreateWorkflowStep[],
+  mode: WorkflowExecutionMode,
+): CreateWorkflowStep[] {
+  const ordered = workflowTasksInExecutionOrder(steps);
+  const producers = ordered.filter((step) => workflowRoleProduces(step.role));
+  const reviews = ordered.filter((step) => !workflowRoleProduces(step.role));
+  const finalReview = reviews.filter((step) => step.role === 'review').at(-1);
+  return ordered.map((step, index) => {
+    if (mode === 'sequence')
+      return {
+        ...step,
+        depends_on: index ? [ordered[index - 1]!.id] : [],
+        workspace: 'shared',
+        continue_from: step.continue_from,
+      };
+    if (workflowRoleProduces(step.role)) {
+      const previous = producers[producers.indexOf(step) - 1];
+      return {
+        ...step,
+        depends_on: mode === 'prompts' && previous ? [previous.id] : [],
+        workspace: mode === 'parallel' ? 'own' : 'shared',
+        continue_from: mode === 'prompts' ? step.continue_from : undefined,
+      };
+    }
+    // The final review sees the combined result and waits for earlier reviews as well.
+    if (step.id === finalReview?.id)
+      return {
+        ...step,
+        depends_on: [
+          ...producers,
+          ...reviews.filter((review) => ordered.indexOf(review) < index),
+        ].map((dependency) => dependency.id),
+      };
+    return step;
+  });
+}
+
+export function workflowExecutionMode(
+  steps: CreateWorkflowStep[],
+): WorkflowExecutionMode | 'custom' {
+  if (workflowIsQueue(steps)) return 'sequence';
+  const producers = steps.filter((step) => workflowRoleProduces(step.role));
+  if (producers.length > 1 && producers.every((step) => !step.depends_on.length)) return 'parallel';
+  if (
+    producers.length > 1 &&
+    producers.every((step, index) =>
+      index === 0
+        ? !step.depends_on.length
+        : step.depends_on.length === 1 && step.depends_on[0] === producers[index - 1]!.id,
+    )
+  )
+    return 'prompts';
+  return 'custom';
+}
 
 const reviewPrompt = (prompt: string) =>
   `Review the result of the preceding prompt. Report concrete issues with severity and file references; do not edit files.\n\nPrompt to review:\n${prompt || 'Use the shared brief and success criteria.'}`;
@@ -135,6 +194,7 @@ export function createWorkflowPromptQueue(
   reviewer: string,
   conversation: WorkflowConversationMode = 'separate',
   reviewSettings: Partial<Pick<CreateWorkflowStep, 'model' | 'effort' | 'review_policy'>> = {},
+  execution: WorkflowExecutionMode = 'sequence',
 ): CreateWorkflowStep[] {
   const steps: CreateWorkflowStep[] = [];
   prompts.forEach((entry, index) => {
@@ -161,7 +221,7 @@ export function createWorkflowPromptQueue(
         review_policy: reviewSettings.review_policy ?? 'on_findings',
       });
   });
-  return steps;
+  return execution === 'sequence' ? steps : setWorkflowExecution(steps, execution);
 }
 
 export const workflowStepDeclaration = (step: WorkflowStep): CreateWorkflowStep => ({

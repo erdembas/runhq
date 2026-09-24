@@ -6,7 +6,12 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import type { AgentBackend } from '@runhq/cockpit-types';
 import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
-import { createWorkflowPromptQueue, type WorkflowConversationMode } from './agentWorkflowEditor';
+import {
+  createWorkflowPromptQueue,
+  type WorkflowConversationMode,
+  type WorkflowExecutionMode,
+} from './agentWorkflowEditor';
+import { AgentWorkflowExecution } from './AgentWorkflowExecution';
 import { AgentWorkflowReviewPolicy } from './AgentWorkflowReviewPolicy';
 import type { WorkflowReviewPolicy } from '@/lib/ipc/agentWorkflowIpc';
 import { MAX_WORKFLOW_STEPS, moveWorkflowStep } from './agentWorkflowStepPolicy';
@@ -41,6 +46,7 @@ export function AgentWorkflowPromptQueue({
     { id: 2, prompt: '', review: false, model: '', effort: '' },
   ]);
   const nextId = useRef(3);
+  const [execution, setExecution] = useState<WorkflowExecutionMode>('sequence');
   const [conversation, setConversation] = useState<WorkflowConversationMode>('separate');
   const [producer, setProducer] = useState('');
   const [reviewer, setReviewer] = useState('');
@@ -51,10 +57,17 @@ export function AgentWorkflowPromptQueue({
   });
   const target = producer || producers[0]?.id || '';
   const reviewTarget = reviewer || reviewers[0]?.id || '';
-  const steps = createWorkflowPromptQueue(rows, target, reviewTarget, conversation, {
-    ...reviewSettings,
-    review_policy: reviewPolicy,
-  });
+  const steps = createWorkflowPromptQueue(
+    rows,
+    target,
+    reviewTarget,
+    conversation,
+    {
+      ...reviewSettings,
+      review_policy: reviewPolicy,
+    },
+    execution,
+  );
   return (
     <fieldset
       disabled={disabled}
@@ -64,10 +77,21 @@ export function AgentWorkflowPromptQueue({
         {i18n.t('Write your prompt queue')}
       </legend>
       <p className="text-fg-muted text-xs">
-        {i18n.t(
-          'Each prompt starts when the previous step finishes. Add a review wherever you want a second opinion before continuing.',
-        )}
+        {i18n.t('Choose when prompts start, then add reviews wherever you need a second opinion.')}
       </p>
+      <AgentWorkflowExecution
+        value={execution}
+        disabled={disabled}
+        onChange={(mode) => {
+          setExecution(mode);
+          if (mode === 'parallel') setConversation('separate');
+        }}
+      />
+      {execution === 'parallel' && (
+        <p className="text-fg-dim text-xs">
+          {i18n.t('Parallel prompts use separate conversations and working copies.')}
+        </p>
+      )}
       <div className="grid gap-2 sm:grid-cols-2" aria-label={i18n.t('Queue conversation mode')}>
         {(
           [
@@ -89,6 +113,7 @@ export function AgentWorkflowPromptQueue({
           >
             <Radio
               name="queue-conversation"
+              disabled={disabled || (execution === 'parallel' && value === 'same')}
               value={value}
               checked={conversation === value}
               onChange={() => setConversation(value)}
@@ -215,8 +240,8 @@ export function AgentWorkflowPromptQueue({
             />
             {index < rows.length - 1 ? (
               <label className="text-fg-muted flex items-center gap-2 text-[11px]">
-                {i18n.rich('{value1}Review prompt {value2} before continuing', {
-                  value1: (
+                {i18n.rich('{checkbox}Review prompt {number}', {
+                  checkbox: (
                     <Checkbox
                       checked={row.review}
                       onChange={(event) =>
@@ -230,7 +255,7 @@ export function AgentWorkflowPromptQueue({
                       }
                     />
                   ),
-                  value2: index + 1,
+                  number: i18n.number(index + 1),
                 })}
               </label>
             ) : (
@@ -254,7 +279,7 @@ export function AgentWorkflowPromptQueue({
       </button>
       <p className="text-fg-dim text-[11px]">
         {i18n.t(
-          'Reviews always use independent conversations. The next prompt waits for the review to finish; review findings are passed to the prompt agent.',
+          'Reviews use independent conversations. Their decision policy still applies when findings arrive.',
         )}
       </p>
       {steps.length > MAX_WORKFLOW_STEPS && (

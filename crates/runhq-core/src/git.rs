@@ -13,6 +13,7 @@ mod runner;
 mod status;
 mod types;
 mod working_tree;
+mod workspace_diff;
 
 pub use branch::{
     checkout, create_branch, delete_branch, fetch, list_branches, list_remote_branches, pull,
@@ -28,6 +29,7 @@ pub use working_tree::{
     amend_commit_message, commit, discard_file, push, stage_all, stage_file, stash, stash_pop,
     undo_last_commit, unstage_all, unstage_file,
 };
+pub use workspace_diff::workspace_diff_raw;
 
 #[cfg(test)]
 mod tests;
