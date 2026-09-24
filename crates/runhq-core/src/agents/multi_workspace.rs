@@ -204,7 +204,12 @@ mod tests {
             creation_request_id: None,
             project_id: workspace.id.clone(),
             backend: "codex".into(),
-            executable: "codex".into(),
+            // Creation validates the path but never starts a turn. Keep this
+            // persistence test independent of locally installed agent CLIs.
+            executable: std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
             title: "Task".into(),
             model: String::new(),
             effort: String::new(),
