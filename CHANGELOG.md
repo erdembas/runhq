@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0](https://github.com/erdembas/runhq/compare/v3.1.0...v3.2.0) (2026-09-24)
+
+
+### Features
+
+* **desktop:** make workflows visual and schedule new agent tasks ([#168](https://github.com/erdembas/runhq/issues/168)) ([7b43544](https://github.com/erdembas/runhq/commit/7b435447b7c65e9a62fc2838f82dc40722f28973))
+
 ## [3.1.0](https://github.com/erdembas/runhq/compare/v3.0.1...v3.1.0) (2026-09-24)
 
 ### AI providers for every task
