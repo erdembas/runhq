@@ -33,6 +33,9 @@ const i18nCore = load('../../../packages/cockpit-ui/src/i18n/core.ts', {
   },
 });
 const graph = load('../src/components/agents/agentWorkflowGraph.ts');
+const models = load('../src/components/agents/agentWorkflowModels.ts', {
+  './agentWorkflowGraph': graph,
+});
 const policy = load('../src/components/agents/agentWorkflowStepPolicy.ts', {
   './agentWorkflowGraph': graph,
 });
@@ -112,6 +115,97 @@ const diamond = () => [
   task('docs', 'implement', ['api'], { workspace: 'own' }),
   task('rev', 'review', ['ui', 'docs']),
 ];
+
+test('bulk model selection updates every waiting step of exactly one action and survives recipe saving', () => {
+  const tasks = [
+    task('start', 'human'),
+    task('plan', 'plan', ['start']),
+    task('build', 'implement', ['plan'], {
+      model: 'old-model',
+      execution: { max_runs: 3, env: { KEEP: 'value' }, agent_profile: 'builder' },
+    }),
+    task('test', 'shell', ['build'], { execution: { command: 'pnpm test' } }),
+    task('review', 'review', ['test'], { model: 'review-model', review_policy: 'always' }),
+    task('revise', 'revise', ['review']),
+    task('validate', 'validate', ['revise']),
+    task('gate', 'barrier', ['validate']),
+    task('build-next', 'implement', ['gate'], { target: 'claude' }),
+    task('already-started', 'implement', ['build-next'], { model: 'keep-model' }),
+  ];
+  const original = globalThis.structuredClone(tasks);
+  const settings = { target: 'codex', model: 'new-model', effort: 'high' };
+  const next = models.applyWorkflowRoleModels(
+    tasks,
+    'implement',
+    settings,
+    new Set(['already-started']),
+  );
+  for (const id of ['build', 'build-next']) {
+    const before = tasks.find((step) => step.id === id);
+    assert.deepEqual(
+      next.find((step) => step.id === id),
+      { ...before, ...settings },
+    );
+  }
+  for (const before of tasks.filter((step) => !['build', 'build-next'].includes(step.id))) {
+    assert.equal(
+      next.find((step) => step.id === before.id),
+      before,
+    );
+  }
+  assert.deepEqual(tasks, original, 'undo retains the untouched original declarations');
+  assert.deepEqual(bridge.recipeStepsToCreateSteps(bridge.createStepsToRecipeSteps(next)), next);
+  for (const role of ['review', 'revise', 'plan', 'validate']) {
+    const changed = models.applyWorkflowRoleModels(tasks, role, settings);
+    assert.deepEqual(
+      models.workflowModelSettings(changed.find((step) => step.role === role)),
+      settings,
+    );
+    assert.equal(
+      changed.find((step) => step.id === 'build'),
+      tasks[2],
+    );
+  }
+  for (const role of ['human', 'barrier', 'shell']) {
+    assert.equal(models.applyWorkflowRoleModels(tasks, role, settings), tasks);
+  }
+});
+
+test('bulk agent changes reset incompatible profiles and conversations without changing dependencies', () => {
+  const tasks = [
+    task('started', 'implement'),
+    task('build', 'implement', ['started'], {
+      continue_from: 'started',
+      execution: { agent_profile: 'custom-codex', max_runs: 2 },
+    }),
+    task('build-next', 'implement', ['build'], { continue_from: 'build' }),
+    task('revise', 'revise', ['build-next'], { continue_from: 'build-next' }),
+    task('review', 'review', ['revise']),
+  ];
+  const changed = models.applyWorkflowRoleModels(
+    tasks,
+    'implement',
+    { target: 'claude', model: 'reviewed-model', effort: '' },
+    new Set(['started']),
+  );
+  assert.equal(changed[0], tasks[0]);
+  assert.equal(changed[1].continue_from, undefined);
+  assert.equal(changed[2].continue_from, 'build');
+  assert.equal(changed[3].continue_from, undefined);
+  assert.deepEqual(changed[1].execution, { agent_profile: '', max_runs: 2 });
+  assert.deepEqual(
+    changed.map((step) => step.depends_on),
+    tasks.map((step) => step.depends_on),
+  );
+  assert.equal(policy.workflowStepsProblem(changed), null);
+  const reset = models.applyWorkflowRoleModels(changed, 'implement', {
+    target: 'claude',
+    model: '',
+    effort: '',
+  });
+  assert.equal(reset[1].model, '');
+  assert.equal(reset[1].effort, '');
+});
 
 test('a diamond is ordered, levelled and read back as its dependencies', () => {
   const tasks = diamond();

@@ -1,4 +1,15 @@
 {
+  "Models by step type": "Adım türüne göre modeller",
+  "Choose an agent, model and reasoning level, then apply them to all steps of that type.": "Agent, model ve akıl yürütme düzeyini seçip aynı türdeki tüm adımlara uygulayın.",
+  "Started steps keep their settings. Changing agents starts a new conversation where needed.": "Başlamış adımların ayarları korunur. Agent değiştirildiğinde gerektiği yerde yeni bir konuşma başlar.",
+  "Implementation model": "Uygulama modeli",
+  "Review model": "İnceleme modeli",
+  "Revision model": "Revizyon modeli",
+  "Planning model": "Planlama modeli",
+  "Validation model": "Doğrulama modeli",
+  "These steps currently use different settings.": "Bu adımlar şu anda farklı ayarlar kullanıyor.",
+  "Apply to {count} step": "{count} adıma uygula",
+  "Apply to {count} steps": "{count} adıma uygula",
   "New Service…": "Yeni servis…",
   "New Stack…": "Yeni yığın…",
   "Discover projects…": "Projeleri keşfet…",
@@ -3403,5 +3414,9 @@
   "Edit human approvals, conditional gates, shell checks, timeouts and bounded correction rounds alongside your agent tasks. Inspect recorded results and approve the next step from the same workflow.": "İnsan onaylarını, koşullu kapıları, terminal kontrollerini, süre sınırlarını ve sınırlı düzeltme turlarını ajan görevleriyle aynı yerde düzenleyin. Kayıtlı sonuçları inceleyin ve sonraki adımı aynı iş akışından onaylayın.",
   "Review the changes that were checked": "Doğrulanan değişiklikleri inceleyin",
   "Work in the selected repositories and give independent reviewers captured copies of the checked changes. Later edits stay outside that review. An extra review after manual corrections repeats verification before capturing a fresh snapshot.": "Seçilen depolarda çalışın ve bağımsız inceleyicilere doğrulanmış değişikliklerin yakalanmış kopyalarını verin. Sonraki düzenlemeler bu incelemeye karışmaz. Elle düzeltme sonrası ek inceleme, yeni bir kopya yakalamadan önce doğrulamayı tekrar çalıştırır.",
-  "Reimport an older package’s original JSON or ZIP to open it in the new editor. Stored files are kept, but previous package runs are not converted automatically.": "Eski bir paketi yeni editörde açmak için özgün JSON veya ZIP dosyasını yeniden içe aktarın. Kayıtlı dosyalar korunur; önceki paket çalışmaları otomatik olarak dönüştürülmez."
+  "Reimport an older package’s original JSON or ZIP to open it in the new editor. Stored files are kept, but previous package runs are not converted automatically.": "Eski bir paketi yeni editörde açmak için özgün JSON veya ZIP dosyasını yeniden içe aktarın. Kayıtlı dosyalar korunur; önceki paket çalışmaları otomatik olarak dönüştürülmez.",
+  "Choose models for a whole workflow at once.": "Tüm iş akışının modellerini tek seferde seçin.",
+  "RunHQ 3.7 lets you set the agent, model and reasoning level for every step of the same type in one place.": "RunHQ 3.7 ile aynı türdeki tüm adımların agent, model ve akıl yürütme düzeyini tek yerden belirleyebilirsiniz.",
+  "In the Workflow editor, choose settings for implementation, review, revision, planning or validation steps and apply them to every step of that type that has not started yet.": "Workflow editöründe uygulama, inceleme, revizyon, planlama veya doğrulama adımları için ayar seçin ve bunları o türün henüz başlamamış tüm adımlarına uygulayın.",
+  "Commands, gates and review policies stay unchanged. Steps that switch to a different agent start a new conversation instead of continuing another agent’s session.": "Komutlar, kapılar ve inceleme politikaları değişmez. Farklı bir agent’a geçen adımlar, başka bir agent’ın oturumunu sürdürmek yerine yeni bir konuşma başlatır."
 }

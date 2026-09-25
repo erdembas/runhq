@@ -13,6 +13,7 @@ import { release_0_10_3 } from './data/0.10.3';
 import { release_2_0_0 } from './data/2.0.0';
 import { release_3_0_0 } from './data/3.0.0';
 import { release_3_2_0 } from './data/3.2.0';
+import { release_3_7_0 } from './data/3.7.0';
 import { release_3_6_0 } from './data/3.6.0';
 import { release_3_5_0 } from './data/3.5.0';
 import { release_3_4_0 } from './data/3.4.0';
@@ -21,6 +22,7 @@ import { release_2_2_0 } from './data/2.2.0';
 import type { WhatsNewRelease } from './types';
 
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
+  release_3_7_0,
   release_3_6_0,
   release_3_5_0,
   release_3_4_0,
