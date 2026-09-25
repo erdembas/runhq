@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.6.0](https://github.com/erdembas/runhq/compare/v3.5.0...v3.6.0) (2026-09-25)
 
+RunHQ 3.6 brings imported coding packages into the native Workflow editor.
+
+- Import JSON/ZIP packages as editable workflows with per-step agents, models, reasoning effort and supported implementation profiles.
+- Use human approvals, conditions, shell checks, bounded correction rounds and captured review revisions in one workflow.
+- Preserve Windows command and repository-path handling, and keep the original conversation account on agent-pool retries.
+- Retire the separate package screen and scheduler. Existing stored files are kept; reimport the original JSON/ZIP to use older packages in the Workflow editor.
 
 ### Features
 
