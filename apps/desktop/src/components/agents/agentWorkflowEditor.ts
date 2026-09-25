@@ -4,6 +4,8 @@ import {
   workflowAncestors,
   workflowDescendants,
   workflowRoleProduces,
+  workflowRoleReviews,
+  workflowRoleUsesAgent,
   workflowTaskLevels,
   workflowTasksInExecutionOrder,
   workflowWouldCycle,
@@ -127,14 +129,29 @@ export interface WorkflowQueuedPrompt {
 export type WorkflowConversationMode = 'separate' | 'same';
 export type WorkflowExecutionMode = 'sequence' | 'prompts' | 'parallel';
 
+/** Advanced flow declarations cannot be flattened without discarding their control semantics. */
+export const workflowHasControlFlow = (steps: CreateWorkflowStep[]) =>
+  steps.some(
+    (step) =>
+      step.role === 'human' ||
+      step.role === 'barrier' ||
+      !!step.execution?.run_condition ||
+      !!step.execution?.complete_condition ||
+      !!step.execution?.halt_condition ||
+      !!step.execution?.rerun_step ||
+      !!step.execution?.require_pass?.length ||
+      (step.execution?.max_runs ?? 1) > 1,
+  );
+
 /** Change prompt scheduling without discarding instructions, models or review policies. */
 export function setWorkflowExecution(
   steps: CreateWorkflowStep[],
   mode: WorkflowExecutionMode,
 ): CreateWorkflowStep[] {
+  if (workflowHasControlFlow(steps)) return steps;
   const ordered = workflowTasksInExecutionOrder(steps);
   const producers = ordered.filter((step) => workflowRoleProduces(step.role));
-  const reviews = ordered.filter((step) => !workflowRoleProduces(step.role));
+  const reviews = ordered.filter((step) => workflowRoleReviews(step.role));
   const finalReview = reviews.filter((step) => step.role === 'review').at(-1);
   return ordered.map((step, index) => {
     if (mode === 'sequence')
@@ -169,6 +186,7 @@ export function setWorkflowExecution(
 export function workflowExecutionMode(
   steps: CreateWorkflowStep[],
 ): WorkflowExecutionMode | 'custom' {
+  if (workflowHasControlFlow(steps)) return 'custom';
   if (workflowIsQueue(steps)) return 'sequence';
   const producers = steps.filter((step) => workflowRoleProduces(step.role));
   if (producers.length > 1 && producers.every((step) => !step.depends_on.length)) return 'parallel';
@@ -281,7 +299,7 @@ export function moveWorkflowQueue(
             ? { continue_from: producer?.target === step.target ? producer.id : undefined }
             : {}),
         };
-    if (workflowRoleProduces(step.role)) producer = step;
+    if (workflowRoleProduces(step.role) && workflowRoleUsesAgent(step.role)) producer = step;
     return changed;
   });
 }
@@ -294,6 +312,7 @@ export function insertWorkflowTask(
   target: string,
   reviewer: string,
   conversation: WorkflowConversationMode = 'separate',
+  requireFinalReview = true,
 ) {
   const source = steps.find((step) => step.id === afterId);
   if (!source) return null;
@@ -303,7 +322,10 @@ export function insertWorkflowTask(
   );
   const ancestors = workflowAncestors(steps, afterId);
   const producers = steps.filter(
-    (step) => workflowRoleProduces(step.role) && (step.id === afterId || ancestors.has(step.id)),
+    (step) =>
+      workflowRoleProduces(step.role) &&
+      workflowRoleUsesAgent(step.role) &&
+      (step.id === afterId || ancestors.has(step.id)),
   );
   const nearest = producers.filter(
     (step) =>
@@ -339,7 +361,7 @@ export function insertWorkflowTask(
         ],
   );
   // Extending a completed chain keeps the old review in place and adds a final review for the new work.
-  if (!hasSuccessors && role === 'implement') {
+  if (requireFinalReview && !hasSuccessors && role === 'implement') {
     const reviewId = workflowTaskId(`review-${id}`, new Set(next.map((step) => step.id)));
     next.push({ ...newWorkflowStep('review', reviewer, reviewId, [id]), prompt: reviewPrompt('') });
   }
@@ -385,8 +407,10 @@ export const workflowStepTitle = (step: { role: string; prompt: string }) =>
     revise: i18n.t('Address feedback'),
     validate: i18n.t('Validate the result'),
     shell: i18n.t('Terminal command'),
+    human: i18n.t('Human approval'),
+    barrier: i18n.t('Completion gate'),
   }[step.role] ??
-    'New step');
+    i18n.t('Step action'));
 
 /** Stable columns follow execution order; siblings share a column. */
 export function workflowCanvasPositions(steps: Pick<CreateWorkflowStep, 'id' | 'depends_on'>[]) {

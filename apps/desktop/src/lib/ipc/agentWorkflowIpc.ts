@@ -1,6 +1,33 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export interface WorkflowContext {
+  workspace_mode: 'direct' | 'isolated';
+  notify_human?: boolean;
+  package_root: string;
+  working_directory: string;
+  repositories: { name: string; path: string; branch: string }[];
+  environment: Record<string, string>;
+  issues: { code: string; detail: string; blocking: boolean }[];
+  source: string;
+}
 export interface WorkflowExecution {
+  agent_profile?: string;
+  run_condition?: string;
+  complete_condition?: string;
+  halt_condition?: string;
+  max_runs?: number;
+  rerun_step?: string;
+  require_pass?: string[];
+  verdict_regex?: string;
+  result_line_regex?: string;
+  result_scope?: 'final_response' | 'combined_output';
+  success_scope?: 'output' | 'last_line';
+  failure_scope?: 'output' | 'last_line';
+  verdict_scope?: 'output' | 'last_line';
+  success_exit_code?: number | null;
+  failure_exit_code?: number | null;
+  failure_exit_code_not?: number | null;
+  environment?: Record<string, string>;
   command?: string;
   working_directory?: string;
   lock?: string;
@@ -26,6 +53,13 @@ export interface WorkflowAttempt {
   error: string | null;
 }
 export interface WorkflowStepResult {
+  verdict?: string | null;
+  runs?: number;
+  extra_runs?: number;
+  transition_run?: number;
+  decision?: string | null;
+  decision_note?: string;
+  decided_at?: number | null;
   outcome: string | null;
   output: string;
   exit_code: number | null;
@@ -106,10 +140,13 @@ export interface WorkflowStep {
   result?: WorkflowStepResult;
 }
 export type WorkflowReviewPolicy = 'continue' | 'on_findings' | 'approval' | 'auto_fix';
-export type WorkflowRole = 'plan' | 'implement' | 'review' | 'revise' | 'validate' | 'shell';
+export type WorkflowRole =
+  'plan' | 'implement' | 'review' | 'revise' | 'validate' | 'shell' | 'human' | 'barrier';
 export type WorkflowWorkspace = 'shared' | 'own';
-export type WorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked';
+export type WorkflowStepStatus =
+  'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting_approval';
 export interface AgentWorkflow {
+  context?: WorkflowContext | null;
   id: string;
   project_id: string;
   title: string;
@@ -175,6 +212,7 @@ export interface WorkflowWorktree {
   missing: boolean;
 }
 export interface CreateAgentWorkflow {
+  context?: WorkflowContext | null;
   project_id: string;
   backend: string;
   model: string;
@@ -211,6 +249,24 @@ export interface CreateWorkflowStep {
   execution?: WorkflowExecution;
 }
 export const agentWorkflowIpc = {
+  allowRun: (id: string, stepId: string) =>
+    invoke<AgentWorkflow>('agent_workflow_allow_run', { id, stepId }),
+  decideHuman: (
+    id: string,
+    stepId: string,
+    approved: boolean,
+    note: string,
+    expectedStartedAt: number,
+    expectedGeneration: number,
+  ) =>
+    invoke<AgentWorkflow>('agent_workflow_decide_human', {
+      id,
+      stepId,
+      approved,
+      note,
+      expectedStartedAt,
+      expectedGeneration,
+    }),
   importRecipes: (path: string) => invoke<unknown>('agent_workflow_import_recipes', { path }),
   edit: (id: string, editing: boolean) =>
     invoke<AgentWorkflow>('agent_workflow_edit', { id, editing }),

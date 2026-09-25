@@ -69,6 +69,40 @@ test('manual refresh replaces successful model discovery', async () => {
   assert.equal(await cache.load('cursor', async () => second), second);
 });
 
+test('native workflow draft catalogs stay isolated by working directory and selected model', async () => {
+  const cache = createAgentCatalogCache();
+  const key = (workingDirectory, model = 'model-a', projectId = '') =>
+    agentCatalogKey('opencode', '', projectId, undefined, model, undefined, workingDirectory);
+  const draftA = key('/workspace/first');
+  const draftB = key('/workspace/second');
+  const otherModel = key('/workspace/first', 'model-b');
+  const project = key(undefined, 'model-a', 'project');
+  const contexts = [draftA, draftB, otherModel, project];
+  assert.equal(new Set(contexts).size, contexts.length);
+
+  let calls = 0;
+  const catalogs = contexts.map((context) => ({ models: [{ id: context }] }));
+  await Promise.all(
+    contexts.map((context, index) =>
+      cache.load(context, async () => {
+        calls++;
+        return catalogs[index];
+      }),
+    ),
+  );
+  assert.equal(calls, contexts.length);
+  assert.equal(
+    await cache.load(key('/workspace/first'), async () => {
+      throw new Error('The same draft must reuse its catalog');
+    }),
+    catalogs[0],
+  );
+  cache.invalidate(draftA);
+  assert.equal(cache.peek(draftA), undefined);
+  for (let index = 1; index < contexts.length; index++)
+    assert.equal(cache.peek(contexts[index]), catalogs[index]);
+});
+
 test('discovery identity changes for repaired or upgraded executables without reacting to display labels', () => {
   const tool = {
     id: 'cursor',
@@ -97,6 +131,15 @@ test('discovery identity changes for repaired or upgraded executables without re
   assert.equal(key({ ...tool, name: 'New label', detection_source: 'known_location' }), initial);
   assert.equal(key(tool, ' /custom/agent '), key(tool, '/custom/agent'));
   assert.notEqual(key(tool, '/custom/agent'), initial);
+});
+
+test('native import catalogs are scoped to the chosen working directory before project creation', () => {
+  const key = (directory, model = 'model-a') =>
+    agentCatalogKey('opencode', '', '', undefined, model, undefined, directory);
+  assert.notEqual(key('/workspace/first'), key('/workspace/second'));
+  assert.notEqual(key('/workspace/first'), key('/workspace/first', 'model-b'));
+  assert.notEqual(key('/workspace/first'), key(undefined));
+  assert.equal(key('/workspace/first'), key('/workspace/first'));
 });
 
 test('refresh propagates empty, pending and replacement snapshots to every consumer of the same key', async () => {

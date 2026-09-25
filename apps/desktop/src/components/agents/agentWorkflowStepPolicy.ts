@@ -1,9 +1,11 @@
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
-import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
+import type { CreateWorkflowStep, WorkflowContext } from '@/lib/ipc/agentWorkflowIpc';
 import {
   workflowAncestors,
   workflowConcurrentProducerPairs,
   workflowRoleProduces,
+  workflowRoleReviews,
+  workflowRoleUsesAgent,
   workflowTopologicalOrder,
   workflowUnreviewedProducers,
 } from './agentWorkflowGraph';
@@ -12,7 +14,7 @@ import {
 export const MAX_WORKFLOW_STEPS = 512;
 export const MAX_WORKFLOW_TASK_PROMPT = 128 * 1024;
 /** A task key is typed by hand and repeated in other tasks' dependencies, so it stays short. */
-export const WORKFLOW_TASK_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+export const WORKFLOW_TASK_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export const WORKFLOW_ROLE_LABELS: Record<string, string> = {
   plan: 'plan',
@@ -21,9 +23,23 @@ export const WORKFLOW_ROLE_LABELS: Record<string, string> = {
   revise: 'revision',
   validate: 'validation',
   shell: 'shell',
+  human: 'human',
+  barrier: 'barrier',
 };
 
 export const WORKFLOW_ROLE_OPTIONS = [
+  {
+    value: 'human',
+    get label() {
+      return i18n.t('Human approval');
+    },
+  },
+  {
+    value: 'barrier',
+    get label() {
+      return i18n.t('Completion gate');
+    },
+  },
   {
     value: 'shell',
     get label() {
@@ -62,7 +78,7 @@ export const WORKFLOW_ROLE_OPTIONS = [
   },
 ];
 
-export { workflowRoleProduces };
+export { workflowRoleProduces, workflowRoleReviews, workflowRoleUsesAgent };
 
 /**
  * Something about a declared task list that has to be said before it can run.
@@ -83,7 +99,11 @@ export interface WorkflowTaskProblem {
  * The same rules are enforced again when the workflow is created, because a screen is not a
  * boundary. These say them early, and against the task they belong to.
  */
-export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTaskProblem[] {
+export function workflowTasksProblems(
+  tasks: CreateWorkflowStep[],
+  context?: WorkflowContext | null,
+): WorkflowTaskProblem[] {
+  const direct = context?.workspace_mode === 'direct';
   const problems: WorkflowTaskProblem[] = [];
   const error = (taskId: string | null, message: string, fix?: WorkflowTaskProblem['fix']) =>
     problems.push({ taskId, message, severity: 'error', ...(fix ? { fix } : {}) });
@@ -105,7 +125,7 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
       error(
         id || null,
         i18n.t(
-          '{value1} needs a key of up to 32 lowercase letters, digits, dashes or underscores.',
+          '{value1} needs a key of up to 64 lowercase letters, digits, dashes or underscores.',
           { value1: id ? `“${id}”` : i18n.t('Every task') },
         ),
       );
@@ -114,7 +134,7 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
     if (seen.has(id))
       error(id, i18n.t('Two tasks use the key “{id}”; keys must be unique.', { id: id }));
     seen.add(id);
-    if (!task.prompt.trim() && task.role !== 'shell')
+    if (!task.prompt.trim() && workflowRoleUsesAgent(task.role))
       error(id, i18n.t('“{id}” has no instruction.', { id: id }));
     if (task.prompt.length > MAX_WORKFLOW_TASK_PROMPT)
       error(id, i18n.t('The instruction for “{id}” is too long.', { id: id }));
@@ -122,7 +142,13 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
       error(id, i18n.t('A terminal step needs a command and the shared working copy.'));
     if (task.execution?.run_if && !task.depends_on.includes(task.execution.run_if.step_id))
       error(id, i18n.t('A condition must refer to a direct dependency.'));
-    if (!task.target) error(id, i18n.t('“{id}” needs an account.', { id: id }));
+    if (workflowRoleUsesAgent(task.role) && !task.target)
+      error(id, i18n.t('“{id}” needs an account.', { id: id }));
+    if (direct && task.workspace === 'own')
+      error(
+        id,
+        i18n.t('“{id}” must use the shared working directory in a direct workflow.', { id }),
+      );
     if (task.workspace === 'own' && !workflowRoleProduces(task.role))
       error(
         id,
@@ -130,6 +156,39 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
           id: id,
         }),
       );
+    const execution = task.execution;
+    if (
+      (execution?.agent_profile?.length ?? 0) > 256 ||
+      (workflowRoleReviews(task.role) && execution?.agent_profile) ||
+      [
+        execution?.success_regex,
+        execution?.failure_regex,
+        execution?.verdict_regex,
+        execution?.result_line_regex,
+      ].some((pattern) => (pattern?.length ?? 0) > 4096)
+    )
+      error(id, i18n.t('“{id}” has invalid execution settings.', { id }));
+    if (
+      execution?.max_runs !== undefined &&
+      (!Number.isInteger(execution.max_runs) || execution.max_runs < 1 || execution.max_runs > 100)
+    )
+      error(id, i18n.t('“{id}” has invalid execution settings.', { id }));
+    for (const condition of [
+      execution?.run_condition,
+      execution?.complete_condition,
+      execution?.halt_condition,
+    ]) {
+      if (!condition) continue;
+      for (const reference of condition.matchAll(
+        /([a-z0-9][a-z0-9_-]*)\.(?:verdict|runCount|status)\b/g,
+      ))
+        if (!tasks.some((entry) => entry.id === reference[1]))
+          error(id, i18n.t('“{id}” has invalid execution settings.', { id }));
+    }
+    if (execution?.rerun_step && !workflowAncestors(tasks, id).has(execution.rerun_step))
+      error(id, i18n.t('A repeat target must be an earlier dependency.'));
+    if (execution?.require_pass?.some((required) => !workflowAncestors(tasks, id).has(required)))
+      error(id, i18n.t('Required PASS steps must be earlier dependencies.'));
     for (const dependency of task.depends_on) {
       if (dependency === id) error(id, i18n.t('“{id}” cannot depend on itself.', { id: id }));
       else if (!tasks.some((other) => other.id === dependency))
@@ -156,7 +215,11 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
   for (const task of tasks) {
     if (!task.continue_from) continue;
     const previous = tasks.find((step) => step.id === task.continue_from);
-    if (!workflowRoleProduces(task.role) || task.workspace === 'own')
+    if (
+      !workflowRoleProduces(task.role) ||
+      !workflowRoleUsesAgent(task.role) ||
+      task.workspace === 'own'
+    )
       error(
         task.id,
         i18n.t(
@@ -167,6 +230,7 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
     if (
       !previous ||
       !workflowRoleProduces(previous.role) ||
+      !workflowRoleUsesAgent(previous.role) ||
       previous.workspace === 'own' ||
       !workflowAncestors(tasks, task.id).has(previous.id)
     )
@@ -196,7 +260,7 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
   }
 
   for (const task of tasks) {
-    if (!task.depends_on.length && !workflowRoleProduces(task.role))
+    if (!direct && !task.depends_on.length && workflowRoleReviews(task.role))
       error(
         task.id,
         i18n.t(
@@ -204,7 +268,7 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
           { value1: task.id },
         ),
       );
-    if (!workflowRoleProduces(task.role)) {
+    if (!direct && workflowRoleReviews(task.role)) {
       const ancestors = workflowAncestors(tasks, task.id);
       if (
         ![...ancestors].some((id) => tasks.some((o) => o.id === id && workflowRoleProduces(o.role)))
@@ -224,18 +288,18 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
       task.workspace !== 'own' &&
       producers.every((producer) => workflowAncestors(tasks, task.id).has(producer.id)),
   );
-  if (!gating)
+  if (!direct && !gating)
     error(
       null,
       i18n.t(
         'Add an independent review of the finished work: a review in the shared checkout that depends on every task that produces.',
       ),
     );
-  for (const id of workflowUnreviewedProducers(tasks))
+  for (const id of direct ? [] : workflowUnreviewedProducers(tasks))
     error(id, i18n.t('“{id}” is never reviewed; make a review task depend on it.', { id: id }));
   // Two producing tasks with nothing between them will be started together, and one checkout never
   // carries two agents — so either they each get their own, or they cannot both run.
-  for (const [left, right] of workflowConcurrentProducerPairs(tasks)) {
+  for (const [left, right] of direct ? [] : workflowConcurrentProducerPairs(tasks)) {
     const a = tasks.find((task) => task.id === left);
     const b = tasks.find((task) => task.id === right);
     if (
@@ -265,8 +329,11 @@ export function workflowTasksProblems(tasks: CreateWorkflowStep[]): WorkflowTask
 }
 
 /** The first thing that stops this list running, for callers that want one line. */
-export function workflowStepsProblem(tasks: CreateWorkflowStep[]): string | null {
-  return workflowTasksProblems(tasks).find((p) => p.severity === 'error')?.message ?? null;
+export function workflowStepsProblem(
+  tasks: CreateWorkflowStep[],
+  context?: WorkflowContext | null,
+): string | null {
+  return workflowTasksProblems(tasks, context).find((p) => p.severity === 'error')?.message ?? null;
 }
 
 /** Give every producing task that could run beside another one a checkout of its own. */
@@ -285,7 +352,7 @@ export function workflowTaskId(prompt: string, taken: Set<string>): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 32)
+    .slice(0, 64)
     .replace(/-+$/, '');
   if (WORKFLOW_TASK_ID.test(slug) && !taken.has(slug)) return slug;
   for (let index = 1; ; index += 1) {
@@ -317,12 +384,12 @@ export const newWorkflowStep = (
 ): CreateWorkflowStep => ({
   id,
   role,
-  target,
+  target: workflowRoleUsesAgent(role) ? target : '',
   model: '',
   effort: '',
   mode: '',
   prompt: '',
   depends_on,
   workspace: 'shared',
-  ...(!workflowRoleProduces(role) ? { review_policy: 'on_findings' as const } : {}),
+  ...(workflowRoleReviews(role) ? { review_policy: 'on_findings' as const } : {}),
 });

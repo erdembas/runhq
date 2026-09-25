@@ -20,8 +20,9 @@ export function AgentWorkflowLiveEditor({
   'producers' | 'reviewers' | 'poolOptions' | 'resolveTarget' | 'disabled'
 >) {
   i18n.useLocale();
+  const [invalidSettings, setInvalidSettings] = useState(false);
   const [steps, setSteps] = useState(() => workflow.steps.map(workflowStepDeclaration));
-  const problem = workflowStepsProblem(steps);
+  const problem = workflowStepsProblem(steps, workflow.context);
   return (
     <section
       className="border-accent/30 bg-surface space-y-3 rounded-xl border p-4"
@@ -35,16 +36,18 @@ export function AgentWorkflowLiveEditor({
       </p>
       <AgentWorkflowTasks
         {...settings}
+        context={workflow.context}
         projectId={workflow.project_id}
         live
         steps={steps}
         onChange={setSteps}
+        onValidationChange={setInvalidSettings}
         lockedIds={workflow.steps.filter(workflowStepLocked).map((step) => step.id)}
       />
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={settings.disabled || !!problem}
+          disabled={settings.disabled || !!problem || invalidSettings}
           className="bg-accent text-accent-fg rounded-lg px-3 py-2 text-xs disabled:opacity-40"
           onClick={() => onSave(workflow.edit_revision ?? 0, workflowTasksInExecutionOrder(steps))}
         >

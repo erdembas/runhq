@@ -467,6 +467,8 @@ export function AgentWorkspace({
       setupCommands: next.setupCommands.split('\n').filter(Boolean),
       checkCommands: next.checkCommands.split('\n').filter(Boolean),
       acceptance: next.acceptance,
+      context: next.workflowContext,
+      concurrency: next.workflowConcurrency,
       steps: next.workflowSteps
         ? recipeStepsToCreateSteps(next.workflowSteps, (target) =>
             composerAccountForTarget({

@@ -162,6 +162,27 @@ test('project and text filters preserve the global workflow attention snapshot',
   assert.equal(entries[0].workflow.id, 'b', 'oldest unresolved work is shown first');
 });
 
+test('native human gates appear in Attention and direct completion never asks to apply', () => {
+  const entries = attention.collectWorkflowAttention([
+    workflow('approval', {
+      stage: 'awaiting_approval',
+      steps: [
+        step('approve', { role: 'human', status: 'awaiting_approval', prompt: 'Review decisions' }),
+      ],
+    }),
+    workflow('direct-ready', { stage: 'ready', context: { workspace_mode: 'direct' } }),
+    workflow('direct-done', { stage: 'completed', context: { workspace_mode: 'direct' } }),
+    workflow('isolated-ready', { stage: 'ready', context: { workspace_mode: 'isolated' } }),
+  ]);
+  assert.deepEqual(
+    plain(entries.map(({ workflow, kind, detail }) => [workflow.id, kind, detail])),
+    [
+      ['approval', 'human', 'Review decisions'],
+      ['isolated-ready', 'apply', null],
+    ],
+  );
+});
+
 const nodes = (node) =>
   !node || typeof node !== 'object'
     ? []

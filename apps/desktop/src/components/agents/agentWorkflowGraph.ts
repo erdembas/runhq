@@ -157,7 +157,12 @@ export function workflowWouldCycle<T extends { id: string; depends_on: string[] 
   return workflowDescendants(tasks, taskId).has(dependency);
 }
 
-/** Tasks that produce changes; the rest read the checkout and report. */
+/** Agent reviews read the checkout; control and terminal steps have no reviewer session. */
+export const workflowRoleReviews = (role: string) => role === 'review' || role === 'validate';
+export const workflowRoleUsesAgent = (role: string) =>
+  ['plan', 'implement', 'review', 'revise', 'validate'].includes(role);
+
+/** Tasks that may produce changes. */
 export const workflowRoleProduces = (role: string) =>
   role === 'plan' || role === 'implement' || role === 'revise' || role === 'shell';
 
@@ -198,7 +203,7 @@ export type WorkflowTaskLane = 'blocked' | 'attention' | 'working' | 'ready' | '
 export function workflowReviewNeedsDecision(step: WorkflowStep) {
   return (
     step.status === 'completed' &&
-    !workflowRoleProduces(step.role) &&
+    workflowRoleReviews(step.role) &&
     !!step.review_policy &&
     step.review_policy !== 'continue' &&
     !step.review_decision &&
@@ -220,6 +225,7 @@ export function workflowTaskLane(
 ): WorkflowTaskLane {
   if (
     workflowReviewNeedsDecision(step) ||
+    step.status === 'awaiting_approval' ||
     step.status === 'failed' ||
     step.status === 'blocked' ||
     step.merge?.status === 'conflict' ||
@@ -273,7 +279,7 @@ export function workflowProgress(
 export function workflowUnreviewedProducers<
   T extends { id: string; role: string; depends_on: string[]; workspace?: string },
 >(tasks: T[]): string[] {
-  const reviews = tasks.filter((task) => !workflowRoleProduces(task.role));
+  const reviews = tasks.filter((task) => workflowRoleReviews(task.role));
   const reviewed = new Set<string>();
   for (const review of reviews)
     for (const ancestor of workflowAncestors(tasks, review.id)) reviewed.add(ancestor);
@@ -323,7 +329,7 @@ export function workflowPollInterval(
 export function reviewSessionIds(steps: WorkflowStep[], limit = 3): string[] {
   return steps
     .filter(
-      (step) => !workflowRoleProduces(step.role) && step.status === 'completed' && step.session_id,
+      (step) => workflowRoleReviews(step.role) && step.status === 'completed' && step.session_id,
     )
     .sort((left, right) => (right.finished_at ?? 0) - (left.finished_at ?? 0))
     .slice(0, limit)

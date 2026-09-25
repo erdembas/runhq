@@ -151,49 +151,44 @@ pub async fn agent_workflow_inventory(
 }
 
 #[tauri::command]
-pub async fn agent_workflow_import_recipes(path: String) -> AppResult<serde_json::Value> {
-    tokio::task::spawn_blocking(move || {
-        runhq_core::agents::import_workflow_recipes(std::path::Path::new(&path))
-    })
-    .await
-    .map_err(|error| runhq_core::AppError::other(error.to_string()))?
+pub async fn agent_workflow_import_recipes(
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    let agents = state.agents.clone();
+    tokio::task::spawn_blocking(move || agents.import_workflow_file(std::path::Path::new(&path)))
+        .await
+        .map_err(|error| runhq_core::AppError::other(error.to_string()))?
 }
 
 #[tauri::command]
-pub async fn agent_pipeline_import(
-    path: String,
-    state: State<'_, AppState>,
-) -> AppResult<runhq_core::agents::PipelineRun> {
-    let agents = state.agents.clone();
-    tauri::async_runtime::spawn_blocking(move || agents.pipeline_import(path.into()))
-        .await
-        .map_err(|e| runhq_core::AppError::other(e.to_string()))?
-}
-#[tauri::command]
-pub async fn agent_pipelines(
-    state: State<'_, AppState>,
-) -> AppResult<Vec<runhq_core::agents::PipelineSummary>> {
-    state.agents.pipeline_summaries()
-}
-#[tauri::command]
-pub async fn agent_pipeline_get(
+pub async fn agent_workflow_decide_human(
     id: String,
+    step_id: String,
+    approved: bool,
+    note: String,
+    expected_started_at: i64,
+    expected_generation: u64,
     state: State<'_, AppState>,
-) -> AppResult<runhq_core::agents::PipelineRun> {
-    state.agents.pipeline_get(&id)
-}
-#[tauri::command]
-pub async fn agent_pipeline_control(
-    id: String,
-    revision: u64,
-    action: String,
-    step_id: Option<String>,
-    backend: String,
-    reviewer: String,
-    state: State<'_, AppState>,
-) -> AppResult<runhq_core::agents::PipelineRun> {
+) -> AppResult<AgentWorkflow> {
     state
         .agents
-        .pipeline_control(&id, revision, &action, step_id, backend, reviewer)
+        .workflow_decide_human(
+            &id,
+            &step_id,
+            approved,
+            note,
+            expected_started_at,
+            expected_generation,
+        )
         .await
+}
+
+#[tauri::command]
+pub async fn agent_workflow_allow_run(
+    id: String,
+    step_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AgentWorkflow> {
+    state.agents.workflow_allow_run(&id, &step_id).await
 }

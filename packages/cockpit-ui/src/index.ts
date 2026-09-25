@@ -72,6 +72,7 @@ export type { SearchableOption } from './lib/selectSearch';
 export { WorkspaceGroupHeader } from './components/WorkspaceGroupHeader';
 
 export { AgentEffortPicker } from './components/AgentEffortPicker';
+export { effortLabel } from './lib/agentEffort';
 export { AgentTaskSettings } from './components/AgentTaskSettings';
 export { AgentMessageQueue } from './components/AgentMessageQueue';
 export { AgentPlanReview } from './components/AgentPlanReview';

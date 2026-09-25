@@ -3,14 +3,7 @@ use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 const LIMIT: usize = 16 * 1024 * 1024;
-// Archive keys stay portable even when host PathBufs use backslashes.
-fn portable_name(path: &Path) -> String {
-    path.iter()
-        .map(|part| part.to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-fn relative(s: &str) -> AppResult<PathBuf> {
+pub(in crate::agents) fn relative(s: &str) -> AppResult<PathBuf> {
     let p = Path::new(s);
     if s.is_empty()
         || s.contains(['\\', ':', '\0'])
@@ -35,7 +28,7 @@ fn read_limit(mut r: impl Read, limit: usize) -> AppResult<Vec<u8>> {
     }
     Ok(b)
 }
-pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> {
+pub(in crate::agents) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> {
     let mut files = BTreeMap::new();
     let mut size = 0;
     let mut aliases = HashSet::new();
@@ -63,7 +56,7 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
             if f.is_dir() {
                 continue;
             }
-            let name = portable_name(&relative(f.name())?);
+            let name = relative(f.name())?.to_string_lossy().into_owned();
             if !aliases.insert(name.to_lowercase()) {
                 return Err(invalid("pipeline.invalid_archive"));
             }
@@ -103,11 +96,13 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
                         if e.file_type()?.is_symlink() {
                             return Err(invalid("pipeline.invalid_path"));
                         }
-                        pending.push(portable_name(
+                        pending.push(
                             e.path()
                                 .strip_prefix(&root)
-                                .map_err(|_| invalid("pipeline.invalid_path"))?,
-                        ));
+                                .map_err(|_| invalid("pipeline.invalid_path"))?
+                                .to_string_lossy()
+                                .into(),
+                        );
                     }
                 } else {
                     names.push(name);
@@ -130,7 +125,7 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
             .map(String::from),
         );
         for name in names {
-            let name = portable_name(&relative(&name)?);
+            let name = relative(&name)?.to_string_lossy().into_owned();
             if files.contains_key(&name) {
                 continue;
             }
@@ -163,7 +158,7 @@ pub(super) fn read_package(path: &Path) -> AppResult<BTreeMap<String, Vec<u8>>> 
     }
     Ok(files)
 }
-pub(super) fn validate_manifest(m: &Manifest) -> AppResult<()> {
+pub(in crate::agents) fn validate_manifest(m: &Manifest) -> AppResult<()> {
     if ![1, 2].contains(&m.version)
         || m.name.trim().is_empty()
         || m.name.len() > 200
@@ -394,147 +389,101 @@ pub(super) fn validate_manifest(m: &Manifest) -> AppResult<()> {
     }
     Ok(())
 }
-impl AgentManager {
-    pub fn pipeline_import(&self, path: PathBuf) -> AppResult<PipelineRun> {
-        let files = read_package(&path)?;
-        let bytes = files
-            .get("pipeline.json")
-            .ok_or_else(|| invalid("pipeline.invalid_manifest"))?;
-        let mut manifest: Manifest =
-            serde_json::from_slice(bytes).map_err(|_| invalid("pipeline.invalid_manifest"))?;
-        for s in &mut manifest.steps {
-            if !s.prompt_file.is_empty() {
-                s.prompt = String::from_utf8(
-                    files
-                        .get(&portable_name(&relative(&s.prompt_file)?))
-                        .ok_or_else(|| invalid("pipeline.missing_file"))?
-                        .clone(),
-                )
-                .map_err(|_| invalid("pipeline.invalid_manifest"))?;
-            }
-        }
-        validate_manifest(&manifest)?;
-        let id = uuid::Uuid::new_v4().to_string();
-        let run_root = self.home.join("pipelines").join(&id);
-        let package = run_root.join("package");
-        std::fs::create_dir_all(&package)?;
-        for (name, bytes) in &files {
-            let p = package.join(relative(name)?);
-            std::fs::create_dir_all(p.parent().unwrap())?;
-            std::fs::write(p, bytes)?;
-        }
-        let mut issues = vec![];
-        let mut repositories = manifest.settings.repositories.clone();
-        let root = Path::new(&manifest.settings.agent_working_directory);
-        if !root.is_absolute() || !root.is_dir() {
-            issues.push(PipelineIssue {
-                code: "pipeline.workspace_missing".into(),
-                detail: root.display().to_string(),
-                blocking: true,
+/// Read-only package preflight before creating native Workflow declarations.
+pub(in crate::agents) fn preflight_manifest(
+    manifest: &Manifest,
+) -> AppResult<(Vec<Repository>, Vec<PackageIssue>)> {
+    let mut issues = vec![];
+    let mut repositories = manifest.settings.repositories.clone();
+    let root = Path::new(&manifest.settings.agent_working_directory);
+    if !root.is_absolute() || !root.is_dir() {
+        issues.push(PackageIssue {
+            code: "pipeline.workspace_missing".into(),
+            detail: root.display().to_string(),
+            blocking: true,
+        });
+    } else if repositories.is_empty() {
+        if root.join(".git").exists() {
+            repositories.push(Repository {
+                name: root
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into(),
+                path: root.canonicalize()?.to_string_lossy().into(),
+                branch: String::new(),
             });
-        } else if repositories.is_empty() {
-            if root.join(".git").exists() {
-                repositories.push(Repository {
-                    name: root
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into(),
-                    path: root.canonicalize()?.to_string_lossy().into(),
-                    branch: String::new(),
-                });
-            } else {
-                for entry in std::fs::read_dir(root)?.take(128) {
-                    let path = entry?.path();
-                    if path.is_dir() && path.join(".git").exists() {
-                        repositories.push(Repository {
-                            name: path
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .into(),
-                            path: path.canonicalize()?.to_string_lossy().into(),
-                            branch: String::new(),
-                        });
-                    }
+        } else {
+            for entry in std::fs::read_dir(root)?.take(128) {
+                let path = entry?.path();
+                if path.is_dir() && path.join(".git").exists() {
+                    repositories.push(Repository {
+                        name: path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into(),
+                        path: path.canonicalize()?.to_string_lossy().into(),
+                        branch: String::new(),
+                    });
                 }
             }
         }
-        if repositories.len() > 1 && manifest.settings.repositories.is_empty() {
-            issues.push(PipelineIssue {
-                code: "pipeline.repositories_explicit".into(),
-                detail: String::new(),
-                blocking: true,
-            });
-        }
-        for repo in &mut repositories {
-            if let Ok(path) = Path::new(&repo.path).canonicalize() {
-                repo.path = path.to_string_lossy().into();
-                if repo.branch.is_empty() {
-                    if let Ok(out) = std::process::Command::new("git")
-                        .args(["-C", &repo.path, "branch", "--show-current"])
-                        .output()
-                    {
-                        if out.status.success() {
-                            repo.branch = String::from_utf8_lossy(&out.stdout).trim().into();
-                        }
-                    }
-                }
-            }
-        }
-        if repositories.is_empty() || repositories.len() > 16 {
-            issues.push(PipelineIssue {
-                code: "pipeline.repositories_missing".into(),
-                detail: String::new(),
-                blocking: true,
-            });
-        }
-        // A package is immutable once captured. References to a second copy must be fixed by its author.
-        let absolute=Regex::new(r#"(?m)(?:^|[\s`"'=(:])(/[A-Za-z0-9_./-]+/(?:verify\.sh|state\.sh|review-worktree\.sh|KARARLAR\.md|README\.md))"#).unwrap();
-        let mut external = HashSet::new();
-        for s in &manifest.steps {
-            for capture in absolute.captures_iter(&s.prompt) {
-                external.insert(capture[1].to_string());
-            }
-        }
-        for detail in external {
-            issues.push(PipelineIssue {
-                code: "pipeline.external_assets".into(),
-                detail,
-                blocking: true,
-            });
-        }
-        if manifest.steps.iter().any(|s| s.review()) {
-            issues.push(PipelineIssue {
-                code: "pipeline.review_contract".into(),
-                detail: String::new(),
-                blocking: manifest.steps.iter().filter(|s| s.review()).any(|s| {
-                    s.prompt.contains("review-worktree.sh") || s.prompt.contains("state.sh")
-                }),
-            });
-        }
-        let steps = manifest
-            .steps
-            .iter()
-            .map(|s| (s.id.clone(), StepState::default()))
-            .collect();
-        let run = PipelineRun {
-            project_id: String::new(),
-            id,
-            manifest,
-            package_root: package.to_string_lossy().into(),
-            run_root: run_root.to_string_lossy().into(),
-            repositories,
-            issues,
-            state: "draft".into(),
-            revision: 0,
-            backend: String::new(),
-            reviewer: String::new(),
-            created_at: now(),
-            updated_at: now(),
-            steps,
-        };
-        self.pipeline_save(&run)?;
-        Ok(run)
     }
+    if repositories.len() > 1 && manifest.settings.repositories.is_empty() {
+        issues.push(PackageIssue {
+            code: "pipeline.repositories_explicit".into(),
+            detail: String::new(),
+            blocking: true,
+        });
+    }
+    for repo in &mut repositories {
+        if let Ok(path) = Path::new(&repo.path).canonicalize() {
+            repo.path = path.to_string_lossy().into();
+            if repo.branch.is_empty() {
+                if let Ok(out) = std::process::Command::new("git")
+                    .args(["-C", &repo.path, "branch", "--show-current"])
+                    .output()
+                {
+                    if out.status.success() {
+                        repo.branch = String::from_utf8_lossy(&out.stdout).trim().into();
+                    }
+                }
+            }
+        }
+    }
+    if repositories.is_empty() || repositories.len() > 16 {
+        issues.push(PackageIssue {
+            code: "pipeline.repositories_missing".into(),
+            detail: String::new(),
+            blocking: true,
+        });
+    }
+    // A package is immutable once captured. References to a second copy must be fixed by its author.
+    let absolute=Regex::new(r#"(?m)(?:^|[\s`"'=(:])(/[A-Za-z0-9_./-]+/(?:verify\.sh|state\.sh|review-worktree\.sh|KARARLAR\.md|README\.md))"#).unwrap();
+    let mut external = HashSet::new();
+    for s in &manifest.steps {
+        for capture in absolute.captures_iter(&s.prompt) {
+            external.insert(capture[1].to_string());
+        }
+    }
+    for detail in external {
+        issues.push(PackageIssue {
+            code: "pipeline.external_assets".into(),
+            detail,
+            blocking: true,
+        });
+    }
+    if manifest.steps.iter().any(|s| s.review()) {
+        issues.push(PackageIssue {
+            code: "pipeline.review_contract".into(),
+            detail: String::new(),
+            blocking: manifest
+                .steps
+                .iter()
+                .filter(|s| s.review())
+                .any(|s| s.prompt.contains("review-worktree.sh") || s.prompt.contains("state.sh")),
+        });
+    }
+    Ok((repositories, issues))
 }

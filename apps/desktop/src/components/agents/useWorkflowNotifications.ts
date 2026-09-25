@@ -30,7 +30,11 @@ export function useWorkflowNotifications() {
       const preferences = useAgentNotificationStore.getState().preferences;
       if (
         !preferences.enabled ||
-        !actionable.some((e) => !preferences.mutedProjects.includes(e.workflow.project_id))
+        !actionable.some(
+          (e) =>
+            e.workflow.context?.notify_human !== false &&
+            !preferences.mutedProjects.includes(e.workflow.project_id),
+        )
       )
         return;
       await invoke('plugin:notification|notify', {

@@ -4,20 +4,27 @@ import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
 import { useAgentCatalog } from './useAgentCatalog';
 import { isPoolTarget } from './agentAccountRouting';
 
-export type WorkflowModelSettings = Pick<CreateWorkflowStep, 'model' | 'effort'>;
+export type WorkflowModelSettings = Pick<CreateWorkflowStep, 'model' | 'effort'> & {
+  agent?: string;
+};
 
 /** Use the composer's provider catalog and pickers for both prompts and independent reviews. */
 export function AgentWorkflowModelControls({
   projectId,
   target,
+  workingDirectory,
   model,
   effort,
+  agent = '',
+  allowProfile = false,
   onChange,
   disabled,
   label = i18n.t('Model and reasoning'),
 }: WorkflowModelSettings & {
   projectId: string;
   target: string;
+  workingDirectory?: string;
+  allowProfile?: boolean;
   onChange: (settings: WorkflowModelSettings) => void;
   disabled?: boolean;
   label?: string;
@@ -31,12 +38,13 @@ export function AgentWorkflowModelControls({
     !disabled && !pool,
     undefined,
     model,
+    workingDirectory,
   );
   const unavailable = pool
     ? i18n.t(
         'Choose a specific agent to browse models. A pool uses the account selected at run time.',
       )
-    : !projectId
+    : !projectId && !workingDirectory
       ? i18n.t('Choose a project to load the agent’s models.')
       : !target
         ? i18n.t('Choose an agent to load its models.')
@@ -50,16 +58,24 @@ export function AgentWorkflowModelControls({
           refresh={refresh}
           model={model}
           effort={effort}
+          agent={agent}
+          onAgent={allowProfile ? (value) => onChange({ model, effort, agent: value }) : undefined}
           disabled={disabled || !!unavailable}
-          onModel={(value) => onChange({ model: value, effort: '' })}
-          onEffort={(value) => onChange({ model, effort: value })}
+          onModel={(value) =>
+            onChange({ model: value, effort: '', ...(allowProfile ? { agent } : {}) })
+          }
+          onEffort={(value) =>
+            onChange({ model, effort: value, ...(allowProfile ? { agent } : {}) })
+          }
         />
-        {!catalog && (model || effort) && (
+        {!catalog && (model || effort || agent) && (
           <button
             type="button"
             disabled={disabled}
             className="text-accent px-2 text-[11px] disabled:opacity-40"
-            onClick={() => onChange({ model: '', effort: '' })}
+            onClick={() =>
+              onChange({ model: '', effort: '', ...(allowProfile ? { agent: '' } : {}) })
+            }
           >
             {i18n.t('Use defaults')}
           </button>

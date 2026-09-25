@@ -11,6 +11,9 @@ import {
   workflowDependents,
   workflowProgress,
   workflowReviewNeedsDecision,
+  workflowRoleUsesAgent,
+  workflowRoleReviews,
+  workflowAncestors,
   type WorkflowTaskLane,
 } from './agentWorkflowGraph';
 import { WORKFLOW_ROLE_OPTIONS } from './agentWorkflowStepPolicy';
@@ -94,6 +97,8 @@ export function AgentWorkflowBoard({
   onStart,
   onOpen,
   onStartReady,
+  onHumanDecision,
+  onAllowRun,
 }: {
   workflow: AgentWorkflow;
   sessions: Record<string, AgentSession | undefined>;
@@ -102,6 +107,8 @@ export function AgentWorkflowBoard({
   onStart: (stepId: string) => void;
   onOpen: (sessionId: string) => void;
   onStartReady: () => void;
+  onHumanDecision?: (stepId: string, approved: boolean, note: string) => void;
+  onAllowRun?: (stepId: string) => void;
 }) {
   i18n.useLocale();
   const steps = workflow.steps ?? [];
@@ -110,6 +117,7 @@ export function AgentWorkflowBoard({
   const dependents = workflowDependents(steps);
   const [view, setView] = useState<'map' | 'list'>('map');
   const [selected, setSelected] = useState<string | null>(null);
+  const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
   const focused =
     steps.find((step) => step.id === selected) ??
     grouped.attention[0] ??
@@ -137,6 +145,15 @@ export function AgentWorkflowBoard({
     const session = step.session_id ? sessions[step.session_id] : undefined;
     const waiting = workflowBlockedBy(steps, step.id);
     const blocks = dependents[step.id]?.length ?? 0;
+    const canAllowRun =
+      workflowRoleReviews(step.role) &&
+      (step.result?.runs ?? 0) > 0 &&
+      (step.result?.extra_runs ?? 0) < 100 &&
+      steps.some(
+        (entry) =>
+          ['blocked', 'failed'].includes(entry.status) &&
+          (entry.id === step.id || workflowAncestors(steps, entry.id).has(step.id)),
+      );
     return (
       <li key={step.id} className="border-fg/8 bg-bg space-y-1 rounded-lg border p-2">
         <div className="flex items-center gap-1.5">
@@ -155,7 +172,7 @@ export function AgentWorkflowBoard({
           {step.prompt || workflow.objective}
         </p>
         <p className="text-fg-dim text-[10px]">
-          {step.role === 'shell' ? i18n.t('Terminal command') : providerName(step.target)} ·{' '}
+          {workflowRoleUsesAgent(step.role) ? providerName(step.target) : roleLabel(step.role)} ·{' '}
           {lanes.find((item) => item.id === lane)?.label}
         </p>
         {waiting.length > 0 && (
@@ -188,6 +205,51 @@ export function AgentWorkflowBoard({
           <p className="text-warning line-clamp-2 text-[10px]">
             {workflowExecutionError(step.error)}
           </p>
+        )}
+        {step.result?.verdict && (
+          <p className="text-fg-muted text-xs">
+            {i18n.t('Result: {verdict} · Runs: {runs}', {
+              verdict: step.result.verdict,
+              runs: i18n.number(step.result.runs ?? 0),
+            })}
+          </p>
+        )}
+        {step.role === 'human' && step.status === 'awaiting_approval' && onHumanDecision && (
+          <div className="space-y-2">
+            <label className="text-fg-muted flex flex-col gap-1 text-xs">
+              {i18n.t('Decision note (optional)')}
+              <textarea
+                className="border-border bg-surface text-fg rounded border p-2"
+                rows={2}
+                value={decisionNotes[step.id] ?? ''}
+                onChange={(event) =>
+                  setDecisionNotes((notes) => ({ ...notes, [step.id]: event.target.value }))
+                }
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {[true, false].map((approved) => (
+                <button
+                  key={String(approved)}
+                  type="button"
+                  disabled={
+                    busy ||
+                    workflow.editing ||
+                    workflow.cleaned ||
+                    step.started_at == null ||
+                    ['cancelled', 'interrupted'].includes(workflow.stage)
+                  }
+                  className="border-border hover:bg-fg/5 rounded-lg border px-2 py-1 text-xs disabled:opacity-40"
+                  onClick={() => onHumanDecision(step.id, approved, decisionNotes[step.id] ?? '')}
+                >
+                  {approved ? i18n.t('Approve step') : i18n.t('Reject step')}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {step.result?.decision_note && (
+          <p className="text-fg-muted text-xs whitespace-pre-wrap">{step.result.decision_note}</p>
         )}
         {!!step.result?.attempts.length && (
           <details className="text-fg-muted text-xs">
@@ -246,6 +308,22 @@ export function AgentWorkflowBoard({
               onClick={() => onStart(step.id)}
             >
               {i18n.t('Retry')}
+            </button>
+          )}
+          {onAllowRun && canAllowRun && (
+            <button
+              type="button"
+              disabled={
+                busy ||
+                workflow.editing ||
+                workflow.cleaned ||
+                steps.some((entry) => entry.status === 'running') ||
+                ['completed', 'cancelled', 'integrated'].includes(workflow.stage)
+              }
+              className="border-border hover:bg-fg/5 rounded-lg border px-2 py-0.5 text-[11px] disabled:opacity-40"
+              onClick={() => onAllowRun(step.id)}
+            >
+              {i18n.t('Allow one more run')}
             </button>
           )}
           {session && (

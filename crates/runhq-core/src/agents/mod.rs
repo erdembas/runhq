@@ -16,9 +16,8 @@ pub use workspace_data::*;
 mod workflow_scheduler;
 pub use workflow_scheduler::*;
 mod pipeline;
-mod workflows;
-pub use pipeline::{PipelineIssue, PipelineRun, PipelineSummary};
 mod workflow_import;
+mod workflows;
 pub use workflow_import::import_workflow_recipes;
 pub use workflows::*;
 
@@ -66,7 +65,6 @@ pub struct AgentManager {
     home: PathBuf,
     bridge: PathBuf,
     sink: ChangeSink,
-    pipeline_schedulers: Mutex<std::collections::HashSet<String>>,
     workflow_gate: tokio::sync::Mutex<()>,
     workflow_cancellations: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
     /// Raised when a turn finishes, so a workflow's scheduler looks at its graph immediately
@@ -132,14 +130,12 @@ impl AgentManager {
             home: home.into(),
             bridge,
             sink,
-            pipeline_schedulers: Mutex::new(std::collections::HashSet::new()),
             workflow_gate: tokio::sync::Mutex::new(()),
             workflow_cancellations: Mutex::new(HashMap::new()),
             workflow_wake: workflow_scheduler::workflow_wake(),
             workflow_schedulers: Mutex::new(std::collections::HashSet::new()),
         };
         manager.recover_workflows()?;
-        manager.recover_pipelines()?;
         Ok(manager)
     }
     pub fn add_project(&self, name: String, path: PathBuf) -> AppResult<AgentProject> {
@@ -323,19 +319,44 @@ impl AgentManager {
             tool.executable = previous.executable;
             tool.env = previous.env;
         }
+        let project = self.state.lock().db.project(&project_id)?;
+        self.catalog_at(backend, path, tool, PathBuf::from(project.path), model)
+            .await
+    }
+    pub async fn catalog_for_directory(
+        &self,
+        backend: String,
+        path: String,
+        directory: String,
+        model: Option<String>,
+    ) -> AppResult<Value> {
+        let tool = self.tool(&backend)?;
+        let cwd = Path::new(&directory).canonicalize()?;
+        if !cwd.is_dir() {
+            return Err(invalid("workflow.invalid_directory"));
+        }
+        self.catalog_at(backend, path, tool, cwd, model).await
+    }
+    async fn catalog_at(
+        &self,
+        backend: String,
+        path: String,
+        tool: AgentTool,
+        cwd: PathBuf,
+        model: Option<String>,
+    ) -> AppResult<Value> {
         if tool.adapter == "terminal" {
             return Err(invalid(
                 "Terminal tools use their own model and permission interface",
             ));
         }
-        let project = self.state.lock().db.project(&project_id)?;
         let executable = resolve_executable(&tool.executable, &path)?;
         let mut cmd = self.bridge_command().await?;
         if let Some(path) = agent_command_path(Path::new(&executable)) {
             cmd.env("PATH", path);
         }
         apply_connection_env(&mut cmd, &tool.env);
-        cmd.current_dir(&project.path);
+        cmd.current_dir(&cwd);
         let mut child = OwnedProcess::spawn(cmd)?;
         let mut stdin = child
             .child
@@ -347,7 +368,7 @@ impl AgentManager {
             .stdout
             .take()
             .ok_or_else(|| AppError::other("Missing agent output"))?;
-        stdin.write_all(format!("{}\n", json!({"type":"start","config":{"operation":"catalog","model":model,"backend":backend,"adapter":tool.adapter,"args":tool.args,"executable":executable,"cwd":project.path,"mode":"default"}})).as_bytes()).await?;
+        stdin.write_all(format!("{}\n", json!({"type":"start","config":{"operation":"catalog","model":model,"backend":backend,"adapter":tool.adapter,"args":tool.args,"executable":executable,"cwd":cwd,"mode":"default"}})).as_bytes()).await?;
         let result = tokio::time::timeout(Duration::from_secs(60), async {
             let mut reader = BufReader::new(stdout);
             while let Some(event) = frame(&mut reader).await? {
@@ -649,7 +670,6 @@ impl AgentManager {
             },
         )?;
         self.validate_workflow_turn(&previous, &input)?;
-        self.validate_pipeline_turn(&previous, &input.request_id)?;
         self.tool(&previous.backend)?;
         if let Some(scope) = &previous.workspace {
             validate_workspace_scope(Path::new(&previous.cwd), scope)?;
@@ -729,7 +749,7 @@ impl AgentManager {
                         state
                             .sessions
                             .get(*id)
-                            .is_some_and(|owner| !owner.workflow_read_only && owner.runtime_state.get("pipeline_id").is_none())
+                            .is_some_and(|owner| !owner.workflow_read_only)
                     })
                     // Read membership under the admission lock so a workflow cannot gain a
                     // shared writer between this check and recording the new running turn.
@@ -993,21 +1013,7 @@ impl AgentManager {
                         s.status = waiting_status(&s.pending);
                     }
                 }
-                "state" => {
-                    let pipeline = ["pipeline_id", "pipeline_step", "pipeline_attempt"]
-                        .into_iter()
-                        .filter_map(|key| s.runtime_state.get(key).cloned().map(|v| (key, v)))
-                        .collect::<Vec<_>>();
-                    s.runtime_state = event["state"].clone();
-                    if !pipeline.is_empty() {
-                        if !s.runtime_state.is_object() {
-                            s.runtime_state = json!({});
-                        }
-                        for (key, value) in pipeline {
-                            s.runtime_state[key] = value;
-                        }
-                    }
-                }
+                "state" => s.runtime_state = event["state"].clone(),
                 "usage" => s.usage = event["usage"].clone(),
                 _ => {}
             }

@@ -138,7 +138,7 @@ impl AgentManager {
             if input.steps.is_empty() || input.steps.len() > MAX_WORKFLOW_STEPS {
                 return Err(invalid("A workflow needs between 1 and 512 steps"));
             }
-            validate_declared_graph(&input.steps)?;
+            validate_declared_graph_mode(&input.steps, w.direct_workspace())?;
             let mut next = workflow_declared_graph(
                 &input.steps,
                 &w.implementation_session_id,
@@ -172,7 +172,7 @@ impl AgentManager {
                 if step.prompt.trim().is_empty() && w.objective.trim().is_empty() {
                     return Err(invalid("Give every new step an instruction"));
                 }
-                if !workflow_role_produces(&step.role)
+                if workflow_role_reviews(&step.role)
                     && !step.target.starts_with("pool:")
                     && !matches!(
                         self.tool(&step.target)?.adapter.as_str(),
@@ -446,6 +446,134 @@ impl AgentManager {
                 _ => return Err(invalid("Choose approve, fix or retry for this review")),
             }
             w.stage = w.steps_stage();
+            self.save_workflow(&mut w)?;
+            w
+        };
+        self.workflow_control_scheduler(&w);
+        Ok(w)
+    }
+}
+
+impl AgentManager {
+    pub async fn workflow_decide_human(
+        self: &Arc<Self>,
+        id: &str,
+        step_id: &str,
+        approved: bool,
+        note: String,
+        expected_started_at: i64,
+        expected_generation: u64,
+    ) -> AppResult<AgentWorkflow> {
+        let w = {
+            let _gate = self.workflow_gate.lock().await;
+            let mut w = self.workflow(id)?;
+            if w.editing
+                || w.cleaned
+                || matches!(w.stage.as_str(), "cancelled" | "interrupted")
+                || note.len() > 16 * 1024
+            {
+                return Err(invalid("workflow.stale_decision"));
+            }
+            let step = w
+                .steps
+                .iter_mut()
+                .find(|s| {
+                    s.id == step_id
+                        && s.role == "human"
+                        && s.status == "awaiting_approval"
+                        && s.started_at == Some(expected_started_at)
+                        && s.generation == expected_generation
+                })
+                .ok_or_else(|| invalid("workflow.stale_decision"))?;
+            step.result.decision = Some(if approved { "approved" } else { "rejected" }.into());
+            step.result.decision_note = note;
+            step.result.decided_at = Some(now());
+            step.result.runs += 1;
+            step.finished_at = Some(now());
+            step.status = if approved { "completed" } else { "blocked" }.into();
+            step.result.outcome = Some(if approved { "pass" } else { "blocked" }.into());
+            step.error = if approved {
+                None
+            } else {
+                Some("workflow.approval_rejected".into())
+            };
+            step.result.attempts.push(WorkflowAttempt {
+                started_at: expected_started_at,
+                finished_at: now(),
+                outcome: step.result.outcome.clone().unwrap(),
+                exit_code: None,
+                output: step.result.decision_note.clone(),
+                error: step.error.clone(),
+            });
+            w.stage = w.steps_stage();
+            self.save_workflow(&mut w)?;
+            w
+        };
+        self.workflow_control_scheduler(&w);
+        Ok(w)
+    }
+    pub async fn workflow_allow_run(
+        self: &Arc<Self>,
+        id: &str,
+        step_id: &str,
+    ) -> AppResult<AgentWorkflow> {
+        let w = {
+            let _gate = self.workflow_gate.lock().await;
+            let mut w = self.workflow(id)?;
+            if w.editing || w.cleaned || w.steps.iter().any(|s| s.status == "running") {
+                return Err(invalid("workflow.stale_decision"));
+            }
+            let target = w
+                .step(step_id)
+                .cloned()
+                .ok_or_else(|| invalid("workflow.stale_decision"))?;
+            if !workflow_role_reviews(&target.role)
+                || target.result.runs == 0
+                || target.result.extra_runs >= 100
+            {
+                return Err(invalid("workflow.stale_decision"));
+            }
+            let held = w.steps.iter().any(|s| {
+                matches!(s.status.as_str(), "blocked" | "failed")
+                    && (s.id == step_id || w.ancestors(&s.id).contains(step_id))
+            });
+            if !held {
+                return Err(invalid("workflow.stale_decision"));
+            }
+            let affected: Vec<_> = w
+                .steps
+                .iter()
+                .filter(|s| s.id == step_id || w.ancestors(&s.id).contains(step_id))
+                .map(|s| s.id.clone())
+                .collect();
+            // Explicitly validate manual corrections before capturing another independent review.
+            let checks: Vec<_> = target
+                .depends_on
+                .iter()
+                .filter(|id| w.step(id).is_some_and(|s| s.role == "shell"))
+                .cloned()
+                .collect();
+            for s in &mut w.steps {
+                if (s.id == step_id || checks.contains(&s.id))
+                    && s.result.runs >= s.execution.max_runs + s.result.extra_runs
+                {
+                    s.result.extra_runs += 1;
+                }
+                if affected.contains(&s.id) || checks.contains(&s.id) {
+                    s.status = "pending".into();
+                    s.error = None;
+                    s.result.verdict = None;
+                    s.result.outcome = None;
+                    s.result.retry_at = None;
+                    s.result.forced_error = None;
+                    s.result.repository_revisions.clear();
+                    s.review_decision = None;
+                    s.review_outcome = None;
+                    s.finished_at = None;
+                }
+            }
+            w.stage = w.steps_stage();
+            w.error = None;
             self.save_workflow(&mut w)?;
             w
         };
@@ -844,8 +972,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         let editing = manager.workflow_edit(&w.id, true).await.unwrap();
         let mut declared = steps("auto_fix");
         declared[1].execution.max_fix_attempts = 3;
-        declared[1].execution.fix_commands =
-            vec![r#"node -e "require('node:fs').appendFileSync('gates.log', 'gate\n')""#.into()];
+        declared[1].execution.fix_commands = vec!["printf 'gate\\n' >> gates.log".into()];
         manager
             .workflow_update_steps(
                 &w.id,
@@ -902,7 +1029,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         let (temp, manager, w) = fixture("on_findings", "pass").await;
         let editing = manager.workflow_edit(&w.id, true).await.unwrap();
         let mut declared = steps("on_findings");
-        declared.insert(1, CreateWorkflowStep { id: Some("gate".into()), role: "shell".into(), target: "codex".into(), prompt: "Verify".into(), depends_on: Some(vec!["first".into()]), execution: WorkflowExecution { command: r#"node -e "const fs=require('node:fs'); if(fs.existsSync('retry-marker')) console.log('recovered'); else {fs.writeFileSync('retry-marker','');console.log('initial-failure');process.exit(7)}""#.into(), max_retries: 1, retry_delay_seconds: 0, ..Default::default() }, ..Default::default() });
+        declared.insert(1, CreateWorkflowStep { id: Some("gate".into()), role: "shell".into(), target: "codex".into(), prompt: "Verify".into(), depends_on: Some(vec!["first".into()]), execution: WorkflowExecution { command: "if test -f retry-marker; then echo recovered; else touch retry-marker; echo initial-failure; exit 7; fi".into(), max_retries: 1, retry_delay_seconds: 0, ..Default::default() }, ..Default::default() });
         declared[2].depends_on = Some(vec!["gate".into()]);
         manager
             .workflow_update_steps(
@@ -939,7 +1066,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 prompt: "Verify".into(),
                 depends_on: Some(vec!["first".into()]),
                 execution: WorkflowExecution {
-                    command: r#"node -e "process.exit(require('node:fs').existsSync('allowed') ? 0 : 1)""#.into(),
+                    command: "test -f allowed".into(),
                     ..Default::default()
                 },
                 ..Default::default()

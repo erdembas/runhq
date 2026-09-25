@@ -1,6 +1,31 @@
 //! Recipe files resolve promptFile against the selected manifest, never the process cwd.
 use super::*;
 use std::io::Read;
+#[path = "workflow_package_import.rs"]
+mod package;
+
+impl AgentManager {
+    /// Opens either a portable recipe or a captured package as an editable native Workflow draft.
+    /// Importing does not register projects, save a workflow, or start agents or commands.
+    pub fn import_workflow_file(&self, path: &Path) -> AppResult<Value> {
+        let path = path.canonicalize()?;
+        if path
+            .extension()
+            .is_some_and(|s| s.eq_ignore_ascii_case("zip"))
+        {
+            return package::import_package(&self.home, &path);
+        }
+        let data: Value = serde_json::from_str(&bounded_text(&path, 16 * 1024 * 1024)?)
+            .map_err(|_| invalid("workflow.invalid_import"))?;
+        if data.get("recipes").is_some() {
+            return import_workflow_recipes(&path);
+        }
+        if data.get("settings").is_some() && data.get("steps").is_some() {
+            return package::import_package(&self.home, &path);
+        }
+        Err(invalid("workflow.invalid_import"))
+    }
+}
 
 fn bounded_text(path: &Path, limit: usize) -> AppResult<String> {
     let file = std::fs::File::open(path)?;

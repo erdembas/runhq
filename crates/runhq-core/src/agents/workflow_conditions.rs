@@ -1,5 +1,11 @@
 //! Small bounded grammar, never JavaScript or shell evaluation.
 use super::*;
+#[derive(Clone)]
+pub(super) struct StepState {
+    pub status: String,
+    pub verdict: Option<String>,
+    pub runs: u32,
+}
 #[derive(Clone, Debug, PartialEq)]
 enum Token {
     Ref(String, String),
@@ -26,13 +32,13 @@ enum Expr {
 }
 fn tokens(source: &str) -> AppResult<Vec<Token>> {
     if source.len() > 4096 {
-        return Err(invalid("pipeline.invalid_condition"));
+        return Err(invalid("workflow.invalid_condition"));
     }
     let mut rest = source;
     let mut out = vec![];
     while !rest.trim_start().is_empty() {
         if out.len() >= 256 {
-            return Err(invalid("pipeline.invalid_condition"));
+            return Err(invalid("workflow.invalid_condition"));
         }
         rest = rest.trim_start();
         let mut symbol = false;
@@ -62,10 +68,10 @@ fn tokens(source: &str) -> AppResult<Vec<Token>> {
         if let Some(r) = rest.strip_prefix('\'') {
             let end = r
                 .find('\'')
-                .ok_or_else(|| invalid("pipeline.invalid_condition"))?;
+                .ok_or_else(|| invalid("workflow.invalid_condition"))?;
             let text = &r[..end];
             if !["PASS", "CONDITIONAL", "FAIL"].contains(&text) {
-                return Err(invalid("pipeline.invalid_condition"));
+                return Err(invalid("workflow.invalid_condition"));
             }
             out.push(Token::Text(text.into()));
             rest = &r[end + 1..];
@@ -76,7 +82,7 @@ fn tokens(source: &str) -> AppResult<Vec<Token>> {
             .take_while(|c| c.is_ascii_alphanumeric() || b"-_.".contains(c))
             .count();
         if n == 0 {
-            return Err(invalid("pipeline.invalid_condition"));
+            return Err(invalid("workflow.invalid_condition"));
         }
         let word = &rest[..n];
         rest = &rest[n..];
@@ -84,21 +90,21 @@ fn tokens(source: &str) -> AppResult<Vec<Token>> {
             out.push(Token::Number(n));
         } else if let Some((id, field)) = word.rsplit_once('.') {
             if !["verdict", "runCount"].contains(&field) {
-                return Err(invalid("pipeline.invalid_condition"));
+                return Err(invalid("workflow.invalid_condition"));
             }
             out.push(Token::Ref(id.into(), field.into()));
         } else {
-            return Err(invalid("pipeline.invalid_condition"));
+            return Err(invalid("workflow.invalid_condition"));
         }
         if out.len() > 256 {
-            return Err(invalid("pipeline.invalid_condition"));
+            return Err(invalid("workflow.invalid_condition"));
         }
     }
     Ok(out)
 }
 fn parse(ts: &[Token], at: &mut usize, level: u32, min: u8) -> AppResult<Expr> {
     if level > 32 {
-        return Err(invalid("pipeline.invalid_condition"));
+        return Err(invalid("workflow.invalid_condition"));
     }
     let mut left = match ts.get(*at) {
         Some(Token::Not) => {
@@ -109,7 +115,7 @@ fn parse(ts: &[Token], at: &mut usize, level: u32, min: u8) -> AppResult<Expr> {
             *at += 1;
             let e = parse(ts, at, level + 1, 0)?;
             if ts.get(*at) != Some(&Token::R) {
-                return Err(invalid("pipeline.invalid_condition"));
+                return Err(invalid("workflow.invalid_condition"));
             }
             *at += 1;
             e
@@ -119,11 +125,11 @@ fn parse(ts: &[Token], at: &mut usize, level: u32, min: u8) -> AppResult<Expr> {
             let op = ts
                 .get(*at + 1)
                 .cloned()
-                .ok_or_else(|| invalid("pipeline.invalid_condition"))?;
+                .ok_or_else(|| invalid("workflow.invalid_condition"))?;
             let b = ts
                 .get(*at + 2)
                 .cloned()
-                .ok_or_else(|| invalid("pipeline.invalid_condition"))?;
+                .ok_or_else(|| invalid("workflow.invalid_condition"))?;
             let valid = matches!(
                 (&op, &b, field.as_str()),
                 (Token::Eq | Token::Ne, Token::Text(_), "verdict")
@@ -134,12 +140,12 @@ fn parse(ts: &[Token], at: &mut usize, level: u32, min: u8) -> AppResult<Expr> {
                     )
             );
             if !valid {
-                return Err(invalid("pipeline.invalid_condition"));
+                return Err(invalid("workflow.invalid_condition"));
             }
             *at += 3;
             Expr::Compare(a, op, b)
         }
-        _ => return Err(invalid("pipeline.invalid_condition")),
+        _ => return Err(invalid("workflow.invalid_condition")),
     };
     loop {
         let p = match ts.get(*at) {
@@ -166,33 +172,75 @@ fn expression(source: &str) -> AppResult<Expr> {
     let mut at = 0;
     let e = parse(&ts, &mut at, 0, 0)?;
     if at != ts.len() {
-        return Err(invalid("pipeline.invalid_condition"));
+        return Err(invalid("workflow.invalid_condition"));
     }
     Ok(e)
+}
+fn evaluate(e: &Expr, states: &std::collections::BTreeMap<String, StepState>) -> Option<bool> {
+    match e {
+        Expr::Not(x) => evaluate(x, states).map(|v| !v),
+        Expr::And(a, b) => match (evaluate(a, states), evaluate(b, states)) {
+            (Some(false), _) | (_, Some(false)) => Some(false),
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        },
+        Expr::Or(a, b) => match (evaluate(a, states), evaluate(b, states)) {
+            (Some(true), _) | (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        },
+        Expr::Compare(Token::Ref(id, field), op, value) => {
+            let s = states.get(id)?;
+            if s.status != "completed" {
+                return None;
+            }
+            if field == "verdict" {
+                let equal = s.verdict.as_ref()?
+                    == match value {
+                        Token::Text(t) => t,
+                        _ => return None,
+                    };
+                Some(if *op == Token::Eq { equal } else { !equal })
+            } else {
+                let Token::Number(n) = value else {
+                    return None;
+                };
+                Some(match op {
+                    Token::Eq => s.runs == *n,
+                    Token::Ne => s.runs != *n,
+                    Token::Ge => s.runs >= *n,
+                    Token::Gt => s.runs > *n,
+                    Token::Le => s.runs <= *n,
+                    Token::Lt => s.runs < *n,
+                    _ => return None,
+                })
+            }
+        }
+        _ => None,
+    }
+}
+pub(super) fn condition(
+    source: &str,
+    states: &std::collections::BTreeMap<String, StepState>,
+) -> AppResult<Option<bool>> {
+    if source.is_empty() {
+        return Ok(Some(true));
+    }
+    Ok(evaluate(&expression(source)?, states))
 }
 pub(super) fn references(source: &str) -> AppResult<Vec<String>> {
     if source.is_empty() {
         return Ok(vec![]);
     }
-    fn collect(expr: &Expr, out: &mut Vec<String>) {
-        match expr {
-            Expr::Not(inner) => collect(inner, out),
-            Expr::And(left, right) | Expr::Or(left, right) => {
-                collect(left, out);
-                collect(right, out);
+    expression(source)?;
+    Ok(tokens(source)?
+        .into_iter()
+        .filter_map(|t| {
+            if let Token::Ref(id, _) = t {
+                Some(id)
+            } else {
+                None
             }
-            Expr::Compare(reference, operator, value) => {
-                // Parsing has already checked the types and operators; visiting all operands keeps
-                // this tree a syntax validator without introducing a second execution engine.
-                for token in [reference, operator, value] {
-                    if let Token::Ref(id, _) = token {
-                        out.push(id.clone());
-                    }
-                }
-            }
-        }
-    }
-    let mut out = vec![];
-    collect(&expression(source)?, &mut out);
-    Ok(out)
+        })
+        .collect())
 }
