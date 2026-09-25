@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0](https://github.com/erdembas/runhq/compare/v3.6.0...v3.7.0) (2026-09-25)
+
+
+### Features
+
+* **desktop:** set workflow agent models by step type ([#181](https://github.com/erdembas/runhq/issues/181)) ([0e3e9d4](https://github.com/erdembas/runhq/commit/0e3e9d49ee46f42a0f149012f4eca93321e9e8e6))
+
+
+### Documentation
+
+* highlight the 3.6.0 workflow release ([#179](https://github.com/erdembas/runhq/issues/179)) ([5a3a8d4](https://github.com/erdembas/runhq/commit/5a3a8d4b0db701740d3445433a73ecad12752cbb))
+
 ## [3.6.0](https://github.com/erdembas/runhq/compare/v3.5.0...v3.6.0) (2026-09-25)
 
 RunHQ 3.6 brings imported coding packages into the native Workflow editor.
