@@ -40,7 +40,7 @@ import {
   workflowCanvasPositions,
   workflowStepTitle,
 } from './agentWorkflowEditor';
-import type { WorkflowTaskLane } from './agentWorkflowGraph';
+import { workflowRoleUsesAgent, type WorkflowTaskLane } from './agentWorkflowGraph';
 import { WORKFLOW_ROLE_OPTIONS } from './agentWorkflowStepPolicy';
 import './agentWorkflowCanvas.css';
 
@@ -63,6 +63,8 @@ const roleIcons = {
   revise: ListChecks,
   validate: FileCheck2,
   shell: Code2,
+  human: CircleHelp,
+  barrier: FileCheck2,
 };
 const laneLabels = {
   get attention() {
@@ -123,7 +125,9 @@ const WorkflowStepNode = memo(function WorkflowStepNode({
         {workflowStepTitle(data.step)}
       </p>
       <div className="border-border/60 text-fg-dim mt-3 flex items-center gap-2 border-t pt-2.5 text-[10px]">
-        <span className="min-w-0 flex-1 truncate">{data.account || i18n.t('Choose an agent')}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {workflowRoleUsesAgent(data.step.role) ? data.account || i18n.t('Choose an agent') : role}
+        </span>
         {data.lane ? (
           <span
             className={`flex shrink-0 items-center gap-1 ${data.lane === 'completed' ? 'text-status-running' : data.lane === 'attention' ? 'text-tone-warning-fg' : data.lane === 'working' ? 'text-accent' : ''}`}

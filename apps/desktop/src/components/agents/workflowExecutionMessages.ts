@@ -1,5 +1,7 @@
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
+import { pipelineMessage } from './pipelineMessages';
 export function workflowExecutionError(value: string): string {
+  if (/(?:^|: )pipeline\./.test(value)) return pipelineMessage(value);
   const code = value.match(/(?:^|: )(workflow\.[a-z_]+)$/)?.[1] ?? value;
   switch (code) {
     case 'workflow.invalid_execution':
@@ -11,7 +13,7 @@ export function workflowExecutionError(value: string): string {
     case 'workflow.invalid_condition':
       return i18n.t('The result condition is invalid.');
     case 'workflow.condition_dependency':
-      return i18n.t('A condition must refer to a direct dependency.');
+      return i18n.t('Conditions must refer to earlier dependencies.');
     case 'workflow.conditional_review':
       return i18n.t('An independent review cannot be conditional.');
     case 'workflow.invalid_shell':
@@ -41,7 +43,30 @@ export function workflowExecutionError(value: string): string {
     case 'workflow.import_encoding':
       return i18n.t('Recipe and prompt files must use UTF-8.');
     case 'workflow.invalid_import':
-      return i18n.t('Choose a version 1 JSON recipe bundle.');
+      return i18n.t('Choose a workflow JSON file or a JSON/ZIP package.');
+    case 'workflow.run_limit':
+      return i18n.t(
+        'This step reached its run limit. Inspect the result before allowing another run.',
+      );
+    case 'workflow.stale_approval':
+    case 'workflow.stale_decision':
+      return i18n.t('An approval is no longer current. Refresh the workflow before deciding.');
+    case 'workflow.approval_rejected':
+      return i18n.t('The approval was rejected.');
+    case 'workflow.pass_required':
+      return i18n.t('This workflow requires a PASS verdict from its dependencies.');
+    case 'workflow.invalid_context':
+      return i18n.t('Check the workflow workspace and captured package paths.');
+    case 'workflow.preflight_failed':
+      return i18n.t('Resolve the imported workspace issues before starting.');
+    case 'workflow.branch_changed':
+      return i18n.t('A repository is on a different branch. Review the workspace settings.');
+    case 'workflow.dirty_workspace':
+      return i18n.t('A repository has uncommitted changes. Commit or stash them before starting.');
+    case 'workflow.workspace_changed':
+      return i18n.t('The workspace repositories changed. Review their paths before starting.');
+    case 'workflow.direct_no_integration':
+      return i18n.t('This workflow already works in the selected repositories.');
     case 'workflow.invalid_prompt_file':
       return i18n.t('Prompt files must be inside the selected recipe’s folder.');
     default:

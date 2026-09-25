@@ -179,6 +179,7 @@ export function AgentLibrary({
   const [searched, setSearched] = useState(false);
   const [editor, setEditor] = useState<AgentRecipe | null>(null);
   const [queueEditing, setQueueEditing] = useState(false);
+  const [invalidExecutionDraft, setInvalidExecutionDraft] = useState(false);
   const [memoryEditor, setMemoryEditor] = useState<AgentMemory | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<AgentSchedule | null>(null);
   const accountPools = useMemo(() => {
@@ -788,7 +789,7 @@ export function AgentLibrary({
             className="border-border bg-surface-raised flex h-full w-full flex-col overflow-hidden rounded-xl border"
             onSubmit={(e) => {
               e.preventDefault();
-              if (queueEditing) return;
+              if (queueEditing || invalidExecutionDraft) return;
               const form = e.currentTarget;
               if (!form.checkValidity()) {
                 setEditorTab('overview');
@@ -993,9 +994,11 @@ export function AgentLibrary({
                 {editor.workflowSteps?.length ? (
                   <div>
                     <AgentWorkflowTasks
+                      context={editor.workflowContext}
                       projectId={editor.projectId || scope || projects[0]?.id || ''}
                       steps={recipeStepsToCreateSteps(editor.workflowSteps)}
                       onQueueEditingChange={setQueueEditing}
+                      onValidationChange={setInvalidExecutionDraft}
                       onChange={(steps) =>
                         setEditor({ ...editor, workflowSteps: createStepsToRecipeSteps(steps) })
                       }
@@ -1041,7 +1044,7 @@ export function AgentLibrary({
               <button type="button" className={button} onClick={() => setEditor(null)}>
                 {i18n.t('Cancel')}
               </button>
-              <button className={button} disabled={busy || queueEditing}>
+              <button className={button} disabled={busy || queueEditing || invalidExecutionDraft}>
                 {i18n.t('Save recipe')}
               </button>
             </div>

@@ -6,10 +6,12 @@ export function AgentWorkflowExecution({
   value,
   onChange,
   disabled,
+  controlFlow = false,
 }: {
   value: WorkflowExecutionMode | 'custom';
   onChange: (value: WorkflowExecutionMode) => void;
   disabled?: boolean;
+  controlFlow?: boolean;
 }) {
   i18n.useLocale();
   const descriptions = {
@@ -45,7 +47,9 @@ export function AgentWorkflowExecution({
         />
       </div>
       <p className="text-fg-muted min-w-48 flex-1 text-[11px] leading-relaxed">
-        {descriptions[value]}
+        {controlFlow
+          ? i18n.t('Imported conditions and gates keep their declared dependencies.')
+          : descriptions[value]}
       </p>
     </div>
   );

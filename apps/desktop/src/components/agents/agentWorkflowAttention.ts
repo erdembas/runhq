@@ -3,7 +3,7 @@ import { workflowReviewNeedsDecision } from './agentWorkflowGraph';
 
 export interface WorkflowAttentionEntry {
   workflow: AgentWorkflow;
-  kind: 'review' | 'blocked' | 'failed' | 'apply';
+  kind: 'human' | 'review' | 'blocked' | 'failed' | 'apply';
   detail: string | null;
 }
 
@@ -22,7 +22,12 @@ const failedStages = new Set([
 export function collectWorkflowAttention(workflows: AgentWorkflow[]): WorkflowAttentionEntry[] {
   return workflows
     .flatMap((workflow): WorkflowAttentionEntry[] => {
-      if (workflow.cleaned || ['integrated', 'cancelled'].includes(workflow.stage)) return [];
+      if (workflow.cleaned || ['integrated', 'cancelled', 'completed'].includes(workflow.stage))
+        return [];
+      const human = workflow.steps.find(
+        (step) => step.role === 'human' && step.status === 'awaiting_approval',
+      );
+      if (human) return [{ workflow, kind: 'human', detail: human.prompt || null }];
       const review = workflow.steps.find(workflowReviewNeedsDecision);
       if (review || workflow.stage === 'awaiting_review')
         return [{ workflow, kind: 'review', detail: review?.review_summary || null }];
@@ -34,7 +39,8 @@ export function collectWorkflowAttention(workflows: AgentWorkflow[]): WorkflowAt
       const failed = workflow.steps.find((step) => step.status === 'failed');
       if (failedStages.has(workflow.stage) || failed)
         return [{ workflow, kind: 'failed', detail: workflow.error || failed?.error || null }];
-      if (workflow.stage === 'ready') return [{ workflow, kind: 'apply', detail: null }];
+      if (workflow.stage === 'ready' && workflow.context?.workspace_mode !== 'direct')
+        return [{ workflow, kind: 'apply', detail: null }];
       return [];
     })
     .sort((left, right) => left.workflow.updated_at - right.workflow.updated_at);

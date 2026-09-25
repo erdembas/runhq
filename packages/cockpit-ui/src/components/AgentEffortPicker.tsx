@@ -172,7 +172,7 @@ export function AgentEffortPicker({
               })}
             </div>
             <p className="text-fg-muted mt-1 text-[11px] leading-relaxed">
-              {i18n.t('Choose how much reasoning to use for the next message.')}
+              {i18n.t('Choose how much reasoning the agent should use.')}
             </p>
             <div
               role="radiogroup"

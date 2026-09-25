@@ -20,11 +20,28 @@ pub struct WorkflowExecution {
     pub fix_prompt: String,
     /// none, json, pipeline, review. Only the final nonempty response line is interpreted.
     pub result_format: String,
+    pub result_line_regex: String,
     pub success_regex: String,
     pub failure_regex: String,
     /// pause stops admission; cancel also interrupts siblings. Both require manual recovery.
     pub on_failure: String,
     pub run_if: Option<WorkflowCondition>,
+    pub run_condition: String,
+    pub complete_condition: String,
+    pub halt_condition: String,
+    pub max_runs: u32,
+    pub rerun_step: String,
+    pub require_pass: Vec<String>,
+    pub verdict_regex: String,
+    pub result_scope: String,
+    pub success_scope: String,
+    pub failure_scope: String,
+    pub verdict_scope: String,
+    pub success_exit_code: Option<i32>,
+    pub failure_exit_code: Option<i32>,
+    pub failure_exit_code_not: Option<i32>,
+    pub environment: std::collections::BTreeMap<String, String>,
+    pub agent_profile: String,
 }
 impl Default for WorkflowExecution {
     fn default() -> Self {
@@ -40,10 +57,27 @@ impl Default for WorkflowExecution {
             fix_commands: vec![],
             fix_prompt: String::new(),
             result_format: "none".into(),
+            result_line_regex: String::new(),
             success_regex: String::new(),
             failure_regex: String::new(),
             on_failure: "pause".into(),
             run_if: None,
+            run_condition: String::new(),
+            complete_condition: String::new(),
+            halt_condition: String::new(),
+            max_runs: 1,
+            rerun_step: String::new(),
+            require_pass: vec![],
+            verdict_regex: String::new(),
+            result_scope: "final_response".into(),
+            success_scope: "last_line".into(),
+            failure_scope: "last_line".into(),
+            verdict_scope: "last_line".into(),
+            success_exit_code: None,
+            failure_exit_code: None,
+            failure_exit_code_not: None,
+            environment: Default::default(),
+            agent_profile: String::new(),
         }
     }
 }
@@ -57,6 +91,16 @@ pub struct WorkflowCondition {
 #[serde(default)]
 pub struct WorkflowStepResult {
     pub outcome: Option<String>,
+    pub verdict: Option<String>,
+    pub runs: u32,
+    /// Last logical run whose successful rerun transition has been applied.
+    pub transition_run: u32,
+    pub extra_runs: u32,
+    pub decision: Option<String>,
+    pub decision_note: String,
+    pub decided_at: Option<i64>,
+    pub repository_bases: std::collections::BTreeMap<String, String>,
+    pub repository_revisions: std::collections::BTreeMap<String, String>,
     pub output: String,
     pub exit_code: Option<i32>,
     pub attempts: Vec<WorkflowAttempt>,
@@ -92,9 +136,34 @@ pub(crate) fn validate_execution(step: &CreateWorkflowStep) -> AppResult<()> {
     {
         return Err(invalid("workflow.invalid_execution"));
     }
-    validate_relative_directory(&p.working_directory)?;
+    if !Path::new(&p.working_directory).is_absolute() {
+        validate_relative_directory(&p.working_directory)?;
+    }
+    if p.max_runs == 0
+        || p.max_runs > 100
+        || !matches!(
+            p.result_scope.as_str(),
+            "final_response" | "combined_output"
+        )
+        || [&p.success_scope, &p.failure_scope, &p.verdict_scope]
+            .iter()
+            .any(|scope| !matches!(scope.as_str(), "output" | "last_line"))
+    {
+        return Err(invalid("workflow.invalid_execution"));
+    }
+    validate_workflow_environment(&p.environment)?;
+    if p.agent_profile.len() > 256
+        || workflow_role_reviews(&step.role) && !p.agent_profile.is_empty()
+    {
+        return Err(invalid("workflow.invalid_execution"));
+    }
     validate_commands(&p.fix_commands, false)?;
-    for pattern in [&p.success_regex, &p.failure_regex] {
+    for pattern in [
+        &p.success_regex,
+        &p.failure_regex,
+        &p.verdict_regex,
+        &p.result_line_regex,
+    ] {
         if pattern.len() > 4096 || (!pattern.is_empty() && Regex::new(pattern).is_err()) {
             return Err(invalid("workflow.invalid_regex"));
         }
@@ -122,7 +191,7 @@ pub(crate) fn validate_execution(step: &CreateWorkflowStep) -> AppResult<()> {
     }
     Ok(())
 }
-fn validate_relative_directory(directory: &str) -> AppResult<()> {
+pub(super) fn validate_relative_directory(directory: &str) -> AppResult<()> {
     if directory.contains('\\')
         || Path::new(directory)
             .components()
@@ -157,11 +226,28 @@ pub(crate) fn execution_outcome(p: &WorkflowExecution, output: &str) -> String {
         .find(|s| !s.trim().is_empty())
         .unwrap_or("")
         .trim();
-    if !p.failure_regex.is_empty() && Regex::new(&p.failure_regex).is_ok_and(|r| r.is_match(last)) {
+    if !p.result_line_regex.is_empty()
+        && !Regex::new(&p.result_line_regex).is_ok_and(|r| r.is_match(last))
+    {
+        return "blocked".into();
+    }
+    let matches = |pattern: &str, scope: &str| -> usize {
+        let Ok(regex) = Regex::new(&format!("^(?:{pattern})$")) else {
+            return 0;
+        };
+        if scope == "output" {
+            output
+                .lines()
+                .filter(|line| regex.is_match(line.trim()))
+                .count()
+        } else {
+            usize::from(Regex::new(pattern).is_ok_and(|r| r.is_match(last)))
+        }
+    };
+    if !p.failure_regex.is_empty() && matches(&p.failure_regex, &p.failure_scope) > 0 {
         return "failed".into();
     }
-    if !p.success_regex.is_empty() && !Regex::new(&p.success_regex).is_ok_and(|r| r.is_match(last))
-    {
+    if !p.success_regex.is_empty() && matches(&p.success_regex, &p.success_scope) != 1 {
         return "blocked".into();
     }
     let prefix = match p.result_format.as_str() {
@@ -178,7 +264,29 @@ pub(crate) fn execution_outcome(p: &WorkflowExecution, output: &str) -> String {
     {
         return "blocked".into();
     }
-    let Some(value) = last.strip_prefix(prefix).map(str::trim) else {
+    // Package protocol results fail closed even when a review also contains a PASS marker.
+    if matches!(p.result_format.as_str(), "pipeline" | "review")
+        && output.lines().any(|line| {
+            matches!(
+                line.trim().strip_prefix("PIPELINE_RESULT:").map(str::trim),
+                Some("BLOCKED" | "FAILED")
+            )
+        })
+    {
+        return "failed".into();
+    }
+    let protocol = if p.result_format == "pipeline" && p.success_scope == "output"
+        || p.result_format == "review" && p.verdict_scope == "output"
+    {
+        output
+            .lines()
+            .find(|s| s.trim().starts_with(prefix))
+            .unwrap_or("")
+            .trim()
+    } else {
+        last
+    };
+    let Some(value) = protocol.strip_prefix(prefix).map(str::trim) else {
         return "blocked".into();
     };
     match p.result_format.as_str() {
@@ -219,20 +327,53 @@ impl AgentManager {
                 .session_id
                 .as_ref()
                 .and_then(|id| self.snapshot(id, None).ok())
-                .and_then(|s| {
-                    s.items.into_iter().rev().find(|i| {
-                        i.kind == "assistant" && i.created_at >= step.started_at.unwrap_or(0)
-                    })
+                .map(|s| {
+                    let mut items = s
+                        .items
+                        .into_iter()
+                        .filter(|i| i.created_at >= step.started_at.unwrap_or(0));
+                    if step.execution.result_scope == "combined_output" {
+                        items
+                            .filter(|i| matches!(i.kind.as_str(), "assistant" | "tool" | "output"))
+                            .map(|i| i.text)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        items
+                            .rfind(|i| i.kind == "assistant")
+                            .map(|i| i.text)
+                            .unwrap_or_default()
+                    }
                 })
-                .map(|i| i.text)
                 .unwrap_or_default();
             (None, text)
         });
-        let outcome = if step.result.forced_error.is_some() || !completed {
+        let verdict = workflow_capture_verdict(&step.execution, &text);
+        let exit_rejected = step
+            .execution
+            .success_exit_code
+            .is_some_and(|expected| exit != Some(expected))
+            || step
+                .execution
+                .failure_exit_code
+                .is_some_and(|expected| exit == Some(expected))
+            || step
+                .execution
+                .failure_exit_code_not
+                .is_some_and(|expected| exit != Some(expected));
+        let outcome = if step.result.forced_error.is_some() || !completed || exit_rejected {
             "failed".into()
         } else {
-            execution_outcome(&step.execution, &text)
+            if !step.execution.verdict_regex.is_empty() && verdict.is_none() {
+                "blocked".into()
+            } else {
+                execution_outcome(&step.execution, &text)
+            }
         };
+        if matches!(outcome.as_str(), "pass" | "findings") {
+            step.result.runs += 1;
+        }
+        step.result.verdict = verdict;
         step.status = match outcome.as_str() {
             "blocked" => "blocked",
             "failed" => "failed",
@@ -319,6 +460,17 @@ impl AgentManager {
         w: &mut AgentWorkflow,
         step: WorkflowStep,
     ) -> AppResult<AgentWorkflow> {
+        if !matches!(step.status.as_str(), "pending" | "failed" | "blocked")
+            || !w.dependencies_ready(&step)
+            || !w.native_step_ready(&step)
+        {
+            return Err(invalid("workflow.condition_dependency"));
+        }
+        self.workflow_validate_context(w, false).await?;
+        if self.workflow_start_control(w, &step)? {
+            self.save_workflow(w)?;
+            return Ok(w.clone());
+        }
         if self.workflow_resource_busy(w, &step) {
             return Err(invalid("workflow.resource_busy"));
         }
@@ -344,8 +496,11 @@ impl AgentManager {
                 return Ok(w.clone());
             }
         }
+        self.workflow_capture_direct_inputs(w, &step.id).await?;
         if step.role == "shell" {
             self.workflow_start_shell(w, step).await
+        } else if w.direct_workspace() {
+            self.workflow_start_direct_agent(w, step).await
         } else if workflow_role_produces(&step.role) {
             self.workflow_start_producing(w, step).await
         } else {
@@ -434,7 +589,7 @@ impl AgentManager {
         w: &mut AgentWorkflow,
         step: WorkflowStep,
     ) -> AppResult<AgentWorkflow> {
-        let cwd = execution_directory(&w.cwd, &step.execution.working_directory)?;
+        let cwd = self.workflow_execution_directory(w, &step.execution.working_directory)?;
         let root = Path::new(&w.root).canonicalize()?;
         // Reserve synchronously before spawning. Ordinary agents also respect this lease.
         let mut lease = self.workflow_lease(&root)?;
@@ -469,13 +624,18 @@ impl AgentManager {
         self.save_workflow(w)?;
         let wid = w.id.clone();
         let manager = Arc::clone(self);
+        let environment = self.workflow_environment(w, &step);
+        if w.context.is_some() {
+            std::fs::create_dir_all(self.home.join("workflow-runs").join(&w.id))?;
+        }
         tokio::spawn(async move {
-            let result = run_workflow_command_controlled(
+            let result = run_workflow_command_with_env(
                 &cwd.to_string_lossy(),
                 &step.execution.command,
                 cancellation,
                 step.execution.timeout_minutes,
                 step.execution.idle_timeout_minutes,
+                &environment,
             )
             .await;
             let _gate = manager.workflow_gate.lock().await;
@@ -509,7 +669,8 @@ impl AgentManager {
                     }
                     manager.workflow_finish_execution(
                         current,
-                        status == "passed",
+                        status == "passed"
+                            || status == "failed" && step.execution.success_exit_code == exit,
                         Some((exit, output)),
                     );
                 }
@@ -518,8 +679,20 @@ impl AgentManager {
                     manager.workflow_finish_execution(current, false, Some((None, String::new())));
                 }
             }
+            if let Err(error) = manager
+                .workflow_capture_direct_result(&mut w, &step.id)
+                .await
+            {
+                if let Some(current) = w.steps.iter_mut().find(|s| s.id == step.id) {
+                    current.status = "failed".into();
+                    current.error = Some(error.to_string());
+                }
+            }
             manager.workflow_retry_failures(&mut w);
-            w.current_fingerprint = manager.workflow_fingerprint(Path::new(&w.root)).await.ok();
+            let _ = manager.workflow_apply_transitions(&mut w);
+            if !w.direct_workspace() {
+                w.current_fingerprint = manager.workflow_fingerprint(Path::new(&w.root)).await.ok();
+            }
             w.stage = w.steps_stage();
             let _ = manager.save_workflow(&mut w);
             manager.workflow_halt_siblings(&w).await;

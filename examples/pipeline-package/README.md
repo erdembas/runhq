@@ -2,7 +2,9 @@
 
 Set `settings.agentWorkingDirectory`, replace the change/acceptance criteria in the prompts,
 and configure `verify.sh` with real project checks. Its placeholder deliberately fails.
-Import `pipeline.json` or ZIP this directory. Import only creates a draft; it does not execute anything.
+Use **Workflows → Import workflow** to select `pipeline.json`, or ZIP this directory and select the
+archive. It opens an editable native Workflow draft; importing does not execute anything. Choose
+each agent's connection, model and effort in the Workflow editor, then create and start the workflow.
 
 The first human step waits for approval. Each correction runs a fresh shell gate before review.
 PASS succeeds immediately; CONDITIONAL is accepted from the second review. Three unsuccessful

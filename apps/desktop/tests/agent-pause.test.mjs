@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
+import { URL } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { URL } from 'node:url';
 import ts from 'typescript';
 import { i18nCore, i18nView } from './helpers/i18n.mjs';
 

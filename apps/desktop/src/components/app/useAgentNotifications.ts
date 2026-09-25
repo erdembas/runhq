@@ -1,4 +1,3 @@
-import { usePipelineNotifications } from '../agents/usePipelineNotifications';
 import { useWorkflowNotifications } from '../agents/useWorkflowNotifications';
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
 import { useEffect } from 'react';
@@ -16,7 +15,6 @@ import {
 
 export function useAgentNotifications() {
   useWorkflowNotifications();
-  usePipelineNotifications();
   useEffect(() => {
     if (!isTauri()) return;
     const track = createAgentNotificationTracker();

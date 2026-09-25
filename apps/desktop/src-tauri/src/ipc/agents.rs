@@ -56,8 +56,15 @@ pub async fn agent_catalog(
     project_id: String,
     session_id: Option<String>,
     model: Option<String>,
+    working_directory: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Value> {
+    if let Some(directory) = working_directory.filter(|value| !value.is_empty()) {
+        return state
+            .agents
+            .catalog_for_directory(backend, executable, directory, model)
+            .await;
+    }
     state
         .agents
         .catalog(backend, executable, project_id, session_id, model)

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect } from '@runhq/cockpit-ui';
 import type { AgentBackend } from '@runhq/cockpit-types';
-import type { CreateWorkflowStep } from '@/lib/ipc/agentWorkflowIpc';
+import type { CreateWorkflowStep, WorkflowContext } from '@/lib/ipc/agentWorkflowIpc';
 import { AgentWorkflowStudio } from './AgentWorkflowStudio';
 import { AgentWorkflowExecution } from './AgentWorkflowExecution';
 import { AgentWorkflowCanvas } from './AgentWorkflowCanvas';
@@ -24,11 +24,16 @@ import { AgentWorkflowViewToggle } from './AgentWorkflowViewToggle';
 import { AgentWorkflowPromptQueue } from './AgentWorkflowPromptQueue';
 import { AgentWorkflowReviewPolicy } from './AgentWorkflowReviewPolicy';
 import { AgentWorkflowModelControls } from './AgentWorkflowModelControls';
-import { workflowAncestors } from './agentWorkflowGraph';
+import {
+  workflowAncestors,
+  workflowRoleReviews,
+  workflowRoleUsesAgent,
+} from './agentWorkflowGraph';
 import {
   WORKFLOW_TEMPLATES,
   setWorkflowExecution,
   workflowExecutionMode,
+  workflowHasControlFlow,
   moveWorkflowQueue,
   workflowIsQueue,
   insertWorkflowTask,
@@ -55,6 +60,7 @@ const button =
 
 export function AgentWorkflowTasks({
   steps,
+  context,
   projectId,
   onChange,
   producers,
@@ -64,12 +70,14 @@ export function AgentWorkflowTasks({
   disabled,
   onQueueCreated,
   onQueueEditingChange,
+  onValidationChange,
   lockedIds = [],
   live = false,
 }: {
   lockedIds?: string[];
   live?: boolean;
   steps: CreateWorkflowStep[];
+  context?: WorkflowContext | null;
   projectId: string;
   onChange: (steps: CreateWorkflowStep[]) => void;
   producers: AgentBackend[];
@@ -79,9 +87,18 @@ export function AgentWorkflowTasks({
   disabled?: boolean;
   onQueueCreated?: () => void;
   onQueueEditingChange?: (editing: boolean) => void;
+  onValidationChange?: (invalid: boolean) => void;
 }) {
   i18n.useLocale();
   const locked = new Set(lockedIds);
+  const [environmentDrafts, setEnvironmentDrafts] = useState<
+    Record<string, { text: string; invalid: boolean }>
+  >({});
+  const invalidEnvironment = steps.some((step) => environmentDrafts[step.id]?.invalid);
+  useEffect(() => {
+    onValidationChange?.(invalidEnvironment);
+    return () => onValidationChange?.(false);
+  }, [invalidEnvironment, onValidationChange]);
   const [executionChoice, setExecutionChoice] = useState<ReturnType<
     typeof workflowExecutionMode
   > | null>(null);
@@ -101,9 +118,20 @@ export function AgentWorkflowTasks({
   const insertBlocked =
     !!current && steps.some((step) => locked.has(step.id) && step.depends_on.includes(current.id));
   const linear = workflowIsQueue(steps);
-  const problems = workflowTasksProblems(steps);
+  const problems = [
+    ...workflowTasksProblems(steps, context),
+    ...steps
+      .filter((step) => environmentDrafts[step.id]?.invalid)
+      .map((step) => ({
+        taskId: step.id,
+        message: i18n.t('“{id}” has invalid execution settings.', { id: step.id }),
+        severity: 'error' as const,
+        fix: undefined,
+      })),
+  ];
   const blocking = problems.filter((problem) => problem.severity === 'error');
-  const candidates = (role: string) => (workflowRoleProduces(role) ? producers : reviewers);
+  const candidates = (role: string) =>
+    workflowRoleUsesAgent(role) ? (workflowRoleReviews(role) ? reviewers : producers) : [];
   const providerName = (target: string) =>
     [...producers, ...reviewers].find((tool) => tool.id === target)?.name ??
     poolOptions.find((pool) => pool.value === target)?.label ??
@@ -145,15 +173,22 @@ export function AgentWorkflowTasks({
       (role === 'review' ? reviewers : producers)[0]?.id ?? '',
       reviewers[0]?.id ?? '',
       steps.some((step) => step.continue_from) ? 'same' : conversation,
+      context?.workspace_mode !== 'direct',
     );
     if (!next || next.steps.length > MAX_WORKFLOW_STEPS) return;
     const mode = executionChoice ?? workflowExecutionMode(steps);
-    change(!live && mode !== 'custom' ? setWorkflowExecution(next.steps, mode) : next.steps);
+    change(
+      !live && !context && mode !== 'custom' ? setWorkflowExecution(next.steps, mode) : next.steps,
+    );
     setExecutionChoice(mode);
     setSelected(next.id);
   };
   const promptSlots =
-    current && !steps.some((step) => step.depends_on.includes(current.id)) ? 2 : 1;
+    current &&
+    context?.workspace_mode !== 'direct' &&
+    !steps.some((step) => step.depends_on.includes(current.id))
+      ? 2
+      : 1;
   const connect = (source: string, target: string) => {
     if (disabled || locked.has(target) || !canConnectWorkflowTasks(steps, source, target)) return;
     const step = steps.find((entry) => entry.id === target)!;
@@ -228,6 +263,7 @@ export function AgentWorkflowTasks({
                       className={button}
                       onClick={() => {
                         onChange(previous);
+                        setEnvironmentDrafts({});
                         setExecutionChoice(null);
                         setPrevious(null);
                       }}
@@ -274,7 +310,10 @@ export function AgentWorkflowTasks({
             <div className="p-3">
               <AgentWorkflowExecution
                 value={executionChoice ?? workflowExecutionMode(steps)}
-                disabled={disabled || lockedIds.length > 0}
+                disabled={
+                  disabled || lockedIds.length > 0 || !!context || workflowHasControlFlow(steps)
+                }
+                controlFlow={!!context || workflowHasControlFlow(steps)}
                 onChange={(mode) => {
                   change(setWorkflowExecution(steps, mode));
                   setExecutionChoice(mode);
@@ -300,18 +339,20 @@ export function AgentWorkflowTasks({
                         >
                           <span className="text-fg-dim text-[10px]">
                             {index + 1} ·{' '}
-                            {step.role === 'shell'
-                              ? i18n.t('Terminal command')
-                              : i18n.enumLabel('stepRole', step.role)}
+                            {
+                              WORKFLOW_ROLE_OPTIONS.find((option) => option.value === step.role)
+                                ?.label
+                            }
                             {locked.has(step.id) ? ` · ${i18n.t('Already started')}` : ''}
                           </span>
                           <span className="text-fg block truncate text-xs">
                             {workflowStepTitle(step)}
                           </span>
                           <span className="text-fg-dim block text-[10px]">
-                            {step.role === 'shell'
-                              ? i18n.t('Terminal command')
-                              : providerName(step.target)}
+                            {workflowRoleUsesAgent(step.role)
+                              ? providerName(step.target)
+                              : WORKFLOW_ROLE_OPTIONS.find((option) => option.value === step.role)
+                                  ?.label}
                             {step.continue_from
                               ? ` · ${i18n.t('Continues an earlier conversation')}`
                               : ''}
@@ -480,17 +521,24 @@ export function AgentWorkflowTasks({
                               : (candidates(next)[0]?.id ?? '');
                             update(current.id, {
                               role: next,
-                              review_policy: workflowRoleProduces(next)
-                                ? ''
-                                : current.review_policy || 'on_findings',
+                              review_policy: workflowRoleReviews(next)
+                                ? current.review_policy || 'on_findings'
+                                : '',
                               target,
                               ...(target !== current.target ? { model: '', effort: '' } : {}),
                               workspace:
-                                workflowRoleProduces(next) && next !== 'shell'
+                                context?.workspace_mode !== 'direct' &&
+                                workflowRoleProduces(next) &&
+                                workflowRoleUsesAgent(next)
                                   ? current.workspace
                                   : 'shared',
                               execution: {
                                 ...current.execution,
+                                ...(!workflowRoleUsesAgent(next) ||
+                                workflowRoleReviews(next) ||
+                                target !== current.target
+                                  ? { agent_profile: '' }
+                                  : {}),
                                 command: next === 'shell' ? (current.execution?.command ?? '') : '',
                               },
                               continue_from:
@@ -503,7 +551,7 @@ export function AgentWorkflowTasks({
                       ),
                     })}
                   </label>
-                  {workflowRoleProduces(current.role) && (
+                  {workflowRoleProduces(current.role) && workflowRoleUsesAgent(current.role) && (
                     <label className={label}>
                       {i18n.rich('Conversation{value1}', {
                         value1: (
@@ -518,6 +566,7 @@ export function AgentWorkflowTasks({
                                 .filter(
                                   (step) =>
                                     workflowRoleProduces(step.role) &&
+                                    workflowRoleUsesAgent(step.role) &&
                                     step.workspace !== 'own' &&
                                     workflowAncestors(steps, current.id).has(step.id),
                                 )
@@ -535,7 +584,11 @@ export function AgentWorkflowTasks({
                                 continue_from: id || undefined,
                                 ...(source ? { target: source.target, workspace: 'shared' } : {}),
                                 ...(source && source.target !== current.target
-                                  ? { model: '', effort: '' }
+                                  ? {
+                                      model: '',
+                                      effort: '',
+                                      execution: { ...current.execution, agent_profile: '' },
+                                    }
                                   : {}),
                               });
                             }}
@@ -557,7 +610,7 @@ export function AgentWorkflowTasks({
                       ),
                     })}
                   </label>
-                  {current.role !== 'shell' && (
+                  {workflowRoleUsesAgent(current.role) && (
                     <>
                       <label className={label}>
                         {i18n.rich('Agent{value1}', {
@@ -578,7 +631,13 @@ export function AgentWorkflowTasks({
                                 const target = resolveTarget(value, candidates(current.role));
                                 update(current.id, {
                                   target,
-                                  ...(target !== current.target ? { model: '', effort: '' } : {}),
+                                  ...(target !== current.target
+                                    ? {
+                                        model: '',
+                                        effort: '',
+                                        execution: { ...current.execution, agent_profile: '' },
+                                      }
+                                    : {}),
                                 });
                               }}
                             />
@@ -587,15 +646,26 @@ export function AgentWorkflowTasks({
                       </label>
                       <AgentWorkflowModelControls
                         projectId={projectId}
+                        workingDirectory={context?.working_directory}
                         target={current.target}
                         model={current.model}
                         effort={current.effort}
+                        agent={current.execution?.agent_profile ?? ''}
+                        allowProfile={workflowRoleProduces(current.role)}
                         disabled={disabled || currentLocked}
-                        onChange={(settings) => update(current.id, settings)}
+                        onChange={({ model, effort, agent }) =>
+                          update(current.id, {
+                            model,
+                            effort,
+                            ...(agent !== undefined
+                              ? { execution: { ...current.execution, agent_profile: agent } }
+                              : {}),
+                          })
+                        }
                       />
                     </>
                   )}
-                  {!workflowRoleProduces(current.role) && (
+                  {workflowRoleReviews(current.role) && (
                     <AgentWorkflowReviewPolicy
                       value={current.review_policy}
                       disabled={disabled || currentLocked}
@@ -609,7 +679,17 @@ export function AgentWorkflowTasks({
                     </summary>
                     <div className="mt-3 space-y-3">
                       <AgentWorkflowExecutionSettings
+                        key={current.id}
                         step={current}
+                        steps={steps}
+                        direct={context?.workspace_mode === 'direct'}
+                        environmentDraft={environmentDrafts[current.id]?.text}
+                        onEnvironmentDraftChange={(text, invalid) =>
+                          setEnvironmentDrafts((drafts) => ({
+                            ...drafts,
+                            [current.id]: { text, invalid },
+                          }))
+                        }
                         disabled={disabled || currentLocked}
                         onChange={(execution) => update(current.id, { execution })}
                       />
@@ -623,7 +703,8 @@ export function AgentWorkflowTasks({
                                 disabled ||
                                 currentLocked ||
                                 !workflowRoleProduces(current.role) ||
-                                current.role === 'shell'
+                                current.role === 'shell' ||
+                                context?.workspace_mode === 'direct'
                               }
                               onChange={(event) =>
                                 update(current.id, {

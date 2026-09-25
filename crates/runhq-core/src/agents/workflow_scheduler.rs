@@ -35,6 +35,7 @@ impl AgentManager {
         !w.cleaned
             && !w.editing
             && !w.awaiting_review()
+            && !w.steps.iter().any(|s| s.status == "awaiting_approval")
             && w.start_after.is_none()
             && !matches!(
                 w.stage.as_str(),
@@ -47,6 +48,7 @@ impl AgentManager {
                     | "launching"
                     | "launch_failed"
                     | "launch_paused"
+                    | "completed"
             )
             && (w.setup_commands.is_empty() || commands_passed(&w.setup_commands, &w.setup))
     }
@@ -63,6 +65,9 @@ impl AgentManager {
     ) -> StepWait {
         if step.status != "pending" || !w.runnable_steps().iter().any(|next| next.id == step.id) {
             return StepWait::Dependencies;
+        }
+        if matches!(step.role.as_str(), "human" | "barrier") {
+            return StepWait::Ready;
         }
         let limit = if w.concurrency == 0 {
             usize::MAX
@@ -177,6 +182,7 @@ impl AgentManager {
                     "Choose launch timing before this workflow's first task starts",
                 ));
             }
+            self.workflow_validate_context(&w, true).await?;
             let dependency = after_session_id
                 .map(|id| {
                     let session = self.session(&id)?;
@@ -396,7 +402,7 @@ impl AgentManager {
                     _ => return,
                 }
             };
-            if editing || stage == "awaiting_review" {
+            if editing || matches!(stage.as_str(), "awaiting_review" | "awaiting_approval") {
                 self.workflow_wait().await;
                 continue;
             }

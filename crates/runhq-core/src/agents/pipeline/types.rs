@@ -194,82 +194,11 @@ pub struct Rerun {
     pub rerun: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PipelineIssue {
+pub struct PackageIssue {
     pub code: String,
     pub detail: String,
     pub blocking: bool,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PipelineRun {
-    pub id: String,
-    pub manifest: Manifest,
-    pub package_root: String,
-    pub run_root: String,
-    pub repositories: Vec<Repository>,
-    pub issues: Vec<PipelineIssue>,
-    pub state: String,
-    pub revision: u64,
-    pub backend: String,
-    pub reviewer: String,
-    #[serde(default)]
-    pub project_id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub steps: BTreeMap<String, StepState>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct StepState {
-    pub status: String,
-    pub runs: u32,
-    pub verdict: Option<String>,
-    pub attempts: Vec<Attempt>,
-    pub approved_at: Option<i64>,
-    pub error: Option<String>,
-    pub revisions: BTreeMap<String, String>,
-    pub extra_runs_approved_at: Vec<i64>,
-}
-impl Default for StepState {
-    fn default() -> Self {
-        Self {
-            status: "pending".into(),
-            runs: 0,
-            verdict: None,
-            attempts: vec![],
-            approved_at: None,
-            error: None,
-            revisions: BTreeMap::new(),
-            extra_runs_approved_at: vec![],
-        }
-    }
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Attempt {
-    pub id: String,
-    pub round: u32,
-    pub started_at: i64,
-    pub finished_at: Option<i64>,
-    pub session_id: Option<String>,
-    pub exit_code: Option<i32>,
-    pub output: String,
-    pub outcome: String,
-    pub snapshot_root: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PipelineSummary {
-    pub id: String,
-    pub name: String,
-    pub state: String,
-    pub revision: u64,
-    pub total: usize,
-    pub completed: usize,
-    pub issue_count: usize,
-    pub attention: String,
-    pub project_id: String,
-    pub notify_human: bool,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PackageMetadata {

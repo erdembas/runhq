@@ -1,4 +1,4 @@
-import { AgentPipelineHub } from './AgentPipelineHub';
+import { AgentWorkflowContextSettings } from './AgentWorkflowContextSettings';
 import { open as openWorkflowFile } from '@tauri-apps/plugin-dialog';
 import { parseRecipe, portableAgentRecipe, type AgentRecipe } from './agentLibraryModel';
 import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
@@ -29,6 +29,7 @@ import {
   type CreateWorkflowStep,
   type WorkflowCheck,
   type WorkflowWorktree,
+  type WorkflowContext,
 } from '@/lib/ipc/agentWorkflowIpc';
 import { ipc } from '@/lib/ipc';
 import { useAgentStore } from '@/store/useAgentStore';
@@ -58,6 +59,8 @@ export interface AgentWorkflowRecipe {
   acceptance?: string;
   /** A saved division of labour, when the recipe carries one. */
   steps?: CreateWorkflowStep[];
+  context?: WorkflowContext;
+  concurrency?: number;
 }
 const field =
   'border-fg/15 bg-surface text-fg w-full rounded-lg border px-3 py-2 text-xs focus:border-accent focus:ring-accent/15 focus:ring-2 focus:outline-none';
@@ -65,6 +68,12 @@ const button =
   'border-fg/15 hover:bg-fg/5 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40';
 const label = 'text-fg-muted flex flex-col gap-1.5 text-xs';
 const stages: Record<string, string> = {
+  get awaiting_approval() {
+    return i18n.t('Human approval');
+  },
+  get completed() {
+    return i18n.t('Workflow completed');
+  },
   get awaiting_review() {
     return i18n.t('Review needs your decision');
   },
@@ -159,6 +168,7 @@ import { workflowLaunchCandidates, type WorkflowLaunchChoice } from './agentWork
 import {
   workflowPollInterval,
   workflowReviewNeedsDecision,
+  workflowRoleUsesAgent,
   workflowRunnableTasks,
   workflowTasksInExecutionOrder,
 } from './agentWorkflowGraph';
@@ -198,7 +208,7 @@ export function AgentWorkflowHub({
   const [importOptions, setImportOptions] = useState<AgentRecipe[]>([]);
   const [importing, setImporting] = useState(false);
   const [importedName, setImportedName] = useState('');
-  const [showPackages, setShowPackages] = useState(false);
+  const [context, setContext] = useState<WorkflowContext | undefined>(initialRecipe?.context);
   const [creating, setCreating] = useState(!!initialRecipe);
   const handledRequest = useRef<string>();
   useEffect(() => {
@@ -226,9 +236,10 @@ export function AgentWorkflowHub({
   const reviewModel = '';
   const effort = initialRecipe?.effort ?? '';
   const [autoProgress, setAutoProgress] = useState(true);
-  const [concurrency, setConcurrency] = useState(0);
+  const [concurrency, setConcurrency] = useState(initialRecipe?.concurrency ?? 0);
   const [liveDraft, setLiveDraft] = useState<AgentWorkflow | null>(null);
   const [queueEditing, setQueueEditing] = useState(false);
+  const [invalidExecutionDraft, setInvalidExecutionDraft] = useState(false);
   const [objective, setObjective] = useState(initialRecipe?.prompt ?? '');
   const [acceptance, setAcceptance] = useState(initialRecipe?.acceptance ?? '');
   const [baseRef, setBaseRef] = useState('HEAD');
@@ -302,6 +313,7 @@ export function AgentWorkflowHub({
         // replacing any account the person already chose.
         let changed = false;
         const next = current.map((step) => {
+          if (['human', 'barrier', 'shell'].includes(step.role)) return step;
           const target =
             step.target ||
             (workflowRoleProduces(step.role)
@@ -329,13 +341,15 @@ export function AgentWorkflowHub({
         ...step,
         prompt:
           step.prompt ||
-          (initialRecipe?.prompt.trim()
-            ? workflowRoleProduces(step.role)
-              ? initialRecipe.prompt
-              : 'Independently inspect the completed work against the workflow objective and acceptance criteria. Report findings with file references.'
-            : workflowRoleProduces(step.role)
-              ? 'Implement the change described in the brief and meet the success criteria.'
-              : 'Review the completed work against the brief and success criteria. Report any issues with file references.'),
+          (!workflowRoleUsesAgent(step.role)
+            ? ''
+            : initialRecipe?.prompt.trim()
+              ? workflowRoleProduces(step.role)
+                ? initialRecipe.prompt
+                : 'Independently inspect the completed work against the workflow objective and acceptance criteria. Report findings with file references.'
+              : workflowRoleProduces(step.role)
+                ? 'Implement the change described in the brief and meet the success criteria.'
+                : 'Review the completed work against the brief and success criteria. Report any issues with file references.'),
       }));
     });
   }, [available, reviewers, backend, reviewer, model, effort, initialRecipe]);
@@ -353,6 +367,7 @@ export function AgentWorkflowHub({
               model: recipe.model,
               effort: recipe.effort,
               mode: recipe.mode,
+              execution: recipe.agent ? { agent_profile: recipe.agent } : undefined,
             },
             newWorkflowStep('review', reviewers[0]?.id ?? '', 'review', ['implement']),
           ],
@@ -362,6 +377,14 @@ export function AgentWorkflowHub({
     setSetup(recipe.setupCommands);
     setChecks(recipe.checkCommands);
     setImportedName(recipe.name);
+    setContext(recipe.workflowContext);
+    setConcurrency(recipe.workflowConcurrency ?? 0);
+    if (recipe.workflowContext) {
+      setNewProject(
+        projects.find((project) => project.path === recipe.workflowContext?.working_directory)
+          ?.id ?? '',
+      );
+    }
     setAutoProgress(false);
     setImportOptions([]);
     setCreating(true);
@@ -372,7 +395,7 @@ export function AgentWorkflowHub({
     try {
       const path = await openWorkflowFile({
         multiple: false,
-        filters: [{ name: i18n.t('Workflow file'), extensions: ['json'] }],
+        filters: [{ name: i18n.t('Workflow file'), extensions: ['json', 'zip'] }],
       });
       if (typeof path !== 'string') return;
       const data = (await agentWorkflowIpc.importRecipes(path)) as {
@@ -390,12 +413,13 @@ export function AgentWorkflowHub({
       setImporting(false);
     }
   };
-  const stepsProblem = workflowStepsProblem(steps);
-  const chosenProject = projectId || newProject || projects[0]?.id || '';
+  const stepsProblem = workflowStepsProblem(steps, context);
+  const chosenProject = context ? newProject : projectId || newProject || projects[0]?.id || '';
   const chosenBackend = backend || available[0]?.id || '';
   const chosenReviewer = reviewer || reviewers[0]?.id || '';
   const rows = workflows.filter((w) => !projectId || w.project_id === projectId);
   const current = rows.find((w) => w.id === selected) || rows[0];
+  const currentDirect = current?.context?.workspace_mode === 'direct';
   useEffect(() => {
     setTransferPaths('');
   }, [current?.id]);
@@ -423,7 +447,9 @@ export function AgentWorkflowHub({
       try {
         const next = await agentWorkflowIpc.list();
         interval = workflowPollInterval(next);
-        if (live) setWorkflows(next);
+        if (live) {
+          setWorkflows(next);
+        }
       } catch (e) {
         if (live) setError(String(e));
       }
@@ -487,11 +513,29 @@ export function AgentWorkflowHub({
   };
   const create = (choice: WorkflowLaunchChoice) =>
     action(async () => {
+      let workflowProject = chosenProject;
+      if (context?.workspace_mode === 'isolated' && !workflowProject) {
+        const project = await ipc.agentAddProject(
+          importedName ||
+            initialRecipe?.title ||
+            context.repositories[0]?.name ||
+            context.working_directory,
+          context.working_directory,
+        );
+        workflowProject = project.id;
+        setNewProject(project.id);
+      }
       const workflow = await agentWorkflowIpc.create({
-        project_id: chosenProject,
-        backend: steps[0]?.target || chosenBackend,
-        model: steps[0]?.model || model,
-        effort: steps[0]?.effort || effort,
+        project_id: workflowProject,
+        context,
+        backend:
+          steps.find((step) => ['plan', 'implement', 'revise'].includes(step.role))?.target ||
+          chosenBackend,
+        model:
+          steps.find((step) => ['plan', 'implement', 'revise'].includes(step.role))?.model || model,
+        effort:
+          steps.find((step) => ['plan', 'implement', 'revise'].includes(step.role))?.effort ||
+          effort,
         reviewer_backend: steps.find((step) => step.role === 'review')?.target || chosenReviewer,
         reviewer_model: steps.find((step) => step.role === 'review')?.model || reviewModel,
         steps: workflowTasksInExecutionOrder(steps),
@@ -579,14 +623,6 @@ export function AgentWorkflowHub({
     !!implementationSession && agentIsActive(implementationSession.status);
   const reviewActive =
     !!reviewId && !!sessions[reviewId] && agentIsActive(sessions[reviewId].status);
-  if (showPackages)
-    return (
-      <AgentPipelineHub
-        visible={visible}
-        onBack={() => setShowPackages(false)}
-        onOpenSession={onOpenSession}
-      />
-    );
   return (
     <section
       aria-label={i18n.t('Agent workflows')}
@@ -618,9 +654,6 @@ export function AgentWorkflowHub({
           </div>
         )}
         <div className="flex gap-2">
-          <button type="button" className={button} onClick={() => setShowPackages(true)}>
-            {i18n.t('Pipeline packages')}
-          </button>
           <button
             type="button"
             className={button}
@@ -656,7 +689,14 @@ export function AgentWorkflowHub({
             type="button"
             className={button}
             disabled={importing}
-            onClick={() => setCreating((v) => !v)}
+            onClick={() => {
+              if (!creating) {
+                setContext(undefined);
+                setImportedName('');
+                setSteps([]);
+              }
+              setCreating((v) => !v);
+            }}
           >
             {i18n.rich('{value1} New workflow', { value1: <Plus className="h-3.5 w-3.5" /> })}
           </button>
@@ -764,7 +804,7 @@ export function AgentWorkflowHub({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (queueEditing) return;
+              if (queueEditing || invalidExecutionDraft || stepsProblem) return;
               if (workflowLaunchCandidates(sessions, chosenProject).length)
                 setLaunchChoice('create');
               else void create({ mode: autoProgress ? 'now' : 'draft' });
@@ -782,22 +822,34 @@ export function AgentWorkflowHub({
               </p>
             </div>
             <fieldset disabled={busy} className="space-y-5">
+              {context && (
+                <AgentWorkflowContextSettings
+                  value={context}
+                  onChange={(next) => {
+                    setContext(next);
+                    if (next.working_directory !== context.working_directory) setNewProject('');
+                  }}
+                  disabled={busy}
+                />
+              )}
               <div className="grid items-start gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
-                <label className={label}>
-                  {i18n.rich('Project{value1}', {
-                    value1: (
-                      <SearchableSelect
-                        label={i18n.t('Workflow project')}
-                        indentGrouped
-                        value={chosenProject}
-                        disabled={!!projectId || busy}
-                        options={projectOptions}
-                        onChange={setNewProject}
-                        searchPlaceholder={i18n.t('Find a project or group…')}
-                      />
-                    ),
-                  })}
-                </label>
+                {!context && (
+                  <label className={label}>
+                    {i18n.rich('Project{value1}', {
+                      value1: (
+                        <SearchableSelect
+                          label={i18n.t('Workflow project')}
+                          indentGrouped
+                          value={chosenProject}
+                          disabled={!!projectId || busy}
+                          options={projectOptions}
+                          onChange={setNewProject}
+                          searchPlaceholder={i18n.t('Find a project or group…')}
+                        />
+                      ),
+                    })}
+                  </label>
+                )}
                 <label className={label}>
                   {i18n.rich('Shared context · optional{value1}{value2}', {
                     value1: (
@@ -845,6 +897,7 @@ export function AgentWorkflowHub({
               </div>
               <AgentWorkflowTasks
                 projectId={chosenProject}
+                context={context}
                 steps={steps}
                 onChange={setSteps}
                 producers={available}
@@ -854,6 +907,7 @@ export function AgentWorkflowHub({
                 disabled={busy}
                 onQueueCreated={() => setAutoProgress(true)}
                 onQueueEditingChange={setQueueEditing}
+                onValidationChange={setInvalidExecutionDraft}
               />
               {!reviewers.length && (
                 <p className="text-warning text-xs">
@@ -901,6 +955,7 @@ export function AgentWorkflowHub({
                       value1: (
                         <Input
                           className={field}
+                          disabled={context?.workspace_mode === 'direct'}
                           value={baseRef}
                           onChange={(e) => setBaseRef(e.target.value)}
                           placeholder={i18n.t('HEAD')}
@@ -923,9 +978,13 @@ export function AgentWorkflowHub({
                   </label>
                 </div>
                 <p className="text-fg-dim mt-3 text-[11px]">
-                  {i18n.t(
-                    'Work starts in a separate copy of your project. You can copy selected environment files before starting a saved workflow. Each command has a 10 minute limit.',
-                  )}
+                  {context?.workspace_mode === 'direct'
+                    ? i18n.t(
+                        'This workflow writes to the listed repositories. Review their paths and branches before starting.',
+                      )
+                    : i18n.t(
+                        'Work starts in a separate copy of your project. You can copy selected environment files before starting a saved workflow. Each command has a 10 minute limit.',
+                      )}
                 </p>
               </details>
               <label className="text-fg-muted flex items-start gap-2 text-xs">
@@ -937,9 +996,11 @@ export function AgentWorkflowHub({
                   {i18n.rich('Run steps automatically{value1}', {
                     value1: (
                       <span className="text-fg-dim mt-1 block text-[11px]">
-                        {i18n.t(
-                          'Continue when a step finishes and pause if something fails. Applying changes always waits for your approval.',
-                        )}
+                        {context?.workspace_mode === 'direct'
+                          ? i18n.t('Continue when a step finishes and pause if something fails.')
+                          : i18n.t(
+                              'Continue when a step finishes and pause if something fails. Applying changes always waits for your approval.',
+                            )}
                       </span>
                     ),
                   })}
@@ -948,7 +1009,13 @@ export function AgentWorkflowHub({
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   className={`${button} bg-accent text-accent-fg border-transparent`}
-                  disabled={busy || queueEditing || !chosenProject || !!stepsProblem}
+                  disabled={
+                    busy ||
+                    queueEditing ||
+                    invalidExecutionDraft ||
+                    (!chosenProject && !context) ||
+                    !!stepsProblem
+                  }
                 >
                   {busy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -960,16 +1027,24 @@ export function AgentWorkflowHub({
                 <button
                   type="button"
                   className={button}
-                  disabled={busy || queueEditing || !chosenProject || !!stepsProblem}
+                  disabled={
+                    busy ||
+                    queueEditing ||
+                    invalidExecutionDraft ||
+                    (!chosenProject && !context) ||
+                    !!stepsProblem
+                  }
                   onClick={() => void create({ mode: 'draft' })}
                 >
                   {i18n.t('Save for later')}
                 </button>
                 <span className="text-fg-dim text-[11px]">
                   {autoProgress
-                    ? i18n.t(
-                        'Choose start timing when another task is active. You approve the final result.',
-                      )
+                    ? context?.workspace_mode === 'direct'
+                      ? i18n.t('Continue when a step finishes and pause if something fails.')
+                      : i18n.t(
+                          'Choose start timing when another task is active. You approve the final result.',
+                        )
                     : i18n.t('You choose when each step starts.')}
                 </span>
               </div>
@@ -1007,6 +1082,7 @@ export function AgentWorkflowHub({
               ))}
             </nav>
             <article className="min-w-0 space-y-4">
+              {current.context && <AgentWorkflowContextSettings value={current.context} />}
               <div className="border-fg/10 rounded-xl border p-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold">{current.title}</h3>
@@ -1216,11 +1292,15 @@ export function AgentWorkflowHub({
                     </div>
                   </section>
                 ))}
-                {!current.check_commands.length && (
-                  <p className="text-fg-dim mt-3 text-[11px]">
-                    {i18n.t('Independent review only. No automated test commands are configured.')}
-                  </p>
-                )}
+                {!current.check_commands.length &&
+                  current.steps.some((step) => step.role === 'review') &&
+                  !current.steps.some((step) => step.role === 'shell') && (
+                    <p className="text-fg-dim mt-3 text-[11px]">
+                      {i18n.t(
+                        'Independent review only. No automated test commands are configured.',
+                      )}
+                    </p>
+                  )}
                 {!!current.steps?.length && (
                   <div className="mt-4">
                     <AgentWorkflowBoard
@@ -1232,6 +1312,23 @@ export function AgentWorkflowHub({
                       onStart={requestStart}
                       onOpen={open}
                       onStartReady={() => requestStart()}
+                      onAllowRun={(stepId) =>
+                        void action(() => agentWorkflowIpc.allowRun(current.id, stepId))
+                      }
+                      onHumanDecision={(stepId, approved, note) => {
+                        const step = current.steps.find((entry) => entry.id === stepId);
+                        if (step?.started_at == null) return;
+                        void action(() =>
+                          agentWorkflowIpc.decideHuman(
+                            current.id,
+                            stepId,
+                            approved,
+                            note,
+                            step.started_at!,
+                            step.generation,
+                          ),
+                        );
+                      }}
                     />
                   </div>
                 )}
@@ -1264,7 +1361,8 @@ export function AgentWorkflowHub({
                   </p>
                 )}
               </div>
-              {!current.cleaned &&
+              {!currentDirect &&
+                !current.cleaned &&
                 ['setup_ready', 'setup_failed', 'implementation_ready'].includes(current.stage) && (
                   <details className="border-fg/10 rounded-xl border p-4">
                     <summary className="cursor-pointer text-xs font-medium">
@@ -1354,13 +1452,15 @@ export function AgentWorkflowHub({
                       })}
                     </button>
                   )}
-                <button
-                  type="button"
-                  className={button}
-                  onClick={() => open(current.implementation_session_id)}
-                >
-                  {i18n.t('Open implementation')}
-                </button>
+                {current.implementation_session_id && (
+                  <button
+                    type="button"
+                    className={button}
+                    onClick={() => open(current.implementation_session_id)}
+                  >
+                    {i18n.t('Open implementation')}
+                  </button>
+                )}
                 {reviewId && (
                   <button type="button" className={button} onClick={() => open(reviewId)}>
                     {i18n.t('Open review')}
@@ -1432,7 +1532,12 @@ export function AgentWorkflowHub({
                 reviewedFingerprint={current.review_fingerprint}
                 currentFingerprint={current.current_fingerprint}
               />
-              {current.stage === 'ready' && (
+              {currentDirect && current.stage === 'completed' && (
+                <p className="text-fg-muted border-border rounded-xl border p-4 text-xs">
+                  {i18n.t('The workflow completed in the selected repositories.')}
+                </p>
+              )}
+              {!currentDirect && current.stage === 'ready' && (
                 <div className="border-accent/25 space-y-3 rounded-xl border p-4">
                   <p className="text-fg-muted text-xs">
                     {i18n.t(

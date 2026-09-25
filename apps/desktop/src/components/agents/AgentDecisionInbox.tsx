@@ -265,11 +265,13 @@ export function AgentDecisionInbox({
                   </span>
                 </div>
                 <p className="text-accent mt-2 text-[12px]">
-                  {workflowKind === 'review'
-                    ? i18n.t('Review needs your decision')
-                    : workflowKind === 'apply'
-                      ? i18n.t('Ready to apply')
-                      : i18n.t('Workflow needs attention')}
+                  {workflowKind === 'human'
+                    ? i18n.t('Human approval')
+                    : workflowKind === 'review'
+                      ? i18n.t('Review needs your decision')
+                      : workflowKind === 'apply'
+                        ? i18n.t('Ready to apply')
+                        : i18n.t('Workflow needs attention')}
                 </p>
                 {detail && (
                   <p className="text-fg-muted mt-2 line-clamp-3 text-[12px] whitespace-pre-wrap">

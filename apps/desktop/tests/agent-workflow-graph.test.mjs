@@ -356,7 +356,7 @@ test('a workflow needs a review of the finished work, not of one branch', () => 
   assert.ok(messages.some((message) => /never reviewed/.test(message)));
 });
 
-test('sixty-four tasks pass and sixty-five do not', () => {
+test('the supported task count passes and an extra task is rejected', () => {
   const many = (count) => {
     const tasks = Array.from({ length: count - 1 }, (_, index) =>
       task(`t${index}`, 'implement', [], { workspace: 'own' }),
@@ -381,7 +381,7 @@ test('a key is made from the task, and falls back when it is taken', () => {
   );
   assert.equal(policy.workflowTaskId('Add POST', new Set(['add-post'])), 't1');
   assert.equal(policy.workflowTaskId('   ', new Set(['t1'])), 't2');
-  assert.ok(policy.workflowTaskId('a'.repeat(80), new Set()).length <= 32);
+  assert.ok(policy.workflowTaskId('a'.repeat(80), new Set()).length <= 64);
 });
 
 test('every starter workflow has instructions, a final review and safe parallel workspaces', () => {
@@ -717,6 +717,7 @@ test('parallel mode isolates every prompt, drops shared conversations and review
 test('execution settings survive recipe import, export and live editing', () => {
   const execution = {
     max_fix_attempts: 3,
+    agent_profile: 'implementation-profile',
     timeout_minutes: 240,
     lock: 'main',
     working_directory: 'backend',
@@ -771,4 +772,186 @@ test('terminal steps require a command and same-lock shared steps are admitted',
     policy.workflowStepsProblem([...locked, task('review', 'review', ['a', 'b'])]),
     null,
   );
+});
+
+const directContext = () => ({
+  workspace_mode: 'direct',
+  package_root: '/packages/example',
+  working_directory: '/projects/example',
+  repositories: [{ name: 'Backend', path: '/projects/backend', branch: 'feature/change' }],
+  environment: { WORKFLOW_MODE: 'verify' },
+  issues: [{ code: 'missing_file', detail: 'verify.sh', blocking: true }],
+  source: '/imports/workflow.zip',
+});
+
+test('native package recipes preserve context, agent settings, control roles and execution contracts', () => {
+  const execution = {
+    run_condition: "review.verdict != 'PASS' && review.runCount < 3",
+    complete_condition: "review.verdict == 'PASS'",
+    halt_condition: 'review.runCount >= 3',
+    max_runs: 3,
+    rerun_step: 'review',
+    require_pass: ['review'],
+    verdict_regex: 'REVIEW_VERDICT: (PASS|CONDITIONAL|FAIL)',
+    result_line_regex: '^REVIEW_VERDICT: (PASS|FAIL)$',
+    result_scope: 'combined_output',
+    success_scope: 'output',
+    failure_scope: 'last_line',
+    verdict_scope: 'output',
+    success_exit_code: 0,
+    failure_exit_code: null,
+    failure_exit_code_not: 0,
+    environment: { PACKAGE_ROOT: '/packages/example', EMPTY: '' },
+    working_directory: '/packages/example',
+  };
+  const tasks = [
+    task('approval', 'human', [], { prompt: '', target: '' }),
+    task('review', 'review', ['approval'], { model: 'review-model', effort: 'high' }),
+    task('done', 'barrier', ['review'], { target: '', prompt: '', execution }),
+  ];
+  const recipe = library.parseRecipe({
+    id: 'imported',
+    name: 'Imported workflow',
+    prompt: 'Project workflow',
+    backend: 'codex',
+    model: '',
+    effort: '',
+    agent: '',
+    mode: 'default',
+    isolated: false,
+    acceptance: '',
+    setupCommands: '',
+    checkCommands: '',
+    version: 1,
+    workflowConcurrency: 2,
+    workflowSteps: bridge.createStepsToRecipeSteps(tasks),
+    workflowContext: directContext(),
+  });
+  const restored = bridge.recipeStepsToCreateSteps(recipe.workflowSteps);
+  assert.deepEqual(restored, tasks);
+  assert.deepEqual(recipe.workflowContext, directContext());
+  assert.equal(recipe.workflowConcurrency, 2);
+  assert.deepEqual(library.portableAgentRecipe(recipe).workflowContext, directContext());
+  assert.deepEqual(editor.workflowStepDeclaration(tasks[2]).execution, execution);
+  assert.equal(policy.workflowStepsProblem(restored, recipe.workflowContext), null);
+  assert.notEqual(
+    policy.workflowStepsProblem(restored),
+    null,
+    'isolated validation remains strict',
+  );
+  restored[2].execution.environment.PACKAGE_ROOT = 'changed';
+  assert.equal(recipe.workflowSteps[2].execution.environment.PACKAGE_ROOT, '/packages/example');
+});
+
+test('control steps are neither agents nor independent reviews and human gates need attention', () => {
+  for (const role of ['human', 'barrier', 'shell']) {
+    assert.equal(graph.workflowRoleUsesAgent(role), false);
+    assert.equal(graph.workflowRoleReviews(role), false);
+    assert.equal(policy.newWorkflowStep(role, 'codex', role).target, '');
+    assert.equal(policy.newWorkflowStep(role, 'codex', role).review_policy, undefined);
+  }
+  const approval = step('approval', 'human', [], 'awaiting_approval', {
+    target: '',
+    session_id: null,
+    review_policy: 'approval',
+  });
+  assert.equal(graph.workflowTaskLane(approval), 'attention');
+  assert.equal(graph.workflowReviewNeedsDecision({ ...approval, status: 'completed' }), false);
+  assert.deepEqual(
+    graph.workflowUnreviewedProducers([
+      task('build', 'implement'),
+      task('gate', 'barrier', ['build']),
+    ]),
+    ['build'],
+  );
+  assert.deepEqual(
+    graph.workflowBlockedBy(
+      [approval, step('build', 'implement', ['approval'], 'pending')],
+      'build',
+    ),
+    ['approval'],
+  );
+});
+
+test('direct flows retain declared gates while preserving isolated workspace safety rules', () => {
+  const tasks = [
+    task('approval', 'human', [], { target: '', prompt: '' }),
+    task('build', 'implement', ['approval'], { model: 'chosen-model', effort: 'high' }),
+    task('verify', 'shell', ['build'], { target: '', execution: { command: 'verify.sh' } }),
+    task('finish', 'barrier', ['verify'], { target: '', prompt: '' }),
+  ];
+  assert.equal(policy.workflowStepsProblem(tasks, directContext()), null);
+  assert.ok(policy.workflowStepsProblem(tasks));
+  assert.equal(editor.workflowExecutionMode(tasks), 'custom');
+  assert.deepEqual(editor.setWorkflowExecution(tasks, 'parallel'), tasks);
+  assert.match(
+    policy.workflowStepsProblem(
+      tasks.map((entry) => (entry.id === 'build' ? { ...entry, workspace: 'own' } : entry)),
+      directContext(),
+    ),
+    /shared working directory/,
+  );
+  const concurrent = [task('a', 'implement'), task('b', 'implement')];
+  assert.equal(policy.workflowStepsProblem(concurrent, directContext()), null);
+  assert.ok(policy.workflowStepsProblem(concurrent));
+  const appended = editor.insertWorkflowTask(
+    tasks,
+    'finish',
+    'implement',
+    'codex',
+    'claude',
+    'separate',
+    false,
+  );
+  assert.equal(appended.steps.length, tasks.length + 1);
+  assert.equal(appended.steps.at(-1).role, 'implement');
+});
+
+test('native package task keys and pass requirements preserve long ancestor references', () => {
+  const id = `review-${'a'.repeat(57)}`;
+  const tasks = [
+    task(id, 'review'),
+    task('middle', 'shell', [id], { target: '', execution: { command: 'true' } }),
+    task('gate', 'barrier', ['middle'], {
+      target: '',
+      prompt: '',
+      execution: { require_pass: [id], complete_condition: `${id}.verdict == 'PASS'` },
+    }),
+  ];
+  assert.equal(id.length, 64);
+  assert.equal(policy.workflowStepsProblem(tasks, directContext()), null);
+  assert.match(
+    policy.workflowStepsProblem([{ ...tasks[0], id: `${id}a` }], directContext()),
+    /up to 64/,
+  );
+  assert.equal(
+    bridge.recipeStepsToCreateSteps(
+      library.parseRecipeSteps(bridge.createStepsToRecipeSteps(tasks)),
+    )[2].execution.complete_condition,
+    `${id}.verdict == 'PASS'`,
+  );
+});
+
+test('invalid imported execution contracts fail without dropping their settings', () => {
+  for (const invalid of [
+    { max_runs: 0 },
+    { max_runs: 101 },
+    { require_pass: true },
+    { result_scope: 'unknown' },
+    { success_scope: 'tail' },
+    { success_exit_code: 0.5 },
+    { result_line_regex: 'a'.repeat(4097) },
+    { agent_profile: 'a'.repeat(257) },
+    { environment: { 'INVALID-NAME': 'value' } },
+  ])
+    assert.throws(() => library.parseWorkflowExecution(invalid), /Invalid workflow execution/);
+  const tasks = [
+    task('review', 'review'),
+    task('fix', 'implement', ['review'], {
+      execution: { rerun_step: 'unknown', max_runs: 2 },
+    }),
+  ];
+  assert.match(policy.workflowStepsProblem(tasks, directContext()), /repeat target/);
+  tasks[1].execution = { run_condition: "missing.verdict == 'PASS'" };
+  assert.match(policy.workflowStepsProblem(tasks, directContext()), /invalid execution settings/);
 });
