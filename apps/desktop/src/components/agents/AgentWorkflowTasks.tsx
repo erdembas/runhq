@@ -24,6 +24,7 @@ import { AgentWorkflowViewToggle } from './AgentWorkflowViewToggle';
 import { AgentWorkflowPromptQueue } from './AgentWorkflowPromptQueue';
 import { AgentWorkflowReviewPolicy } from './AgentWorkflowReviewPolicy';
 import { AgentWorkflowModelControls } from './AgentWorkflowModelControls';
+import { AgentWorkflowRoleModels } from './AgentWorkflowRoleModels';
 import {
   workflowAncestors,
   workflowRoleReviews,
@@ -320,6 +321,18 @@ export function AgentWorkflowTasks({
                 }}
               />
             </div>
+            <AgentWorkflowRoleModels
+              steps={steps}
+              lockedIds={lockedIds}
+              projectId={projectId}
+              workingDirectory={context?.working_directory}
+              producers={producers}
+              reviewers={reviewers}
+              poolOptions={poolOptions}
+              resolveTarget={resolveTarget}
+              disabled={disabled}
+              onChange={change}
+            />
             <div
               className={`workflow-studio-content grid min-w-0 ${view === 'list' ? 'lg:grid-cols-[300px_minmax(0,1fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(360px,38%)]'}`}
             >
