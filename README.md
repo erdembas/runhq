@@ -80,8 +80,10 @@ brew upgrade --cask runhq
 
 Download the latest installer from [GitHub Releases](https://github.com/erdembas/runhq/releases/latest).
 
-The [3.4.0 release](https://github.com/erdembas/runhq/releases/tag/v3.4.0) brings project workspaces,
-side-by-side task changes and shared multi-project tasks, with English and Turkish support.
+The [3.6.0 release](https://github.com/erdembas/runhq/releases/tag/v3.6.0) brings JSON/ZIP packages
+into the native Workflow editor, with per-step agent, model and reasoning settings, approvals and
+captured review revisions. The separate package screen is retired; reimport older packages to use
+them in the Workflow editor. English and Turkish are supported.
 
 - **macOS:** `.dmg` for Apple Silicon or Intel
 - **Linux:** `.deb`, `.rpm`, or `.AppImage`
