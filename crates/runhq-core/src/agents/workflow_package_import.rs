@@ -14,9 +14,7 @@ pub(super) fn import_package(home: &Path, path: &Path) -> AppResult<Value> {
     .map_err(|_| invalid("pipeline.invalid_manifest"))?;
     for step in &mut manifest.steps {
         if !step.prompt_file.is_empty() {
-            let name = pipeline::import::relative(&step.prompt_file)?
-                .to_string_lossy()
-                .into_owned();
+            let name = pipeline::import::relative_name(&step.prompt_file)?;
             step.prompt = String::from_utf8(
                 files
                     .get(&name)

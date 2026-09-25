@@ -3235,7 +3235,7 @@ impl AgentManager {
         Ok(w)
     }
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 async fn run_workflow_command(
     cwd: &str,
     text: &str,
@@ -3243,7 +3243,7 @@ async fn run_workflow_command(
 ) -> AppResult<(Option<i32>, String, String)> {
     run_workflow_command_controlled(cwd, text, cancellation, 10, 0).await
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 async fn run_workflow_command_controlled(
     cwd: &str,
     text: &str,
@@ -3279,8 +3279,12 @@ pub(super) async fn run_workflow_command_with_env(
     };
     #[cfg(windows)]
     let mut command = {
+        use std::os::windows::process::CommandExt;
         let mut c = Command::new("cmd.exe");
-        c.args(["/D", "/S", "/C", &format!("({text}) 2>&1")]);
+        // cmd.exe parses a shell program, not an MSVCRT-escaped argument.
+        // The user-supplied command is intentionally executable shell text.
+        c.args(["/D", "/S", "/C"]);
+        c.as_std_mut().raw_arg(format!("\"({text}) 2>&1\""));
         c
     };
     command.current_dir(cwd).envs(env);

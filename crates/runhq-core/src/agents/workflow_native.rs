@@ -713,15 +713,23 @@ impl AgentManager {
                     snapshot.join(relative)
                 };
                 std::fs::create_dir_all(captured.parent().unwrap())?;
+                let target_arg = captured
+                    .to_str()
+                    .ok_or_else(|| invalid("workflow.invalid_directory"))?
+                    .to_owned();
+                // Git for Windows rejects Rust's verbatim path prefix for new worktrees.
+                #[cfg(windows)]
+                let target_arg = if let Some(unc) = target_arg.strip_prefix(r"\\?\UNC\") {
+                    format!(r"\\{unc}")
+                } else {
+                    target_arg
+                        .strip_prefix(r"\\?\")
+                        .unwrap_or(&target_arg)
+                        .to_owned()
+                };
                 git_output(
                     source,
-                    &[
-                        "worktree",
-                        "add",
-                        "--detach",
-                        &captured.to_string_lossy(),
-                        &revision,
-                    ],
+                    &["worktree", "add", "--detach", &target_arg, &revision],
                 )
                 .await?;
                 prompt = prompt.replace(&repo.path, &captured.to_string_lossy());
@@ -1107,7 +1115,16 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
             .await
             .unwrap();
         let mut write = step("write", "shell", &["approve"]);
-        write.execution.command = "for dir in project other; do printf 'implemented\n' >> \"$dir/README.md\"; git -C \"$dir\" add README.md && git -C \"$dir\" commit -m implementation || exit 1; done".into();
+        std::fs::write(temp.path().join("implement.cjs"), r#"
+const fs = require('node:fs'), path = require('node:path'), {execFileSync} = require('node:child_process');
+for (const directory of ['project', 'other']) {
+  const cwd = path.join(__dirname, directory);
+  fs.appendFileSync(path.join(cwd, 'README.md'), 'implemented\n');
+  execFileSync('git', ['add', 'README.md'], {cwd});
+  execFileSync('git', ['commit', '-m', 'implementation'], {cwd});
+}
+"#).unwrap();
+        write.execution.command = "node implement.cjs".into();
         let mut review = step("review", "review", &["inspect"]);
         review.execution.result_format = "review".into();
         let mut create = input(

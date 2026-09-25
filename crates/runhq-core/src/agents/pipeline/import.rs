@@ -20,6 +20,16 @@ pub(in crate::agents) fn relative(s: &str) -> AppResult<PathBuf> {
         .filter(|c| matches!(c, std::path::Component::Normal(_)))
         .collect())
 }
+fn package_name(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+pub(in crate::agents) fn relative_name(s: &str) -> AppResult<String> {
+    // Package keys always use '/', independently of the host filesystem separator.
+    Ok(package_name(&relative(s)?))
+}
 fn read_limit(mut r: impl Read, limit: usize) -> AppResult<Vec<u8>> {
     let mut b = vec![];
     r.by_ref().take((limit + 1) as u64).read_to_end(&mut b)?;
@@ -56,7 +66,7 @@ pub(in crate::agents) fn read_package(path: &Path) -> AppResult<BTreeMap<String,
             if f.is_dir() {
                 continue;
             }
-            let name = relative(f.name())?.to_string_lossy().into_owned();
+            let name = relative_name(f.name())?;
             if !aliases.insert(name.to_lowercase()) {
                 return Err(invalid("pipeline.invalid_archive"));
             }
@@ -96,13 +106,11 @@ pub(in crate::agents) fn read_package(path: &Path) -> AppResult<BTreeMap<String,
                         if e.file_type()?.is_symlink() {
                             return Err(invalid("pipeline.invalid_path"));
                         }
-                        pending.push(
+                        pending.push(package_name(
                             e.path()
                                 .strip_prefix(&root)
-                                .map_err(|_| invalid("pipeline.invalid_path"))?
-                                .to_string_lossy()
-                                .into(),
-                        );
+                                .map_err(|_| invalid("pipeline.invalid_path"))?,
+                        ));
                     }
                 } else {
                     names.push(name);
@@ -125,7 +133,7 @@ pub(in crate::agents) fn read_package(path: &Path) -> AppResult<BTreeMap<String,
             .map(String::from),
         );
         for name in names {
-            let name = relative(&name)?.to_string_lossy().into_owned();
+            let name = relative_name(&name)?;
             if files.contains_key(&name) {
                 continue;
             }

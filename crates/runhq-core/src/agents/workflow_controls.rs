@@ -972,7 +972,8 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         let editing = manager.workflow_edit(&w.id, true).await.unwrap();
         let mut declared = steps("auto_fix");
         declared[1].execution.max_fix_attempts = 3;
-        declared[1].execution.fix_commands = vec!["printf 'gate\\n' >> gates.log".into()];
+        declared[1].execution.fix_commands =
+            vec![r#"node -e "require('node:fs').appendFileSync('gates.log', 'gate\n')""#.into()];
         manager
             .workflow_update_steps(
                 &w.id,
@@ -1029,7 +1030,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         let (temp, manager, w) = fixture("on_findings", "pass").await;
         let editing = manager.workflow_edit(&w.id, true).await.unwrap();
         let mut declared = steps("on_findings");
-        declared.insert(1, CreateWorkflowStep { id: Some("gate".into()), role: "shell".into(), target: "codex".into(), prompt: "Verify".into(), depends_on: Some(vec!["first".into()]), execution: WorkflowExecution { command: "if test -f retry-marker; then echo recovered; else touch retry-marker; echo initial-failure; exit 7; fi".into(), max_retries: 1, retry_delay_seconds: 0, ..Default::default() }, ..Default::default() });
+        declared.insert(1, CreateWorkflowStep { id: Some("gate".into()), role: "shell".into(), target: "codex".into(), prompt: "Verify".into(), depends_on: Some(vec!["first".into()]), execution: WorkflowExecution { command: r#"node -e "const fs=require('node:fs'); if(fs.existsSync('retry-marker')) console.log('recovered'); else {fs.writeFileSync('retry-marker','');console.log('initial-failure');process.exit(7)}""#.into(), max_retries: 1, retry_delay_seconds: 0, ..Default::default() }, ..Default::default() });
         declared[2].depends_on = Some(vec!["gate".into()]);
         manager
             .workflow_update_steps(
@@ -1066,7 +1067,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
                 prompt: "Verify".into(),
                 depends_on: Some(vec!["first".into()]),
                 execution: WorkflowExecution {
-                    command: "test -f allowed".into(),
+                    command: r#"node -e "process.exit(require('node:fs').existsSync('allowed') ? 0 : 1)""#.into(),
                     ..Default::default()
                 },
                 ..Default::default()

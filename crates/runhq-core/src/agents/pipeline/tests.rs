@@ -41,6 +41,25 @@ fn zip_traversal_is_rejected_before_extracting() {
 }
 
 #[test]
+fn nested_package_contents_keep_portable_keys_and_reject_backslashes() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(temp.path().join("assets/nested")).unwrap();
+    std::fs::write(temp.path().join("assets/nested/data.txt"), "captured").unwrap();
+    let mut data = serde_json::to_value(manifest(temp.path())).unwrap();
+    data["package"] = json!({"contents": ["assets"]});
+    let source = temp.path().join("pipeline.json");
+    std::fs::write(&source, serde_json::to_vec(&data).unwrap()).unwrap();
+    let files = import::read_package(&source).unwrap();
+    assert_eq!(files["assets/nested/data.txt"], b"captured");
+    assert!(files.keys().all(|name| !name.contains('\\')));
+    assert_eq!(
+        import::relative_name("./assets//nested/data.txt").unwrap(),
+        "assets/nested/data.txt"
+    );
+    assert!(import::relative_name(r"assets\nested\data.txt").is_err());
+}
+
+#[test]
 fn conditions_validate_references_without_executing_expressions() {
     assert_eq!(
         condition::references("review.verdict != 'PASS' && review.runCount < 3").unwrap(),
