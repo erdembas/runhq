@@ -13,7 +13,7 @@ import { useAgentStore } from '@/store/useAgentStore';
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { ipc } from '@/lib/ipc';
 import { useAgentContext } from './useAgentContext';
-import { agentContextImages, type AgentContextEntry, type AgentMemory } from './agentLibraryModel';
+import { agentContextImages, type AgentContextEntry } from './agentContextModel';
 
 export function AgentContextTray({
   draftKey,
@@ -30,7 +30,6 @@ export function AgentContextTray({
 }) {
   i18n.useLocale();
   const context = useAgentContext(draftKey, projectId);
-  const records = useAgentLibraryStore((s) => s.records);
   const projects = useAgentStore((s) => s.projects);
   const [sourceProject, setSourceProject] = useState(projectId);
   const sourceProjectId = projects.some((project) => project.id === sourceProject)
@@ -46,10 +45,6 @@ export function AgentContextTray({
   const fileInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const imagesSupported = agentSupportsImages(adapter);
-  const memories = Object.values(records)
-    .filter((r) => r.key.startsWith('memory:'))
-    .map((r) => r.value as AgentMemory)
-    .filter((m) => m.projectId === sourceProjectId);
   const action = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -166,7 +161,7 @@ export function AgentContextTray({
           {sourceProjectId !== projectId && (
             <p className="text-accent">
               {i18n.t(
-                'Cross-project reference: files and decisions below come from the selected project. This task keeps its own workspace.',
+                'Cross-project reference: files below come from the selected project. This task keeps its own workspace.',
               )}
             </p>
           )}
@@ -269,31 +264,6 @@ export function AgentContextTray({
               >
                 {i18n.t('Attach current diff')}
               </button>
-            )}
-            {memories.length > 0 && (
-              <SearchableSelect
-                label={i18n.t('Attach a project decision')}
-                compact
-                placeholder={i18n.t('Add a saved decision…')}
-                value=""
-                options={memories.map((m) => ({ value: m.id, label: m.title }))}
-                onChange={(value) => {
-                  const memory = memories.find((m) => m.id === value);
-                  if (memory)
-                    void action(() =>
-                      add({
-                        ...context.make(
-                          memory.title,
-                          memory.content,
-                          i18n.t('Project memory · {value1}', {
-                            value1: memory.sourceSessionId || memory.id,
-                          }),
-                        ),
-                        projectId: memory.projectId,
-                      }),
-                    );
-                }}
-              />
             )}
           </div>
           <div className="flex gap-2">

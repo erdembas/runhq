@@ -12,23 +12,14 @@ export function useAgentCatalog(
   enabled = true,
   sessionId?: string,
   model?: string,
-  workingDirectory?: string,
 ) {
   const tool = useAgentStore((s) => s.tools.find((t) => t.id === backend));
   const checkedAt = useAgentStore((s) => s.toolsCheckedAt);
-  const key = agentCatalogKey(
-    backend,
-    executable,
-    projectId,
-    sessionId,
-    model,
-    tool,
-    workingDirectory,
-  );
+  const key = agentCatalogKey(backend, executable, projectId, sessionId, model, tool);
   const canDiscover =
     enabled &&
     !!backend &&
-    (!!projectId || !!workingDirectory) &&
+    !!projectId &&
     tool?.enabled !== false &&
     (!!executable.trim() || !!tool?.available);
   const subscribe = useCallback((listener: () => void) => catalogs.subscribe(key, listener), [key]);
@@ -44,32 +35,13 @@ export function useAgentCatalog(
     // Avoid launching a CLI for every keystroke in an executable override.
     const timer = window.setTimeout(() => {
       void catalogs
-        .load(key, () =>
-          ipc.agentCatalog(
-            backend,
-            executable.trim(),
-            projectId,
-            sessionId,
-            model,
-            workingDirectory,
-          ),
-        )
+        .load(key, () => ipc.agentCatalog(backend, executable.trim(), projectId, sessionId, model))
         .catch(() => {
           /* The shared snapshot exposes the error to every consumer. */
         });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [
-    backend,
-    executable,
-    projectId,
-    key,
-    canDiscover,
-    sessionId,
-    model,
-    workingDirectory,
-    snapshot.status,
-  ]);
+  }, [backend, executable, projectId, key, canDiscover, sessionId, model, snapshot.status]);
   const refresh = useCallback(() => {
     catalogs.invalidate(key);
   }, [key]);

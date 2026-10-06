@@ -13,7 +13,6 @@ import { useSupervisorEvents } from '@/components/app/useSupervisorEvents';
 import { useTrayHint } from '@/components/app/useTrayHint';
 import { useWhatsNewAutoOpen } from '@/components/app/useWhatsNewAutoOpen';
 import { useAgentNotifications } from '@/components/app/useAgentNotifications';
-import { useAgentSchedules } from '@/components/app/useAgentSchedules';
 import { useAgentAccountCooldowns } from '@/components/app/useAgentAccountCooldowns';
 import { useAppStore } from '@/store/useAppStore';
 import { useShellUiStore } from '@/store/useShellUiStore';
@@ -57,7 +56,6 @@ export default function App() {
   useWhatsNewAutoOpen();
   useAppKeyboardShortcuts();
   useAgentNotifications();
-  useAgentSchedules();
   useAgentAccountCooldowns();
 
   return <AppShell contextMenu={contextMenu} startScan={startScan} />;

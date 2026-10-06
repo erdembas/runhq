@@ -7,10 +7,12 @@ export interface AgentChatDefaults {
   mode: 'default' | 'plan';
   agent: string;
   executable: string;
-  isolated: boolean;
 }
 
-/** Provider-specific options cannot follow automatic selection to another provider. */
+/**
+ * Provider-specific options cannot follow automatic selection to another provider. Fields saved by
+ * older versions, such as a separate-worktree preference, are ignored.
+ */
 export function agentChatDefaults(value?: unknown): AgentChatDefaults {
   const saved = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const string = (key: string) => (typeof saved[key] === 'string' ? saved[key].trim() : '');
@@ -22,6 +24,5 @@ export function agentChatDefaults(value?: unknown): AgentChatDefaults {
     mode: backend && saved.mode === 'plan' ? 'plan' : 'default',
     agent: backend ? string('agent') : '',
     executable: backend ? string('executable') : '',
-    isolated: saved.isolated === true,
   };
 }

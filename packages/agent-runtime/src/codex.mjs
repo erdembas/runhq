@@ -228,7 +228,7 @@ export async function runCodex(ctx, catalog = false) {
     cwd: cfg.cwd,
     approvalPolicy: 'on-request',
     approvalsReviewer: 'user',
-    sandbox: cfg.read_only_review || cfg.mode === 'plan' ? 'read-only' : 'workspace-write',
+    sandbox: cfg.mode === 'plan' ? 'read-only' : 'workspace-write',
     model: cfg.model || undefined,
   };
   const started = await rpc.call(cfg.native_id ? 'thread/resume' : 'thread/start', {

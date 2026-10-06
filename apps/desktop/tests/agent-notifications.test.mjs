@@ -91,7 +91,6 @@ test('delivery coalesces events and rechecks disable or selected-task changes af
         useAppStore: { getState: () => ({ activeMainTabKey: 'agents:agents' }) },
       },
       '../agents/agentNotifications': model,
-      '../agents/useWorkflowNotifications': { useWorkflowNotifications: () => {} },
     },
     {
       document: { hasFocus: () => true },

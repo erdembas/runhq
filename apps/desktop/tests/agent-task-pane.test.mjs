@@ -46,6 +46,7 @@ function load(relative, imports) {
   return exports;
 }
 
+// A task an older version created in a separate worktree keeps showing where it ran.
 const session = {
   id: 'task-a',
   project_id: 'project-a',
@@ -65,7 +66,6 @@ function paneHarness() {
     refresh: async () => calls.push(['refresh']),
   };
   const workbench = {
-    taskOrigins: {},
     taskFocusItems: {},
     focusMode: false,
     setFocusMode: (value) => {
@@ -83,7 +83,7 @@ function paneHarness() {
     },
     '@/store/useWorkbenchStore': { useWorkbenchStore: { getState: () => workbench } },
     '@/lib/workbenchNavigation': Object.fromEntries(
-      ['openAgentTask', 'openWorkflow', 'requestTaskHandoff'].map((name) => [
+      ['openAgentTask', 'requestTaskHandoff'].map((name) => [
         name,
         (...args) => calls.push([name, ...args]),
       ]),
@@ -122,10 +122,8 @@ test('task visibility, focus and language changes retain the same session view i
   i18n.setLocale('en', false);
 });
 
-test('workflow origin, transcript target and handoff carry their exact task context', () => {
+test('transcript target and handoff carry their exact task context', () => {
   const h = paneHarness();
-  assert.equal(h.render().props.onBackToWorkflow, undefined);
-  h.workbench.taskOrigins[session.id] = { workflowId: 'workflow-a' };
   h.workbench.taskFocusItems[session.id] = { itemId: 'decision-a', revision: 2 };
   const view = h.render();
   assert.equal(view.props.focusItemId, 'decision-a');
@@ -135,12 +133,10 @@ test('workflow origin, transcript target and handoff carry their exact task cont
   assert.equal(repeated.key, view.key);
   assert.equal(repeated.props.focusItemId, 'decision-a');
   assert.equal(repeated.props.focusItemRevision, 3);
-  view.props.onBackToWorkflow();
   const items = [{ id: 'message-a', text: 'Keep this context' }];
   view.props.onHandoff(items);
   view.props.onOpenSession('task-b');
-  assert.deepEqual(h.calls.slice(-3), [
-    ['openWorkflow', 'workflow-a', session.project_id],
+  assert.deepEqual(h.calls.slice(-2), [
     ['requestTaskHandoff', session.id, items],
     ['openAgentTask', 'task-b'],
   ]);

@@ -125,13 +125,16 @@ export function createAgentTaskLauncher(deps: {
           };
         }
         // Record creation intent BEFORE IPC. The backend uses the same creation id
-        // after a lost acknowledgement, including isolated worktree creation.
+        // after a lost acknowledgement.
         persist();
         if (recovery?.phase === 'accepted' && recovery.session) return recovery.session;
         if (!session) {
-          const createInput = recovery
+          const requested = recovery
             ? { ...recovery.input, creation_request_id: recovery.creationRequestId }
             : input;
+          // A launch saved by an older version may still ask for a separate worktree. Tasks now
+          // always start in the project checkout, so that request is not repeated.
+          const createInput = requested.isolated ? { ...requested, isolated: false } : requested;
           session = await deps.create(
             createInput,
             recovery?.sourceSessionId ?? metadata?.sourceSessionId,

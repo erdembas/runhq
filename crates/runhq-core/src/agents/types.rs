@@ -100,6 +100,8 @@ pub struct AgentSession {
     pub archived: bool,
     pub unread: bool,
     pub last_error: Option<String>,
+    /// Set on tasks created in a RunHQ-managed worktree by an earlier release. New tasks are never
+    /// isolated; existing ones keep running in their recorded `cwd` and `branch`.
     pub isolated: bool,
     pub branch: Option<String>,
     pub usage: Value,
@@ -126,8 +128,6 @@ pub struct AgentSession {
     /// run has not advertised a supported checkpoint. Never survives a process restart.
     #[serde(default)]
     pub pause_state: Option<String>,
-    #[serde(default)]
-    pub workflow_read_only: bool,
     pub pending: Vec<AgentRequest>,
 }
 
@@ -203,6 +203,8 @@ pub struct CreateAgentSession {
     pub mode: String,
     #[serde(default)]
     pub agent: String,
+    /// Accepted so older callers still parse; `true` is rejected because new isolated worktrees
+    /// are no longer created.
     #[serde(default)]
     pub isolated: bool,
 }
@@ -226,8 +228,7 @@ pub struct AgentTurnInput {
     pub agent: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AgentAttachment>,
-    /// An explicit Start now choice may share an ordinary task's checkout. Workflow
-    /// sessions and operations always retain exclusive access.
+    /// An explicit Start now choice may share another task's checkout.
     #[serde(default)]
     pub allow_parallel_checkout: bool,
 }

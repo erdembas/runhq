@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
-import type { AgentContextEntry } from './agentLibraryModel';
+import type { AgentContextEntry } from './agentContextModel';
 
 const noEntries: AgentContextEntry[] = [];
 export function useAgentContext(draftKey: string, projectId: string) {

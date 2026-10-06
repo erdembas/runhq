@@ -43,7 +43,6 @@ impl AgentDb {
             CREATE TABLE IF NOT EXISTS agent_turn_requests (request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES agent_sessions(id));
             CREATE TABLE IF NOT EXISTS agent_tools (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_workspace_records (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS agent_workflows (id TEXT PRIMARY KEY, data TEXT NOT NULL);
             PRAGMA user_version=3;").map_err(db_error)?;
         Ok(Self {
             conn,

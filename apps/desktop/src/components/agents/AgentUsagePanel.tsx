@@ -7,7 +7,7 @@ import { useVisibleStore } from '@/lib/useVisibleStore';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
-import { agentUsageSummary } from './agentLibraryModel';
+import { agentUsageSummary } from './agentUsageSummary';
 import { AgentAccountCooldowns } from './AgentAccountCooldowns';
 import { AgentUsageLimitSettings } from './AgentUsageLimitSettings';
 import { agentUsagePreferences, evaluateAgentUsage } from './agentUsagePolicy';

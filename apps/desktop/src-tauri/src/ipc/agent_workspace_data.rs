@@ -27,49 +27,6 @@ pub async fn agent_workspace_save(
     super::blocking(move || agents.workspace_save(key, value)).await
 }
 #[tauri::command]
-pub async fn agent_history_search(
-    query: AgentHistoryQuery,
-    state: State<'_, AppState>,
-) -> AppResult<Vec<AgentHistoryHit>> {
-    let agents = state.agents.clone();
-    super::blocking(move || agents.history_search(query)).await
-}
-#[tauri::command]
-pub async fn agent_history_export(
-    project_id: Option<String>,
-    state: State<'_, AppState>,
-) -> AppResult<AgentHistoryArchive> {
-    let agents = state.agents.clone();
-    super::blocking(move || agents.history_export(project_id)).await
-}
-#[tauri::command]
-pub async fn agent_history_import(
-    project_id: String,
-    archive: AgentHistoryArchive,
-    state: State<'_, AppState>,
-) -> AppResult<usize> {
-    let agents = state.agents.clone();
-    super::blocking(move || agents.history_import(&project_id, archive)).await
-}
-#[tauri::command]
-pub async fn agent_history_retention_preview(
-    project_id: Option<String>,
-    before: i64,
-    state: State<'_, AppState>,
-) -> AppResult<Vec<AgentSession>> {
-    let agents = state.agents.clone();
-    super::blocking(move || agents.history_retention_preview(project_id, before)).await
-}
-#[tauri::command]
-pub async fn agent_history_retention_remove(
-    id: String,
-    revision: u64,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    let agents = state.agents.clone();
-    super::blocking(move || agents.history_retention_remove(&id, revision)).await
-}
-#[tauri::command]
 pub async fn agent_context_file(
     project_id: String,
     session_id: Option<String>,

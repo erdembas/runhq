@@ -1,7 +1,6 @@
 // Adapter-supplied metadata only: never infer consent from a title, command or tool output.
 export function automaticApproval(config, request, approval) {
   if (
-    config.read_only_review ||
     config.mode === 'plan' ||
     config.agent === 'plan' ||
     request.kind !== 'approval' ||

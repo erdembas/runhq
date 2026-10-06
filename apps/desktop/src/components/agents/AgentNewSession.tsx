@@ -44,7 +44,8 @@ import { createAgentTaskLauncher } from './agentTaskLauncher';
 import { useVisibleStore } from '@/lib/useVisibleStore';
 import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
-import { agentContextImages, buildAgentContextPrompt, type AgentRecipe } from './agentLibraryModel';
+import { agentContextImages, buildAgentContextPrompt } from './agentContextModel';
+import type { AgentHandoffDraft } from './agentHandoff';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { agentTurnQueue, useAgentQueueStore } from '@/store/useAgentQueueStore';
 import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
@@ -60,8 +61,9 @@ import {
 import { agentWorkspaceIpc } from '@/lib/ipc/agentWorkspaceIpc';
 import { initialAgentTaskRecovery } from './agentSendRecovery';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { AgentWorkflowLaunchDialog } from './AgentWorkflowLaunchDialog';
-import { workflowLaunchCandidates } from './agentWorkflowLaunch';
+import { AgentTaskLaunchDialog } from './AgentTaskLaunchDialog';
+import { taskLaunchCandidates } from './agentTaskLaunch';
+import { agentTaskError } from './agentTaskErrors';
 import type { AgentTaskStartDependency } from './agentTaskStart';
 
 interface AgentNewSessionProps {
@@ -70,7 +72,8 @@ interface AgentNewSessionProps {
   project?: AgentProject;
   visible?: boolean;
   initialTemplate?: AgentTaskTemplate;
-  initialRecipe?: AgentRecipe;
+  /** Continue another task's work: opens with its summary, project and chosen connection. */
+  initialHandoff?: AgentHandoffDraft;
   /** Why the opening account was chosen, when RunHQ rather than the user chose it. */
   initialRouting?: { poolName?: string; reason: string };
 }
@@ -102,7 +105,7 @@ export function AgentNewSession(props: AgentNewSessionProps) {
     <AgentNewSessionComposer
       {...props}
       defaults={agentChatDefaults(
-        props.initialRecipe ? undefined : records[agentChatDefaultsKey]?.value,
+        props.initialHandoff ? undefined : records[agentChatDefaultsKey]?.value,
       )}
     />
   );
@@ -114,7 +117,7 @@ function AgentNewSessionComposer({
   project,
   visible = true,
   initialTemplate,
-  initialRecipe,
+  initialHandoff,
   initialRouting,
   defaults,
 }: AgentNewSessionProps & { defaults: AgentChatDefaults }) {
@@ -127,7 +130,7 @@ function AgentNewSessionComposer({
   const firstProjectId = projects[0]?.id ?? '';
   const filter = useVisibleStore(useAgentStore, (s) => s.projectFilter, visible);
   const [projectId, setProjectId] = useState(
-    project?.id || initialRecipe?.projectId || filter || projects[0]?.id || '',
+    project?.id || initialHandoff?.projectId || filter || projects[0]?.id || '',
   );
   const currentProject = projects.find((entry) => entry.id === projectId);
   const taskMembers = useWorkspaceTaskMembers(currentProject);
@@ -148,7 +151,6 @@ function AgentNewSessionComposer({
   const [mode, setMode] = useState<'default' | 'plan'>(defaults.mode);
   const [agent, setAgent] = useState(defaults.agent);
   const [title, setTitle] = useState('');
-  const [isolated, setIsolated] = useState(defaults.isolated);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [choosingStart, setChoosingStart] = useState(false);
@@ -158,7 +160,7 @@ function AgentNewSessionComposer({
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTaskTemplate['id']>();
   const [templateMode, setTemplateMode] = useState<'default' | 'plan' | null>(null);
   const templateApplied = useRef(false);
-  const recipeApplied = useRef(false);
+  const handoffApplied = useRef(false);
   const mounted = useRef(false);
   const launcher = useRef(
     createAgentTaskLauncher({
@@ -199,8 +201,8 @@ function AgentNewSessionComposer({
     restorationError = String(error);
   }
   const recovered = launcher.current.recovery;
-  const isHandoff = !!(recovered?.sourceSessionId ?? initialRecipe?.sourceSessionId);
-  const launchTasks = workflowLaunchCandidates(
+  const isHandoff = !!(recovered?.sourceSessionId ?? initialHandoff?.sourceSessionId);
+  const launchTasks = taskLaunchCandidates(
     sessions,
     projectId,
     launcher.current.session ? [launcher.current.session.id] : [],
@@ -330,26 +332,19 @@ function AgentNewSessionComposer({
     setTemplateMode(initialTemplate.mode);
   }, [draftKey, initialTemplate]);
   useEffect(() => {
-    if (!initialRecipe || recipeApplied.current || launcher.current.recovery) return;
-    recipeApplied.current = true;
-    useAgentStore
-      .getState()
-      .setDraft(
-        draftKey,
-        initialRecipe.prompt +
-          (initialRecipe.acceptance ? `\n\nAcceptance criteria:\n${initialRecipe.acceptance}` : ''),
-      );
-    setTitle(initialRecipe.name);
-    if (initialRecipe.backend) {
+    if (!initialHandoff || handoffApplied.current || launcher.current.recovery) return;
+    handoffApplied.current = true;
+    useAgentStore.getState().setDraft(draftKey, initialHandoff.prompt);
+    setTitle(initialHandoff.title);
+    if (initialHandoff.backend) {
       userSelectedBackend.current = true;
-      setBackend(initialRecipe.backend);
+      setBackend(initialHandoff.backend);
     }
-    setModel(initialRecipe.model);
-    setEffort(initialRecipe.effort);
-    setAgent(initialRecipe.agent);
-    setIsolated(initialRecipe.isolated);
-    setTemplateMode(initialRecipe.mode);
-  }, [draftKey, initialRecipe]);
+    setModel('');
+    setEffort('');
+    setAgent('');
+    setTemplateMode('default');
+  }, [draftKey, initialHandoff]);
   useEffect(() => {
     if (templateMode === null || locked) return;
     // Wait for the selected provider's capabilities before enabling its plan mode.
@@ -379,9 +374,6 @@ function AgentNewSessionComposer({
     }
   }, [backends, backend, discovery.ready, executable, locked, visible]);
   useEffect(() => {
-    if (currentProject?.workspace) setIsolated(false);
-  }, [currentProject?.workspace]);
-  useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
@@ -401,7 +393,6 @@ function AgentNewSessionComposer({
     setMode(saved.input.mode === 'plan' ? 'plan' : 'default');
     setAgent(saved.input.agent);
     setTitle(saved.input.title);
-    setIsolated(saved.input.isolated);
   }, [projectId, recovered?.creationRequestId]);
   const openSession = (session: AgentSession) => {
     if (onCreated) onCreated(session);
@@ -417,7 +408,7 @@ function AgentNewSessionComposer({
       const draftText = saved?.draftText ?? input;
       const prompt = saved?.text ?? buildAgentContextPrompt(input, context.entries);
       const images = saved?.attachments ?? agentContextImages(context.entries);
-      const sourceSessionId = saved?.sourceSessionId ?? initialRecipe?.sourceSessionId;
+      const sourceSessionId = saved?.sourceSessionId ?? initialHandoff?.sourceSessionId;
       const session = await launcher.current.send(
         saved?.input ?? {
           project_id: projectId,
@@ -430,7 +421,7 @@ function AgentNewSessionComposer({
           effort,
           mode,
           agent,
-          isolated: currentProject?.workspace ? false : isolated,
+          isolated: false,
         },
         prompt,
         images,
@@ -473,7 +464,7 @@ function AgentNewSessionComposer({
     } catch (e) {
       if (mounted.current) {
         setChoosingStart(false);
-        setError(String(e));
+        setError(agentTaskError(String(e)));
       }
     } finally {
       if (mounted.current) setBusy(false);
@@ -482,11 +473,13 @@ function AgentNewSessionComposer({
   const requestSend = () => {
     if (!canSend || choosingStart) return;
     const saved = launcher.current.recovery;
+    // Tasks share the project checkout, so starting beside running work needs an explicit choice.
+    // A saved launch keeps the start time it was queued with.
     if (
       saved?.phase !== 'accepted' &&
       !saved?.startAfter &&
       !saved?.allowParallelCheckout &&
-      workflowLaunchCandidates(
+      taskLaunchCandidates(
         useAgentStore.getState().sessions,
         projectId,
         launcher.current.session ? [launcher.current.session.id] : [],
@@ -501,15 +494,11 @@ function AgentNewSessionComposer({
       className="overlay-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 py-8 lg:px-8"
     >
       {visible && choosingStart && (
-        <AgentWorkflowLaunchDialog
-          kind="task"
-          taskIsolated={isolated}
+        <AgentTaskLaunchDialog
           tasks={launchTasks}
           busy={busy}
-          canSaveDraft={false}
           onClose={() => setChoosingStart(false)}
           onChoose={(choice) => {
-            if (choice.mode === 'draft') return;
             const preceding =
               choice.mode === 'after'
                 ? launchTasks.find((task) => task.id === choice.sessionId)
@@ -526,7 +515,7 @@ function AgentNewSessionComposer({
         <ConfirmDialog
           title={i18n.t('Forget this saved launch?')}
           message={i18n.t(
-            'Any task or worktree already created will stay available. If creation was interrupted, review your existing tasks first. Forgetting this record lets you start a separate new task.',
+            'Any task already created will stay available. If creation was interrupted, review your existing tasks first. Forgetting this record lets you start a separate new task.',
           )}
           confirmLabel={i18n.t('Forget saved launch')}
           onCancel={() => setForgetLaunch(false)}
@@ -665,38 +654,25 @@ function AgentNewSessionComposer({
               options={projectOptions}
               searchPlaceholder={i18n.t('Find a project or group…')}
               onChange={(value) => {
-                if (initialRecipe?.sourceSessionId) return;
+                if (initialHandoff?.sourceSessionId) return;
                 setProjectId(value);
                 setAgent('');
               }}
             />
           )}
-          <span className="bg-border mx-1 h-3 w-px" />
-          <button
-            type="button"
-            disabled={locked || !!initialRecipe?.sourceSessionId || !!currentProject?.workspace}
-            onClick={() => setIsolated(!isolated)}
-            aria-pressed={isolated}
-            title={
-              isolated
-                ? i18n.t(
-                    'New worktree from committed HEAD; local changes and dependencies are not copied.',
-                  )
-                : i18n.t('Work in this project’s current directory')
-            }
-            className="hover:text-fg flex min-w-0 items-center gap-1.5 disabled:opacity-40"
-          >
-            <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            {initialRecipe?.sourceSessionId
-              ? i18n.t('Source task workspace')
-              : isolated
-                ? i18n.t('Isolated worktree')
-                : i18n.t('Local workspace')}
-          </button>
+          {initialHandoff?.sourceSessionId && (
+            <>
+              <span className="bg-border mx-1 h-3 w-px" />
+              <span className="flex min-w-0 items-center gap-1.5">
+                <GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                {i18n.t('Source task workspace')}
+              </span>
+            </>
+          )}
         </div>
         {currentProject?.workspace && !isHandoff && (
           <fieldset
-            disabled={locked || !!recovered || !!initialRecipe?.sourceSessionId}
+            disabled={locked || !!recovered || !!initialHandoff?.sourceSessionId}
             className="border-border text-fg-muted mx-1 mb-3 rounded-lg border px-3 py-2 text-[11px]"
           >
             <legend className="px-1">{i18n.t('Projects for this task')}</legend>
@@ -827,13 +803,6 @@ function AgentNewSessionComposer({
             adapter={found?.adapter || backend}
             disabled={locked}
           />
-          {initialRecipe && (initialRecipe.setupCommands || initialRecipe.checkCommands) && (
-            <p className="text-fg-dim px-4 pb-3 text-[11px]">
-              {i18n.t(
-                'This recipe includes setup/check commands. Launch it from Library → Create workflow to run and record those steps.',
-              )}
-            </p>
-          )}
           {advanced && (
             <AgentTaskSettings
               title={title}
@@ -846,10 +815,6 @@ function AgentNewSessionComposer({
                 setModel('');
                 setEffort('');
                 setAgent('');
-              }}
-              isolated={isolated}
-              onIsolated={(value) => {
-                if (!initialRecipe?.sourceSessionId) setIsolated(value);
               }}
               backend={backend}
               detected={found}

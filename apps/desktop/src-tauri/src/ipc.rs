@@ -6,7 +6,6 @@
 //! used by Tauri stay stable.
 
 mod agent_canvas;
-mod agent_workflows;
 mod agent_workspace_data;
 mod agents;
 mod ai;
@@ -29,7 +28,6 @@ mod system;
 mod timeline;
 
 pub use agent_canvas::*;
-pub use agent_workflows::*;
 pub use agent_workspace_data::*;
 pub use agents::*;
 pub use ai::*;

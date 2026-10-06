@@ -17,14 +17,6 @@ const labels = {
     context: 'Context',
     unknown: 'Unknown',
   },
-  stepRole: {
-    plan: 'Plan',
-    implement: 'Implement',
-    review: 'Review',
-    revise: 'Revise',
-    validate: 'Validate',
-    integrate: 'Apply',
-  },
   shortcutScope: { global: 'Global', window: 'Window' },
 } satisfies Record<string, Record<string, MessageKey>>;
 

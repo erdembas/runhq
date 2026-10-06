@@ -64,7 +64,7 @@ export async function openProjectAgentView(serviceId: string, view: AgentWorkspa
 
 export function openAgentTask(
   sessionId: string,
-  options: { focusItemId?: string; workflowId?: string; projectId?: string } = {},
+  options: { focusItemId?: string; projectId?: string } = {},
 ) {
   navigationRequest += 1;
   const session = useAgentStore.getState().sessions[sessionId];
@@ -84,8 +84,8 @@ export function openAgentTask(
     if (project?.workspace || session?.workspace) return false;
     if (registeredPaths.has(comparablePath(service.cwd))) return true;
     if (project && comparablePath(project.path) === comparablePath(service.cwd)) return true;
-    // A task's isolated checkout is not its source project. Only a local session can supply
-    // the fallback path while the project catalog is still loading.
+    // A legacy task's separate checkout is not its source project. Only a local session can
+    // supply the fallback path while the project catalog is still loading.
     return (
       !!session && !session.isolated && comparablePath(session.cwd) === comparablePath(service.cwd)
     );
@@ -100,19 +100,7 @@ export function openAgentTask(
       // Ordinary navigation must not replay a previously requested decision/history jump.
       delete taskFocusItems[sessionId];
     }
-    return {
-      taskOrigins: options.workflowId
-        ? {
-            ...state.taskOrigins,
-            [sessionId]: {
-              workflowId: options.workflowId,
-              projectId: options.projectId ?? session?.project_id,
-            },
-          }
-        : state.taskOrigins,
-      taskFocusItems,
-      taskFocusRevision,
-    };
+    return { taskFocusItems, taskFocusRevision };
   });
   if (owner && projectId) {
     useWorkbenchStore.getState().setProjectSelectedSession(projectId, sessionId);
@@ -122,11 +110,6 @@ export function openAgentTask(
     openAgentView('conversations', projectId ?? '');
     useAgentStore.getState().select(sessionId);
   }
-}
-
-export function openWorkflow(workflowId: string, projectId?: string) {
-  useWorkbenchStore.setState({ requestedWorkflowId: workflowId });
-  openAgentView('workflows', projectId);
 }
 
 export function requestTaskHandoff(sessionId: string, items: AgentItem[]) {

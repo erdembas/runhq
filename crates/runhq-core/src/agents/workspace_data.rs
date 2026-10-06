@@ -1,4 +1,4 @@
-use super::{invalid, now, AgentItem, AgentManager, AgentSession, CreateAgentSession};
+use super::{invalid, now, AgentManager, AgentSession, CreateAgentSession};
 use crate::{AppError, AppResult};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -16,37 +16,6 @@ pub struct WorkspaceRecord {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AgentHistoryQuery {
-    pub query: String,
-    pub project_id: Option<String>,
-    pub backend: Option<String>,
-    pub status: Option<String>,
-    pub before: Option<i64>,
-    pub from_date: Option<i64>,
-    pub to_date: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AgentHistoryHit {
-    pub sequence: i64,
-    pub session: AgentSession,
-    pub item: AgentItem,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ArchivedConversation {
-    pub session: AgentSession,
-    pub items: Vec<AgentItem>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AgentHistoryArchive {
-    pub version: u32,
-    pub exported_at: i64,
-    pub conversations: Vec<ArchivedConversation>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct AgentContextFile {
     pub name: String,
@@ -54,6 +23,14 @@ pub struct AgentContextFile {
     pub path: String,
     pub captured_at: i64,
     pub content: String,
+}
+
+/// Record kinds the app still reads and writes. Rows under retired prefixes (`recipe:`,
+/// `schedule:`, `memory:`) stay in the database untouched but are neither listed nor written.
+const RECORD_PREFIXES: [&str; 5] = ["context:", "preferences:", "link:", "pool:", "routing:"];
+
+fn supported_record(key: &str) -> bool {
+    RECORD_PREFIXES.iter().any(|prefix| key.starts_with(prefix))
 }
 
 fn ensure_records(conn: &rusqlite::Connection) -> AppResult<()> {
@@ -176,12 +153,6 @@ impl AgentManager {
         )
         .canonicalize()
         .map_err(|_| invalid("The saved handoff workspace is missing"))?;
-        let root = super::git_toplevel(&cwd)
-            .await
-            .unwrap_or_else(|_| cwd.clone());
-        // Includes every task sharing a checkout, and excludes workflow checks and
-        // cleanup until both the new session and provenance link are committed.
-        let _lease = self.workflow_lease(&root)?;
         let source = self.session(source_id)?;
         if source.active() || source.runtime_state["history_only"] == true {
             return Err(invalid("Stop the source task before handing it off"));
@@ -228,33 +199,23 @@ impl AgentManager {
                 ))
             })
             .map_err(sql_error)?;
-        rows.map(|r| {
-            let (key, data, updated_at) = r.map_err(sql_error)?;
-            Ok(WorkspaceRecord {
-                key,
-                value: serde_json::from_str(&data)?,
-                updated_at,
-            })
-        })
-        .collect()
+        let mut records = vec![];
+        for row in rows {
+            let (key, data, updated_at) = row.map_err(sql_error)?;
+            if supported_record(&key) {
+                records.push(WorkspaceRecord {
+                    key,
+                    value: serde_json::from_str(&data)?,
+                    updated_at,
+                });
+            }
+        }
+        Ok(records)
     }
 
     pub fn workspace_save(&self, key: String, value: Option<Value>) -> AppResult<()> {
         let workspace_permission = key.starts_with(super::permissions::WORKSPACE_PERMISSION_PREFIX);
-        if key.len() > if workspace_permission { 8192 } else { 160 }
-            || ![
-                "recipe:",
-                "memory:",
-                "context:",
-                "preferences:",
-                "link:",
-                "schedule:",
-                "pool:",
-                "routing:",
-            ]
-            .iter()
-            .any(|prefix| key.starts_with(prefix))
-        {
+        if key.len() > if workspace_permission { 8192 } else { 160 } || !supported_record(&key) {
             return Err(invalid("Unknown workspace record type"));
         }
         if let Some(value) = &value {
@@ -267,9 +228,7 @@ impl AgentManager {
             {
                 return Err(invalid("Unknown agent permission policy"));
             }
-            let limit = if key.starts_with("recipe:") {
-                16 * 1024 * 1024
-            } else if key.starts_with("context:") {
+            let limit = if key.starts_with("context:") {
                 4 * 1024 * 1024
             } else {
                 1024 * 1024
@@ -334,198 +293,6 @@ impl AgentManager {
         ))
     }
 
-    pub fn history_search(&self, query: AgentHistoryQuery) -> AppResult<Vec<AgentHistoryHit>> {
-        let needle = query.query.trim();
-        if needle.is_empty() {
-            return Ok(vec![]);
-        }
-        if needle.len() > 500 {
-            return Err(invalid("Search is limited to 500 characters"));
-        }
-        let state = self.state.lock();
-        if query
-            .from_date
-            .zip(query.to_date)
-            .is_some_and(|(from, to)| from >= to)
-        {
-            return Err(invalid("The history end date must follow the start date"));
-        }
-        let mut stmt = state.db.conn.prepare("SELECT i.seq,s.data,i.data FROM agent_items i JOIN agent_sessions s ON s.id=i.session_id WHERE i.seq<?1 AND (?2 IS NULL OR json_extract(s.data,'$.project_id')=?2) AND (?3 IS NULL OR json_extract(s.data,'$.backend')=?3) AND (?4 IS NULL OR json_extract(s.data,'$.status')=?4) AND (instr(lower(json_extract(i.data,'$.text')),lower(?5))>0 OR instr(lower(json_extract(i.data,'$.title')),lower(?5))>0) AND (?6 IS NULL OR json_extract(i.data,'$.created_at')>=?6) AND (?7 IS NULL OR json_extract(i.data,'$.created_at')<?7) ORDER BY i.seq DESC LIMIT 50").map_err(sql_error)?;
-        let rows = stmt
-            .query_map(
-                params![
-                    query.before.unwrap_or(i64::MAX),
-                    query.project_id.filter(|v| !v.is_empty()),
-                    query.backend.filter(|v| !v.is_empty()),
-                    query.status.filter(|v| !v.is_empty()),
-                    needle,
-                    query.from_date,
-                    query.to_date
-                ],
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .map_err(sql_error)?;
-        rows.map(|row| {
-            let (sequence, session, item) = row.map_err(sql_error)?;
-            Ok(AgentHistoryHit {
-                sequence,
-                session: serde_json::from_str(&session)?,
-                item: serde_json::from_str(&item)?,
-            })
-        })
-        .collect()
-    }
-
-    /// Retention is an explicit preview followed by revision-checked removal. Never
-    /// discard live tasks, project memory evidence or workflow validation history.
-    pub fn history_retention_preview(
-        &self,
-        project_id: Option<String>,
-        before: i64,
-    ) -> AppResult<Vec<AgentSession>> {
-        let state = self.state.lock();
-        let mut result = vec![];
-        for session in state.sessions.values() {
-            if session.archived
-                && !session.active()
-                && !state.running.contains_key(&session.id)
-                && session.updated_at < before
-                && project_id
-                    .as_ref()
-                    .map_or(true, |id| id.is_empty() || *id == session.project_id)
-                && !history_protected(&state.db.conn, &session.id)?
-            {
-                result.push(session.clone());
-            }
-        }
-        result.sort_by_key(|s| s.updated_at);
-        Ok(result)
-    }
-
-    pub fn history_retention_remove(&self, id: &str, revision: u64) -> AppResult<()> {
-        let mut state = self.state.lock();
-        let Some(session) = state.sessions.get(id) else {
-            return Ok(());
-        };
-        if !session.archived
-            || session.active()
-            || state.running.contains_key(id)
-            || session.revision != revision
-            || history_protected(&state.db.conn, id)?
-        {
-            return Err(invalid("This conversation changed or retains task evidence. Refresh the retention preview."));
-        }
-        state.db.delete_session(id)?;
-        state.sessions.remove(id);
-        Ok(())
-    }
-
-    pub fn history_export(&self, project_id: Option<String>) -> AppResult<AgentHistoryArchive> {
-        let state = self.state.lock();
-        let mut conversations = vec![];
-        let mut total = 0;
-        for mut session in state
-            .sessions
-            .values()
-            .filter(|s| {
-                project_id
-                    .as_ref()
-                    .map_or(true, |id| id.is_empty() || *id == s.project_id)
-            })
-            .cloned()
-        {
-            session.native_id = None;
-            session.executable.clear();
-            session.args.clear();
-            session.pending.clear();
-            session.runtime_state = Value::Null;
-            let mut stmt = state
-                .db
-                .conn
-                .prepare("SELECT data FROM agent_items WHERE session_id=?1 ORDER BY seq")
-                .map_err(sql_error)?;
-            let rows = stmt
-                .query_map([&session.id], |r| r.get::<_, String>(0))
-                .map_err(sql_error)?;
-            let mut items = vec![];
-            for row in rows {
-                let data = row.map_err(sql_error)?;
-                total += data.len();
-                if total > 32 * 1024 * 1024 {
-                    return Err(invalid(
-                        "History exceeds 32 MiB; export one project at a time",
-                    ));
-                }
-                items.push(serde_json::from_str(&data)?);
-            }
-            conversations.push(ArchivedConversation { session, items });
-        }
-        Ok(AgentHistoryArchive {
-            version: 1,
-            exported_at: now(),
-            conversations,
-        })
-    }
-
-    pub fn history_import(
-        &self,
-        project_id: &str,
-        archive: AgentHistoryArchive,
-    ) -> AppResult<usize> {
-        if archive.version != 1
-            || archive.conversations.len() > 1000
-            || serde_json::to_vec(&archive)?.len() > 32 * 1024 * 1024
-        {
-            return Err(invalid("Unsupported or oversized history archive"));
-        }
-        let mut state = self.state.lock();
-        let project = state.db.project(project_id)?;
-        let tx = state.db.conn.unchecked_transaction().map_err(sql_error)?;
-        let mut imported = vec![];
-        for conversation in archive.conversations {
-            let mut session = conversation.session;
-            session.id = uuid::Uuid::new_v4().to_string();
-            session.project_id = project.id.clone();
-            session.project_name = project.name.clone();
-            session.cwd = project.path.clone();
-            session.workspace = project.workspace.clone();
-            session.native_id = None;
-            session.executable.clear();
-            session.args.clear();
-            session.pending.clear();
-            session.runtime_state = serde_json::json!({"history_only":true});
-            session.status = "completed".into();
-            session.archived = true;
-            session.isolated = false;
-            session.branch = None;
-            session.unread = false;
-            session.revision = 1;
-            session.title = format!("Imported · {}", session.title);
-            state.db.save(&session)?;
-            for mut item in conversation.items {
-                if item.text.len() > 1024 * 1024 {
-                    return Err(invalid("An imported message exceeds 1 MiB"));
-                }
-                item.id = uuid::Uuid::new_v4().to_string();
-                item.status = "completed".into();
-                state.db.item(&session.id, &item)?;
-            }
-            imported.push(session);
-        }
-        tx.commit().map_err(sql_error)?;
-        let count = imported.len();
-        for session in imported {
-            state.sessions.insert(session.id.clone(), session);
-        }
-        Ok(count)
-    }
-
     pub fn context_file(
         &self,
         project_id: &str,
@@ -570,8 +337,4 @@ impl AgentManager {
             content,
         })
     }
-}
-
-fn history_protected(conn: &rusqlite::Connection, id: &str) -> AppResult<bool> {
-    conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workflows w, json_each(json_extract(w.data,'$.steps')) s WHERE json_extract(s.value,'$.session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workspace_records WHERE key LIKE 'memory:%' AND json_extract(data,'$.sourceSessionId')=?1)", [id], |row| row.get(0)).map_err(sql_error)
 }

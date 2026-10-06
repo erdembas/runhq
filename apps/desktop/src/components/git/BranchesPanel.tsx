@@ -24,8 +24,8 @@ interface BranchesPanelProps {
 /**
  * Two-branch diff comparator — used to be a sub-mode of the old Changes
  * tab. Promoted to a top-level tab when Changes was folded into Commit:
- * branch-vs-branch comparison is conceptually unrelated to the commit
- * workflow, so cramming it into the Commit panel would have been a
+ * branch-vs-branch comparison is conceptually unrelated to committing,
+ * so cramming it into the Commit panel would have been a
  * VSCode anti-pattern.
  */
 export function BranchesPanel({

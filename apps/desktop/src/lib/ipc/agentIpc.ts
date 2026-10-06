@@ -40,7 +40,6 @@ export const agentIpc = {
     projectId: string,
     sessionId?: string,
     model?: string,
-    workingDirectory?: string,
   ) =>
     invoke<AgentCatalog>('agent_catalog', {
       backend,
@@ -48,7 +47,6 @@ export const agentIpc = {
       projectId,
       sessionId: sessionId ?? null,
       model: model ?? null,
-      workingDirectory: workingDirectory ?? null,
     }),
   agentCreate: (input: CreateAgentSession) => invoke<AgentSession>('agent_create', { input }),
   agentStart: (input: AgentTurnInput) => invoke<AgentSession>('agent_start', { input }),

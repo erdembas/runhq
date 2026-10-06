@@ -1,16 +1,7 @@
-import { workflowExecutionError } from './workflowExecutionMessages';
 import { useLocaleMemo as useMemo } from '@runhq/cockpit-ui/i18n';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpRight,
-  Clock3,
-  GitPullRequest,
-  Inbox,
-  Search,
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpRight, Clock3, Inbox, Search } from 'lucide-react';
 import { AgentRequestCard, AgentProviderLogo, SearchableSelect } from '@runhq/cockpit-ui';
 import { ipc } from '@/lib/ipc';
 import { useVisibleStore } from '@/lib/useVisibleStore';
@@ -19,8 +10,6 @@ import { agentDecisionWait, collectAgentDecisions } from './agentDecisions';
 import { answerPendingAgentRequest } from './agentDecisionActions';
 import { AgentNotificationSettings } from './AgentNotificationSettings';
 import { useAgentProjectOptions } from './useAgentProjectOptions';
-import { useAgentWorkflowAttention } from './useAgentWorkflowAttention';
-import { filterWorkflowAttention } from './agentWorkflowAttention';
 
 const AGENT_DECISION_KINDS = [
   {
@@ -47,25 +36,17 @@ const AGENT_DECISION_KINDS = [
       return i18n.t('Forms');
     },
   },
-  {
-    value: 'workflow',
-    get label() {
-      return i18n.t('Workflows');
-    },
-  },
 ];
 
 export function AgentDecisionInbox({
   visible = true,
   projectId,
   onOpenSession,
-  onOpenWorkflow,
   shell = false,
 }: {
   visible?: boolean;
   projectId?: string;
   onOpenSession: (sessionId: string, requestId?: string) => void;
-  onOpenWorkflow: (workflowId: string, projectId: string) => void;
   shell?: boolean;
 }) {
   i18n.useLocale();
@@ -78,17 +59,6 @@ export function AgentDecisionInbox({
   const [now, setNow] = useState(Date.now);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const cards = useRef(new Map<string, HTMLElement>());
-  const workflowAttention = useAgentWorkflowAttention(visible);
-  const projectName = (id: string) =>
-    storedProjects.find((project) => project.id === id)?.name || id;
-  const workflows =
-    kind === 'all' || kind === 'workflow'
-      ? filterWorkflowAttention(
-          workflowAttention.entries,
-          { projectId: selectedProject, search },
-          projectName,
-        )
-      : [];
   useEffect(() => setSelectedProject(projectId ?? ''), [projectId]);
   useEffect(() => {
     if (!visible) return;
@@ -158,7 +128,7 @@ export function AgentDecisionInbox({
         {!shell && <Inbox className="text-accent h-4 w-4" />}
         {!shell && <h2 className="text-fg text-[13px] font-semibold">{i18n.t('Decisions')}</h2>}
         <span aria-live="polite" className="text-fg-dim text-[11px]">
-          {i18n.rich('{value1} waiting', { value1: decisions.length + workflows.length })}
+          {i18n.rich('{value1} waiting', { value1: decisions.length })}
         </span>
         <div className="ml-auto flex gap-1">
           <button
@@ -225,70 +195,12 @@ export function AgentDecisionInbox({
         }
       />
       <div className="overlay-scroll min-h-0 flex-1 space-y-5 overflow-auto p-4">
-        {workflowAttention.error && (
-          <div role="alert" className="text-status-error mx-auto max-w-3xl text-[12px]">
-            <p>{i18n.t('Workflow attention could not be loaded.')}</p>
-            <p className="mt-1 text-[11px] break-words">{workflowAttention.error}</p>
-            <button className="mt-2 underline" onClick={() => void workflowAttention.refresh()}>
-              {i18n.t('Retry loading')}
-            </button>
+        {!decisions.length && (
+          <div className="text-fg-dim py-12 text-center text-[13px]">
+            {all.length
+              ? i18n.t('No attention items match these filters.')
+              : i18n.t('No items need your attention.')}
           </div>
-        )}
-        {workflowAttention.loading && (
-          <p role="status" className="text-fg-dim text-center text-[12px]">
-            {i18n.t('Loading your workspace…')}
-          </p>
-        )}
-        {!decisions.length &&
-          !workflows.length &&
-          !workflowAttention.loading &&
-          !workflowAttention.error && (
-            <div className="text-fg-dim py-12 text-center text-[13px]">
-              {all.length || workflowAttention.entries.length
-                ? i18n.t('No attention items match these filters.')
-                : i18n.t('No items need your attention.')}
-            </div>
-          )}
-        {workflows.length > 0 && (
-          <section className="mx-auto max-w-3xl space-y-3" aria-label={i18n.t('Workflow requests')}>
-            <h3 className="text-fg-muted text-[12px] font-medium">{i18n.t('Workflow requests')}</h3>
-            {workflows.map(({ workflow, kind: workflowKind, detail }) => (
-              <article
-                key={workflow.id}
-                className="border-accent/25 bg-accent/5 rounded-xl border p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                  <GitPullRequest className="text-accent h-4 w-4 shrink-0" />
-                  <strong className="text-fg min-w-0 flex-1">{workflow.title}</strong>
-                  <span className="text-fg-dim text-[11px]">
-                    {projectName(workflow.project_id)}
-                  </span>
-                </div>
-                <p className="text-accent mt-2 text-[12px]">
-                  {workflowKind === 'human'
-                    ? i18n.t('Human approval')
-                    : workflowKind === 'review'
-                      ? i18n.t('Review needs your decision')
-                      : workflowKind === 'apply'
-                        ? i18n.t('Ready to apply')
-                        : i18n.t('Workflow needs attention')}
-                </p>
-                {detail && (
-                  <p className="text-fg-muted mt-2 line-clamp-3 text-[12px] whitespace-pre-wrap">
-                    {workflowExecutionError(detail)}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className="text-accent mt-3 flex items-center gap-1 text-[12px] hover:underline"
-                  onClick={() => onOpenWorkflow(workflow.id, workflow.project_id)}
-                >
-                  {i18n.t('Open workflow')}
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
-              </article>
-            ))}
-          </section>
         )}
         {decisions.map(({ key, session, request, since }) => (
           <article

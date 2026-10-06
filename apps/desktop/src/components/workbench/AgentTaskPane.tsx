@@ -4,7 +4,7 @@ import { CircleAlert, Loader2, RefreshCw } from 'lucide-react';
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { AgentSessionView } from '@/components/agents/AgentSessionView';
 import { useVisibleStore } from '@/lib/useVisibleStore';
-import { openAgentTask, openWorkflow, requestTaskHandoff } from '@/lib/workbenchNavigation';
+import { openAgentTask, requestTaskHandoff } from '@/lib/workbenchNavigation';
 import { connectAgents, useAgentStore } from '@/store/useAgentStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 
@@ -22,11 +22,6 @@ export function AgentTaskPane({
   const session = useVisibleStore(useAgentStore, (state) => state.sessions[sessionId], visible);
   const ready = useVisibleStore(useAgentStore, (state) => state.ready, visible);
   const error = useVisibleStore(useAgentStore, (state) => state.error, visible);
-  const origin = useVisibleStore(
-    useWorkbenchStore,
-    (state) => state.taskOrigins[sessionId],
-    visible,
-  );
   const focusRequest = useVisibleStore(
     useWorkbenchStore,
     (state) => state.taskFocusItems[sessionId],
@@ -84,11 +79,6 @@ export function AgentTaskPane({
       focusItemRevision={focusRequest?.revision}
       onHandoff={onHandoff ?? ((items) => requestTaskHandoff(session.id, items))}
       onOpenSession={openAgentTask}
-      onBackToWorkflow={
-        origin?.workflowId
-          ? () => openWorkflow(origin.workflowId!, origin.projectId ?? session.project_id)
-          : undefined
-      }
       focusMode={focusMode}
       onToggleFocus={() => {
         const workbench = useWorkbenchStore.getState();

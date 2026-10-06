@@ -49,10 +49,7 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     includePartialMessages: true,
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    permissionMode: cfg.read_only_review || cfg.mode === 'plan' ? 'plan' : 'default',
-    ...(cfg.read_only_review
-      ? { disallowedTools: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'Agent', 'Task'] }
-      : {}),
+    permissionMode: cfg.mode === 'plan' ? 'plan' : 'default',
     model: cfg.model || undefined,
     effort: cfg.effort || undefined,
     resume: cfg.native_id || undefined,
@@ -89,26 +86,6 @@ export async function runClaude(ctx, catalog = false, queryProvider = query) {
     canUseTool: async (name, input, context) =>
       new Promise((resolve, reject) => {
         const id = context.toolUseID ?? randomUUID();
-        if (
-          cfg.read_only_review &&
-          ![
-            'Read',
-            'Glob',
-            'Grep',
-            'LS',
-            'WebFetch',
-            'WebSearch',
-            'ToolSearch',
-            'AskUserQuestion',
-          ].includes(name)
-        ) {
-          resolve({
-            behavior: 'deny',
-            message:
-              'Workflow reviewers can inspect files but cannot change the workspace or run commands.',
-          });
-          return;
-        }
         const isQuestion = name === 'AskUserQuestion';
         const questions = isQuestion ? questionsFrom(input.questions) : [];
         const onAbort = () => {

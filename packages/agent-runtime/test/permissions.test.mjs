@@ -74,13 +74,8 @@ test('workspace grants unblock pending tools and subsequent requests but keep qu
   }
 });
 
-test('workspace grants are not offered or accepted for plan transitions, forms or reviews', async () => {
-  for (const extra of [
-    { mode: 'plan' },
-    { agent: 'plan' },
-    { read_only_review: true },
-    { cwd: '' },
-  ]) {
+test('workspace grants are not offered or accepted for plan transitions or forms', async () => {
+  for (const extra of [{ mode: 'plan' }, { agent: 'plan' }, { cwd: '' }]) {
     const events = [];
     const ctx = new Context({ cwd: '/workspace', ...extra }, (e) => events.push(e));
     try {
@@ -128,13 +123,13 @@ test('permissions default to asking and read policy excludes writes, commands an
   );
 });
 
-test('questions, forms, plan mode and independent reviews never receive automatic grants', () => {
+test('questions, forms and plan mode never receive automatic grants', () => {
   for (const kind of ['question', 'form'])
     assert.equal(
       automaticApproval({ permission_policy: 'all' }, { ...request, kind }, approval),
       null,
     );
-  for (const extra of [{ mode: 'plan' }, { agent: 'plan' }, { read_only_review: true }])
+  for (const extra of [{ mode: 'plan' }, { agent: 'plan' }])
     assert.equal(
       automaticApproval({ permission_policy: 'all', ...extra }, request, approval),
       null,

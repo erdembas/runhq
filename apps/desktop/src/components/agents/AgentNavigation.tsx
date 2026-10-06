@@ -1,26 +1,22 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
 import { useState } from 'react';
-import { BookOpen, Bot, ChartNoAxesCombined, GitPullRequest, Inbox, Wrench } from 'lucide-react';
+import { Bot, ChartNoAxesCombined, Inbox, Wrench } from 'lucide-react';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAppStore } from '@/store/useAppStore';
 import { useWorkbenchStore, type AgentWorkspaceView } from '@/store/useWorkbenchStore';
 import { openAgentView, openProjectAgentView } from '@/lib/workbenchNavigation';
 import { SidebarAgentActivity } from '../sidebar/SidebarAgentActivity';
-import { useAgentWorkflowAttention } from './useAgentWorkflowAttention';
 
 export function AgentNavigation({ expanded }: { expanded: boolean }) {
   i18n.useLocale();
   const activeKey = useAppStore((s) => s.activeMainTabKey);
   const view = useWorkbenchStore((s) => s.agentView);
-  const { entries: workflowAttention } = useAgentWorkflowAttention();
   const pending = useAgentStore((s) =>
     Object.values(s.sessions).reduce((sum, session) => sum + session.pending.length, 0),
   );
   const items: Array<{ view: AgentWorkspaceView; label: string; icon: typeof Bot }> = [
     { view: 'overview', label: i18n.t('Tasks'), icon: Bot },
     { view: 'inbox', label: i18n.t('Attention center'), icon: Inbox },
-    { view: 'workflows', label: i18n.t('Workflows'), icon: GitPullRequest },
-    { view: 'library', label: i18n.t('Library'), icon: BookOpen },
   ];
   return (
     <nav
@@ -44,9 +40,9 @@ export function AgentNavigation({ expanded }: { expanded: boolean }) {
             >
               <Icon className="h-4 w-4 shrink-0" aria-hidden />
               {expanded && <span className="min-w-0 flex-1 truncate text-left">{label}</span>}
-              {destination === 'inbox' && pending + workflowAttention.length > 0 && (
+              {destination === 'inbox' && pending > 0 && (
                 <span className="bg-accent/15 text-accent rounded-md px-1.5 py-0.5 text-[10px] tabular-nums">
-                  {i18n.number(pending + workflowAttention.length)}
+                  {i18n.number(pending)}
                 </span>
               )}
             </button>

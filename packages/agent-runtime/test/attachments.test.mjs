@@ -51,7 +51,7 @@ test('images are bounded and invalid data, names and MIME types fail without los
 });
 
 test(
-  'Codex sends native image blocks under read-only review and never echoes image bytes into items',
+  'Codex sends native image blocks in a read-only plan turn and never echoes image bytes into items',
   { timeout: 5000 },
   async () => {
     const events = [];
@@ -59,8 +59,7 @@ test(
       {
         cwd: process.cwd(),
         prompt: 'Inspect the screenshot',
-        mode: 'default',
-        read_only_review: true,
+        mode: 'plan',
         attachments: [image],
       },
       (event) => events.push(event),
@@ -138,38 +137,5 @@ test('unsupported providers reject images before launching processes or submitti
     } finally {
       ctx.close();
     }
-  }
-});
-
-test('Claude read-only reviewers reject write, shell and delegation tools without requesting permission', async () => {
-  const events = [];
-  const ctx = new Context(
-    { cwd: process.cwd(), prompt: 'Review', read_only_review: true, mode: 'default' },
-    (event) => events.push(event),
-  );
-  try {
-    await runClaude(ctx, false, ({ prompt, options }) => ({
-      close() {},
-      async *[Symbol.asyncIterator]() {
-        assert.equal(prompt, 'Review', 'plain text keeps the existing SDK call shape');
-        assert.equal(options.permissionMode, 'plan');
-        for (const tool of ['Write', 'Edit', 'Bash', 'Agent', 'Task', 'mcp__custom__mutate']) {
-          const result = await options.canUseTool(
-            tool,
-            {},
-            { toolUseID: tool, signal: new AbortController().signal },
-          );
-          assert.equal(result.behavior, 'deny');
-        }
-        assert(options.disallowedTools.includes('Bash'));
-        yield { type: 'result', is_error: false };
-      },
-    }));
-    assert.equal(
-      events.some((event) => event.type === 'request'),
-      false,
-    );
-  } finally {
-    ctx.close();
   }
 });

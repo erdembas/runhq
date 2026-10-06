@@ -24,15 +24,11 @@ export function resolveTabMeta(
   if (tab.kind === 'agents')
     return {
       label:
-        agentView === 'workflows'
-          ? i18n.t('Workflows')
-          : agentView === 'library'
-            ? i18n.t('Library')
-            : agentView === 'inbox'
-              ? i18n.t('Attention center')
-              : agentView === 'usage'
-                ? i18n.t('Usage')
-                : i18n.t('Tasks'),
+        agentView === 'inbox'
+          ? i18n.t('Attention center')
+          : agentView === 'usage'
+            ? i18n.t('Usage')
+            : i18n.t('Tasks'),
       icon: <Bot className="h-3 w-3" />,
       closable: true,
     };

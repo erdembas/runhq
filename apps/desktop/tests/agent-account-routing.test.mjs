@@ -29,10 +29,7 @@ const {
   pruneCooldowns,
   accountCapabilityGap,
   chooseAgentAccount,
-  resolveAccountPool,
-  poolTarget,
   handoffAccountAfterLimit,
-  composerAccountForTarget,
   parseRoutingNote,
   describeRoutingNote,
   ACCOUNT_COOLDOWN_MS,
@@ -226,20 +223,6 @@ test('a full workspace is reported as a global wait, not as a pool that failed',
   assert.deepEqual(plain(choice.rejected), [], 'no account is blamed for a workspace-wide limit');
 });
 
-test('a plain connection routes as a pool of one, and a removed pool routes nowhere', () => {
-  const stored = { id: 'team', name: 'Claude accounts', accounts: ['a', 'b'] };
-  const pools = (id) => (id === 'team' ? stored : null);
-  const named = (id) => (id === 'a' ? 'Claude' : id);
-  assert.deepEqual(plain(resolveAccountPool('a', pools, named)), {
-    id: 'a',
-    name: 'Claude',
-    accounts: ['a'],
-  });
-  assert.equal(resolveAccountPool(poolTarget('team'), pools, named).name, 'Claude accounts');
-  assert.equal(resolveAccountPool(poolTarget('gone'), pools, named), null);
-  assert.equal(resolveAccountPool('', pools, named), null);
-});
-
 test('a handoff after a limit starts on another account, and otherwise suggests nothing', () => {
   const pools = [{ id: 'p', name: 'Claude accounts', accounts: ['a', 'b'] }];
   const accounts = [account('a'), account('b')];
@@ -267,40 +250,6 @@ test('a handoff after a limit starts on another account, and otherwise suggests 
       ...shared,
       sourceAccountId: 'a',
       cooldowns: startCooldown(limited, 'b', 'usage limit reached', now),
-    }),
-    '',
-  );
-});
-
-test('a pool target becomes a real connection before it reaches the composer', () => {
-  const stored = { id: 'team', name: 'Claude accounts', accounts: ['a', 'b'] };
-  const shared = {
-    pool: (id) => (id === 'team' ? stored : null),
-    accounts: [account('a'), account('b')],
-    cooldowns: {},
-    capacity,
-    occupied: idle,
-    now,
-  };
-  // A plain connection passes through untouched, including "choose at launch".
-  assert.equal(composerAccountForTarget({ ...shared, target: 'a' }), 'a');
-  assert.equal(composerAccountForTarget({ ...shared, target: '' }), '');
-  assert.equal(composerAccountForTarget({ ...shared, target: poolTarget('team') }), 'a');
-  assert.equal(
-    composerAccountForTarget({
-      ...shared,
-      target: poolTarget('team'),
-      cooldowns: startCooldown({}, 'a', 'usage limit reached', now - 1),
-    }),
-    'b',
-  );
-  // Nothing free and nothing to point at: the person picks, rather than the screen guessing.
-  assert.equal(composerAccountForTarget({ ...shared, target: poolTarget('gone') }), '');
-  assert.equal(
-    composerAccountForTarget({
-      ...shared,
-      target: poolTarget('team'),
-      accounts: [account('a', { enabled: false }), account('b', { available: false })],
     }),
     '',
   );
