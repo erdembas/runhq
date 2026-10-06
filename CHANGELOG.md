@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0](https://github.com/erdembas/runhq/compare/v3.7.0...v4.0.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **desktop:** Workflows, workflow/pipeline package import, isolated worktree tasks and the agent Library are no longer available. The related Tauri commands are removed and recipe/schedule/memory workspace records are neither listed nor writable.
+
+### Features
+
+* **desktop:** remove workflows, isolated worktrees and the agent library ([#194](https://github.com/erdembas/runhq/issues/194)) ([9eab7f3](https://github.com/erdembas/runhq/commit/9eab7f364fb7fc39a1b096b1d319372eb04689c4))
+
 ## [3.7.0](https://github.com/erdembas/runhq/compare/v3.6.0...v3.7.0) (2026-09-25)
 
 
