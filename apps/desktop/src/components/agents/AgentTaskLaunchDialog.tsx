@@ -6,28 +6,23 @@ import type { AgentSession } from '@runhq/cockpit-types';
 import { AGENT_STATUS_LABELS, SearchableSelect } from '@runhq/cockpit-ui';
 import { Dialog } from '@/components/ui/Dialog';
 import { Radio } from '@/components/ui/Choice';
-import type { WorkflowLaunchChoice } from './agentWorkflowLaunch';
+import type { TaskLaunchChoice } from './agentTaskLaunch';
 
 const button =
   'border-border hover:bg-fg/5 rounded-lg border px-3 py-2 text-xs disabled:opacity-40';
 
-export function AgentWorkflowLaunchDialog({
+/** Lets a new task wait for an active task in its project, or start beside it right away. */
+export function AgentTaskLaunchDialog({
   tasks,
   busy,
-  canSaveDraft,
   onChoose,
   onClose,
   error,
-  kind = 'workflow',
-  taskIsolated = false,
 }: {
   tasks: AgentSession[];
   busy: boolean;
   error?: string | null;
-  kind?: 'workflow' | 'task';
-  taskIsolated?: boolean;
-  canSaveDraft: boolean;
-  onChoose: (choice: WorkflowLaunchChoice) => void;
+  onChoose: (choice: TaskLaunchChoice) => void;
   onClose: () => void;
 }) {
   i18n.useLocale();
@@ -64,26 +59,12 @@ export function AgentWorkflowLaunchDialog({
   return createPortal(
     <div ref={root}>
       <Dialog
-        title={
-          kind === 'task'
-            ? i18n.t('When should this task start?')
-            : i18n.t('When should this workflow start?')
-        }
+        title={i18n.t('When should this task start?')}
         onClose={() => {
           if (!busy) onClose();
         }}
         footer={
           <>
-            {canSaveDraft && (
-              <button
-                type="button"
-                className={button}
-                disabled={busy}
-                onClick={() => onChoose({ mode: 'draft' })}
-              >
-                {i18n.t('Save for later')}
-              </button>
-            )}
             <button type="button" className={button} disabled={busy} onClick={onClose}>
               {i18n.t('Cancel')}
             </button>
@@ -96,9 +77,7 @@ export function AgentWorkflowLaunchDialog({
               {busy
                 ? i18n.t('Saving…')
                 : mode === 'after'
-                  ? kind === 'task'
-                    ? i18n.t('Queue task')
-                    : i18n.t('Wait & start separately')
+                  ? i18n.t('Queue task')
                   : i18n.t('Start now')}
             </button>
           </>
@@ -117,7 +96,7 @@ export function AgentWorkflowLaunchDialog({
             className={`flex gap-3 rounded-xl border p-3 ${mode === 'after' ? 'border-accent bg-accent/5' : 'border-border'}`}
           >
             <Radio
-              name="workflow-launch"
+              name="task-launch"
               value="after"
               checked={mode === 'after'}
               disabled={busy || !tasks.length}
@@ -130,13 +109,9 @@ export function AgentWorkflowLaunchDialog({
                 })}
               </span>
               <span className="text-fg-muted block">
-                {kind === 'task'
-                  ? i18n.t(
-                      'Wait for the selected task to finish successfully, then start this task automatically.',
-                    )
-                  : i18n.t(
-                      'Wait for a successful finish, then start independently in a separate working copy. The other task’s conversation and changes are not carried over.',
-                    )}
+                {i18n.t(
+                  'Wait for the selected task to finish successfully, then start this task automatically.',
+                )}
               </span>
             </span>
           </label>
@@ -165,7 +140,7 @@ export function AgentWorkflowLaunchDialog({
             className={`flex gap-3 rounded-xl border p-3 ${mode === 'now' ? 'border-accent bg-accent/5' : 'border-border'}`}
           >
             <Radio
-              name="workflow-launch"
+              name="task-launch"
               value="now"
               checked={mode === 'now'}
               disabled={busy}
@@ -176,28 +151,16 @@ export function AgentWorkflowLaunchDialog({
                 {i18n.rich('{value1}Start now', { value1: <Play className="size-4" /> })}
               </span>
               <span className="text-fg-muted block">
-                {kind === 'task'
-                  ? taskIsolated
-                    ? i18n.t(
-                        'Start this task now and run alongside the other tasks in this project.',
-                      )
-                    : i18n.t(
-                        'Start this task now in the selected local workspace. Tasks can edit the same files. Account capacity limits still apply.',
-                      )
-                  : i18n.t(
-                      'Run independently in a separate working copy. Account capacity limits still apply.',
-                    )}
+                {i18n.t(
+                  'Start this task now in the selected local workspace. Tasks can edit the same files. Account capacity limits still apply.',
+                )}
               </span>
             </span>
           </label>
           <p className="text-fg-dim text-[11px]">
-            {kind === 'task'
-              ? i18n.t(
-                  'Both options use the workspace and settings selected for this task. Waiting does not copy the other task’s conversation.',
-                )
-              : i18n.t(
-                  'Both options use this workflow’s prompts, models and reviews. Waiting controls start time; it does not copy the other task’s conversation or uncommitted changes.',
-                )}
+            {i18n.t(
+              'Both options use the workspace and settings selected for this task. Waiting does not copy the other task’s conversation.',
+            )}
           </p>
         </div>
       </Dialog>

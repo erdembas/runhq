@@ -17,8 +17,6 @@ import {
   PanelLeft,
   X,
   Inbox,
-  GitPullRequest,
-  BookOpen,
   ChartNoAxesCombined,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -39,12 +37,14 @@ import { ResizeHandle } from '@/components/ui/ResizeHandle';
 import { useAgentStore } from '@/store/useAgentStore';
 import { useAgentLibraryStore } from '@/store/useAgentLibraryStore';
 import { useAgentQueueStore } from '@/store/useAgentQueueStore';
-import { useWorkbenchStore } from '@/store/useWorkbenchStore';
-import { openAgentTask, openWorkflow } from '@/lib/workbenchNavigation';
+import {
+  agentWorkspaceView,
+  useWorkbenchStore,
+  type AgentWorkspaceView,
+} from '@/store/useWorkbenchStore';
+import { openAgentTask } from '@/lib/workbenchNavigation';
 import { agentCapacityPreferences, agentOccupiedSlots } from './agentCapacity';
 import {
-  composerAccountForTarget,
-  isPoolTarget,
   handoffAccountAfterLimit,
   parseAccountCooldowns,
   parseAccountPool,
@@ -59,12 +59,9 @@ import { usePersistentBoolean } from '@/lib/usePersistentBoolean';
 import { useResizableWidth } from '@/lib/useResizableWidth';
 import { AgentDecisionInbox } from './AgentDecisionInbox';
 import { AgentRecoveryNotice } from './AgentRecoveryNotice';
-import { recipeStepsToCreateSteps } from './agentWorkflowRecipeBridge';
-import { AgentWorkflowHub, type AgentWorkflowRecipe } from './AgentWorkflowHub';
-import { AgentLibrary } from './AgentLibrary';
 import { AgentUsagePanel } from './AgentUsagePanel';
 import { AgentUsageNotifications } from './AgentUsageNotifications';
-import type { AgentRecipe } from './agentLibraryModel';
+import { agentHandoffDraft, type AgentHandoffDraft } from './agentHandoff';
 import type { AgentItem } from '@runhq/cockpit-types';
 
 const AGENT_TASK_FILTERS = [
@@ -105,10 +102,6 @@ const AGENT_TASK_FILTERS = [
     },
   },
 ];
-
-type AgentWorkspaceView =
-  'overview' | 'conversations' | 'inbox' | 'workflows' | 'library' | 'usage';
-type WorkflowHost = { scope: string; recipe?: AgentWorkflowRecipe; recipeId?: string };
 
 export function AgentWorkspace({
   visible,
@@ -188,42 +181,19 @@ export function AgentWorkspace({
     (state) => state.agentView,
     globalShell && visible,
   );
-  const shellViewRevision = useVisibleStore(
-    useWorkbenchStore,
-    (state) => state.agentViewRevision,
-    globalShell && visible,
-  );
-  const requestedWorkflowId = useVisibleStore(
-    useWorkbenchStore,
-    (state) => state.requestedWorkflowId,
-    globalShell && visible,
-  );
   const pendingHandoff = useVisibleStore(
     useWorkbenchStore,
     (state) => state.agentHandoff,
     globalShell && visible,
   );
-  const view = projectShell ? 'conversations' : globalShell ? shellView : legacyView;
+  // A view from an older build (such as a removed section) falls back to the task overview.
+  const view = projectShell
+    ? 'conversations'
+    : agentWorkspaceView(globalShell ? shellView : legacyView);
   const setView = (next: AgentWorkspaceView) => {
     if (globalShell) useWorkbenchStore.getState().requestAgentView(next);
     else setLegacyView(next);
   };
-  // Each visited scope owns its draft and selection. Hiding a section must not recreate its editor.
-  const [workflowHosts, setWorkflowHosts] = useState<WorkflowHost[]>([]);
-  const [libraryScopes, setLibraryScopes] = useState<string[]>([]);
-  const [localWorkflowRequest, setLocalWorkflowRequest] = useState<string | null>(null);
-  useEffect(() => {
-    if (view === 'workflows')
-      setWorkflowHosts((hosts) =>
-        hosts.some((host) => host.scope === projectFilter)
-          ? hosts
-          : [...hosts, { scope: projectFilter }],
-      );
-    if (view === 'library')
-      setLibraryScopes((scopes) =>
-        scopes.includes(projectFilter) ? scopes : [...scopes, projectFilter],
-      );
-  }, [view, projectFilter]);
   useEffect(() => {
     if (!visible || view !== 'conversations') return;
     const element = workspaceRef.current;
@@ -238,7 +208,7 @@ export function AgentWorkspace({
     return () => observer.disconnect();
   }, [visible, view]);
   const [template, setTemplate] = useState<AgentTaskTemplate | undefined>();
-  const [recipe, setRecipe] = useState<AgentRecipe | undefined>();
+  const [handoffDraft, setHandoffDraft] = useState<AgentHandoffDraft | undefined>();
   // Why the composer opens on the account it does, when RunHQ chose it rather than the user.
   const [routing, setRouting] = useState<{ poolName?: string; reason: string } | undefined>();
   const [focusItemId, setFocusItemId] = useState<string>();
@@ -248,7 +218,7 @@ export function AgentWorkspace({
     observedNavigation.current = navigationRevision;
     if (project || !globalSelectedId) return;
     if (globalShell) {
-      // Hidden workflow hosts must not consume session navigation meant for a project.
+      // A hidden global host must not consume session navigation meant for a project.
       if (visible && changed) {
         useWorkbenchStore.getState().requestAgentView('conversations');
         setCreating(false);
@@ -317,7 +287,7 @@ export function AgentWorkspace({
     observedProjectSelection.current = projectSelectionRevision;
   }, [projectSelectionRevision, visible, project]);
   const startTask = (nextTemplate?: AgentTaskTemplate) => {
-    setRecipe(undefined);
+    setHandoffDraft(undefined);
     // A blank task is the user's own choice of agent, so no routing reason applies to it.
     setRouting(undefined);
     setTemplate(nextTemplate);
@@ -333,27 +303,6 @@ export function AgentWorkspace({
     setFocusItemId(itemId);
     select(id);
     setCreating(false);
-    setView('conversations');
-  };
-  const openWorkflowSession = (id: string, workflowId?: string) => {
-    if (shell) openAgentTask(id, { workflowId });
-    else openConversation(id);
-  };
-  const startRecipe = (next: AgentRecipe) => {
-    // The composer works in connections and discovers one account's models and modes, so a recipe
-    // that targets a pool is resolved to the account it would start on before the draft opens.
-    const backend = composerAccount(next);
-    const pool = isPoolTarget(next.backend)
-      ? routingPool(next.backend.slice('pool:'.length))
-      : null;
-    setRouting(
-      backend && pool
-        ? { poolName: pool.name, reason: i18n.t('had a free execution slot') }
-        : undefined,
-    );
-    setRecipe(backend === next.backend ? next : { ...next, backend });
-    setTemplate(undefined);
-    setCreating(true);
     setView('conversations');
   };
   const routingPool = (id: string) => {
@@ -376,19 +325,6 @@ export function AgentWorkspace({
     parseAccountCooldowns(useAgentLibraryStore.getState().records['preferences:cooldowns']?.value);
   const routingOccupancy = () =>
     agentOccupiedSlots(useAgentStore.getState().sessions, useAgentQueueStore.getState().queues);
-  const composerAccount = (recipe: AgentRecipe) =>
-    composerAccountForTarget({
-      target: recipe.backend,
-      pool: routingPool,
-      accounts: routingAccounts(),
-      need: { plan: recipe.mode === 'plan' },
-      cooldowns: routingCooldowns(),
-      capacity: agentCapacityPreferences(
-        useAgentLibraryStore.getState().records['preferences:capacity']?.value,
-      ),
-      occupied: routingOccupancy(),
-      now: Date.now(),
-    });
   /**
    * A session keeps the account that opened it, so a limit is taken over by a new session. When the
    * source account is on cool-down and grouped with others, the composer opens on the account
@@ -422,29 +358,11 @@ export function AgentWorkspace({
           }),
         }
       : undefined;
-    startRecipe({
-      id: crypto.randomUUID(),
-      name: i18n.t('Follow up · {value1}', { value1: source.title }),
-      sourceSessionId: source.id,
-      projectId: source.project_id,
-      prompt: `Continue the work described below in a new agent session. Inspect the current files before making changes.\n\nSource task: ${source.title}\nWorkspace: ${source.cwd}\nBranch: ${source.branch || 'local checkout'}\n\nRecent conversation:\n${items
-        .filter((item) => ['user', 'assistant', 'plan'].includes(item.kind))
-        .slice(-6)
-        .map((item) => `${item.kind}: ${item.text}`)
-        .join('\n\n')
-        .slice(-60000)}\n\nNext objective: `,
-      backend: account,
-      model: '',
-      effort: '',
-      mode: 'default',
-      agent: '',
-      isolated: false,
-      acceptance: '',
-      setupCommands: '',
-      checkCommands: '',
-      version: 1,
-    });
-    if (taken) setRouting(taken);
+    setHandoffDraft(agentHandoffDraft(source, items, account));
+    setTemplate(undefined);
+    setCreating(true);
+    setView('conversations');
+    setRouting(taken);
   };
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
@@ -455,53 +373,6 @@ export function AgentWorkspace({
     handoffRef.current(source, pendingHandoff.items);
     useWorkbenchStore.setState({ agentHandoff: null });
   }, [globalShell, visible, pendingHandoff]);
-  const startWorkflowRecipe = (next: AgentRecipe) => {
-    const scope = project?.id || next.projectId || projectFilter;
-    if (!project && scope !== projectFilter) useAgentStore.setState({ projectFilter: scope });
-    const recipe: AgentWorkflowRecipe = {
-      title: next.name,
-      prompt: next.prompt,
-      backend: composerAccount(next),
-      model: next.model,
-      effort: next.effort,
-      setupCommands: next.setupCommands.split('\n').filter(Boolean),
-      checkCommands: next.checkCommands.split('\n').filter(Boolean),
-      acceptance: next.acceptance,
-      context: next.workflowContext,
-      concurrency: next.workflowConcurrency,
-      steps: next.workflowSteps
-        ? recipeStepsToCreateSteps(next.workflowSteps, (target) =>
-            composerAccountForTarget({
-              target,
-              pool: routingPool,
-              accounts: routingAccounts(),
-              cooldowns: routingCooldowns(),
-              capacity: agentCapacityPreferences(
-                useAgentLibraryStore.getState().records['preferences:capacity']?.value,
-              ),
-              occupied: routingOccupancy(),
-              now: Date.now(),
-            }),
-          )
-        : undefined,
-    };
-    // Choosing a new recipe intentionally starts a new editor in this scope. Visiting another
-    // section or project, in contrast, keeps every existing editor mounted.
-    setWorkflowHosts((hosts) => [
-      ...hosts.filter((host) => host.scope !== scope),
-      { scope, recipe, recipeId: crypto.randomUUID() },
-    ]);
-    if (globalShell) useWorkbenchStore.setState({ requestedWorkflowId: null });
-    else setLocalWorkflowRequest(null);
-    setView('workflows');
-  };
-  const showWorkflow = (id: string, projectId: string) => {
-    if (globalShell) openWorkflow(id, projectId);
-    else {
-      setLocalWorkflowRequest(id);
-      setView('workflows');
-    }
-  };
   const deleteConversation = async (id: string) => {
     setDeleteTarget(null);
     setDeletingId(id);
@@ -548,8 +419,6 @@ export function AgentWorkspace({
           : i18n.t('Overview'),
     conversations: projectShell ? i18n.t('Agents') : i18n.t('Tasks'),
     inbox: i18n.t('Needs attention'),
-    workflows: i18n.t('Workflows'),
-    library: i18n.t('Library'),
     usage: i18n.t('Capacity & usage'),
   }[view];
   return (
@@ -615,8 +484,6 @@ export function AgentWorkspace({
                   { value: 'overview', label: i18n.t('Overview'), icon: LayoutDashboard },
                   { value: 'conversations', label: i18n.t('Conversations'), icon: MessagesSquare },
                   { value: 'inbox', label: i18n.t('Inbox'), icon: Inbox },
-                  { value: 'workflows', label: i18n.t('Workflows'), icon: GitPullRequest },
-                  { value: 'library', label: i18n.t('Library'), icon: BookOpen },
                   { value: 'usage', label: i18n.t('Usage'), icon: ChartNoAxesCombined },
                 ] as const
               ).map(({ value, label, icon: Icon }) => (
@@ -933,11 +800,11 @@ export function AgentWorkspace({
             className={showComposer ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
           >
             <AgentNewSession
-              key={`${projectFilter}:${recipe?.id ?? template?.id ?? 'blank'}`}
+              key={`${projectFilter}:${handoffDraft?.id ?? template?.id ?? 'blank'}`}
               visible={visible && showComposer}
               project={project}
               initialTemplate={template}
-              initialRecipe={recipe}
+              initialHandoff={handoffDraft}
               initialRouting={routing}
               onCreated={(s) => openConversation(s.id)}
               onClose={() => setCreating(false)}
@@ -963,61 +830,13 @@ export function AgentWorkspace({
               </div>
             );
           })}
-        {workflowHosts.map((host) => {
-          const active = view === 'workflows' && host.scope === projectFilter;
-          return (
-            <div
-              key={`${host.scope}:${host.recipeId || 'workflow'}`}
-              hidden={!active}
-              className={active ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
-            >
-              <AgentWorkflowHub
-                shell={shell}
-                visible={visible && active}
-                projectId={host.scope || undefined}
-                onOpenSession={openWorkflowSession}
-                initialRecipe={host.recipe}
-                requestedWorkflowId={
-                  active ? (globalShell ? requestedWorkflowId : localWorkflowRequest) : null
-                }
-                requestRevision={globalShell ? shellViewRevision : 0}
-                onWorkflowRequestHandled={() => {
-                  if (globalShell) useWorkbenchStore.setState({ requestedWorkflowId: null });
-                  else setLocalWorkflowRequest(null);
-                }}
-              />
-            </div>
-          );
-        })}
-        {libraryScopes.map((scope) => {
-          const active = view === 'library' && scope === projectFilter;
-          return (
-            <div
-              key={scope}
-              hidden={!active}
-              className={active ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
-            >
-              <AgentLibrary
-                shell={shell}
-                visible={visible && active}
-                projectId={scope || undefined}
-                onOpenSession={openConversation}
-                onRecipe={startRecipe}
-                onWorkflow={startWorkflowRecipe}
-              />
-            </div>
-          );
-        })}
         {showComposer ||
-        view === 'workflows' ||
-        view === 'library' ||
         shellTaskList ||
         (shell && view === 'conversations' && selected && !creating) ? null : view === 'inbox' ? (
           <AgentDecisionInbox
             visible={visible}
             projectId={projectFilter || undefined}
             onOpenSession={openConversation}
-            onOpenWorkflow={showWorkflow}
             shell={shell}
           />
         ) : view === 'usage' ? (

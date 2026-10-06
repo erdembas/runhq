@@ -1,6 +1,6 @@
 # RunHQ Roadmap
 
-Updated: 2026-09-23
+Updated: 2026-10-06
 
 ## Product Direction
 
@@ -19,9 +19,10 @@ verified live or included in a published release. **Partial** identifies an exis
 specific gaps. **Planned** is prioritized work; **Later** has no delivery commitment. Phase order
 expresses dependencies rather than release dates.
 
-A1-A12 below are implemented in the repository. They are covered by unit/integration tests and a
-fixture-driven UI walkthrough of the shared Agents surfaces; live runs against every provider and
-platform are a separate, ongoing verification effort.
+A1, A2, A5, A8 and A10 below are implemented in the repository; A4 and A6 are partial after the
+4.0 scope change, and A3, A7, A9, A11 and A12 were removed. The implemented items are covered by
+unit/integration tests and a fixture-driven UI walkthrough of the shared Agents surfaces; live runs
+against every provider and platform are a separate, ongoing verification effort.
 
 The 2.2.0 release candidate adds dependency graphs, parallel task worktrees, a workflow task board,
 graph-preserving recipes and grouped activity with full-screen tool diffs. Release validation also
@@ -29,22 +30,31 @@ covers pooled scheduling without nested locks, cooldown/capacity admission, sche
 tasks while siblings run, and preserving multiline instructions in the graph editor. These checks
 do not close the separate product gaps in the [September product review](docs/PRODUCT_REVIEW_2026-09-22.md).
 
+**Scope change in 4.0:** the Workflow engine (multi-step task graphs, review/fix loops, human and
+barrier steps, pipeline packages, checks and integration), per-task isolated worktrees and the
+agent Library (task recipes and their schedules, history search, history export/import and
+retention, project decisions) are removed. They added a large amount of state and surface without
+becoming part of daily use. RunHQ 4.0 focuses on individual agent tasks: queues, the decision
+inbox, context, Hand off, account pools and usage. Existing workflow records, Library records and
+worktree directories are left on disk untouched; the app no longer reads or manages them. The A3,
+A7, A9, A11 and A12 sections and the workflow parts of A4 and A6 below are kept as history.
+
 The previous 40-item roadmap is preserved in the [historical product backlog](docs/ROADMAP_BACKLOG.md).
 Its feature numbers remain available for older discussions; this document supersedes its priorities
 and status labels.
 
 ## Existing Agent Foundation
 
-| Area                | Current implementation                                                                                                                        | Boundary to extend                                                                                                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Providers and tools | Codex, OpenCode, Claude, Cursor/ACP and custom tool configuration; executable detection, connection checks and discovered model/mode controls | Capabilities vary by provider and installed version. Terminal connections retain their CLI UI without normalized task events.                                                                            |
-| Project workspace   | Global and per-project Agents views; projects can be added without a service command                                                          | Improve the first successful task flow and navigation at larger task counts.                                                                                                                             |
-| Mission Control     | Needs attention, Working, Ready and Completed lanes; filters, unread results and task templates                                               | The decision inbox and verified task outcomes exist; first-run guidance at large task counts is still open.                                                                                              |
-| Conversations       | SQLite history, native session IDs, questions, permissions, interruption, archive/delete and provider-dependent resume                        | Queues and drafts now persist and recover; background execution after Quit remains out of scope.                                                                                                         |
-| Plans and Canvas    | Inspect/edit plans, build a plan in the same conversation, preview/edit/export HTML, SVG and Markdown artifacts                               | Canvas is RunHQ's local artifact view; external hosted canvases are not imported.                                                                                                                        |
-| Message queue       | Ordered follow-up turns, reorder/remove, retry identity and pause after errors or Stop                                                        | Pending work survives restart; automatic progression stays bounded and opt-in.                                                                                                                           |
-| Parallel work       | Local checkout or isolated Git worktree; one active turn per checkout root and up to eight across separate roots                              | Setup, integration and worktree lifecycle are implemented. Native subagent events still do not create RunHQ child tasks.                                                                                 |
-| Review and usage    | Workspace tracked diff, terminal/editor access and provider-reported usage                                                                    | Reviewed workflows separate pre-existing changes, usage is summarized with locally measured turn timing, and reviewed work can be committed onto a branch; pushing and pull requests stay outside RunHQ. |
+| Area                | Current implementation                                                                                                                        | Boundary to extend                                                                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers and tools | Codex, OpenCode, Claude, Cursor/ACP and custom tool configuration; executable detection, connection checks and discovered model/mode controls | Capabilities vary by provider and installed version. Terminal connections retain their CLI UI without normalized task events.                                   |
+| Project workspace   | Global and per-project Agents views; projects can be added without a service command                                                          | Improve the first successful task flow and navigation at larger task counts.                                                                                    |
+| Mission Control     | Needs attention, Working, Ready and Completed lanes; filters, unread results and task templates                                               | The decision inbox and verified task outcomes exist; first-run guidance at large task counts is still open.                                                     |
+| Conversations       | SQLite history, native session IDs, questions, permissions, interruption, archive/delete and provider-dependent resume                        | Queues and drafts now persist and recover; background execution after Quit remains out of scope.                                                                |
+| Plans and Canvas    | Inspect/edit plans, build a plan in the same conversation, preview/edit/export HTML, SVG and Markdown artifacts                               | Canvas is RunHQ's local artifact view; external hosted canvases are not imported.                                                                               |
+| Message queue       | Ordered follow-up turns, reorder/remove, retry identity and pause after errors or Stop                                                        | Pending work survives restart; automatic progression stays bounded and opt-in.                                                                                  |
+| Parallel work       | One active turn per checkout root (with an explicit same-checkout override) and up to eight across separate roots                             | Isolated worktrees were removed in 4.0. Native subagent events still do not create RunHQ child tasks.                                                           |
+| Review and usage    | Workspace tracked diff, terminal/editor access and provider-reported usage                                                                    | Tasks record pre-existing changes and usage is summarized with locally measured turn timing; checks, integration, pushing and pull requests stay outside RunHQ. |
 
 Current behavior and integration limits are documented in [Agent workspace](docs/AGENT_WORKSPACE.md)
 and [Agent tools](docs/AGENT_TOOLS.md). Their verification notes distinguish fixture coverage from
@@ -57,16 +67,16 @@ outside those locks.
 | --- | ------------------------------------------- | -------- | ----------- | ---------------------------------------------------------------------------------- |
 | A1  | Durable queues and task recovery            | P0       | Implemented | Leave and return without losing pending work.                                      |
 | A2  | Central decision inbox                      | P0       | Implemented | Handle the decisions blocking agents from one place.                               |
-| A3  | Worktree setup and lifecycle                | P1       | Implemented | Start isolated work quickly and retain control of its files and branches.          |
-| A4  | Review and verified task outcomes           | P1       | Implemented | See the change, its checks and the next integration action together.               |
+| A3  | Worktree setup and lifecycle                | P1       | Removed     | Start isolated work quickly and retain control of its files and branches.          |
+| A4  | Review and verified task outcomes           | P1       | Partial     | See the change, its checks and the next integration action together.               |
 | A5  | Explicit context and attachments            | P1       | Implemented | Give an agent the right files, images, logs and decisions with visible provenance. |
-| A6  | Agent handoffs and dependent tasks          | P1       | Implemented | Coordinate implementation, review and follow-up across providers.                  |
-| A7  | Reusable task recipes                       | P2       | Implemented | Repeat a known workflow with saved settings and validation steps.                  |
+| A6  | Agent handoffs and dependent tasks          | P1       | Partial     | Coordinate implementation, review and follow-up across providers.                  |
+| A7  | Reusable task recipes                       | P2       | Removed     | Repeat a known task with saved settings and parameters.                            |
 | A8  | Usage and execution capacity                | P2       | Implemented | Understand reported usage and why work is waiting.                                 |
-| A9  | Searchable agent history and project memory | P2       | Implemented | Reuse prior decisions and results across conversations.                            |
+| A9  | Searchable agent history and project memory | P2       | Removed     | Reuse prior decisions and results across conversations.                            |
 | A10 | Provider accounts and limit-aware routing   | P1       | Implemented | Run more work by spreading it over the accounts you already pay for.               |
-| A11 | Composable multi-provider workflows         | P1       | Implemented | Assign each step of a task to the agent and model that suit it.                    |
-| A12 | Many tasks per workflow, run in parallel    | P1       | Implemented | Write dozens of instructions, say what waits for what, and let them run at once.   |
+| A11 | Composable multi-provider workflows         | P1       | Removed     | Assign each step of a task to the agent and model that suit it.                    |
+| A12 | Many tasks per workflow, run in parallel    | P1       | Removed     | Write dozens of instructions, say what waits for what, and let them run at once.   |
 
 ### A1. Durable Queues and Task Recovery
 
@@ -116,6 +126,9 @@ conversations; each answer reaches the correct pending request exactly once.
 
 ### A3. Worktree Setup and Lifecycle
 
+> **Removed in 4.0.** New tasks run in the project's checkout. Worktrees created by earlier
+> versions stay on disk and their sessions still open.
+
 **Baseline (2026-09-17):** isolated tasks use a new branch from committed HEAD. Dependencies, local
 edits and `.env` files are not copied; worktrees remain after conversation archival or deletion.
 
@@ -136,6 +149,9 @@ branch, dirty state, active use and disk usage, and cleanup is refused while wor
 clean up a finished workspace without losing unreviewed changes. Change integration belongs to A4.
 
 ### A4. Review and Verified Task Outcomes
+
+> **Partially removed in 4.0.** The task diff and recorded pre-existing changes remain; workflow
+> checks, independent review steps and integration were removed with workflows.
 
 **Baseline (2026-09-17):** Changes shows the current workspace's tracked diff. Completed means the
 provider turn ended; it does not prove the requested work passed checks or was accepted.
@@ -199,6 +215,9 @@ submitted context visible and a clear capability message for providers that cann
 
 ### A6. Agent Handoffs and Dependent Tasks
 
+> **Partially removed in 4.0.** Hand off remains; dependent steps and automatic progression were
+> removed with workflows.
+
 **Baseline (2026-09-17):** independent tasks can run in separate worktrees, and follow-up turns can
 be queued in one conversation. Parent/child task coordination and cross-provider handoffs are new
 work.
@@ -230,6 +249,9 @@ handoff and resumable dependencies. Cross-provider handoff starts a new session 
 context; it does not promise a lossless transfer of hidden provider state.
 
 ### A7. Reusable Task Recipes
+
+> **Removed in 4.0** together with the Library, including recipe schedules. Saved recipes and
+> schedules stay in the database but are no longer shown.
 
 **Baseline (2026-09-17):** built-in Plan, Fix, Review and Canvas templates already populate a draft.
 
@@ -297,6 +319,10 @@ or interpreting missing provider data as zero. Automatic cross-provider fallback
 explicit handoff policy from A6.
 
 ### A9. Searchable Agent History and Project Memory
+
+> **Removed in 4.0** together with the Library: history search, history export/import and
+> retention, and project decisions. Conversations imported from earlier archives still open
+> read-only.
 
 **Baseline (2026-09-17):** task metadata can be filtered/searched and conversation history is
 persisted. Search across transcript content and reusable project memory need additional work.
@@ -386,6 +412,8 @@ still serialize work that targets the same worktree.
 
 ### A11. Composable Multi-Provider Workflows
 
+> **Removed in 4.0** together with the Workflow engine.
+
 **Baseline (2026-09-18):** a workflow has exactly two agent roles. `AgentWorkflow` stores one
 `implementation_session_id` plus a `review_session_id` with its own `reviewer_backend` and
 `reviewer_model`, and the stage machine advances through a fixed setup → implement → review → checks
@@ -442,6 +470,8 @@ providers and models, see each step's account and input revision, and repeat the
 labor in another project from a saved recipe.
 
 ### A12. Many Tasks per Workflow, Run in Parallel
+
+> **Removed in 4.0** together with the Workflow engine.
 
 **Baseline (2026-09-22):** a workflow was one objective run by a chain of at most eight role-steps in
 one checkout. A step had no instruction of its own — the role name was the only thing separating one

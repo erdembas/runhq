@@ -4,7 +4,6 @@ import { useMessageSendShortcut } from '@/lib/useMessageSendShortcut';
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Archive,
-  ArrowLeft,
   ArrowDown,
   ArrowUp,
   Check,
@@ -65,7 +64,8 @@ import { groupAgentTranscript } from './agentActivity';
 import { AgentActivityBlock } from './AgentActivityBlock';
 import { AgentContextTray } from './AgentContextTray';
 import { useAgentContext } from './useAgentContext';
-import { agentContextImages, buildAgentContextPrompt } from './agentLibraryModel';
+import { agentContextImages, buildAgentContextPrompt } from './agentContextModel';
+import { agentTaskError } from './agentTaskErrors';
 import { AgentUsageCard } from './AgentUsageCard';
 import { answerPendingAgentRequest } from './agentDecisionActions';
 import { startAgentTurnRecoverably, recoverableAgentSender } from './agentSendRecovery';
@@ -170,7 +170,6 @@ export function AgentSessionView({
   focusItemRevision = 0,
   onHandoff,
   onOpenSession,
-  onBackToWorkflow,
   focusMode = false,
   onToggleFocus,
 }: {
@@ -180,7 +179,6 @@ export function AgentSessionView({
   focusItemRevision?: number;
   onHandoff?: (items: AgentItem[]) => void;
   onOpenSession?: (sessionId: string) => void;
-  onBackToWorkflow?: () => void;
   focusMode?: boolean;
   onToggleFocus?: () => void;
 }) {
@@ -242,6 +240,14 @@ export function AgentSessionView({
     useAgentQueueStore,
     (s) => s.queues[session.id] ?? emptyQueue,
     visible,
+  );
+  // Saved queue errors keep the backend's text; known refusals are explained in the current language.
+  const queueEntries = useMemo(
+    () =>
+      queued.map((entry) =>
+        entry.error ? { ...entry, error: agentTaskError(entry.error) } : entry,
+      ),
+    [queued],
   );
   const active = agentIsActive(session.status);
   const historyOnly = agentSessionIsHistoryOnly(session);
@@ -384,7 +390,7 @@ export function AgentSessionView({
     try {
       await fn();
     } catch (e) {
-      setError(String(e));
+      setError(agentTaskError(String(e)));
     }
   };
   const send = async (prompt = input, nextMode = mode, nextAgent = agent) => {
@@ -439,7 +445,7 @@ export function AgentSessionView({
       setTab('chat');
       setContextPanel(null);
     } catch (e) {
-      setError(String(e));
+      setError(agentTaskError(String(e)));
     } finally {
       sendingRef.current = false;
       setBusy(false);
@@ -519,17 +525,6 @@ export function AgentSessionView({
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="border-border shrink-0 border-b px-4 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2">
-          {onBackToWorkflow && (
-            <button
-              type="button"
-              onClick={onBackToWorkflow}
-              className={quietButton}
-              aria-label={i18n.t('Back to workflow')}
-              title={i18n.t('Back to workflow')}
-            >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            </button>
-          )}
           <h2
             className="text-fg min-w-0 flex-1 truncate text-[15px] font-semibold"
             title={session.title}
@@ -936,7 +931,7 @@ export function AgentSessionView({
                 </div>
               )}
               <AgentMessageQueue
-                entries={queued}
+                entries={queueEntries}
                 paused={
                   queued[0]?.state === 'failed' ||
                   (!active && !['completed', 'idle'].includes(session.status))

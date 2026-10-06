@@ -55,7 +55,7 @@ export function DiffViewer({
   // Default tab is "Commit" — the merged Changes + Commit view. Used to
   // be two separate tabs ("Changes" for browsing, "Commit" for staging
   // and committing) but they shared ~90% of the same data set, so the
-  // browse-only flow now lives inside the commit workflow with the
+  // browse-only flow now lives inside the commit view with the
   // staging buttons hidden until the user wants to act.
   //
   // Callers can override the landing tab via the store

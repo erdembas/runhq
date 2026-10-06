@@ -7,7 +7,6 @@ import {
   FileText,
   FolderOpen,
   GitBranch,
-  GitPullRequest,
   ListTodo,
   Play,
   Settings2,
@@ -124,14 +123,6 @@ export function ProjectOverview({ service, visible }: { service: ServiceDef; vis
             >
               <ListTodo className="h-4 w-4" />
               {i18n.t('Open project tasks')}
-            </button>
-            <button
-              type="button"
-              onClick={() => act(openProjectAgentView(service.id, 'workflows'))}
-              className="border-border text-fg hover:bg-surface-raised flex items-center gap-2 rounded-lg border px-3.5 py-2 text-[13px]"
-            >
-              <GitPullRequest className="h-4 w-4" />
-              {i18n.t('Workflows')}
             </button>
             <button
               type="button"

@@ -32,7 +32,7 @@ const { visibleMainTabs, migrateLegacyAgentTaskTabs } = load(
   { '@/store/types/mainTabTypes': mainTabs },
 );
 
-test('global task collection keeps its Tasks label in both overview and conversation views', () => {
+test('global task collection keeps its Tasks label in overview, conversation and removed views', () => {
   const { resolveTabMeta } = load('../src/components/main-tab-bar/tabMeta.tsx', {
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => name }),
@@ -43,7 +43,8 @@ test('global task collection keeps its Tasks label in both overview and conversa
       ['tr', 'Görevler'],
     ]) {
       i18n.setLocale(locale, false);
-      for (const view of ['overview', 'conversations']) {
+      // 'workflows' and 'library' are sections older builds had; their tab now reads as Tasks.
+      for (const view of ['overview', 'conversations', 'workflows', 'library']) {
         assert.equal(
           resolveTabMeta({ kind: 'agents', refId: 'agents' }, [], [], {}, view).label,
           label,
@@ -129,7 +130,7 @@ test('embedded conversation focus applies to the active project section and glob
   assert.equal(useAgentFocusMode(), false);
   app.activeMainTabKey = 'agents:agents';
   assert.equal(useAgentFocusMode(), true);
-  workbench.agentView = 'workflows';
+  workbench.agentView = 'usage';
   assert.equal(useAgentFocusMode(), false);
   workbench.agentView = 'conversations';
   workbench.focusMode = false;

@@ -7,7 +7,6 @@ export function agentCatalogKey(
   sessionId: string | undefined,
   model: string | undefined,
   tool: AgentBackend | undefined,
-  workingDirectory?: string,
 ): string {
   return JSON.stringify([
     backend,
@@ -23,7 +22,6 @@ export function agentCatalogKey(
     tool?.available,
     tool?.enabled,
     tool?.detection_status,
-    workingDirectory,
   ]);
 }
 

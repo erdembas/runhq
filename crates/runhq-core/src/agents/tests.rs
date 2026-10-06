@@ -45,7 +45,6 @@ fn setup() -> (tempfile::TempDir, Arc<AgentManager>, AgentSession) {
         total_run_ms: 0,
         runtime_state: Value::Null,
         pause_state: None,
-        workflow_read_only: false,
         pending: vec![],
     };
     {
@@ -764,7 +763,7 @@ const readline = require('node:readline');
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const command=JSON.parse(line); if(command.type!=='start') return;
  assert.deepEqual(command.config.attachments,[{name:'screenshot.png',mime_type:'image/png',data:'aGVsbG8='}]);
- assert.equal(command.config.read_only_review,false);
+ assert.equal(command.config.read_only_review,undefined);
  assert.equal(command.config.prompt,'Inspect screenshot');
  process.stdout.write(JSON.stringify({type:'finished',status:'completed'})+'\n',()=>process.exit(0));
 });
@@ -894,7 +893,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const c=JSON.pa
     }
     manager.start(turn_input(&first)).await.unwrap();
     let error = manager.start(turn_input(&second)).await.unwrap_err();
-    assert!(error.to_string().contains("owns this checkout"));
+    assert!(matches!(&error, AppError::Invalid(message)
+        if message == "Another agent owns this checkout. Wait for it to finish."));
     manager.interrupt(&first.id).await.unwrap();
     wait_inactive(&manager, &first.id).await;
     assert_eq!(
@@ -1106,7 +1106,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const c=JSON.pa
 }
 
 #[tokio::test]
-async fn explicit_parallel_checkout_keeps_capacity_and_workflow_operation_limits() {
+async fn explicit_parallel_checkout_keeps_capacity_limits() {
     if executable("node").is_none() {
         return;
     }
@@ -1124,14 +1124,6 @@ async fn explicit_parallel_checkout_keeps_capacity_and_workflow_operation_limits
         input.allow_parallel_checkout = true;
         input
     };
-    let lease = manager.workflow_lease(dir.path()).unwrap();
-    assert!(manager
-        .start(input())
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("A workflow is setting up"));
-    drop(lease);
     let (sender, _receiver) = mpsc::channel(1);
     manager.state.lock().running.insert(
         first.id.clone(),
@@ -1233,7 +1225,7 @@ async fn git_commands_clear_repository_environment_without_mutating_the_parent()
 }
 
 #[tokio::test]
-async fn isolated_worktree_preserves_original_uncommitted_files() {
+async fn isolated_requests_are_rejected_and_local_tasks_record_existing_edits() {
     let (dir, manager, session) = setup();
     git_output(dir.path(), &["init"]).await.unwrap();
     std::fs::write(dir.path().join("tracked.txt"), "committed").unwrap();
@@ -1257,55 +1249,162 @@ async fn isolated_worktree_preserves_original_uncommitted_files() {
     .await
     .unwrap();
     std::fs::write(dir.path().join("tracked.txt"), "local edit").unwrap();
-    let created = manager
-        .create(CreateAgentSession {
-            workspace_service_ids: None,
-            creation_request_id: None,
-            project_id: session.project_id.clone(),
-            backend: "codex".into(),
-            executable: executable("git").unwrap().to_string_lossy().into(),
-            title: "Isolated task".into(),
-            model: String::new(),
-            effort: String::new(),
-            mode: "default".into(),
-            agent: String::new(),
-            isolated: true,
-        })
-        .await
-        .unwrap();
-    assert!(created.branch.unwrap().starts_with("codex/runhq-"));
+    let input = |isolated| CreateAgentSession {
+        workspace_service_ids: None,
+        creation_request_id: Some(uuid::Uuid::new_v4().to_string()),
+        project_id: session.project_id.clone(),
+        backend: "codex".into(),
+        executable: executable("git").unwrap().to_string_lossy().into(),
+        title: "Local task".into(),
+        model: String::new(),
+        effort: String::new(),
+        mode: "default".into(),
+        agent: String::new(),
+        isolated,
+    };
+    let sessions = manager.sessions().len();
+    let rejected = manager.create(input(true)).await.unwrap_err();
+    assert!(rejected
+        .to_string()
+        .contains("Isolated worktrees are no longer supported."));
+    assert_eq!(manager.sessions().len(), sessions);
+    assert!(manager.workspace_records().unwrap().is_empty());
+    assert!(!dir.path().join("worktrees").exists());
     assert_eq!(
-        std::fs::read_to_string(Path::new(&created.cwd).join("tracked.txt")).unwrap(),
-        "committed"
+        git_output(dir.path(), &["worktree", "list"])
+            .await
+            .unwrap()
+            .lines()
+            .count(),
+        1
     );
+
+    // A task on the local workspace inherits the edit that was already there, and says so, rather
+    // than letting Changes present it as the agent's work.
+    let local = manager.create(input(false)).await.unwrap();
+    assert!(!local.isolated);
+    assert!(local.branch.is_none());
+    assert!(local.base_revision.is_some());
+    assert_eq!(local.pre_existing_paths, vec!["tracked.txt".to_string()]);
     assert_eq!(
         std::fs::read_to_string(dir.path().join("tracked.txt")).unwrap(),
         "local edit"
     );
-    // The isolated checkout starts from committed HEAD, so nothing there predates the task.
-    assert!(created.base_revision.is_some());
-    assert!(created.pre_existing_paths.is_empty());
+}
 
-    // A task on the local workspace inherits the edit that was already there, and says so, rather
-    // than letting Changes present it as the agent's work.
-    let local = manager
-        .create(CreateAgentSession {
-            workspace_service_ids: None,
-            creation_request_id: None,
-            project_id: session.project_id,
-            backend: "codex".into(),
-            executable: executable("git").unwrap().to_string_lossy().into(),
-            title: "Local task".into(),
+#[test]
+fn create_input_without_isolation_still_parses() {
+    let input: CreateAgentSession = serde_json::from_value(json!({
+        "project_id": "project", "backend": "codex", "title": "Task"
+    }))
+    .unwrap();
+    assert!(!input.isolated);
+}
+
+#[test]
+fn stored_isolated_and_review_sessions_load_as_ordinary_sessions() {
+    let (dir, manager, session) = setup();
+    let worktree = dir.path().join("existing-worktree");
+    std::fs::create_dir(&worktree).unwrap();
+    let mut stored = serde_json::to_value(&session).unwrap();
+    stored["id"] = json!("legacy");
+    stored["cwd"] = json!(worktree.to_string_lossy());
+    stored["isolated"] = json!(true);
+    stored["branch"] = json!("codex/runhq-legacy");
+    stored["mode"] = json!("plan");
+    stored["workflow_read_only"] = json!(true);
+    manager
+        .state
+        .lock()
+        .db
+        .conn
+        .execute(
+            "INSERT INTO agent_sessions(id,data) VALUES('legacy',?1)",
+            [stored.to_string()],
+        )
+        .unwrap();
+    drop(manager);
+    let reopened =
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap();
+    let legacy = reopened.session("legacy").unwrap();
+    assert!(legacy.isolated);
+    assert_eq!(legacy.cwd, worktree.to_string_lossy());
+    assert_eq!(legacy.branch.as_deref(), Some("codex/runhq-legacy"));
+    assert_eq!(reopened.sessions().len(), 2);
+    reopened.delete_session("legacy").unwrap();
+    assert!(worktree.is_dir());
+}
+
+#[tokio::test]
+async fn handoff_retries_keep_their_target_and_unlinked_targets_cannot_start() {
+    let (dir, manager, source) = setup();
+    let mut other = source.clone();
+    other.id = "other-source".into();
+    {
+        let mut state = manager.state.lock();
+        state.db.save(&other).unwrap();
+        state.sessions.insert(other.id.clone(), other.clone());
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let input = || CreateAgentSession {
+        workspace_service_ids: None,
+        creation_request_id: Some(id.clone()),
+        project_id: source.project_id.clone(),
+        backend: "codex".into(),
+        executable: executable("git").unwrap().to_string_lossy().into(),
+        title: "Handed-off task".into(),
+        model: String::new(),
+        effort: String::new(),
+        mode: "default".into(),
+        agent: String::new(),
+        isolated: false,
+    };
+    let target = manager.handoff_create(&source.id, input()).await.unwrap();
+    assert_eq!(target.id, id);
+    assert_eq!(target.cwd, source.cwd);
+    let retry = manager.handoff_create(&source.id, input()).await.unwrap();
+    assert_eq!(retry.revision, target.revision);
+    assert!(manager
+        .handoff_create(&other.id, input())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("different source"));
+
+    manager.workspace_save(format!("link:{id}"), None).unwrap();
+    let failed = manager
+        .start(AgentTurnInput {
+            session_id: id.clone(),
+            request_id: uuid::Uuid::new_v4().to_string(),
+            prompt: "Should not start before the handoff is linked".into(),
             model: String::new(),
             effort: String::new(),
-            mode: "default".into(),
-            agent: String::new(),
-            isolated: false,
+            mode: None,
+            agent: None,
+            attachments: vec![],
+            allow_parallel_checkout: false,
         })
         .await
-        .unwrap();
-    assert_eq!(local.base_revision, created.base_revision);
-    assert_eq!(local.pre_existing_paths, vec!["tracked.txt".to_string()]);
+        .unwrap_err();
+    assert!(failed
+        .to_string()
+        .contains("handoff is still being prepared"));
+    let count = manager.sessions().len();
+    drop(manager);
+    let reopened = Arc::new(
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap(),
+    );
+    let recovered = reopened.handoff_create(&source.id, input()).await.unwrap();
+    assert_eq!(recovered.id, id);
+    assert_eq!(reopened.sessions().len(), count);
+    assert_eq!(
+        reopened
+            .workspace_record(&format!("link:{id}"))
+            .unwrap()
+            .unwrap()
+            .value["sourceSessionId"],
+        source.id
+    );
 }
 #[test]
 fn newer_database_version_is_not_downgraded() {
@@ -1755,36 +1854,43 @@ async fn explicit_cli_resolution_matches_detection_catalog_creation_and_terminal
 }
 
 #[test]
-fn workspace_records_and_literal_history_search_preserve_project_scope() {
-    let (dir, manager, session) = setup();
-    manager
-        .workspace_save(
-            "recipe:example".into(),
-            Some(json!({"name":"Review","prompt":"Check changes"})),
-        )
+fn workspace_records_keep_supported_kinds_and_leave_retired_library_rows_untouched() {
+    let (_dir, manager, session) = setup();
+    // Rows written by the retired Library stay in the database, but are neither listed nor
+    // writable, so a stale record can never reach the UI or be removed through this store.
+    {
+        let state = manager.state.lock();
+        for key in ["recipe:example", "schedule:example", "memory:evidence"] {
+            state
+                .db
+                .conn
+                .execute(
+                    "INSERT INTO agent_workspace_records(key,data,updated_at) VALUES(?1,'{}',1)",
+                    [key],
+                )
+                .unwrap();
+        }
+    }
+    assert!(manager.workspace_records().unwrap().is_empty());
+    for key in [
+        "recipe:example",
+        "schedule:example",
+        "memory:evidence",
+        "unknown:key",
+    ] {
+        assert!(manager.workspace_save(key.into(), Some(json!({}))).is_err());
+        assert!(manager.workspace_save(key.into(), None).is_err());
+    }
+    let retained: i64 = manager
+        .state
+        .lock()
+        .db
+        .conn
+        .query_row("SELECT COUNT(*) FROM agent_workspace_records", [], |row| {
+            row.get(0)
+        })
         .unwrap();
-    assert_eq!(manager.workspace_records().unwrap().len(), 1);
-    assert!(manager
-        .workspace_save("unknown:key".into(), Some(json!({})))
-        .is_err());
-    // A saved recipe schedule is a workspace record like any other; rejecting its prefix would
-    // leave the scheduling screen unable to store anything it accepts from the user.
-    manager
-        .workspace_save(
-            "schedule:example".into(),
-            Some(json!({
-                "id":"s1","recipeId":"example","projectId":session.project_id,
-                "cadence":{"kind":"interval","hours":6},"enabled":true
-            })),
-        )
-        .unwrap();
-    assert!(manager
-        .workspace_record("schedule:example")
-        .unwrap()
-        .is_some());
-    manager
-        .workspace_save("schedule:example".into(), None)
-        .unwrap();
+    assert_eq!(retained, 3);
     // An account pool groups interchangeable connections, so it is stored the same way.
     manager
         .workspace_save(
@@ -1800,10 +1906,9 @@ fn workspace_records_and_literal_history_search_preserve_project_scope() {
             Some(json!({"accountId":"claude-2","reason":"most free slots","at":now()})),
         )
         .unwrap();
-    assert!(manager
-        .workspace_record("routing:session-a")
-        .unwrap()
-        .is_some());
+    manager
+        .workspace_save(format!("context:{}", session.id), Some(json!({"files":[]})))
+        .unwrap();
     assert!(manager
         .workspace_save("preferences:capacity".into(), Some(json!({"global":0})))
         .is_err());
@@ -1813,155 +1918,70 @@ fn workspace_records_and_literal_history_search_preserve_project_scope() {
             Some(json!({"global":2,"providers":{"codex":1}})),
         )
         .unwrap();
+    let mut listed: Vec<_> = manager
+        .workspace_records()
+        .unwrap()
+        .into_iter()
+        .map(|record| record.key)
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        [
+            format!("context:{}", session.id),
+            "pool:claude".into(),
+            "preferences:capacity".into(),
+            "routing:session-a".into(),
+        ]
+    );
+    assert_eq!(
+        AgentManager::capacity_limits(&manager.state.lock().db.conn, "codex").unwrap(),
+        (2, 1)
+    );
+    manager.workspace_save("pool:claude".into(), None).unwrap();
+    assert!(manager.workspace_record("pool:claude").unwrap().is_none());
+}
+
+#[tokio::test]
+async fn previously_imported_history_loads_read_only_and_cannot_execute() {
+    let (dir, manager, session) = setup();
+    let mut imported = session.clone();
+    imported.id = "imported".into();
+    imported.title = "Imported · Task".into();
+    imported.status = "completed".into();
+    imported.archived = true;
+    imported.runtime_state = json!({"history_only":true});
     {
         let state = manager.state.lock();
-        assert_eq!(
-            AgentManager::capacity_limits(&state.db.conn, "codex").unwrap(),
-            (2, 1)
-        );
+        state.db.save(&imported).unwrap();
         state
             .db
             .item(
-                &session.id,
+                &imported.id,
                 &AgentItem {
-                    id: "literal".into(),
+                    id: "result".into(),
                     kind: "assistant".into(),
                     title: "Result".into(),
-                    text: "Fixed 100% of _edge_ cases".into(),
+                    text: "Verified fix".into(),
                     status: "completed".into(),
                     created_at: now(),
                 },
             )
             .unwrap();
     }
-    let query = |project_id| AgentHistoryQuery {
-        query: "100%".into(),
-        project_id,
-        backend: Some("codex".into()),
-        status: None,
-        before: None,
-        from_date: None,
-        to_date: None,
-    };
-    assert_eq!(
-        manager
-            .history_search(query(Some(session.project_id.clone())))
-            .unwrap()
-            .len(),
-        1
+    drop(manager);
+    let manager = Arc::new(
+        AgentManager::open(dir.path(), dir.path().join("bridge.cjs"), Arc::new(|_| {})).unwrap(),
     );
-    let mut dated = query(None);
-    dated.from_date = Some(now() + 60_000);
-    assert!(manager.history_search(dated).unwrap().is_empty());
-    std::fs::create_dir(dir.path().join("other")).unwrap();
-    let other = manager
-        .add_project("Other".into(), dir.path().join("other"))
-        .unwrap();
-    assert!(manager
-        .history_search(query(Some(other.id)))
-        .unwrap()
-        .is_empty());
-    manager
-        .workspace_save("recipe:example".into(), None)
-        .unwrap();
-    assert!(manager
-        .workspace_record("recipe:example")
-        .unwrap()
-        .is_none());
-}
-
-#[test]
-fn history_retention_protects_memory_and_checks_preview_revision() {
-    let (_dir, manager, session) = setup();
-    let archived = manager
-        .update(&session.id, None, Some(true), false)
-        .unwrap();
-    let cutoff = now() + 60_000;
-    assert_eq!(
-        manager
-            .history_retention_preview(None, cutoff)
-            .unwrap()
-            .len(),
-        1
-    );
-    manager
-        .workspace_save(
-            "memory:evidence".into(),
-            Some(json!({"sourceSessionId":session.id})),
-        )
-        .unwrap();
-    assert!(manager
-        .history_retention_preview(None, cutoff)
-        .unwrap()
-        .is_empty());
-    assert!(manager
-        .history_retention_remove(&session.id, archived.revision)
-        .is_err());
-    manager
-        .workspace_save("memory:evidence".into(), None)
-        .unwrap();
-    let current = manager
-        .update(&session.id, Some("Retain revised task".into()), None, false)
-        .unwrap();
-    assert!(manager
-        .history_retention_remove(&session.id, archived.revision)
-        .is_err());
-    manager
-        .history_retention_remove(&session.id, current.revision)
-        .unwrap();
-    manager
-        .history_retention_remove(&session.id, current.revision)
-        .unwrap();
-    assert!(manager.session(&session.id).is_err());
-}
-
-#[tokio::test]
-async fn imported_history_is_archived_and_cannot_execute() {
-    let (_dir, manager, session) = setup();
-    manager
-        .state
-        .lock()
-        .db
-        .item(
-            &session.id,
-            &AgentItem {
-                id: "result".into(),
-                kind: "assistant".into(),
-                title: "Result".into(),
-                text: "Verified fix".into(),
-                status: "completed".into(),
-                created_at: now(),
-            },
-        )
-        .unwrap();
-    let archive = manager
-        .history_export(Some(session.project_id.clone()))
-        .unwrap();
-    assert_eq!(archive.conversations.len(), 1);
-    assert!(archive.conversations[0].session.native_id.is_none());
-    assert!(archive.conversations[0].session.executable.is_empty());
-    assert_eq!(
-        manager
-            .history_import(&session.project_id, archive)
-            .unwrap(),
-        1
-    );
-    let imported = manager
-        .sessions()
-        .into_iter()
-        .find(|s| s.id != session.id)
-        .unwrap();
-    assert!(imported.archived);
-    assert_eq!(
-        manager.snapshot(&imported.id, None).unwrap().items[0].text,
-        "Verified fix"
-    );
+    let loaded = manager.snapshot(&imported.id, None).unwrap();
+    assert!(loaded.session.archived);
+    assert_eq!(loaded.items[0].text, "Verified fix");
     manager
         .update(&imported.id, None, Some(false), false)
         .unwrap();
     let error = manager
         .start(AgentTurnInput {
-            session_id: imported.id,
+            session_id: imported.id.clone(),
             request_id: uuid::Uuid::new_v4().to_string(),
             prompt: "run".into(),
             model: String::new(),
@@ -1974,6 +1994,28 @@ async fn imported_history_is_archived_and_cannot_execute() {
         .await
         .unwrap_err();
     assert!(error.to_string().contains("Imported history"));
+    let mut handoff = CreateAgentSession {
+        workspace_service_ids: None,
+        creation_request_id: None,
+        project_id: session.project_id.clone(),
+        backend: "codex".into(),
+        executable: executable("git").unwrap().to_string_lossy().into(),
+        title: "Continue".into(),
+        model: String::new(),
+        effort: String::new(),
+        mode: "default".into(),
+        agent: String::new(),
+        isolated: false,
+    };
+    handoff.creation_request_id = Some(uuid::Uuid::new_v4().to_string());
+    assert!(manager
+        .handoff_create(&imported.id, handoff)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("Imported history"));
+    manager.delete_session(&imported.id).unwrap();
+    assert!(manager.session(&imported.id).is_err());
 }
 
 #[test]

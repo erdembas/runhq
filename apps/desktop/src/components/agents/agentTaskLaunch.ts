@@ -1,10 +1,11 @@
 import type { AgentSession } from '@runhq/cockpit-types';
 import { agentIsActive } from '@runhq/cockpit-ui';
 
-export type WorkflowLaunchChoice =
-  { mode: 'now' } | { mode: 'after'; sessionId: string } | { mode: 'draft' };
+/** How a new task starts while other work is active in its project. */
+export type TaskLaunchChoice = { mode: 'now' } | { mode: 'after'; sessionId: string };
 
-export function workflowLaunchCandidates(
+/** Unarchived tasks in this project that are still working, newest first. */
+export function taskLaunchCandidates(
   sessions: Record<string, AgentSession | undefined>,
   projectId: string,
   excludedIds: string[] = [],

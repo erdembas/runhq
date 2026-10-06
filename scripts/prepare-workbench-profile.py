@@ -38,12 +38,6 @@ def prepare(source: Path, destination: Path):
                         schedule = json.loads(raw)
                         schedule['enabled'] = False
                         snapshot.execute('UPDATE agent_workspace_records SET data=? WHERE key=?', (json.dumps(schedule), key))
-                if 'agent_workflows' in tables:
-                    for key, raw in snapshot.execute('SELECT id,data FROM agent_workflows').fetchall():
-                        workflow = json.loads(raw)
-                        workflow['auto_progress'] = False
-                        # Keep pending launches so normal restart recovery labels them paused.
-                        snapshot.execute('UPDATE agent_workflows SET data=? WHERE id=?', (json.dumps(workflow), key))
         if (source / 'notes').is_dir():
             shutil.copytree(source / 'notes', temporary / 'notes')
         (temporary / '.workbench-profile').write_text('Independent local development profile. Not synchronized with the installed app.\n')

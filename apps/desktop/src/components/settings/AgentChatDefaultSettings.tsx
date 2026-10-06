@@ -81,7 +81,7 @@ export function AgentChatDefaultSettings() {
     <SettingsSection
       title={i18n.t('New agent chat defaults')}
       description={i18n.t(
-        'Choose the agent and options for new agent chats in all projects. Open drafts keep their choices; task recipes use their own settings.',
+        'Choose the agent and options for new agent chats in all projects. Open drafts keep their choices.',
       )}
     >
       <div className="space-y-4">
@@ -91,9 +91,7 @@ export function AgentChatDefaultSettings() {
           disabled={disabled}
           options={[{ value: '', label: i18n.t('Automatic agent selection') }, ...choices]}
           searchPlaceholder={i18n.t('Find an agent…')}
-          onChange={(backend) =>
-            edit((current) => agentChatDefaults({ backend, isolated: current.isolated }))
-          }
+          onChange={(backend) => edit(() => agentChatDefaults({ backend }))}
         />
         {!value.backend && (
           <p className="text-fg-dim text-[12px]">
@@ -172,27 +170,6 @@ export function AgentChatDefaultSettings() {
               </span>
             </label>
           </div>
-        )}
-        <label className="block text-[12px]">
-          <span className="text-fg-muted mb-1.5 block">{i18n.t('Workspace')}</span>
-          <select
-            value={value.isolated ? 'worktree' : 'local'}
-            disabled={disabled}
-            onChange={(event) =>
-              edit((current) => ({ ...current, isolated: event.target.value === 'worktree' }))
-            }
-            className="border-border bg-surface-raised text-fg rounded-lg border px-3 py-2 disabled:opacity-50"
-          >
-            <option value="local">{i18n.t('Local workspace')}</option>
-            <option value="worktree">{i18n.t('Isolated worktree')}</option>
-          </select>
-        </label>
-        {value.isolated && (
-          <p className="text-fg-dim text-[11px]">
-            {i18n.t(
-              'Starts from committed HEAD. Local changes, dependencies and environment files are not copied.',
-            )}
-          </p>
         )}
         <div className="flex items-center gap-3">
           <button

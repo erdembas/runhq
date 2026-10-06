@@ -152,7 +152,7 @@ export interface Shortcuts {
    * hidden in the menu-bar / tray, minimised, or sitting behind a
    * fullscreen editor. Companion to `quick_action`: the palette
    * shortcut opens the floating command bar, this one promotes the
-   * main window so the user can resume their full workflow.
+   * main window so the user can resume where they left off.
    */
   focus_main: string;
 

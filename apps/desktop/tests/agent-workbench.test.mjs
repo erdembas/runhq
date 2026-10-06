@@ -29,160 +29,6 @@ function load(file, modules = {}, globals = {}) {
   );
   return exports;
 }
-const graph = load('../src/components/agents/agentWorkflowGraph.ts');
-const attention = load('../src/components/agents/agentWorkflowAttention.ts', {
-  './agentWorkflowGraph': graph,
-});
-const workflow = (id, extra = {}) => ({
-  id,
-  title: `Work ${id}`,
-  objective: '',
-  project_id: 'a',
-  stage: 'implementing',
-  steps: [],
-  updated_at: 1,
-  cleaned: false,
-  error: null,
-  ...extra,
-});
-const step = (id, extra = {}) => ({
-  id,
-  role: 'implement',
-  status: 'pending',
-  depends_on: [],
-  error: null,
-  merge: null,
-  ...extra,
-});
-
-test('Attention includes review gates, failed work, conflicts and application decisions once per workflow', () => {
-  const entries = attention.collectWorkflowAttention([
-    workflow('review', {
-      steps: [
-        step('r1', {
-          role: 'review',
-          status: 'completed',
-          review_policy: 'approval',
-          review_outcome: 'passed',
-          review_summary: 'Review evidence',
-        }),
-        step('r2', { role: 'review', status: 'completed', review_policy: 'approval' }),
-      ],
-    }),
-    workflow('conflict', {
-      steps: [
-        step('p', {
-          status: 'completed',
-          merge: { status: 'conflict', conflict: 'README conflict' },
-        }),
-      ],
-    }),
-    workflow('blocked', {
-      steps: [step('p', { status: 'blocked', error: 'No account available' })],
-    }),
-    workflow('failed', { stage: 'checks_failed', error: 'test failure' }),
-    workflow('apply', { stage: 'ready' }),
-    workflow('interrupted', { stage: 'interrupted' }),
-  ]);
-  assert.deepEqual(plain(entries.map(({ workflow, kind }) => [workflow.id, kind])), [
-    ['review', 'review'],
-    ['conflict', 'blocked'],
-    ['blocked', 'blocked'],
-    ['failed', 'failed'],
-    ['apply', 'apply'],
-    ['interrupted', 'failed'],
-  ]);
-  assert.equal(entries[0].detail, 'Review evidence');
-  assert.equal(entries[1].detail, 'README conflict');
-});
-
-test('normal dependency waits, accepted reviews and deliberately stopped or applied work do not create false alerts', () => {
-  assert.equal(
-    attention.collectWorkflowAttention([
-      workflow('running', {
-        steps: [step('a', { status: 'running' }), step('b', { depends_on: ['a'] })],
-      }),
-      workflow('queued', { stage: 'waiting', start_after: { session_id: 'prior' } }),
-      workflow('review-passed', {
-        steps: [
-          step('r', {
-            role: 'review',
-            status: 'completed',
-            review_policy: 'on_findings',
-            review_outcome: 'passed',
-          }),
-        ],
-      }),
-      workflow('review-accepted', {
-        steps: [
-          step('r', {
-            role: 'review',
-            status: 'completed',
-            review_policy: 'approval',
-            review_decision: 'approved',
-          }),
-        ],
-      }),
-      workflow('stopped', { stage: 'cancelled', steps: [step('a', { status: 'failed' })] }),
-      workflow('applied', { stage: 'integrated', steps: [step('a', { status: 'failed' })] }),
-      workflow('cleaned', { stage: 'checks_failed', cleaned: true }),
-    ]).length,
-    0,
-  );
-});
-
-test('project and text filters preserve the global workflow attention snapshot', () => {
-  const entries = attention.collectWorkflowAttention([
-    workflow('a', { stage: 'ready', updated_at: 10 }),
-    workflow('b', {
-      project_id: 'b',
-      stage: 'setup_failed',
-      error: 'Missing environment',
-      updated_at: 2,
-    }),
-  ]);
-  const names = (id) => (id === 'a' ? 'Frontend' : 'Backend');
-  assert.deepEqual(
-    plain(
-      attention
-        .filterWorkflowAttention(entries, { search: 'environment' }, names)
-        .map((entry) => entry.workflow.id),
-    ),
-    ['b'],
-  );
-  assert.deepEqual(
-    plain(
-      attention
-        .filterWorkflowAttention(entries, { projectId: 'a', search: 'frontend' }, names)
-        .map((entry) => entry.workflow.id),
-    ),
-    ['a'],
-  );
-  assert.equal(entries.length, 2);
-  assert.equal(entries[0].workflow.id, 'b', 'oldest unresolved work is shown first');
-});
-
-test('native human gates appear in Attention and direct completion never asks to apply', () => {
-  const entries = attention.collectWorkflowAttention([
-    workflow('approval', {
-      stage: 'awaiting_approval',
-      steps: [
-        step('approve', { role: 'human', status: 'awaiting_approval', prompt: 'Review decisions' }),
-      ],
-    }),
-    workflow('direct-ready', { stage: 'ready', context: { workspace_mode: 'direct' } }),
-    workflow('direct-done', { stage: 'completed', context: { workspace_mode: 'direct' } }),
-    workflow('isolated-ready', { stage: 'ready', context: { workspace_mode: 'isolated' } }),
-  ]);
-  assert.deepEqual(
-    plain(entries.map(({ workflow, kind, detail }) => [workflow.id, kind, detail])),
-    [
-      ['approval', 'human', 'Review decisions'],
-      ['isolated-ready', 'apply', null],
-    ],
-  );
-});
-
 const nodes = (node) =>
   !node || typeof node !== 'object'
     ? []
@@ -190,12 +36,14 @@ const nodes = (node) =>
       ? node.flatMap(nodes)
       : [node, ...nodes(node.props?.children)];
 const find = (tree, type) => nodes(tree).find((node) => node.type === type);
-const host = (tree, type, scope) =>
-  nodes(tree).find(
-    (node) => node.props?.children?.type === type && node.props.children.props.projectId === scope,
-  );
+const textContent = (node) =>
+  typeof node === 'string'
+    ? node
+    : Array.isArray(node)
+      ? node.map(textContent).join('')
+      : textContent(node?.props?.children || '');
 
-function workspaceHarness(initialView = 'workflows', { collapsed = false } = {}) {
+function workspaceHarness(initialView = 'usage', { collapsed = false } = {}) {
   const rootHooks = [];
   let hooks = rootHooks;
   let reads = [];
@@ -275,7 +123,6 @@ function workspaceHarness(initialView = 'workflows', { collapsed = false } = {})
   const workbench = {
     agentView: initialView,
     agentViewRevision: 0,
-    requestedWorkflowId: null,
     agentHandoff: null,
     projectSelectedSessions: {},
     projectSelectionRevisions: {},
@@ -320,7 +167,12 @@ function workspaceHarness(initialView = 'workflows', { collapsed = false } = {})
     '@/lib/ipc': { ipc: {} },
     '@/store/useAgentStore': { useAgentStore: stores.agents },
     '@/store/useAppStore': { useAppStore: bind(app) },
-    '@/store/useWorkbenchStore': { useWorkbenchStore: stores.workbench },
+    '@/store/useWorkbenchStore': {
+      useWorkbenchStore: stores.workbench,
+      agentWorkspaceView: load('../src/store/useWorkbenchStore.ts', {
+        zustand: { create: () => ({}) },
+      }).agentWorkspaceView,
+    },
     '@/store/useAgentLibraryStore': { useAgentLibraryStore: bind({ records: {} }) },
     '@/store/useAgentQueueStore': { useAgentQueueStore: bind({ queues: {} }) },
     '@/lib/useVisibleStore': {
@@ -341,31 +193,25 @@ function workspaceHarness(initialView = 'workflows', { collapsed = false } = {})
         workbench.setProjectSelectedSession(agents.sessions[id].project_id, id);
         props.visible = false;
       },
-      openWorkflow: (id, projectId) => {
-        workbench.requestedWorkflowId = id;
-        agents.projectFilter = projectId;
-        workbench.requestAgentView('workflows');
-      },
     },
     './useAgentProjectOptions': { useAgentProjectOptions: () => [] },
     './agentCapacity': { agentCapacityPreferences: () => ({}), agentOccupiedSlots: () => ({}) },
     './agentAccountRouting': {
-      composerAccountForTarget: ({ target }) => target,
       isPoolTarget: () => false,
       parseAccountCooldowns: () => ({}),
       handoffAccountAfterLimit: () => '',
     },
-    './agentWorkflowRecipeBridge': { recipeStepsToCreateSteps: (steps) => steps },
     '@/components/workspaces/WorkspaceOverview': { WorkspaceOverview: 'WorkspaceOverview' },
     '@/components/workbench/AgentTaskPane': { AgentTaskPane: 'AgentTaskPane' },
   };
+  modules['./agentHandoff'] = load('../src/components/agents/agentHandoff.ts', {}, {
+    crypto: { randomUUID },
+  });
   for (const name of [
     'AgentNewSession',
     'AgentSessionView',
     'AgentDecisionInbox',
     'AgentRecoveryNotice',
-    'AgentWorkflowHub',
-    'AgentLibrary',
     'AgentUsagePanel',
     'AgentUsageNotifications',
   ])
@@ -431,39 +277,39 @@ function workspaceHarness(initialView = 'workflows', { collapsed = false } = {})
   };
 }
 
-test('workflow and library editors retain their React hosts across section and project navigation', () => {
-  const h = workspaceHarness();
-  const first = host(h.render(), 'AgentWorkflowHub', 'a');
-  assert(first);
-  h.workbench.requestAgentView('library');
-  let tree = h.render();
-  assert.equal(host(tree, 'AgentWorkflowHub', 'a').key, first.key);
-  assert.equal(host(tree, 'AgentWorkflowHub', 'a').props.children.props.visible, false);
-  const library = host(tree, 'AgentLibrary', 'a');
-  h.agents.projectFilter = 'b';
-  h.workbench.requestAgentView('workflows');
-  tree = h.render();
-  assert(host(tree, 'AgentWorkflowHub', 'b'));
-  assert.equal(host(tree, 'AgentLibrary', 'a').key, library.key);
-  h.agents.projectFilter = 'a';
-  tree = h.render();
-  assert.equal(host(tree, 'AgentWorkflowHub', 'a').key, first.key);
-  assert.equal(host(tree, 'AgentWorkflowHub', 'a').props.children.props.visible, true);
-});
-
-test('opening a workflow task preserves the workflow view after the hidden shell observes session selection', () => {
-  const h = workspaceHarness();
-  find(h.render(), 'AgentWorkflowHub').props.onOpenSession('task', 'workflow-a');
+test('opening a task from the Inbox preserves the Inbox after the hidden shell observes session selection', () => {
+  const h = workspaceHarness('inbox');
+  find(h.render(), 'AgentDecisionInbox').props.onOpenSession('task', 'request-a');
   h.render();
-  assert.deepEqual(plain(h.opened), [{ id: 'task', options: { workflowId: 'workflow-a' } }]);
-  assert.equal(h.workbench.agentView, 'workflows');
+  assert.deepEqual(plain(h.opened), [{ id: 'task', options: { focusItemId: 'request-a' } }]);
+  assert.equal(h.workbench.agentView, 'inbox');
   h.props.visible = true;
   h.render();
-  assert.equal(
-    h.workbench.agentView,
-    'workflows',
-    'returning must not replay a hidden select event',
-  );
+  assert.equal(h.workbench.agentView, 'inbox', 'returning must not replay a hidden select event');
+});
+
+test('Workflows and Library views saved by an older build fall back to the task overview', () => {
+  for (const legacy of ['workflows', 'library']) {
+    const h = workspaceHarness(legacy);
+    const tree = h.render();
+    assert(find(tree, 'AgentMissionControl'), `${legacy}: the task overview is shown instead`);
+    assert.equal(find(tree, 'h1').props.children, 'Tasks');
+    for (const section of ['AgentDecisionInbox', 'AgentUsagePanel'])
+      assert.equal(find(tree, section), undefined, section);
+    for (const removed of ['Workflows', 'Library'])
+      assert(!textContent(tree).includes(removed), removed);
+    find(tree, 'AgentMissionControl').props.onNewTask();
+    assert(find(h.render(), 'AgentNewSession'), 'the fallback overview is fully usable');
+  }
+});
+
+test('the agent workspace sections no longer include a Library', () => {
+  const h = workspaceHarness('overview');
+  h.props.shell = false;
+  const sections = nodes(h.render())
+    .filter((node) => node.type === 'button' && node.props['aria-pressed'] !== undefined)
+    .map((node) => textContent(node));
+  assert.deepEqual(sections, ['Overview', 'Conversations', 'Inbox', 'Usage']);
 });
 
 test('global external selection renders the conversation in place without recursive navigation', () => {
@@ -506,24 +352,18 @@ test('handoff payload seeds the existing composer once and is consumed without s
   };
   const composer = find(h.render(), 'AgentNewSession');
   assert(composer);
-  assert.equal(composer.props.initialRecipe.sourceSessionId, 'task');
-  assert.match(composer.props.initialRecipe.prompt, /Implementation context/);
+  assert.equal(composer.props.initialHandoff.sourceSessionId, 'task');
+  assert.match(composer.props.initialHandoff.prompt, /Implementation context/);
   assert.equal(h.workbench.agentHandoff, null);
   assert.equal(h.opened.length, 0);
   assert.equal(find(h.render(), 'AgentNewSession').key, composer.key);
 });
 
-const textContent = (node) =>
-  typeof node === 'string'
-    ? node
-    : Array.isArray(node)
-      ? node.map(textContent).join('')
-      : textContent(node?.props?.children || '');
 const buttonNamed = (tree, name) =>
   nodes(tree).find((node) => node.type === 'button' && textContent(node) === name);
 
 test('project chat histories keep independent selection, drafts and global navigation signals', () => {
-  const h = workspaceHarness('workflows', { collapsed: true });
+  const h = workspaceHarness('usage', { collapsed: true });
   h.agents.sessions.other = {
     ...h.agents.sessions.task,
     id: 'other',
@@ -533,7 +373,6 @@ test('project chat histories keep independent selection, drafts and global navig
   };
   h.render();
   h.props.visible = false;
-  h.workbench.requestedWorkflowId = 'workflow-b';
   h.workbench.agentHandoff = {
     sessionId: 'other',
     items: [{ kind: 'assistant', text: 'Global handoff context' }],
@@ -552,14 +391,14 @@ test('project chat histories keep independent selection, drafts and global navig
   assert.equal(find(tree, 'header'), undefined, 'the project tab owns the sole navigation header');
   assert.equal(buttonNamed(tree, 'Board'), undefined);
   assert.equal(buttonNamed(tree, 'List'), undefined);
-  assert.equal(find(tree, 'AgentWorkflowHub'), undefined);
+  assert.equal(find(tree, 'AgentUsagePanel'), undefined);
   assert.equal(find(tree, 'AgentRecoveryNotice'), undefined);
   assert.equal(find(tree, 'AgentUsageNotifications'), undefined);
   assert(textContent(tree).includes('Build the screen'));
   assert(!textContent(tree).includes('Backend task'));
   assert.equal(find(tree, 'AgentTaskPane').props.sessionId, 'task');
   assert.equal(find(tree, 'AgentTaskPane').props.visible, true);
-  assert.equal(h.workbench.agentView, 'workflows');
+  assert.equal(h.workbench.agentView, 'usage');
   tree = b.render();
   assert.equal(find(tree, 'AgentTaskPane').props.sessionId, 'other');
   assert.deepEqual(plain(h.workbench.projectSelectedSessions), { a: 'task', b: 'other' });
@@ -569,13 +408,12 @@ test('project chat histories keep independent selection, drafts and global navig
   const composer = find(b.render(), 'AgentNewSession');
   assert.equal(composer.props.project.id, 'b');
   assert.equal(
-    composer.props.initialRecipe,
+    composer.props.initialHandoff,
     undefined,
     'global handoff cannot seed the project composer',
   );
   assert.equal(h.workbench.agentHandoff, payload);
-  assert.equal(h.workbench.requestedWorkflowId, 'workflow-b');
-  h.workbench.requestAgentView('library');
+  h.workbench.requestAgentView('inbox');
   a.props.visible = false;
   assert.equal(find(a.render(), 'AgentTaskPane').props.visible, false);
   assert(
@@ -596,17 +434,17 @@ test('project chat histories keep independent selection, drafts and global navig
   assert.equal(h.opened.at(-1).id, 'task', 'history selection uses canonical project navigation');
   assert.equal(h.workbench.projectSelectedSessions.a, 'task');
   assert.equal(h.agents.selectedId, null, 'local history does not overwrite global selection');
-  assert.equal(h.workbench.agentView, 'library');
+  assert.equal(h.workbench.agentView, 'inbox');
   assert.equal(h.workbench.agentHandoff, payload);
   h.render(); // React also renders the hidden global host when its live navigation signal changes.
   h.props.visible = true;
   const globalComposer = find(h.render(), 'AgentNewSession');
-  assert.equal(globalComposer.props.initialRecipe.sourceSessionId, 'other');
+  assert.equal(globalComposer.props.initialHandoff.sourceSessionId, 'other');
   assert.equal(h.workbench.agentHandoff, null, 'only the visible global host consumes its handoff');
 });
 
 test('project history status filters stay local and keep the selected conversation mounted', () => {
-  const h = workspaceHarness('workflows');
+  const h = workspaceHarness();
   h.agents.sessions.task.pending = [{ id: 'question', title: 'Choose a direction' }];
   const project = h.createProjectHost(h.agents.projects[0]);
   const statusFilter = nodes(project.render()).find(
@@ -621,11 +459,11 @@ test('project history status filters stay local and keep the selected conversati
     nodes(tree).find((node) => node.props?.label === 'Filter tasks by status').props.value,
     'attention',
   );
-  assert.equal(h.workbench.agentView, 'workflows');
+  assert.equal(h.workbench.agentView, 'usage');
 });
 
 test('latest local chat opens by default and visited conversations retain stable hosts', () => {
-  const h = workspaceHarness('workflows');
+  const h = workspaceHarness();
   h.agents.sessions.newer = {
     ...h.agents.sessions.task,
     id: 'newer',
@@ -700,10 +538,10 @@ test('local handoff and new-task completion stay inside the project conversation
   sourcePane.props.onHandoff([{ kind: 'assistant', text: 'Keep local context' }]);
   const composer = find(project.render(), 'AgentNewSession');
   assert.equal(composer.props.project.id, 'a');
-  assert.equal(composer.props.initialRecipe.sourceSessionId, 'task');
-  assert.match(composer.props.initialRecipe.prompt, /Keep local context/);
+  assert.equal(composer.props.initialHandoff.sourceSessionId, 'task');
+  assert.match(composer.props.initialHandoff.prompt, /Keep local context/);
   assert.equal(h.workbench.agentHandoff, null);
-  assert.equal(h.workbench.agentView, 'workflows');
+  assert.equal(h.workbench.agentView, 'usage');
   const created = {
     ...h.agents.sessions.task,
     id: 'created',
@@ -719,7 +557,7 @@ test('local handoff and new-task completion stay inside the project conversation
     nodes(tree).find((node) => node.type === 'AgentTaskPane' && node.props.visible).props.sessionId,
     'created',
   );
-  assert.equal(h.workbench.agentView, 'workflows');
+  assert.equal(h.workbench.agentView, 'usage');
 });
 
 test('an unresolved project waits for session hydration before choosing a chat or opening a composer', () => {
@@ -819,52 +657,6 @@ test('project resolver hides stale directories, retains name-only hosts and does
     5,
     'returning to an already resolved directory does not re-resolve it',
   );
-});
-
-test('navigation badge and Inbox share a single workflow read and cancel polling when both hide', async () => {
-  const cleanups = [],
-    timers = new Map();
-  let reads = 0,
-    finish;
-  const list = () => {
-    reads++;
-    return new Promise((resolve) => {
-      finish = resolve;
-    });
-  };
-  const create = (initial) => {
-    const state = initial();
-    return { getState: () => state, setState: (patch) => Object.assign(state, patch) };
-  };
-  const hook = load(
-    '../src/components/agents/useAgentWorkflowAttention.ts',
-    {
-      react: { useEffect: (effect) => cleanups.push(effect()) },
-      zustand: { create },
-      '@/lib/ipc/agentWorkflowIpc': { agentWorkflowIpc: { list } },
-      '@/lib/useVisibleStore': { useVisibleStore: (store, selector) => selector(store.getState()) },
-      './agentWorkflowAttention': attention,
-      './agentWorkflowGraph': graph,
-    },
-    {
-      setTimeout: (callback) => {
-        const id = randomUUID();
-        timers.set(id, callback);
-        return id;
-      },
-      clearTimeout: (id) => timers.delete(id),
-    },
-  );
-  hook.useAgentWorkflowAttention();
-  hook.useAgentWorkflowAttention();
-  assert.equal(reads, 1);
-  finish([workflow('review', { stage: 'awaiting_review' })]);
-  await new Promise(setImmediate);
-  assert.equal(timers.size, 1);
-  cleanups[0]();
-  assert.equal(timers.size, 1);
-  cleanups[1]();
-  assert.equal(timers.size, 0);
 });
 
 test('a workspace opens its own overview and creates tasks in the same scope', () => {

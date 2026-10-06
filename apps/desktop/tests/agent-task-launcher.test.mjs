@@ -18,7 +18,7 @@ const { createAgentTaskLauncher } = exports;
 const input = {
   project_id: 'project-a',
   backend: 'claude',
-  isolated: true,
+  isolated: false,
   model: 'opus',
   effort: 'high',
   mode: 'plan',
@@ -208,6 +208,33 @@ test('lost creation acknowledgement reuses backend creation identity and origina
   await reopened.send({ ...input, model: 'changed' }, 'Different prompt');
   assert.equal(identities[0], identities[1]);
   assert.deepEqual(sources, ['source-task', 'source-task']);
+});
+
+test('a launch saved before worktrees were removed is created in the project checkout', async () => {
+  const recovery = persistedRecovery();
+  const created = [];
+  const deps = {
+    recovery,
+    created: () => {},
+    start: async () => session,
+    create: async (actual) => {
+      created.push(actual);
+      if (created.length === 1) throw new Error('Connection lost after create');
+      return session;
+    },
+  };
+  // An older version saved this creation intent while separate worktrees still existed.
+  await assert.rejects(
+    createAgentTaskLauncher(deps).send({ ...input, isolated: true }, 'Build it'),
+    /Connection lost/,
+  );
+  assert.equal(recovery.load(input.project_id).input.isolated, true);
+  await createAgentTaskLauncher(deps).send(input, 'Build it');
+  assert.deepEqual(
+    created.map((entry) => entry.isolated),
+    [false, false],
+  );
+  assert.equal(created[0].creation_request_id, created[1].creation_request_id);
 });
 
 test('persistence failures block initial creation and preserve accepted launch until completion can save', async () => {

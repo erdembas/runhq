@@ -13,8 +13,9 @@ const preferred = {
   mode: 'plan',
   agent: 'reviewer',
   executable: '/custom/claude',
-  isolated: true,
 };
+// Saved by an older version, which could also default new tasks to a separate worktree.
+const legacyPreferred = { ...preferred, isolated: true };
 const plain = (value) => JSON.parse(JSON.stringify(value));
 function nodes(node) {
   if (!node || typeof node !== 'object') return [];
@@ -27,7 +28,7 @@ function nodes(node) {
   ];
 }
 
-function harness(initial = preferred) {
+function harness(initial = legacyPreferred) {
   let hooks;
   let cursor;
   let effects;
@@ -120,11 +121,12 @@ function harness(initial = preferred) {
     './useAgentProjectOptions': { useAgentProjectOptions: () => [] },
     './useAgentContext': { useAgentContext: () => context },
     './agentTaskLauncher': { createAgentTaskLauncher: () => launcher },
-    './agentLibraryModel': {
+    './agentContextModel': {
       buildAgentContextPrompt: (input) => input,
       agentContextImages: () => [],
     },
-    './agentWorkflowLaunch': { workflowLaunchCandidates: () => [] },
+    './agentTaskLaunch': { taskLaunchCandidates: () => [] },
+    './agentTaskErrors': { agentTaskError: (message) => message },
     '@/components/ai/chat-panel/useAiCliProject': {
       useAiCliProject: () => ({ catalogProjectId: 'project' }),
     },
@@ -251,17 +253,17 @@ test('missing or malformed defaults retain automatic selection and strip unbound
   for (const value of [null, false, [], { backend: 12, isolated: 'yes', mode: 'plan' }]) {
     assert.equal(parse(value).backend, '');
     assert.equal(parse(value).mode, 'default');
-    assert.equal(parse(value).isolated, false);
+    assert.equal('isolated' in parse(value), false);
   }
-  assert.deepEqual(plain(parse({ ...preferred, backend: '' })), {
+  assert.deepEqual(plain(parse({ ...legacyPreferred, backend: '' })), {
     backend: '',
     model: '',
     effort: '',
     mode: 'default',
     agent: '',
     executable: '',
-    isolated: true,
   });
+  assert.deepEqual(plain(parse(legacyPreferred)), preferred);
 });
 
 test('new chats start with saved options and send them to the task launcher', async () => {
@@ -273,7 +275,29 @@ test('new chats start with saved options and send them to the task launcher', as
   for (const field of ['model', 'effort', 'mode', 'agent'])
     assert.equal(options[field], preferred[field]);
   control(tree, 'AgentComposer').onSend();
-  assert.deepEqual(h.sent[0], { project_id: 'project', ...preferred, title: '' });
+  assert.deepEqual(h.sent[0], { project_id: 'project', ...preferred, title: '', isolated: false });
+});
+
+test('new tasks offer no separate-worktree control, even when legacy defaults asked for one', () => {
+  const h = harness();
+  const chat = h.composer();
+  const settingsButton = nodes(chat.render()).find(
+    (node) => node.type === 'button' && node.props['aria-label'] === 'Task settings',
+  );
+  settingsButton.props.onClick();
+  const tree = chat.render();
+  const settings = control(tree, 'AgentTaskSettings');
+  assert(settings, 'task settings are open');
+  assert.equal('isolated' in settings, false);
+  assert.equal('onIsolated' in settings, false);
+  const pressable = nodes(tree).filter(
+    (node) => node.type === 'button' && node.props['aria-pressed'] !== undefined,
+  );
+  assert.deepEqual(
+    pressable.map((node) => node.props['aria-label']),
+    [],
+    'no workspace toggle is offered',
+  );
 });
 
 test('preference updates and language changes preserve an open composer; new chats take new defaults', () => {
@@ -306,21 +330,20 @@ test('saved unavailable agents remain selected and cannot send through another p
   }
 });
 
-test('recipes and recovered launches retain their own choices; automatic selection still prefers Codex', () => {
+test('handoffs and recovered launches retain their own choices; automatic selection still prefers Codex', () => {
   const h = harness();
-  const recipe = {
-    name: 'Recipe',
-    prompt: 'Recipe prompt',
+  const handoff = {
+    id: 'handoff',
+    sourceSessionId: 'source',
+    projectId: 'project',
+    title: 'Follow up',
+    prompt: 'Continue the work',
     backend: 'cursor',
-    model: '',
-    effort: '',
-    mode: 'default',
-    agent: 'ask',
-    isolated: false,
   };
-  const recipeTree = h.composer({ initialRecipe: recipe }).render();
-  assert.equal(control(recipeTree, 'AgentProviderPicker').value, 'cursor');
-  assert.equal(control(recipeTree, 'AgentModelControls').model, '');
+  const handoffTree = h.composer({ initialHandoff: handoff }).render();
+  assert.equal(control(handoffTree, 'AgentProviderPicker').value, 'cursor');
+  assert.equal(control(handoffTree, 'AgentModelControls').model, '');
+  assert.equal(control(handoffTree, 'AgentComposer').value, 'Continue the work');
   assert.equal(h.catalogCalls.at(-1)[1], '');
   h.launcher.recovery = {
     creationRequestId: 'saved',
@@ -371,8 +394,13 @@ test('settings save all options, survive reload, and compose ACP callbacks witho
   assert.equal(h.disk[key].value.effort, 'high');
   assert.equal(h.disk[key].value.agent, 'plan');
   assert.equal(h.disk[key].value.mode, 'plan');
-  assert.equal(h.disk[key].value.isolated, true);
+  assert.equal('isolated' in h.disk[key].value, false);
   assert.equal(h.disk[key].value.executable, '');
+  assert.equal(
+    nodes(settings.render()).some((node) => node.type === 'select'),
+    false,
+    'no workspace choice is offered',
+  );
   const reopened = h.host(Settings).render();
   assert.equal(control(reopened, 'SearchableSelect').value, 'cursor');
   assert.equal(control(reopened, 'AgentModelControls').model, 'cursor-model');
@@ -394,5 +422,5 @@ test('failed saves keep old defaults and the editable draft; reset is explicit a
   assert.equal(h.disk[key].value.model, 'saved-model');
   await button(settings.render(), 'Save').onClick();
   assert.equal(h.disk[key].value.backend, '');
-  assert.equal(h.disk[key].value.isolated, false);
+  assert.equal('isolated' in h.disk[key].value, false);
 });

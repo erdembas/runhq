@@ -1,5 +1,5 @@
 import * as i18n from '@runhq/cockpit-ui/i18n';
-import { agentUsageSummary } from './agentLibraryModel';
+import { agentUsageSummary } from './agentUsageSummary';
 
 const count = (value: number | null) =>
   value === null ? i18n.t('Unknown') : value.toLocaleString(i18n.getFormatLocale());

@@ -1,5 +1,5 @@
 import * as i18n from '@runhq/cockpit-ui/i18n/core';
-import { agentUsageSummary, type AgentUsageSummary } from './agentLibraryModel';
+import { agentUsageSummary, type AgentUsageSummary } from './agentUsageSummary';
 
 export interface AgentUsageThresholds {
   tokenWarning?: number;

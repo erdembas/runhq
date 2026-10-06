@@ -94,20 +94,16 @@ function harness() {
   return { app, agent, workbench, ipc, ipcCalls, navigation, task };
 }
 
-test('opening a task uses its project Agents and reopening preserves runtime, draft and workflow origin', () => {
+test('opening a task uses its project Agents and reopening preserves runtime and draft', () => {
   const h = harness();
   h.agent.getState().setDraft(h.task.id, 'Continue after the running turn');
-  h.navigation.openAgentTask(h.task.id, { workflowId: 'workflow-a', focusItemId: 'request-a' });
+  h.navigation.openAgentTask(h.task.id, { focusItemId: 'request-a' });
   assert.equal(h.app.getState().activeMainTabKey, 'service:service-a');
   assert.equal(h.workbench.getState().projectSections['service-a'], 'agents');
   assert.equal(h.workbench.getState().projectSelectedSessions['project-a'], h.task.id);
   assert.equal(h.workbench.getState().projectSelectionRevisions['project-a'], 1);
   assert.equal(h.agent.getState().selectedId, null);
   assert(!h.app.getState().mainTabs.some((tab) => tab.kind === 'agent-task'));
-  assert.deepEqual(plain(h.workbench.getState().taskOrigins[h.task.id]), {
-    workflowId: 'workflow-a',
-    projectId: 'project-a',
-  });
   assert.equal(h.workbench.getState().taskFocusItems[h.task.id].itemId, 'request-a');
   h.navigation.openAgentTask(h.task.id);
   assert.equal(h.workbench.getState().projectSelectionRevisions['project-a'], 2);
@@ -119,24 +115,27 @@ test('opening a task uses its project Agents and reopening preserves runtime, dr
   assert.equal(h.agent.getState().drafts[h.task.id], 'Continue after the running turn');
   h.navigation.openAgentTask(h.task.id);
   assert.equal(h.app.getState().activeMainTabKey, 'service:service-a');
-  assert.equal(h.workbench.getState().taskOrigins[h.task.id].workflowId, 'workflow-a');
   assert.deepEqual(h.ipcCalls, []);
 });
 
-test('workflow navigation changes scope and repeats the deep link without closing task panes', () => {
+test('a view saved by an older build opens the task overview without closing task panes', () => {
   const h = harness();
   h.navigation.openAgentTask(h.task.id);
   h.agent.setState({ projectFilter: 'project-a' });
   h.workbench.getState().setFocusMode(true);
-  h.navigation.openWorkflow('workflow-b', 'project-b');
+  // Removed sections may still be requested by a link or state from an older build.
+  h.navigation.openAgentView('library', 'project-b');
+  assert.equal(h.workbench.getState().agentView, 'overview');
+  h.navigation.openAgentView('workflows', 'project-b');
   assert.equal(h.app.getState().activeMainTabKey, 'agents:agents');
   assert.equal(h.agent.getState().projectFilter, 'project-b');
   assert.equal(h.agent.getState().selectedId, null);
-  assert.equal(h.workbench.getState().requestedWorkflowId, 'workflow-b');
-  assert.equal(h.workbench.getState().agentView, 'workflows');
+  assert.equal(h.workbench.getState().agentView, 'overview');
+  assert.equal('requestedWorkflowId' in h.workbench.getState(), false);
   assert.equal(h.workbench.getState().focusMode, false);
   const revision = h.workbench.getState().agentViewRevision;
-  h.navigation.openWorkflow('workflow-b', 'project-b');
+  h.navigation.openAgentView('usage', 'project-b');
+  assert.equal(h.workbench.getState().agentView, 'usage');
   assert.equal(h.workbench.getState().agentViewRevision, revision + 1);
   assert.equal(h.app.getState().mainTabs.length, 3);
   assert(
@@ -171,13 +170,13 @@ test('project sections keep a single project tab and agent shortcuts use the bac
   h.navigation.openProjectSection('service-a', 'docs');
   assert.equal(h.app.getState().mainTabs.length, 2);
   assert.equal(h.workbench.getState().projectSections['service-a'], 'docs');
-  await h.navigation.openProjectAgentView('service-a', 'workflows');
+  await h.navigation.openProjectAgentView('service-a', 'usage');
   assert.equal(h.agent.getState().projectFilter, 'canonical-project-a');
   assert.equal(
     h.agent.getState().projects.find((project) => project.id === 'canonical-project-a').path,
     '/real/app',
   );
-  assert.equal(h.workbench.getState().agentView, 'workflows');
+  assert.equal(h.workbench.getState().agentView, 'usage');
   await h.navigation.openProjectAgentView('service-a', 'overview');
   assert.equal(
     h.agent.getState().projects.filter((project) => project.id === 'canonical-project-a').length,
@@ -245,7 +244,7 @@ test('project task shortcuts stay in their project tabs without changing global 
       { id: 'service-b', name: 'Another app', cwd: '/real/another-app' },
     ],
   });
-  h.navigation.openAgentView('workflows', 'global-project');
+  h.navigation.openAgentView('usage', 'global-project');
   const revision = h.workbench.getState().agentViewRevision;
   await h.navigation.openProjectAgentView('service-a', 'conversations');
   assert.equal(h.app.getState().activeMainTabKey, 'service:service-a');
@@ -257,14 +256,14 @@ test('project task shortcuts stay in their project tabs without changing global 
   assert.equal(h.workbench.getState().projectSections['service-b'], 'agents');
   await h.navigation.openProjectAgentView('service-a', 'conversations');
   assert.equal(h.workbench.getState().projectSections['service-a'], 'agents');
-  assert.equal(h.workbench.getState().agentView, 'workflows');
+  assert.equal(h.workbench.getState().agentView, 'usage');
   assert.equal(h.workbench.getState().agentViewRevision, revision);
   assert.equal(h.agent.getState().projectFilter, 'global-project');
   assert.equal(h.app.getState().mainTabs.length, 4);
   assert.deepEqual(h.ipcCalls, []);
 });
 
-test('canonical service bindings route isolated worktrees and prefer the selected matching project tab', () => {
+test('canonical service bindings route legacy worktree tasks and prefer the selected matching project tab', () => {
   const h = harness();
   const project = { id: 'project-a', name: 'App', path: '/real/app' };
   h.agent.setState({
@@ -296,12 +295,11 @@ test('canonical service bindings route isolated worktrees and prefer the selecte
 test('agent-only projects open embedded global conversations without adding a task tab', () => {
   const h = harness();
   h.app.setState({ services: [] });
-  h.navigation.openAgentTask(h.task.id, { workflowId: 'workflow-a', focusItemId: 'decision-a' });
+  h.navigation.openAgentTask(h.task.id, { focusItemId: 'decision-a' });
   assert.equal(h.app.getState().activeMainTabKey, 'agents:agents');
   assert.equal(h.agent.getState().projectFilter, 'project-a');
   assert.equal(h.agent.getState().selectedId, h.task.id);
   assert.equal(h.workbench.getState().agentView, 'conversations');
-  assert.equal(h.workbench.getState().taskOrigins[h.task.id].workflowId, 'workflow-a');
   assert.equal(h.workbench.getState().taskFocusItems[h.task.id].itemId, 'decision-a');
   assert.deepEqual(plain(h.app.getState().mainTabs.map((tab) => tab.kind)), [
     'dashboard',
@@ -317,14 +315,14 @@ test('late canonical resolution cannot replace a more recent navigation or bind 
     new Promise((done) => {
       resolve = done;
     });
-  const pending = h.navigation.openProjectAgentView('service-a', 'workflows');
+  const pending = h.navigation.openProjectAgentView('service-a', 'usage');
   h.navigation.openProjectSection('service-a', 'notes');
   resolve({ id: 'canonical-a', name: 'App', path: '/real/app' });
   await pending;
   assert.equal(h.app.getState().activeMainTabKey, 'service:service-a');
   assert.equal(h.workbench.getState().projectSections['service-a'], 'notes');
   assert.equal(h.workbench.getState().serviceAgentProjects['service-a'].project.id, 'canonical-a');
-  const changed = h.navigation.openProjectAgentView('service-a', 'workflows');
+  const changed = h.navigation.openProjectAgentView('service-a', 'usage');
   h.app.setState({ services: [{ id: 'service-a', name: 'New app', cwd: '/new/app' }] });
   resolve({ id: 'wrong-old-project', name: 'Old app', path: '/real/app' });
   await changed;
@@ -343,7 +341,7 @@ test('canonical resolution respects a direct main-tab switch while project Tasks
     new Promise((done) => {
       resolve = done;
     });
-  const pending = h.navigation.openProjectAgentView('service-a', 'workflows');
+  const pending = h.navigation.openProjectAgentView('service-a', 'usage');
   h.app.getState().setActiveMainTab('dashboard:dashboard');
   resolve({ id: 'canonical-a', name: 'App', path: '/real/app' });
   await pending;

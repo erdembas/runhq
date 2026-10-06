@@ -13,13 +13,6 @@ mod types;
 use multi_workspace::{validate_workspace_scope, workspace_prompt};
 mod workspace_data;
 pub use workspace_data::*;
-mod workflow_scheduler;
-pub use workflow_scheduler::*;
-mod pipeline;
-mod workflow_import;
-mod workflows;
-pub use workflow_import::import_workflow_recipes;
-pub use workflows::*;
 
 use crate::{AppError, AppResult};
 use db::AgentDb;
@@ -57,20 +50,12 @@ struct State {
     sessions: HashMap<String, AgentSession>,
     running: HashMap<String, Running>,
     tools: HashMap<String, AgentTool>,
-    workflow_leases: HashMap<String, PathBuf>,
 }
 
 pub struct AgentManager {
     state: Mutex<State>,
-    home: PathBuf,
     bridge: PathBuf,
     sink: ChangeSink,
-    workflow_gate: tokio::sync::Mutex<()>,
-    workflow_cancellations: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
-    /// Raised when a turn finishes, so a workflow's scheduler looks at its graph immediately
-    /// instead of at its next tick.
-    workflow_wake: Arc<tokio::sync::Notify>,
-    workflow_schedulers: Mutex<std::collections::HashSet<(String, u64)>>,
 }
 fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -119,24 +104,16 @@ impl AgentManager {
             }
             sessions.insert(session.id.clone(), session);
         }
-        let manager = Self {
+        Ok(Self {
             state: Mutex::new(State {
                 db,
                 tools,
                 sessions,
                 running: HashMap::new(),
-                workflow_leases: HashMap::new(),
             }),
-            home: home.into(),
             bridge,
             sink,
-            workflow_gate: tokio::sync::Mutex::new(()),
-            workflow_cancellations: Mutex::new(HashMap::new()),
-            workflow_wake: workflow_scheduler::workflow_wake(),
-            workflow_schedulers: Mutex::new(std::collections::HashSet::new()),
-        };
-        manager.recover_workflows()?;
-        Ok(manager)
+        })
     }
     pub fn add_project(&self, name: String, path: PathBuf) -> AppResult<AgentProject> {
         let path = path.canonicalize()?;
@@ -247,9 +224,6 @@ impl AgentManager {
     }
     pub fn delete_session(&self, id: &str) -> AppResult<()> {
         let mut state = self.state.lock();
-        if state.db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_workflows WHERE json_extract(data,'$.implementation_session_id')=?1 OR json_extract(data,'$.review_session_id')=?1) OR EXISTS(SELECT 1 FROM agent_workflows w, json_each(json_extract(w.data,'$.steps')) s WHERE json_extract(s.value,'$.session_id')=?1)", [id], |row| row.get::<_, bool>(0)).map_err(|e| AppError::other(e.to_string()))? {
-            return Err(invalid("This task belongs to a saved workflow. Archive it to retain the review and validation evidence."));
-        }
         if state.running.contains_key(id) || state.sessions.get(id).is_some_and(|s| s.active()) {
             return Err(invalid(
                 "Stop the active turn before deleting this conversation",
@@ -323,20 +297,6 @@ impl AgentManager {
         self.catalog_at(backend, path, tool, PathBuf::from(project.path), model)
             .await
     }
-    pub async fn catalog_for_directory(
-        &self,
-        backend: String,
-        path: String,
-        directory: String,
-        model: Option<String>,
-    ) -> AppResult<Value> {
-        let tool = self.tool(&backend)?;
-        let cwd = Path::new(&directory).canonicalize()?;
-        if !cwd.is_dir() {
-            return Err(invalid("workflow.invalid_directory"));
-        }
-        self.catalog_at(backend, path, tool, cwd, model).await
-    }
     async fn catalog_at(
         &self,
         backend: String,
@@ -392,13 +352,9 @@ impl AgentManager {
         result
     }
     pub async fn create(&self, input: CreateAgentSession) -> AppResult<AgentSession> {
-        self.create_at_base(input, "HEAD").await
-    }
-    async fn create_at_base(
-        &self,
-        input: CreateAgentSession,
-        base: &str,
-    ) -> AppResult<AgentSession> {
+        if input.isolated {
+            return Err(invalid("Isolated worktrees are no longer supported."));
+        }
         static CREATE_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _guard = CREATE_GATE.lock().await;
         let id = match input.creation_request_id.as_ref() {
@@ -407,7 +363,9 @@ impl AgentManager {
             None => uuid::Uuid::new_v4().to_string(),
         };
         let intent_key = format!("preferences:creation:{id}");
-        let request = json!({"input":input,"base":base});
+        // Saved creation intents compare this exact shape, including the fixed base, so a
+        // request recorded by an earlier release still replays to the task it created.
+        let request = json!({"input":input,"base":"HEAD"});
         let intent = if input.creation_request_id.is_some() {
             self.workspace_record(&intent_key)?
         } else {
@@ -443,84 +401,9 @@ impl AgentManager {
         )?;
         if let Some(scope) = &project.workspace {
             validate_workspace_scope(Path::new(&project.path), scope)?;
-            if input.isolated {
-                return Err(invalid("Multi-project workspaces use the selected local folders; isolated worktrees are not supported"));
-            }
         }
-        let original = PathBuf::from(&project.path).canonicalize()?;
-        let mut cwd = original.clone();
-        let mut branch = None;
-        if input.isolated {
-            let root = git_toplevel(&original).await?;
-            let relative = original
-                .strip_prefix(&root)
-                .map_err(|_| invalid("Project is outside its Git repository"))?;
-            let dir = self.home.join("worktrees").join(&id);
-            std::fs::create_dir_all(
-                dir.parent()
-                    .ok_or_else(|| invalid("Invalid worktree path"))?,
-            )?;
-            let name = format!("codex/runhq-{}", &id[..8]);
-            let resolved_base = match intent
-                .as_ref()
-                .and_then(|record| record.value["resolved_base"].as_str())
-            {
-                Some(value) => value.to_string(),
-                None => git_output(
-                    &root,
-                    &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
-                )
-                .await?
-                .trim()
-                .to_string(),
-            };
-            if input.creation_request_id.is_some() && intent.is_none() {
-                self.workspace_save(
-                    intent_key.clone(),
-                    Some(json!({"request":request,"resolved_base":resolved_base})),
-                )?;
-            }
-            if dir.exists() {
-                let actual_branch = git_output(&dir, &["branch", "--show-current"]).await?;
-                let actual_common = git_output(
-                    &dir,
-                    &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-                )
-                .await?;
-                let expected_common = git_output(
-                    &root,
-                    &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-                )
-                .await?;
-                if intent.is_none()
-                    || actual_branch.trim() != name
-                    || actual_common.trim() != expected_common.trim()
-                {
-                    return Err(invalid(
-                        "Existing worktree does not match the recovered creation request",
-                    ));
-                }
-            } else {
-                git_output(
-                    &root,
-                    &[
-                        "worktree",
-                        "add",
-                        "-b",
-                        &name,
-                        &dir.to_string_lossy(),
-                        &resolved_base,
-                    ],
-                )
-                .await?;
-            }
-            cwd = dir.join(relative);
-            if !cwd.is_dir() {
-                return Err(invalid("Project directory is not present in HEAD. The new worktree was preserved for inspection."));
-            }
-            branch = Some(name);
-        }
-        if !input.isolated && input.creation_request_id.is_some() && intent.is_none() {
+        let cwd = PathBuf::from(&project.path).canonicalize()?;
+        if input.creation_request_id.is_some() && intent.is_none() {
             self.workspace_save(intent_key.clone(), Some(json!({"request":request})))?;
         }
         // Record where this task starts. A directory that is not a repository simply has no
@@ -602,8 +485,8 @@ impl AgentManager {
             archived: false,
             unread: false,
             last_error: None,
-            isolated: input.isolated,
-            branch,
+            isolated: false,
+            branch: None,
             usage: Value::Null,
             base_revision,
             pre_existing_paths,
@@ -612,7 +495,6 @@ impl AgentManager {
             total_run_ms: 0,
             runtime_state: Value::Null,
             pause_state: None,
-            workflow_read_only: false,
             pending: vec![],
         };
         {
@@ -669,14 +551,13 @@ impl AgentManager {
                 &previous.adapter
             },
         )?;
-        self.validate_workflow_turn(&previous, &input)?;
         self.tool(&previous.backend)?;
         if let Some(scope) = &previous.workspace {
             validate_workspace_scope(Path::new(&previous.cwd), scope)?;
         }
         let cwd = PathBuf::from(&previous.cwd).canonicalize()?;
-        // Track actual checkout roots, including monorepo service subdirectories. Ordinary
-        // tasks share one only after an explicit Start now choice; workflows stay exclusive.
+        // Track actual checkout roots, including monorepo service subdirectories. Tasks share
+        // one only after an explicit Start now choice.
         let lease_path = git_toplevel(&cwd).await.unwrap_or_else(|_| cwd.clone());
         let mut cmd = self.bridge_command().await?;
         if let Some(path) = agent_command_path(Path::new(&previous.executable)) {
@@ -734,41 +615,13 @@ impl AgentManager {
             if provider_active >= provider_limit {
                 return Err(invalid(format!("All {provider_limit} slots for this provider are in use. Queue this message or change capacity settings.")));
             }
-            let checkout_owners: Vec<_> = state
-                .running
-                .iter()
-                .filter(|(_, running)| {
-                    running.cwd.starts_with(&lease_path) || lease_path.starts_with(&running.cwd)
-                })
-                .map(|(id, _)| id)
-                .collect();
-            if !checkout_owners.is_empty() {
-                let can_share = input.allow_parallel_checkout
-                    && !session.workflow_read_only
-                    && checkout_owners.iter().all(|id| {
-                        state
-                            .sessions
-                            .get(*id)
-                            .is_some_and(|owner| !owner.workflow_read_only)
-                    })
-                    // Read membership under the admission lock so a workflow cannot gain a
-                    // shared writer between this check and recording the new running turn.
-                    && Self::workflow_rows_in_state(&state)?.iter().all(|workflow| {
-                        !workflow.contains_session(&session.id)
-                            && checkout_owners
-                                .iter()
-                                .all(|id| !workflow.contains_session(id))
-                    });
-                if !can_share {
-                    return Err(invalid("Another agent owns this checkout. Wait for it to finish or create an isolated worktree session."));
-                }
-            }
-            if state
-                .workflow_leases
-                .values()
-                .any(|path| path.starts_with(&lease_path) || lease_path.starts_with(path))
-            {
-                return Err(invalid("A workflow is setting up, checking or integrating this checkout. Wait for it to finish."));
+            let checkout_owned = state.running.values().any(|running| {
+                running.cwd.starts_with(&lease_path) || lease_path.starts_with(&running.cwd)
+            });
+            if checkout_owned && !input.allow_parallel_checkout {
+                return Err(invalid(
+                    "Another agent owns this checkout. Wait for it to finish.",
+                ));
             }
             if let Some(mode) = &input.mode {
                 session.mode = mode.clone();
@@ -854,9 +707,6 @@ impl AgentManager {
             }) {
                 tracing::error!("could not persist agent completion: {error}");
             }
-            // A finished turn may be the step a workflow was waiting on, so its scheduler looks
-            // again now rather than at its next tick.
-            manager.workflow_notify();
         });
         Ok(session)
     }
@@ -893,7 +743,7 @@ impl AgentManager {
         };
         let prompt = workspace_prompt(session.workspace.as_ref(), prompt)?;
         let permission_policy = self.permission_policy_for(&session.cwd)?;
-        let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"title_prompt":title_prompt,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"read_only_review":session.workflow_read_only,"permission_policy":permission_policy});
+        let config = json!({"operation":"turn", "backend":session.backend,"adapter":if session.adapter.is_empty(){&session.backend}else{&session.adapter},"args":session.args,"runtime_state":session.runtime_state,"executable":session.executable,"cwd":session.cwd,"native_id":session.native_id,"title":session.title,"title_prompt":title_prompt,"mode":session.mode,"model":session.model,"effort":session.effort,"agent":session.agent,"prompt":prompt,"attachments":attachments,"permission_policy":permission_policy});
         stdin
             .write_all(format!("{}\n", json!({"type":"start","config":config})).as_bytes())
             .await?;
@@ -1066,9 +916,6 @@ impl AgentManager {
                 .iter()
                 .find(|r| r.id == request_id && r.id.starts_with(&format!("{}:", runtime.run_id)))
                 .ok_or_else(|| invalid("This request is no longer pending"))?;
-            if session.workflow_read_only && request.kind != "question" {
-                return Err(invalid("Independent reviewers cannot receive tool or write permission grants. Stop the review and use the implementation task for changes."));
-            }
             if value.get("permission_scope").is_some()
                 && (value["permission_scope"] != "workspace"
                     || request.kind != "approval"

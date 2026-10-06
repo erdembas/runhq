@@ -262,9 +262,6 @@ mod tests {
         assert!(prompt.contains(&serde_json::to_string(&a.to_string_lossy()).unwrap()));
         assert!(prompt.contains(&serde_json::to_string(&b.to_string_lossy()).unwrap()));
         assert_eq!(workspace_prompt(None, "unchanged").unwrap(), "unchanged");
-        let mut isolated = input;
-        isolated.isolated = true;
-        assert!(manager.create(isolated).await.is_err());
         let mut edited = scope.clone();
         edited.members.pop();
         edited.instructions = "New instructions".into();

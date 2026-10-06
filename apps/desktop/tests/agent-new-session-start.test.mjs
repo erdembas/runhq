@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { setImmediate } from 'node:timers';
 import { URL } from 'node:url';
 import ts from 'typescript';
-import { runInNewContext } from './helpers/i18n-vm.mjs';
+import { i18n, runInNewContext } from './helpers/i18n-vm.mjs';
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const settle = () => new Promise(setImmediate);
@@ -112,7 +112,7 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
     },
     agentStart: async (turn) => {
       h.started.push(plain(turn));
-      if (h.failStarts-- > 0) throw new Error('Lost acknowledgement');
+      if (h.failStarts-- > 0) throw h.failure ?? new Error('Lost acknowledgement');
       if (activeTasks.length && !turn.allow_parallel_checkout)
         throw new Error('Another agent owns this checkout');
       return { ...store.sessions[turn.session_id], status: 'running' };
@@ -140,7 +140,7 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
     './useAgentContext': {
       useAgentContext: () => ({ ready: true, entries: [], clear: async () => {} }),
     },
-    './agentLibraryModel': {
+    './agentContextModel': {
       buildAgentContextPrompt: (input) => input,
       agentContextImages: () => [],
     },
@@ -156,6 +156,7 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
         error: null,
       }),
     },
+    '@/components/ui/ConfirmDialog': { ConfirmDialog: 'ConfirmDialog' },
     '@/components/ui/Dialog': { Dialog: 'Dialog' },
     '@/components/ui/Choice': { Radio: 'Radio' },
   };
@@ -200,8 +201,9 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
             [
               './agentChatDefaults',
               './agentTaskLauncher',
-              './agentWorkflowLaunch',
-              './AgentWorkflowLaunchDialog',
+              './agentTaskLaunch',
+              './agentTaskErrors',
+              './AgentTaskLaunchDialog',
             ].includes(name)
           )
             return load(
@@ -243,14 +245,20 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
     const child = wrapper.render();
     return host(child.type, child.props);
   };
+  h.dialog = (composer) => control(composer.render(), 'AgentTaskLaunchDialog');
   h.choose = async (composer, mode) => {
-    const dialogNode = control(composer.render(), 'AgentWorkflowLaunchDialog');
+    const dialogNode = h.dialog(composer);
     assert(dialogNode, 'sending while another task is active must offer the timing dialog');
     const dialog = host(dialogNode.type, dialogNode.props);
-    const radio = nodes(dialog.render()).find(
-      (node) => node.type === 'Radio' && node.props.value === mode,
+    const tree = dialog.render();
+    assert.equal(tree.props.children.props.title, 'When should this task start?');
+    const radios = nodes(tree).filter((node) => node.type === 'Radio');
+    // Only waiting for a task or starting now; no separate worktree is offered.
+    assert.deepEqual(
+      radios.map((node) => node.props.value),
+      ['after', 'now'],
     );
-    radio.props.onChange();
+    radios.find((node) => node.props.value === mode).props.onChange();
     const label = mode === 'now' ? 'Start now' : 'Queue task';
     const confirm = nodes(dialog.render()).find(
       (node) => node.type === 'button' && node.props.children === label,
@@ -261,6 +269,7 @@ function harness({ recovery: saved, activeTasks = [active] } = {}) {
   };
   h.send = (composer) => control(composer.render(), 'AgentComposer').props.onSend();
   h.store = store;
+  h.load = load;
   return h;
 }
 
@@ -293,6 +302,34 @@ test('waiting queues the first turn in the selected workspace without concurrent
   assert.notEqual(h.queued[0].allow_parallel_checkout, true);
   assert.deepEqual(h.queued[0].startAfter, { sessionId: active.id, title: active.title });
   assert.deepEqual(h.opened, ['new-task']);
+});
+
+test('cancelling the start-time choice creates nothing and keeps the draft', async () => {
+  const h = harness();
+  const composer = h.composer();
+  h.send(composer);
+  h.dialog(composer).props.onClose();
+  await settle();
+  assert.equal(h.dialog(composer), undefined);
+  assert.deepEqual(h.created, []);
+  assert.deepEqual(h.started, []);
+  assert.deepEqual(h.queued, []);
+  assert.equal(h.store.drafts['new-task:project'], 'Original message');
+});
+
+test('a checkout refusal from the backend is explained in the interface language', async () => {
+  const h = harness({ activeTasks: [] });
+  const composer = h.composer();
+  h.failStarts = 1;
+  h.failure = 'invalid input: Another agent owns this checkout. Wait for it to finish.';
+  h.send(composer);
+  await settle();
+  const alert = nodes(composer.render()).find((node) => node.props?.role === 'alert');
+  assert.match(
+    JSON.stringify(alert.props.children),
+    /Another agent owns this checkout\. Wait for it to finish\./,
+  );
+  assert.doesNotMatch(JSON.stringify(alert.props.children), /invalid input/);
 });
 
 test('retry after reload keeps an explicit Start now choice and the original session and request', async () => {
@@ -344,7 +381,7 @@ test('a saved launch rejected before this fix can explicitly start now without d
   const h = harness({ recovery: saved });
   const composer = h.composer();
   h.send(composer);
-  const dialog = control(composer.render(), 'AgentWorkflowLaunchDialog');
+  const dialog = h.dialog(composer);
   assert(dialog, 'a legacy launch needs a new explicit scheduling decision');
   assert.deepEqual(
     Array.from(dialog.props.tasks, (task) => task.id),
@@ -373,6 +410,26 @@ test('a saved rejected launch can instead wait using the original task and first
   assert.notEqual(h.queued[0].allow_parallel_checkout, true);
   assert.deepEqual(h.queued[0].startAfter, { sessionId: active.id, title: active.title });
   assert.deepEqual(h.opened, [saved.session.id]);
+});
+
+test('a launch saved before worktrees were removed is created in the project checkout', async () => {
+  const saved = {
+    ...legacyRecovery(),
+    input: { ...legacyRecovery().input, isolated: true },
+    phase: 'creating',
+    session: null,
+    turn: null,
+  };
+  const h = harness({ recovery: saved });
+  const composer = h.composer();
+  h.send(composer);
+  await h.choose(composer, 'now');
+  assert.equal(h.created.length, 1);
+  assert.equal(h.created[0].isolated, false);
+  assert.equal(h.created[0].creation_request_id, saved.creationRequestId);
+  assert.equal(h.started.length, 1);
+  assert.equal(h.started[0].request_id, saved.requestId);
+  assert.equal(h.started[0].allow_parallel_checkout, true);
 });
 
 test('an already accepted launch completes cleanup without reopening timing or sending twice', async () => {
@@ -410,4 +467,56 @@ test('sending without active tasks does not implicitly grant concurrent checkout
   assert.equal(h.started.length, 1);
   assert.notEqual(h.started[0].allow_parallel_checkout, true);
   assert.deepEqual(h.opened, ['new-task']);
+});
+
+test('start timing offers active tasks in the same project across agents, newest first', () => {
+  const { taskLaunchCandidates } = harness().load('../src/components/agents/agentTaskLaunch.ts');
+  const session = (id, status, extra = {}) => ({
+    id,
+    project_id: 'project',
+    status,
+    archived: false,
+    updated_at: 1,
+    ...extra,
+  });
+  const candidates = taskLaunchCandidates(
+    {
+      a: session('a', 'running', { backend: 'codex' }),
+      b: session('b', 'waiting_permission', { backend: 'claude', updated_at: 2 }),
+      c: session('c', 'waiting_input', { backend: 'acp' }),
+      own: session('own', 'running'),
+      other: session('other', 'running', { project_id: 'other-project' }),
+      archived: session('archived', 'running', { archived: true }),
+      completed: session('completed', 'completed'),
+      stopping: session('stopping', 'cancelling'),
+      missing: undefined,
+    },
+    'project',
+    ['own'],
+  );
+  assert.deepEqual(plain(candidates.map((task) => task.id)), ['b', 'a', 'c']);
+});
+
+test('only the two known backend refusals are translated; other errors stay raw', () => {
+  const { agentTaskError } = harness().load('../src/components/agents/agentTaskErrors.ts');
+  for (const prefix of ['', 'invalid input: ', 'Invalid input: '])
+    assert.equal(
+      agentTaskError(`${prefix}Isolated worktrees are no longer supported.`),
+      'Isolated worktrees are no longer supported.',
+    );
+  assert.equal(
+    agentTaskError('Another agent owns this checkout. Wait for it to finish.'),
+    'Another agent owns this checkout. Wait for it to finish.',
+  );
+  assert.equal(agentTaskError('invalid input: disk full'), 'invalid input: disk full');
+  i18n.setLocale('tr', false);
+  try {
+    assert.equal(
+      agentTaskError('invalid input: Another agent owns this checkout. Wait for it to finish.'),
+      'Bu çalışma kopyası başka bir agent tarafından kullanılıyor. Bitmesini bekleyin.',
+    );
+    assert.equal(agentTaskError('spawn failed: codex'), 'spawn failed: codex');
+  } finally {
+    i18n.setLocale('en', false);
+  }
 });

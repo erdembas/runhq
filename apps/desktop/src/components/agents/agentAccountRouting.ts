@@ -189,7 +189,7 @@ export interface AgentAccountRejection {
 
 export interface AgentAccountChoice {
   accountId: string | null;
-  /** A sentence that stands on its own, for a schedule outcome or a failure message. */
+  /** A sentence that stands on its own, for a failure message. */
   reason: string;
   /**
    * The same grounds as a short phrase, for somewhere the account and pool are already named.
@@ -350,24 +350,10 @@ export function reportedLimitFailures(
   return failures;
 }
 
-/** A recipe or task targets a pool by id under this prefix; anything else names one connection. */
+/** A composer target names a pool by id under this prefix; anything else names one connection. */
 export const POOL_TARGET_PREFIX = 'pool:';
 export const isPoolTarget = (target: string) => target.startsWith(POOL_TARGET_PREFIX);
 export const poolTarget = (id: string) => `${POOL_TARGET_PREFIX}${id}`;
-
-/**
- * The pool a target names. A plain connection resolves to a pool of one, so routing applies the
- * same signals and the same wording whether or not the user has grouped accounts.
- */
-export function resolveAccountPool(
-  target: string,
-  pool: (id: string) => AgentAccountPool | null,
-  accountName: (id: string) => string,
-): AgentAccountPool | null {
-  if (!target.trim()) return null;
-  if (!isPoolTarget(target)) return { id: target, name: accountName(target), accounts: [target] };
-  return pool(target.slice(POOL_TARGET_PREFIX.length));
-}
 
 /**
  * The account a handoff should start on after the source account reported a limit.
@@ -402,44 +388,9 @@ export function handoffAccountAfterLimit(input: {
 }
 
 /**
- * The connection a composer should open on for a target that may name a pool.
- *
- * The task composer works in connections: it discovers one account's models and modes, and a pool
- * advertises none of its own. Resolving here keeps the pool a property of the saved recipe while
- * the screen still shows the identity the task will actually run as. An empty string means the
- * person chooses, which is the right answer when no account in the pool can take the work — they
- * are present, unlike a scheduled run.
- */
-export function composerAccountForTarget(input: {
-  target: string;
-  pool: (id: string) => AgentAccountPool | null;
-  accounts: AgentAccountCandidate[];
-  need?: AgentAccountNeed;
-  cooldowns: AgentAccountCooldowns;
-  capacity: AgentCapacityPreferences;
-  occupied: ReturnType<typeof agentOccupiedSlots>;
-  now: number;
-}): string {
-  if (!isPoolTarget(input.target)) return input.target;
-  const pool = input.pool(input.target.slice(POOL_TARGET_PREFIX.length));
-  if (!pool) return '';
-  return (
-    chooseAgentAccount({
-      pool,
-      accounts: input.accounts,
-      need: input.need,
-      cooldowns: input.cooldowns,
-      capacity: input.capacity,
-      occupied: input.occupied,
-      now: input.now,
-    }).accountId ?? ''
-  );
-}
-
-/**
  * Why a task started on the account it did, kept beside the task it explains.
  *
- * Only written when RunHQ made the choice — a pool in the composer, a scheduled run, or a handoff
+ * Only written when RunHQ made the choice — a pool in the composer or a handoff
  * after a reported limit. Picking a connection by hand needs no explanation, and inventing one
  * would put RunHQ's words on the user's decision.
  */

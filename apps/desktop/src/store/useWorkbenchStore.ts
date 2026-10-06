@@ -1,15 +1,28 @@
 import { create } from 'zustand';
 import type { AgentItem, AgentProject } from '@runhq/cockpit-types';
 
-export type AgentWorkspaceView =
-  'overview' | 'conversations' | 'inbox' | 'workflows' | 'library' | 'usage';
+export type AgentWorkspaceView = 'overview' | 'conversations' | 'inbox' | 'usage';
+
+const AGENT_WORKSPACE_VIEWS: readonly string[] = [
+  'overview',
+  'conversations',
+  'inbox',
+  'usage',
+] satisfies AgentWorkspaceView[];
+
+/** A view saved by an older build that this version no longer has opens the task overview. */
+export function agentWorkspaceView(value: unknown): AgentWorkspaceView {
+  return typeof value === 'string' && AGENT_WORKSPACE_VIEWS.includes(value)
+    ? (value as AgentWorkspaceView)
+    : 'overview';
+}
+
 export type ProjectSection = 'overview' | 'agents' | 'run' | 'git' | 'docs' | 'notes' | 'health';
 export type ProjectGitView = 'commit' | 'branches' | 'history' | 'graph';
 
 interface WorkbenchState {
   agentView: AgentWorkspaceView;
   agentViewRevision: number;
-  requestedWorkflowId: string | null;
   agentHandoff: { sessionId: string; items: AgentItem[]; revision: number } | null;
   projectSections: Record<string, ProjectSection>;
   projectGitRequests: Record<string, { tab: ProjectGitView; revision: number }>;
@@ -18,7 +31,6 @@ interface WorkbenchState {
   projectSelectionRevisions: Record<string, number>;
   serviceAgentProjects: Record<string, { cwd: string; project: AgentProject }>;
   focusMode: boolean;
-  taskOrigins: Record<string, { workflowId?: string; projectId?: string }>;
   taskFocusItems: Record<string, { itemId: string; revision: number }>;
   taskFocusRevision: number;
   requestAgentView: (view: AgentWorkspaceView) => void;
@@ -33,7 +45,6 @@ interface WorkbenchState {
 export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   agentView: 'overview',
   agentViewRevision: 0,
-  requestedWorkflowId: null,
   agentHandoff: null,
   projectSections: {},
   projectGitRequests: {},
@@ -42,12 +53,11 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   projectSelectionRevisions: {},
   serviceAgentProjects: {},
   focusMode: false,
-  taskOrigins: {},
   taskFocusItems: {},
   taskFocusRevision: 0,
-  requestAgentView: (agentView) =>
+  requestAgentView: (view) =>
     set((state) => ({
-      agentView,
+      agentView: agentWorkspaceView(view),
       agentViewRevision: state.agentViewRevision + 1,
     })),
   setProjectSection: (serviceId, section) =>

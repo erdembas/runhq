@@ -1,7 +1,7 @@
 'use client';
 
 import * as i18n from '../i18n';
-import { ChevronDown, FolderGit2, GitBranch, Terminal, X } from 'lucide-react';
+import { ChevronDown, Terminal, X } from 'lucide-react';
 import type { AgentBackend, AgentBackendId } from '@runhq/cockpit-types';
 import { AgentProviderLogo } from './AgentProviderLogo';
 import { agentDetectionStatus } from '../lib/agentDiscovery';
@@ -14,8 +14,6 @@ export function AgentTaskSettings({
   onTitle,
   executable,
   onExecutable,
-  isolated,
-  onIsolated,
   backend,
   detected,
   projectPath,
@@ -29,8 +27,6 @@ export function AgentTaskSettings({
   onTitle: (value: string) => void;
   executable: string;
   onExecutable: (value: string) => void;
-  isolated: boolean;
-  onIsolated: (value: boolean) => void;
   backend: AgentBackendId;
   detected?: AgentBackend;
   projectPath?: string;
@@ -71,58 +67,14 @@ export function AgentTaskSettings({
             placeholder={i18n.t('Automatically summarize your task')}
           />
         </label>
-        <div>
-          <div className="text-fg-muted mb-2 text-[11px]">{i18n.t('Workspace')}</div>
-          <div role="group" aria-label={i18n.t('Workspace')} className="grid grid-cols-2 gap-2">
-            {[
-              {
-                value: false,
-                label: i18n.t('Local'),
-                description: i18n.t('Current project directory'),
-                icon: FolderGit2,
-              },
-              {
-                value: true,
-                label: i18n.t('Worktree'),
-                description: i18n.t('Isolated branch & directory'),
-                icon: GitBranch,
-              },
-            ].map(({ value, label, description, icon: Icon }) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={isolated === value}
-                onClick={() => onIsolated(value)}
-                style={{ outline: 'none' }}
-                className={`focus-visible:ring-fg/25 min-w-0 rounded-xl border p-3 text-left transition-colors focus-visible:ring-2 ${isolated === value ? 'border-fg/20 bg-fg/5 text-fg' : 'border-fg/8 text-fg-muted hover:bg-fg/3'}`}
-              >
-                <span className="flex items-center gap-2 text-[12px] font-medium">
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {label}
-                  <span
-                    aria-hidden="true"
-                    className={`ml-auto h-1.5 w-1.5 shrink-0 rounded-full ${isolated === value ? 'bg-fg/70' : 'bg-transparent'}`}
-                  />
-                </span>
-                <span className="text-fg-dim mt-1.5 block text-[10px] leading-relaxed">
-                  {description}
-                </span>
-              </button>
-            ))}
-          </div>
-          {isolated && (
-            <p className="text-fg-muted mt-2 text-[10px] leading-relaxed">
-              {i18n.t(
-                'Starts from committed HEAD. Local changes, dependencies and environment files are not copied.',
-              )}
-            </p>
-          )}
-          {projectPath && (
-            <p title={projectPath} className="text-fg-dim mt-2 truncate text-[10px]">
+        {projectPath && (
+          <div>
+            <div className="text-fg-muted mb-1.5 text-[11px]">{i18n.t('Workspace')}</div>
+            <p title={projectPath} className="text-fg-dim truncate text-[10px]">
               {projectPath}
             </p>
-          )}
-        </div>
+          </div>
+        )}
         <details
           className="group/connection border-fg/8 rounded-xl border"
           open={!!executable || (!!detected && !detected.available)}

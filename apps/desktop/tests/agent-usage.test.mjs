@@ -14,15 +14,15 @@ function load(path) {
     {
       exports,
       require(name) {
-        if (name === './agentLibraryModel')
-          return load('../src/components/agents/agentLibraryModel.ts');
+        if (name === './agentUsageSummary')
+          return load('../src/components/agents/agentUsageSummary.ts');
         throw new Error(name);
       },
     },
   );
   return exports;
 }
-const { agentUsageSummary } = load('../src/components/agents/agentLibraryModel.ts');
+const { agentUsageSummary } = load('../src/components/agents/agentUsageSummary.ts');
 const {
   agentCapacityPreferences,
   agentOccupiedSlots,

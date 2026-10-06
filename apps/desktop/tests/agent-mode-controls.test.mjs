@@ -98,7 +98,7 @@ test('ACP only exposes Agent, Plan and Ask buttons actually advertised by the pr
   assert(!labels.includes('Agent mode'));
 });
 
-test('workflows reuse model controls without exposing a mode that could override the step role', () => {
+test('model controls without mode callbacks offer the model but no work mode', () => {
   const nodes = controls(['agent', 'plan', 'ask'], undefined, {
     catalog: { connection: 'codex', models: [], agents: [], modes: ['default', 'plan'] },
     onMode: undefined,

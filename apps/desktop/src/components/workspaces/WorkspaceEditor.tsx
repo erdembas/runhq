@@ -208,9 +208,7 @@ export function WorkspaceEditor({
             )}
           />
         </Field>
-        <p className="text-fg-dim text-[11px]">
-          {i18n.t('Workspaces use local project folders. Isolated worktrees are unavailable.')}
-        </p>
+        <p className="text-fg-dim text-[11px]">{i18n.t('Workspaces use local project folders.')}</p>
         {project && (
           <p className="text-fg-dim text-[11px]">
             {i18n.t(

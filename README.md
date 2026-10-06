@@ -59,7 +59,7 @@ It does not replace your IDE, Docker, tmux, or terminal. It sits above them so y
 - **Opens the right tool fast** with editor launch, project actions, global quick actions, and a cross-project command palette.
 - **Keeps logs usable** with terminal-grade ANSI rendering, search, follow mode, copy, and AI triage.
 - **Lets AI reason across the workspace** through your own OpenAI-compatible endpoint, local or cloud.
-- **Brings coding agents into each project** with Codex, OpenCode, Claude and Cursor sessions, task boards, plan review, canvas previews, questions and permissions, model selection, worktrees, terminal and diff review. See the [agent workspace guide](docs/AGENT_WORKSPACE.md) for setup and provider support.
+- **Brings coding agents into each project** with Codex, OpenCode, Claude and Cursor sessions, task boards, plan review, canvas previews, questions and permissions, model selection, terminal and diff review. See the [agent workspace guide](docs/AGENT_WORKSPACE.md) for setup and provider support.
 
 ## Install
 
@@ -79,11 +79,6 @@ brew upgrade --cask runhq
 ### Direct Downloads
 
 Download the latest installer from [GitHub Releases](https://github.com/erdembas/runhq/releases/latest).
-
-The [3.6.0 release](https://github.com/erdembas/runhq/releases/tag/v3.6.0) brings JSON/ZIP packages
-into the native Workflow editor, with per-step agent, model and reasoning settings, approvals and
-captured review revisions. The separate package screen is retired; reimport older packages to use
-them in the Workflow editor. English and Turkish are supported.
 
 - **macOS:** `.dmg` for Apple Silicon or Intel
 - **Linux:** `.deb`, `.rpm`, or `.AppImage`
