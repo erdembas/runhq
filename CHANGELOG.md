@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.0.0](https://github.com/erdembas/runhq/compare/v3.7.0...v4.0.0) (2026-10-06)
 
+RunHQ 4.0 focuses on individual agent tasks.
+
+- Remove Workflows: the Workflow editor, JSON/ZIP workflow and pipeline packages, review and correction rounds, and approval and gate steps.
+- Remove isolated worktree tasks. New tasks run in the project's own checkout; worktree sessions from earlier versions still open.
+- Remove the Library: task recipes and their schedules, history search, history export, import and retention, and project decisions.
+- Keep tasks, the decision inbox, Context, Hand off, queued task launches, account pools, usage and multi-project workspaces. Existing workflow and Library records and the `workflow-runs` and `worktrees` folders stay on disk untouched and are no longer read.
 
 ### ⚠ BREAKING CHANGES
 
