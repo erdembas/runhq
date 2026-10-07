@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0](https://github.com/erdembas/runhq/compare/v3.7.0...v4.0.0) (2026-10-06)
+
+RunHQ 4.0 focuses on individual agent tasks.
+
+- Remove Workflows: the Workflow editor, JSON/ZIP workflow and pipeline packages, review and correction rounds, and approval and gate steps.
+- Remove isolated worktree tasks. New tasks run in the project's own checkout; worktree sessions from earlier versions still open.
+- Remove the Library: task recipes and their schedules, history search, history export, import and retention, and project decisions.
+- Keep tasks, the decision inbox, Context, Hand off, queued task launches, account pools, usage and multi-project workspaces. Existing workflow and Library records and the `workflow-runs` and `worktrees` folders stay on disk untouched and are no longer read.
+
+### ⚠ BREAKING CHANGES
+
+* **desktop:** Workflows, workflow/pipeline package import, isolated worktree tasks and the agent Library are no longer available. The related Tauri commands are removed and recipe/schedule/memory workspace records are neither listed nor writable.
+
+### Features
+
+* **desktop:** remove workflows, isolated worktrees and the agent library ([#194](https://github.com/erdembas/runhq/issues/194)) ([9eab7f3](https://github.com/erdembas/runhq/commit/9eab7f364fb7fc39a1b096b1d319372eb04689c4))
+
 ## [3.7.0](https://github.com/erdembas/runhq/compare/v3.6.0...v3.7.0) (2026-09-25)
 
 
