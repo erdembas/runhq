@@ -80,6 +80,10 @@ brew upgrade --cask runhq
 
 Download the latest installer from [GitHub Releases](https://github.com/erdembas/runhq/releases/latest).
 
+The [4.0.0 release](https://github.com/erdembas/runhq/releases/tag/v4.0.0) focuses RunHQ on
+individual agent tasks. Workflows, isolated worktree tasks and the agent Library are removed;
+existing workflow and Library data stays on disk untouched. English and Turkish are supported.
+
 - **macOS:** `.dmg` for Apple Silicon or Intel
 - **Linux:** `.deb`, `.rpm`, or `.AppImage`
 - **Windows:** `.exe` or `.msi`
