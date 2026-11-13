@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1](https://github.com/erdembas/runhq/compare/v4.0.0...v4.0.1) (2026-10-07)
+
+
+### Documentation
+
+* highlight the 4.0.0 release ([#196](https://github.com/erdembas/runhq/issues/196)) ([89803b0](https://github.com/erdembas/runhq/commit/89803b05763626879dc45ad2e6a237e88a04c50c))
+
 ## [4.0.0](https://github.com/erdembas/runhq/compare/v3.7.0...v4.0.0) (2026-10-06)
 
 RunHQ 4.0 focuses on individual agent tasks.
